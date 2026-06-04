@@ -63,13 +63,13 @@ struct BrowserColumnView: View {
                 Button {
                     settings.browserPaneState.setField(f, at: columnIndex)
                 } label: {
-                    Text(f.localizedTitle)
+                    Text(settings.browseLabel(for: f))
                 }
                 .disabled(isFieldUsedInOtherColumn(f))
             }
         } label: {
             HStack {
-                Text(settings.browserPaneState.fields[columnIndex]?.localizedTitle ?? "")
+                Text(settings.browserPaneState.fields[columnIndex].map { settings.browseLabel(for: $0) } ?? "")
                     .font(.subheadline)
                 Spacer()
                 Image(systemName: "chevron.down")

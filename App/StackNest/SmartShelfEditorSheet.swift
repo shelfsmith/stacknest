@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
+import AppCore
 import StackroomFormat
 
 /// Apple Mail ルール風のスマートシェルフ条件エディタ。
@@ -8,13 +9,16 @@ struct SmartShelfEditorSheet: View {
     @State private var name: String
     @State private var match: SmartShelfConditions.MatchMode
     @State private var rules: [SmartShelfRule]
+    let settings: LibrarySettings
     let onSave: (String, SmartShelfConditions) -> Void
 
-    init(initialName: String = "",
+    init(settings: LibrarySettings,
+         initialName: String = "",
          initialConditions: SmartShelfConditions = SmartShelfConditions(
             match: .all,
             rules: [SmartShelfRule(id: UUID(), field: .genre, op: .contains, value: .text(""))]),
          onSave: @escaping (String, SmartShelfConditions) -> Void) {
+        self.settings = settings
         _name = State(initialValue: initialName)
         _match = State(initialValue: initialConditions.match)
         _rules = State(initialValue: initialConditions.rules.isEmpty
@@ -48,7 +52,7 @@ struct SmartShelfEditorSheet: View {
                 Text("満たす")
             }
             ForEach($rules) { $rule in
-                SmartShelfRuleRow(rule: $rule, onRemove: {
+                SmartShelfRuleRow(rule: $rule, settings: settings, onRemove: {
                     rules.removeAll { $0.id == rule.id }
                 }, canRemove: rules.count > 1)
             }
@@ -74,6 +78,7 @@ struct SmartShelfEditorSheet: View {
 /// 1 ルール行: フィールド → operator → 値。
 private struct SmartShelfRuleRow: View {
     @Binding var rule: SmartShelfRule
+    let settings: LibrarySettings
     let onRemove: () -> Void
     let canRemove: Bool
 
@@ -175,9 +180,14 @@ private struct SmartShelfRuleRow: View {
 
     private func label(for f: SmartShelfRule.Field) -> String {
         switch f {
-        case .title: return "タイトル"; case .author: return "作者"; case .genre: return "ジャンル"
-        case .series: return "シリーズ"; case .neta: return "ネタ"; case .keywordA: return "キーワードA"
-        case .keywordB: return "キーワードB"; case .keywordC: return "キーワードC"; case .memo: return "メモ"
+        case .title: return "タイトル"; case .author: return "作者"
+        case .genre: return settings.label(for: .genre)
+        case .series: return "シリーズ"
+        case .neta: return settings.label(for: .neta)
+        case .keywordA: return settings.label(for: .keywordA)
+        case .keywordB: return settings.label(for: .keywordB)
+        case .keywordC: return settings.stampLabel(for: .keywordC)
+        case .memo: return "メモ"
         case .bookType: return "種類"; case .rating: return "評価"; case .unseen: return "未読"
         case .pages: return "ページ数"; case .dateAdded: return "追加日"; case .playDate: return "最終閲覧日"
         }

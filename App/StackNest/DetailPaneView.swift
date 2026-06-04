@@ -145,12 +145,14 @@ struct DetailPaneView: View {
 
             // Tag fields — closures capture snapshot vars so teardown commits
             // go to the correct books.
+            // Content fields use settings-resolved labels so custom names are reflected in real time.
+            let ls = appState.librarySettings
             tagFieldCaptured(tag: "author",   label: "作者",         keyPath: \BookRow.author,    patchKeyPath: \BookPatch.author,    fieldID: .author,   snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
-            tagFieldCaptured(tag: "keywordA", label: "キーワード A", keyPath: \BookRow.keywordA,  patchKeyPath: \BookPatch.keywordA,  fieldID: .keywordA, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
-            tagFieldCaptured(tag: "keywordB", label: "キーワード B", keyPath: \BookRow.keywordB,  patchKeyPath: \BookPatch.keywordB,  fieldID: .keywordB, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
-            tagFieldCaptured(tag: "keywordC", label: "キーワード C", keyPath: \BookRow.keywordC,  patchKeyPath: \BookPatch.keywordC,  fieldID: .keywordC, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
-            tagFieldCaptured(tag: "genre",    label: "ジャンル",     keyPath: \BookRow.genre,     patchKeyPath: \BookPatch.genre,     fieldID: .genre,    snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
-            tagFieldCaptured(tag: "neta",     label: "関連",         keyPath: \BookRow.neta,      patchKeyPath: \BookPatch.neta,      fieldID: .neta,     snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
+            tagFieldCaptured(tag: "keywordA", label: ls?.label(for: .keywordA) ?? "キーワード A", keyPath: \BookRow.keywordA,  patchKeyPath: \BookPatch.keywordA,  fieldID: .keywordA, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
+            tagFieldCaptured(tag: "keywordB", label: ls?.label(for: .keywordB) ?? "キーワード B", keyPath: \BookRow.keywordB,  patchKeyPath: \BookPatch.keywordB,  fieldID: .keywordB, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
+            tagFieldCaptured(tag: "keywordC", label: ls?.stampLabel(for: .keywordC) ?? "キーワード C", keyPath: \BookRow.keywordC,  patchKeyPath: \BookPatch.keywordC,  fieldID: .keywordC, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
+            tagFieldCaptured(tag: "genre",    label: ls?.label(for: .genre) ?? "ジャンル",     keyPath: \BookRow.genre,     patchKeyPath: \BookPatch.genre,     fieldID: .genre,    snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
+            tagFieldCaptured(tag: "neta",     label: ls?.label(for: .neta) ?? "関連",         keyPath: \BookRow.neta,      patchKeyPath: \BookPatch.neta,      fieldID: .neta,     snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
             tagFieldCaptured(tag: "series",   label: "シリーズ",     keyPath: \BookRow.series,    patchKeyPath: \BookPatch.series,    clearFlagKeyPath: \BookPatch.clearSeries, fieldID: .series,   snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
 
             // Volume (巻数) — Double? field, rendered as numeric TextField
@@ -218,7 +220,7 @@ struct DetailPaneView: View {
     /// (used for series field to support clearSeries).
     @ViewBuilder
     private func tagFieldCaptured(tag: String,
-                                   label: LocalizedStringKey,
+                                   label: String,
                                    keyPath: KeyPath<BookRow, String?>,
                                    patchKeyPath: WritableKeyPath<BookPatch, String?>,
                                    clearFlagKeyPath: WritableKeyPath<BookPatch, Bool>? = nil,
@@ -234,7 +236,7 @@ struct DetailPaneView: View {
             appState.jumpToFilterOrSearch(field: fieldID, value: jumpTag)
         }
         EditableTextField(
-            label: label,
+            label: LocalizedStringKey(label),
             state: state,
             onCommit: { newValue in
                 applyTextCaptured(newValue, patchKeyPath: patchKeyPath,

@@ -25,7 +25,7 @@ struct StampColumnView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(field.localizedTitle)
+            Text(appState.librarySettings?.stampLabel(for: field) ?? field.localizedTitle)
                 .font(.subheadline.bold())
                 .padding(.horizontal, 6)
                 .padding(.top, 4)
@@ -61,7 +61,7 @@ struct StampColumnView: View {
     @ViewBuilder
     private func newValuePopoverContent() -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("新しい \(field.localizedTitle) を追加")
+            Text("新しい \(appState.librarySettings?.stampLabel(for: field) ?? field.localizedTitle) を追加")
                 .font(.caption.bold())
             TextField("", text: $newValueText)
                 .textFieldStyle(.roundedBorder)

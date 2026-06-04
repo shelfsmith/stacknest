@@ -59,19 +59,24 @@ struct SidebarView: View {
             )
         }
         .sheet(isPresented: $showingNewSmartEditor) {
-            SmartShelfEditorSheet { name, conditions in
-                if let id = appState.createSmartShelf(name: name, conditions: conditions) {
-                    appState.switchTo(.smartShelf(id: id, name: name))
+            if let settings = appState.librarySettings {
+                SmartShelfEditorSheet(settings: settings) { name, conditions in
+                    if let id = appState.createSmartShelf(name: name, conditions: conditions) {
+                        appState.switchTo(.smartShelf(id: id, name: name))
+                    }
                 }
             }
         }
         .sheet(item: $editingSmartShelf) { shelf in
-            SmartShelfEditorSheet(
-                initialName: shelf.title,
-                initialConditions: appState.fetchSmartShelfConditions(id: shelf.id)
-                    ?? SmartShelfConditions(match: .all, rules: [])
-            ) { name, conditions in
-                appState.updateSmartShelf(id: shelf.id, name: name, conditions: conditions)
+            if let settings = appState.librarySettings {
+                SmartShelfEditorSheet(
+                    settings: settings,
+                    initialName: shelf.title,
+                    initialConditions: appState.fetchSmartShelfConditions(id: shelf.id)
+                        ?? SmartShelfConditions(match: .all, rules: [])
+                ) { name, conditions in
+                    appState.updateSmartShelf(id: shelf.id, name: name, conditions: conditions)
+                }
             }
         }
         .sheet(isPresented: $showingRecentDaysEditor) {
