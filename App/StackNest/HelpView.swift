@@ -17,7 +17,7 @@ struct HelpView: View {
                 }
 
                 section("ライブラリを始める") {
-                    para("初めて起動したとき（新規インストール直後）は、初回ウィザードが画像の開き方と最初のライブラリを順に案内します。以降はタイトル画面から次を選べます:")
+                    para("初回起動時（新規インストール直後）は初回ウィザードが画像の開き方と最初のライブラリを順に案内します。以降はタイトル画面から次を選べます:")
                     bullet("新しいライブラリを作成 — 任意の場所に空の `.stacknest` を作成")
                     bullet("既存のライブラリを開く — 既存の `.stacknest` を選択")
                     bullet("Stackroom Library から取り込む — Stackroom の `Stackroom Library.xml` を新規 `.stacknest` として保存")
