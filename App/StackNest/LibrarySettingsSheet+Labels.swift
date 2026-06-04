@@ -31,8 +31,8 @@ extension LibrarySettingsSheet {
                 HStack {
                     Spacer()
                     Button("デフォルトに戻す", role: .destructive) {
-                        settings.customFieldLabels = [:]
-                        settings.customBookTypeLabels = [:]
+                        stagedFieldLabels = [:]
+                        stagedBookTypeLabels = [:]
                     }
                 }
             }
@@ -49,11 +49,9 @@ extension LibrarySettingsSheet {
 
     private func bindingForField(_ key: String) -> Binding<String> {
         Binding(
-            get: { settings.customFieldLabels[key] ?? "" },
+            get: { stagedFieldLabels[key] ?? "" },
             set: { newVal in
-                var m = settings.customFieldLabels
-                if newVal.isEmpty { m.removeValue(forKey: key) } else { m[key] = newVal }
-                settings.customFieldLabels = m
+                if newVal.isEmpty { stagedFieldLabels.removeValue(forKey: key) } else { stagedFieldLabels[key] = newVal }
             }
         )
     }
@@ -61,11 +59,9 @@ extension LibrarySettingsSheet {
     private func bindingForBookType(_ i: Int) -> Binding<String> {
         let key = String(i)
         return Binding(
-            get: { settings.customBookTypeLabels[key] ?? "" },
+            get: { stagedBookTypeLabels[key] ?? "" },
             set: { newVal in
-                var m = settings.customBookTypeLabels
-                if newVal.isEmpty { m.removeValue(forKey: key) } else { m[key] = newVal }
-                settings.customBookTypeLabels = m
+                if newVal.isEmpty { stagedBookTypeLabels.removeValue(forKey: key) } else { stagedBookTypeLabels[key] = newVal }
             }
         )
     }

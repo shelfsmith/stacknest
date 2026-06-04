@@ -33,12 +33,17 @@ struct LibrarySettingsSheet: View {
     @State private var showRecomputeResult = false
     @State private var recomputeResultMessage = ""
 
-    // Phase 2.5h B19: 表紙再生成 (CoverRegenerationTask) UI 状態
+    // Phase 2.5h B19: 表紙圧縮 (CoverRegenerationTask) UI 状態
     @State private var showRegenerationConfirm = false
     @State private var regenerationTask: CoverRegenerationTask?
     @State private var regenerationProgress: (Int, Int) = (0, 0)
     @State private var showRegenerationResult = false
     @State private var regenerationSavedMB: Double = 0
+
+    // Phase 2.7 ラベルカスタマイズ: 編集は一時状態にステージし、「保存」でのみ settings に反映する
+    // （ファイル名フォーマット・ロック設定と同じく「キャンセル」で破棄＝シートの挙動を統一）。
+    @State var stagedFieldLabels: [String: String] = [:]
+    @State var stagedBookTypeLabels: [String: String] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -91,8 +96,6 @@ struct LibrarySettingsSheet: View {
 
             metadataSection()
 
-            storageSection()
-
             HStack {
                 Spacer()
                 Button("キャンセル") { dismiss() }
@@ -113,25 +116,27 @@ struct LibrarySettingsSheet: View {
             updatePreview(formatString)
             lockToggleOn = settings.lockPasswordHash != nil
             useBiometricInput = settings.useBiometric
+            stagedFieldLabels = settings.customFieldLabels
+            stagedBookTypeLabels = settings.customBookTypeLabels
         }
         .confirmationDialog(
-            "全表紙を再生成します",
+            "表紙を圧縮します",
             isPresented: $showRegenerationConfirm,
             titleVisibility: .visible
         ) {
-            Button("再生成 (\(bookCount) 件)") {
+            Button("圧縮 (\(bookCount) 件)") {
                 startRegeneration()
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("ライブラリの全表紙を上限 1200 px に圧縮します。続行しますか?")
+            Text("上限 1200 px を超える表紙を圧縮します。続行しますか?")
         }
         .sheet(isPresented: Binding(
             get: { regenerationTask != nil && !showRegenerationResult },
             set: { _ in }
         )) {
             VStack(spacing: 16) {
-                Text("表紙を再生成中…").font(.headline)
+                Text("表紙を圧縮中…").font(.headline)
                 ProgressView(value: Double(regenerationProgress.0),
                              total: Double(max(regenerationProgress.1, 1)))
                 Text("\(regenerationProgress.0) / \(regenerationProgress.1)")
@@ -143,7 +148,7 @@ struct LibrarySettingsSheet: View {
             .padding(24)
             .frame(width: 320)
         }
-        .alert("再生成完了", isPresented: $showRegenerationResult) {
+        .alert("圧縮完了", isPresented: $showRegenerationResult) {
             Button("OK") { regenerationTask = nil }
         } message: {
             Text(String(format: "%d 件処理、約 %.1f MB 削減",
@@ -151,25 +156,7 @@ struct LibrarySettingsSheet: View {
         }
     }
 
-    // MARK: - Phase 2.5h B19: ストレージ (表紙再生成)
-
-    @ViewBuilder
-    private func storageSection() -> some View {
-        GroupBox("ストレージ") {
-            VStack(alignment: .leading, spacing: 8) {
-                Button {
-                    showRegenerationConfirm = true
-                } label: {
-                    Label("すべての表紙を再生成 (容量削減)", systemImage: "arrow.clockwise.circle")
-                }
-                .disabled(appState?.database == nil || bundleURL == nil)
-                Text("既存表紙を上限 1200 px に圧縮します。idempotent (繰り返し実行 OK)。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(8)
-        }
-    }
+    // MARK: - Phase 2.5h B19: 表紙圧縮 (メタデータ節に統合)
 
     private var bookCount: Int {
         guard let db = appState?.database else { return 0 }
@@ -196,7 +183,7 @@ struct LibrarySettingsSheet: View {
     private func metadataSection() -> some View {
         GroupBox("メタデータ") {
             VStack(alignment: .leading, spacing: 8) {
-                Button("ファイル名からシリーズ・巻数を再計算") {
+                Button("ファイル名からシリーズ・巻数を補完") {
                     guard let state = appState else {
                         recomputeResultMessage = "ライブラリが開いていません"
                         showRecomputeResult = true
@@ -214,10 +201,22 @@ struct LibrarySettingsSheet: View {
                 Text("既存のシリーズ・巻数が空欄の本のみ、タイトル／ファイル名から自動推測して補完します。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                Divider()
+
+                Button {
+                    showRegenerationConfirm = true
+                } label: {
+                    Label("表紙を圧縮", systemImage: "arrow.down.circle")
+                }
+                .disabled(appState?.database == nil || bundleURL == nil)
+                Text("上限 1200 px を超える表紙のみ圧縮します（繰り返し実行しても安全）。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(8)
         }
-        .alert("再計算完了", isPresented: $showRecomputeResult) {
+        .alert("補完完了", isPresented: $showRecomputeResult) {
             Button("OK") {}
         } message: {
             Text(recomputeResultMessage)
@@ -264,6 +263,14 @@ struct LibrarySettingsSheet: View {
     private func save() {
         guard formatError == nil else { return }
         settings.filenameFormat = formatString
+
+        // ラベルカスタマイズ反映（ステージした内容を保存時のみ適用）
+        if settings.customFieldLabels != stagedFieldLabels {
+            settings.customFieldLabels = stagedFieldLabels
+        }
+        if settings.customBookTypeLabels != stagedBookTypeLabels {
+            settings.customBookTypeLabels = stagedBookTypeLabels
+        }
 
         // Lock 反映
         if !lockToggleOn {
