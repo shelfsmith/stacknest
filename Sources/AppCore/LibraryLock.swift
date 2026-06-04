@@ -5,19 +5,6 @@ import Security
 import LocalAuthentication
 import OSLog
 
-public enum LockState: Equatable, Sendable {
-    case noPassword
-    case unlocked
-    case locked
-}
-
-public enum LibraryLockError: Error, Equatable {
-    case keychainError(OSStatus)
-    case dataEncodingFailed
-    case biometricUnavailable
-    case biometricFailed
-}
-
 public enum BiometryKind: Equatable, Sendable {
     case none
     case touchID
@@ -77,84 +64,7 @@ public enum LibraryLock {
         return result
     }
 
-    // MARK: - Keychain
-
-    /// Saves a password to the Keychain without ACL (no entitlement required).
-    ///
-    /// Security design: The Keychain item is stored with `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`
-    /// but WITHOUT a `SecAccessControl` ACL that would require the Keychain Sharing entitlement
-    /// (errSecMissingEntitlement -34018). Biometric gating is performed at the app layer via
-    /// `LAContext.evaluatePolicy` in `LibraryUnlockSheet`, which does not require additional
-    /// entitlements. The `biometryProtected` parameter is retained for API compatibility and
-    /// logging purposes only.
-    public static func saveKeychainPassword(
-        _ password: String,
-        service: String,
-        account: String,
-        biometryProtected: Bool  // retained for API compat; biometric gate is app-layer (LAContext)
-    ) throws {
-        guard let data = password.data(using: .utf8) else {
-            throw LibraryLockError.dataEncodingFailed
-        }
-        try? deleteKeychainPassword(service: service, account: account)
-
-        // ACL (SecAccessControlCreateWithFlags) requires Keychain Sharing entitlement
-        // which is not available in unsigned/development builds (errSecMissingEntitlement -34018).
-        // Store without ACL; biometric authentication is handled by LAContext in LibraryUnlockSheet.
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        ]
-        let status = SecItemAdd(query as CFDictionary, nil)
-        if status != errSecSuccess {
-            logger.error("SecItemAdd FAILED status=\(status) service=\(service) account=\(account, privacy: .public)")
-            throw LibraryLockError.keychainError(status)
-        }
-        logger.info("SecItemAdd OK service=\(service) account=\(account, privacy: .public) biometry=\(biometryProtected) (ACL: none — app-side gated)")
-    }
-
-    public static func loadKeychainPassword(service: String, account: String) throws -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound {
-            logger.warning("Keychain item NOT FOUND service=\(service) account=\(account, privacy: .public)")
-            return nil
-        }
-        if status != errSecSuccess {
-            logger.error("SecItemCopyMatching FAILED status=\(status) service=\(service) account=\(account, privacy: .public)")
-            throw LibraryLockError.keychainError(status)
-        }
-        guard let data = item as? Data, let string = String(data: data, encoding: .utf8) else {
-            logger.error("Keychain data cast/decode FAILED service=\(service) account=\(account, privacy: .public)")
-            return nil
-        }
-        logger.info("SecItemCopyMatching OK service=\(service) account=\(account, privacy: .public)")
-        return string
-    }
-
-    public static func deleteKeychainPassword(service: String, account: String) throws {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-        let status = SecItemDelete(query as CFDictionary)
-        if status != errSecSuccess && status != errSecItemNotFound {
-            logger.error("SecItemDelete FAILED status=\(status) service=\(service) account=\(account, privacy: .public)")
-            throw LibraryLockError.keychainError(status)
-        }
-        logger.info("SecItemDelete OK (or notFound) status=\(status) service=\(service) account=\(account, privacy: .public)")
-    }
+    // MARK: - Legacy Keychain Purge
 
     /// Best-effort cleanup of the pre-2.6g plaintext Keychain item for a library.
     /// 2.6g moved biometric arming off the Keychain; this removes the legacy plaintext
