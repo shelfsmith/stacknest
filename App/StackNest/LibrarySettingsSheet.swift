@@ -210,7 +210,7 @@ struct LibrarySettingsSheet: View {
                     Label("表紙を圧縮", systemImage: "arrow.down.circle")
                 }
                 .disabled(appState?.database == nil || bundleURL == nil)
-                Text("上限 1200 px を超える表紙のみ圧縮します（繰り返し実行しても安全）。")
+                Text("上限 1200 px を超える表紙のみ圧縮します。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
