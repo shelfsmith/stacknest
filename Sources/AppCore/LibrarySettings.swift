@@ -86,6 +86,15 @@ public final class LibrarySettings {
     public var stampDefinitions: [String: [String]] {
         didSet { persistStampDefinitions() }
     }
+    /// 内容系フィールドのカスタムラベル。key = dbColumn（genre/neta/keyword_a/keyword_b/keyword_c）。
+    /// 空文字値は永続化時に除外され、表示時は正準デフォルトにフォールバックする。
+    public var customFieldLabels: [String: String] {
+        didSet { persistCustomFieldLabels() }
+    }
+    /// bookType のカスタムラベル。key = "0".."5"。空文字は除外・フォールバック。
+    public var customBookTypeLabels: [String: String] {
+        didSet { persistCustomBookTypeLabels() }
+    }
     public var lockPasswordHash: String? {
         didSet { persistLockHash() }
     }
@@ -135,6 +144,8 @@ public final class LibrarySettings {
     private static let libraryUUIDKey = "library_uuid"
     private static let columnWidthsKey = "columnWidths"
     private static let stampDefinitionsKey = "stamp_definitions"
+    private static let customFieldLabelsKey = "custom_field_labels"
+    private static let customBookTypeLabelsKey = "custom_book_type_labels"
     private static let gridItemSizeKey = "grid_item_size"
     private static let recentDaysKey = "recent_days"
     private static let sortModeKey = "sort_mode"
@@ -241,6 +252,22 @@ public final class LibrarySettings {
             self.stampDefinitions = decoded
         } else {
             self.stampDefinitions = [:]
+        }
+        // Load customFieldLabels. Decode failure starts with empty map.
+        if let json = try database.getLibrarySetting(key: Self.customFieldLabelsKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            self.customFieldLabels = decoded
+        } else {
+            self.customFieldLabels = [:]
+        }
+        // Load customBookTypeLabels. Decode failure starts with empty map.
+        if let json = try database.getLibrarySetting(key: Self.customBookTypeLabelsKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            self.customBookTypeLabels = decoded
+        } else {
+            self.customBookTypeLabels = [:]
         }
         // Load gridItemSize. Default 160pt.
         if let str = try database.getLibrarySetting(key: Self.gridItemSizeKey),
@@ -428,6 +455,26 @@ public final class LibrarySettings {
             try database.setLibrarySetting(key: Self.stampDefinitionsKey, value: str)
         } catch {
             Self.logger.error("Failed to persist stampDefinitions: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistCustomFieldLabels() {
+        do {
+            let cleaned = customFieldLabels.filter { !$0.value.isEmpty }
+            let data = try JSONEncoder().encode(cleaned)
+            try database.setLibrarySetting(key: Self.customFieldLabelsKey, value: String(decoding: data, as: UTF8.self))
+        } catch {
+            Self.logger.error("Failed to persist customFieldLabels: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistCustomBookTypeLabels() {
+        do {
+            let cleaned = customBookTypeLabels.filter { !$0.value.isEmpty }
+            let data = try JSONEncoder().encode(cleaned)
+            try database.setLibrarySetting(key: Self.customBookTypeLabelsKey, value: String(decoding: data, as: UTF8.self))
+        } catch {
+            Self.logger.error("Failed to persist customBookTypeLabels: \(error.localizedDescription, privacy: .public)")
         }
     }
 
