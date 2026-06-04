@@ -26,3 +26,36 @@ public struct LibraryOpenLockInfo: Codable, Equatable, Sendable {
         self.heartbeatAt = heartbeatAt
     }
 }
+
+public enum LibraryOpenLockStatus: Equatable, Sendable {
+    case acquirable
+    case heldByThisInstance
+    case conflictSameHost(LibraryOpenLockInfo)
+    case conflictOtherHost(LibraryOpenLockInfo)
+}
+
+public enum LibraryOpenLock {
+    public static let heartbeatInterval: TimeInterval = 30
+    public static let staleThreshold: TimeInterval = 90
+
+    /// Decide what to do given the existing lock (if any) and our environment.
+    /// `isPidAlive(pid, recordedStartTime)` is supplied by the App layer.
+    public static func evaluate(
+        existing: LibraryOpenLockInfo?,
+        ourHostUUID: String,
+        ourInstanceUUID: String,
+        now: Double,
+        isPidAlive: (_ pid: Int32, _ recordedStartTime: Double) -> Bool
+    ) -> LibraryOpenLockStatus {
+        guard let existing else { return .acquirable }
+        if existing.appInstanceUUID == ourInstanceUUID { return .heldByThisInstance }
+        if existing.hostUUID == ourHostUUID {
+            // Same Mac: PID liveness is authoritative (instant crash recovery).
+            return isPidAlive(existing.pid, existing.processStartTime)
+                ? .conflictSameHost(existing) : .acquirable
+        }
+        // Other Mac: cannot check remote PID, rely on heartbeat freshness.
+        return (now - existing.heartbeatAt <= staleThreshold)
+            ? .conflictOtherHost(existing) : .acquirable
+    }
+}
