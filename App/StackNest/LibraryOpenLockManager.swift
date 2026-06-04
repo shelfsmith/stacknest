@@ -13,10 +13,14 @@ final class LibraryOpenLockManager {
     static let shared = LibraryOpenLockManager()
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "OpenLock")
+    /// Allowed drift between a recorded and re-read process start time (clock granularity / tv_usec rounding).
+    private static let pidStartTimeTolerance: TimeInterval = 2.0
     private let instanceUUID = UUID().uuidString
     private let hostUUID = LibraryOpenLockManager.currentHostUUID()
     private let hostName = Host.current().localizedName ?? ProcessInfo.processInfo.hostName
     private let pid = ProcessInfo.processInfo.processIdentifier
+    // Fallback only if sysctl fails for our own PID; then the recorded start time won't match a peer's
+    // sysctl re-read, weakening same-host liveness detection (acceptable: sysctl effectively always succeeds for self).
     private let ownStartTime = LibraryOpenLockManager.processStartTime(pid: ProcessInfo.processInfo.processIdentifier) ?? Date().timeIntervalSince1970
 
     private var timers: [URL: Timer] = [:]   // bundleURL → heartbeat timer
@@ -60,6 +64,7 @@ final class LibraryOpenLockManager {
     }
 
     func releaseAll() {
+        // Snapshot the keys: `release` mutates `timers`, so iterate a copy to avoid "mutated while iterating".
         for url in Array(timers.keys) { release(bundleURL: url) }
     }
 
@@ -92,7 +97,7 @@ final class LibraryOpenLockManager {
         if pid <= 0 { return false }
         if kill(pid, 0) != 0 { return errno == EPERM }   // ESRCH → dead; EPERM → alive (other user)
         guard let actual = processStartTime(pid: pid), recordedStartTime > 0 else { return true }
-        return abs(actual - recordedStartTime) < 2.0     // mismatch → PID was reused → treat as dead
+        return abs(actual - recordedStartTime) < pidStartTimeTolerance   // mismatch → PID was reused → treat as dead
     }
 
     static func processStartTime(pid: Int32) -> Double? {
