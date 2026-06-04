@@ -25,6 +25,9 @@ final class LibraryOpenLockManager {
 
     private var timers: [URL: Timer] = [:]   // bundleURL → heartbeat timer
 
+    /// Exposed for the same-host check in the conflict dialog.
+    var currentHostUUIDString: String { hostUUID }
+
     enum Acquire: Equatable {
         case acquired
         case conflict(LibraryOpenLockInfo)

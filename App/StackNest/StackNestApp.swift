@@ -361,6 +361,7 @@ struct LibraryWindowContainer: View {
             .onDisappear {
                 if let url = bundleURL {
                     appState?.closeBundle()
+                    LibraryOpenLockManager.shared.release(bundleURL: url)
                     OpenLibraryRegistry.shared.unregister(url)
                 }
             }
@@ -388,6 +389,7 @@ struct LibraryWindowContainer: View {
                             onUnlock: { unlocked = true },
                             onCancel: {
                                 if let url = bundleURL {
+                                    LibraryOpenLockManager.shared.release(bundleURL: url)
                                     OpenLibraryRegistry.shared.unregister(url)
                                 }
                                 // Q3-2-v3: sheet 表示中は NSApp.keyWindow が sheet panel を指すため
@@ -457,6 +459,20 @@ struct LibraryWindowContainer: View {
             return
         }
 
+        // Phase 2.6d: cross-Mac lock. Acquire before opening the SQLite DB.
+        switch LibraryOpenLockManager.shared.acquire(bundleURL: bundleURL) {
+        case .acquired, .unprotected:
+            break
+        case .conflict(let info):
+            if Self.confirmForceOpen(bundleName: bundleURL.deletingPathExtension().lastPathComponent, holder: info) {
+                LibraryOpenLockManager.shared.forceAcquire(bundleURL: bundleURL)
+            } else {
+                OpenLibraryRegistry.shared.unregister(bundleURL)
+                dismiss()
+                return
+            }
+        }
+
         do {
             let state = AppState(bundleURL: bundleURL)
             try state.openBundle()
@@ -476,6 +492,21 @@ struct LibraryWindowContainer: View {
             self.error = error
             OpenLibraryRegistry.shared.unregister(bundleURL)
         }
+    }
+
+    /// Modal warning when the library is already locked by another Mac/process.
+    /// Returns true if the user chose "force open".
+    @MainActor
+    static func confirmForceOpen(bundleName: String, holder: LibraryOpenLockInfo) -> Bool {
+        let sameHost = holder.hostUUID == LibraryOpenLockManager.shared.currentHostUUIDString
+        let where_ = sameHost ? "別のプロセス" : "別の Mac（\(holder.hostName)）"
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "「\(bundleName)」は\(where_)で開かれています"
+        alert.informativeText = "同時に開くとデータベースが破損する恐れがあります。通常は開かないことを強く推奨します。"
+        alert.addButton(withTitle: "開かない")                 // default (return .alertFirstButtonReturn)
+        alert.addButton(withTitle: "強制的に開く（危険）")
+        return alert.runModal() == .alertSecondButtonReturn
     }
 }
 
@@ -813,6 +844,10 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
             return false  // we handled it
         }
         return true  // there are user-facing windows; let macOS bring app forward
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        LibraryOpenLockManager.shared.releaseAll()
     }
 }
 
