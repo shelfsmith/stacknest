@@ -156,6 +156,25 @@ public enum LibraryLock {
         logger.info("SecItemDelete OK (or notFound) status=\(status) service=\(service) account=\(account, privacy: .public)")
     }
 
+    /// Best-effort cleanup of the pre-2.6g plaintext Keychain item for a library.
+    /// 2.6g moved biometric arming off the Keychain; this removes the legacy plaintext
+    /// item (service=`defaultService`, account=bundleURL) if present. Never throws:
+    /// failures (including item-not-found) are logged and ignored — the feature does not
+    /// depend on the Keychain, so cleanup is purely hygienic.
+    public static func purgeLegacyKeychainItem(bundleURL: URL) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: defaultService,
+            kSecAttrAccount as String: bundleURL.absoluteString
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        if status == errSecSuccess {
+            logger.info("purgeLegacyKeychainItem: removed legacy item for \(bundleURL.lastPathComponent, privacy: .public)")
+        } else if status != errSecItemNotFound {
+            logger.warning("purgeLegacyKeychainItem: SecItemDelete status=\(status) item=\(bundleURL.lastPathComponent, privacy: .public) (ignored)")
+        }
+    }
+
     // MARK: - LAContext
 
     // macOS 15+: renamed from deviceOwnerAuthenticationWithBiometricsOrWatch

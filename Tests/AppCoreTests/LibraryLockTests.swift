@@ -103,4 +103,11 @@ struct LibraryLockTests {
         // Cleanup
         try LibraryLock.deleteKeychainPassword(service: testService, account: testAccount)
     }
+
+    /// 2.6g: 旧 Keychain item の purge。存在しない item でも throw / crash しない（best-effort）。
+    @Test
+    func purgeLegacyKeychainItemIsSafeWhenAbsent() {
+        let url = URL(fileURLWithPath: "/tmp/nonexistent_\(UUID().uuidString).stacknest")
+        LibraryLock.purgeLegacyKeychainItem(bundleURL: url)   // should not throw or crash
+    }
 }
