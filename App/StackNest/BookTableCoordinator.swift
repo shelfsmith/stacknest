@@ -442,15 +442,7 @@ extension BookTableCoordinator: NSTableViewDelegate {
     }
 
     fileprivate func bookTypeLabel(_ type: Int) -> String {
-        switch type {
-        case 0: return String(localized: "厚い本")
-        case 1: return String(localized: "薄い本")
-        case 2: return String(localized: "本の一部")
-        case 3: return String(localized: "画像セット")
-        case 4: return String(localized: "テキスト")
-        case 5: return String(localized: "ムービー")
-        default: return "?"
-        }
+        settings.bookTypeLabel(type)
     }
 }
 

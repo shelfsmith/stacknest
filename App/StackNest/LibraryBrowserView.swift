@@ -800,15 +800,7 @@ struct LibraryBrowserView: View {
     }
 
     private func typeLabel(_ id: Int) -> String {
-        switch id {
-        case 0: return String(localized: "厚い本")
-        case 1: return String(localized: "薄い本")
-        case 2: return String(localized: "本の一部")
-        case 3: return String(localized: "画像セット")
-        case 4: return String(localized: "テキスト")
-        case 5: return String(localized: "ムービー")
-        default: return "?"
-        }
+        appState.librarySettings?.bookTypeLabel(id) ?? BookTypeLabel.canonicalLabel(for: id)
     }
 
     /// Opens the rename sheet for the currently selected books.

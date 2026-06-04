@@ -428,7 +428,7 @@ struct LibraryWindowContainer: View {
                         }
                         if let settings = appState.librarySettings {
                             ToolbarItem(placement: .primaryAction) {
-                                FilterToolbarButton(filter: Bindable(settings).filterState)
+                                FilterToolbarButton(filter: Bindable(settings).filterState, settings: settings)
                             }
                             ToolbarItem(placement: .primaryAction) {
                                 Picker("", selection: Bindable(settings).topPaneMode) {

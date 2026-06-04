@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import LibraryStore
+import AppCore
 
 /// Filter popover の root view。各 row component を VStack で並べ、
 /// 「全てクリア」ボタンで FilterState() に reset する。
 struct FilterPopoverView: View {
     @Binding var filter: FilterState
+    /// カスタムラベル解決用。nil 時は正準ラベルにフォールバック。
+    var settings: LibrarySettings?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,7 +19,7 @@ struct FilterPopoverView: View {
                     .disabled(filter.isEmpty)
             }
             Divider()
-            BookTypeFilterRow(bookTypes: $filter.bookTypes)
+            BookTypeFilterRow(bookTypes: $filter.bookTypes, settings: settings)
             Divider()
             UnseenFilterRow(unseen: $filter.unseen)
             Divider()

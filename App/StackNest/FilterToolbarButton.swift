@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import LibraryStore
+import AppCore
 
 /// Toolbar に置く Filter ボタン。active な filter 件数を右上にバッジ表示し、
 /// クリックで FilterPopoverView を popover として開く。
 struct FilterToolbarButton: View {
     @Binding var filter: FilterState
+    /// カスタムラベル解決用。nil 時は正準ラベルにフォールバック。
+    var settings: LibrarySettings?
     @State private var isPopoverPresented = false
 
     var body: some View {
@@ -30,7 +33,7 @@ struct FilterToolbarButton: View {
         }
         .help(filter.isEmpty ? "フィルタ" : "フィルタ (\(filter.activeCount) 個 active)")
         .popover(isPresented: $isPopoverPresented, arrowEdge: .bottom) {
-            FilterPopoverView(filter: $filter)
+            FilterPopoverView(filter: $filter, settings: settings)
                 .frame(width: 320)
         }
     }

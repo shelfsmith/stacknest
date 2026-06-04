@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import LibraryStore
+import AppCore
 
 /// Filter popover の bookType 行。0..5 の 6 種を 2 列の chip で表示し、
 /// クリックで Set<Int> に追加・削除する。
 struct BookTypeFilterRow: View {
     @Binding var bookTypes: Set<Int>
+    /// カスタムラベルを返すために使用する。nil 時は正準ラベルにフォールバック。
+    var settings: LibrarySettings?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -46,14 +49,6 @@ struct BookTypeFilterRow: View {
     }
 
     private func label(_ type: Int) -> String {
-        switch type {
-        case 0: return String(localized: "厚い本")
-        case 1: return String(localized: "薄い本")
-        case 2: return String(localized: "本の一部")
-        case 3: return String(localized: "画像セット")
-        case 4: return String(localized: "テキスト")
-        case 5: return String(localized: "ムービー")
-        default: return "?"
-        }
+        settings?.bookTypeLabel(type) ?? BookTypeLabel.canonicalLabel(for: type)
     }
 }

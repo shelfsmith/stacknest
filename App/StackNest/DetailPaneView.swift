@@ -111,7 +111,10 @@ struct DetailPaneView: View {
                 }
                 HStack(spacing: 12) {
                     Spacer()
-                    BookTypePicker(state: intState(\BookRow.bookType)) { newValue in
+                    BookTypePicker(
+                        state: intState(\BookRow.bookType),
+                        settings: appState.librarySettings
+                    ) { newValue in
                         applyIntCaptured(newValue, patchKeyPath: \BookPatch.bookType,
                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                     }
