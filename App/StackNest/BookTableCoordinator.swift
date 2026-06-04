@@ -458,10 +458,13 @@ extension BookTableCoordinator: NSTableViewDelegate {
 // MARK: - NSMenuDelegate (Context menu + Header menu)
 extension BookTableCoordinator: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        // Header menu: update check marks to reflect current column visibility
+        // Header menu: update check marks + titles to reflect current visibility / custom labels.
+        // headerMenu items are built in installHeaderMenu (column-set change only); refresh the
+        // display title here so label edits without a set change are also reflected.
         if menu === headerMenu {
             for item in menu.items {
                 guard let col = item.representedObject as? BookColumn else { continue }
+                item.title = settings.label(for: col)
                 item.state = settings.listViewColumns.contains(col) ? .on : .off
             }
             return
