@@ -267,14 +267,8 @@ struct LibrarySettingsSheet: View {
             settings.lockPasswordHash = nil
             settings.lockPasswordSalt = nil
             settings.useBiometric = false
-            do {
-                try LibraryLock.deleteKeychainPassword(
-                    service: LibraryLock.defaultService,
-                    account: bundleURL?.absoluteString ?? ""
-                )
-            } catch {
-                settingsLogger.error("save: deleteKeychainPassword (lock OFF) failed: \(error.localizedDescription)")
-            }
+            BiometricArming.disarm(settings)
+            if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
         } else if !passwordInput.isEmpty && passwordInput == passwordConfirm {
             let salt = LibraryLock.generateSalt()
             let hash = LibraryLock.computeHash(password: passwordInput, saltHex: salt)
@@ -283,32 +277,17 @@ struct LibrarySettingsSheet: View {
             settings.useBiometric = useBiometricInput
             settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput)")
             if useBiometricInput {
-                do {
-                    try LibraryLock.saveKeychainPassword(
-                        passwordInput,
-                        service: LibraryLock.defaultService,
-                        account: bundleURL?.absoluteString ?? "",
-                        biometryProtected: true
-                    )
-                    settingsLogger.info("save: Keychain password saved with biometry protection")
-                } catch {
-                    settingsLogger.error("save: saveKeychainPassword FAILED: \(error.localizedDescription)")
-                }
+                // この Mac をアーム（平文は保存しない。armedHash = 新ハッシュ）。
+                BiometricArming.arm(settings, hash: hash)
             } else {
-                do {
-                    try LibraryLock.deleteKeychainPassword(
-                        service: LibraryLock.defaultService,
-                        account: bundleURL?.absoluteString ?? ""
-                    )
-                } catch {
-                    settingsLogger.error("save: deleteKeychainPassword (biometric OFF) failed: \(error.localizedDescription)")
-                }
+                BiometricArming.disarm(settings)
             }
+            if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
         } else if lockToggleOn && passwordInput.isEmpty {
             // 既存ロック保持、useBiometric だけ切替
             if useBiometricInput != settings.useBiometric {
                 if useBiometricInput {
-                    // ON にするにはパスワード再入力必要
+                    // ON にするにはパスワード再入力必要（アームにはハッシュ照合のため平文が要る）
                     let alert = NSAlert()
                     alert.messageText = "生体認証を有効にするには現在のパスワードを再入力してください"
                     alert.runModal()
@@ -316,14 +295,8 @@ struct LibrarySettingsSheet: View {
                     return
                 } else {
                     settings.useBiometric = false
-                    do {
-                        try LibraryLock.deleteKeychainPassword(
-                            service: LibraryLock.defaultService,
-                            account: bundleURL?.absoluteString ?? ""
-                        )
-                    } catch {
-                        settingsLogger.error("save: deleteKeychainPassword (biometric toggle OFF) failed: \(error.localizedDescription)")
-                    }
+                    BiometricArming.disarm(settings)
+                    if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
                 }
             }
         }

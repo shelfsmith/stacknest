@@ -113,14 +113,8 @@ extension LibrarySettingsSheet {
             settings.lockPasswordHash = nil
             settings.lockPasswordSalt = nil
             settings.useBiometric = false
-            do {
-                try LibraryLock.deleteKeychainPassword(
-                    service: LibraryLock.defaultService,
-                    account: bundleURL?.absoluteString ?? ""
-                )
-            } catch {
-                lockSectionLogger.error("Failed to delete Keychain on lock disable: \(error.localizedDescription)")
-            }
+            BiometricArming.disarm(settings)
+            if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
             // UI state クリア
             passwordInput = ""
             passwordConfirm = ""
