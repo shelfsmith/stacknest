@@ -61,7 +61,7 @@ final class BookTableCoordinator: NSObject {
         let savedWidths = settings.columnWidths
         for col in visibleColumns {
             let nsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(rawValue: col.rawValue))
-            nsCol.title = col.localizedTitleString
+            nsCol.title = settings.label(for: col)
             nsCol.sortDescriptorPrototype = NSSortDescriptor(key: col.rawValue, ascending: true)
             // Restore persisted width; fall back to the column's design default.
             if let w = savedWidths[col.rawValue] {
@@ -95,7 +95,7 @@ final class BookTableCoordinator: NSObject {
         menu.delegate = self
         for col in BookColumn.allCases where !col.alwaysVisible {
             let item = NSMenuItem(
-                title: col.localizedTitleString,
+                title: settings.label(for: col),
                 action: #selector(toggleColumnVisibility(_:)),
                 keyEquivalent: ""
             )
@@ -609,7 +609,7 @@ extension BookTableCoordinator: NSMenuDelegate {
         let currentSort = settings.listViewSort
         for col in BookColumn.allCases {
             let it = NSMenuItem(
-                title: col.localizedTitleString,
+                title: settings.label(for: col),
                 action: #selector(setSortAction(_:)),
                 keyEquivalent: ""
             )
@@ -715,7 +715,7 @@ extension BookTableCoordinator: NSMenuDelegate {
         let currentSort = settings.listViewSort
         for col in BookColumn.allCases {
             let it = NSMenuItem(
-                title: col.localizedTitleString,
+                title: settings.label(for: col),
                 action: #selector(setSortAction(_:)),
                 keyEquivalent: ""
             )

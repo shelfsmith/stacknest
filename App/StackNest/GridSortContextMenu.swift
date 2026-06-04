@@ -32,12 +32,12 @@ struct GridSortContextMenu: View {
                 // 複合ソートが有効な場合は単一カラムのアクティブ表示を外す
                 // macOS Menu items は Label の systemImage を表示しないため Unicode 矢印で代替する。
                 let isActive = settings.sortMode == .column && settings.listViewSort.column == col
-                // 🔧 Fix D: Use localizedTitleString (plain String) to avoid LocalizedStringKey
-                // interpolation that leaks "Localizable Strings(...)" description text.
+                // Use settings.label(for:) so custom field labels (genre/neta/keyword_a/keyword_b)
+                // are reflected. For non-customizable columns, label(for:) returns localizedTitleString.
                 if isActive {
-                    Text(verbatim: "\(col.localizedTitleString) \(settings.listViewSort.ascending ? "↑" : "↓")")
+                    Text(verbatim: "\(settings.label(for: col)) \(settings.listViewSort.ascending ? "↑" : "↓")")
                 } else {
-                    Text(col.localizedTitleString)
+                    Text(settings.label(for: col))
                 }
             }
         }

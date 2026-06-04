@@ -655,7 +655,7 @@ struct WindowCommands: Commands {
             Menu("テーブル列") {
                 if let appState, let settings = appState.librarySettings {
                     ForEach(BookColumn.allCases.filter { !$0.alwaysVisible }, id: \.self) { col in
-                        Toggle(col.localizedTitle, isOn: Binding(
+                        Toggle(settings.label(for: col), isOn: Binding(
                             get: { settings.listViewColumns.contains(col) },
                             set: { _ in settings.toggleColumn(col) }
                         ))
