@@ -78,12 +78,10 @@ struct StackNestApp: App {
                     Self.showAboutPanel()
                 }
             }
-            // Help メニュー: 既定の空メニューを README へのリンクで置換。
+            // Help メニュー: アプリ内ヘルプページ（Window id "help"）を開く。
             CommandGroup(replacing: .help) {
-                Button("StackNest ヘルプ（README）") {
-                    if let url = URL(string: "https://github.com/shelfsmith/stacknest#readme") {
-                        NSWorkspace.shared.open(url)
-                    }
+                Button("StackNest ヘルプ") {
+                    openWindow(id: "help")
                 }
                 .keyboardShortcut("?", modifiers: .command)
             }
@@ -105,6 +103,15 @@ struct StackNestApp: App {
             FirstRunWizardView(settings: .shared)
         }
         .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .commandsRemoved()
+        .restorationBehavior(.disabled)
+
+        // アプリ内ヘルプ — Help メニュー(⌘?)からのみ openWindow(id:"help")。
+        Window("StackNest ヘルプ", id: "help") {
+            HelpView()
+        }
+        .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .commandsRemoved()
         .restorationBehavior(.disabled)

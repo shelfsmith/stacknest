@@ -1,36 +1,37 @@
-# Contributing to StackNest
+[日本語](CONTRIBUTING.md) | [English](CONTRIBUTING.en.md)
 
-This is a personal project. External contributions are welcome but maintenance
-bandwidth is limited.
+# StackNest への貢献
 
-## Development setup
+個人プロジェクトです。外部からの貢献は歓迎しますが、メンテナンスに割ける時間は限られています。
 
-1. macOS 14 Sonoma+ (Tahoe 26 recommended)
-2. Xcode 26+ with Swift 6.2 toolchain
-3. `xcodegen` (`brew install xcodegen`) — required to generate `App/StackNest.xcodeproj` from `App/project.yml`
-4. `gh` CLI authenticated (maintainers only, for releases)
+## 開発環境
 
-## Generating the Xcode project
+1. macOS 14 Sonoma 以降（Tahoe 26 推奨）
+2. Xcode 26 以降（Swift 6.2 ツールチェイン）
+3. `xcodegen`（`brew install xcodegen`）— `App/project.yml` から `App/StackNest.xcodeproj` を生成するために必要
+4. 認証済みの `gh` CLI（メンテナのみ・リリース用）
 
-The Xcode project is **not** committed to the repository. Generate it locally:
+## Xcode プロジェクトの生成
+
+Xcode プロジェクトはリポジトリに**コミットされていません**。ローカルで生成してください:
 
 ```bash
 xcodegen generate --spec App/project.yml
 ```
 
-Re-run after editing `App/project.yml`. CI does this automatically before building.
+`App/project.yml` を編集したら再実行してください。CI はビルド前に自動で実行します。
 
-## Workflow
+## ワークフロー
 
-1. Branch from `main`
-2. Write the failing test first (TDD); production code must have failing-test-first coverage
-3. Run all tests and the App build before pushing:
+1. `main` からブランチを切る
+2. **失敗するテストを先に書く（TDD）**。production code は failing-test-first のカバレッジを必須とする
+3. push 前に全テストと App ビルドを実行する:
 
 ```bash
-# SPM tests (StackroomFormat / LibraryStore / ImageCache / ArchiveAdapter)
+# SPM テスト（StackroomFormat / LibraryStore / ImageCache / ArchiveAdapter）
 swift test --parallel
 
-# macOS App build (Universal in Release; per-arch active in Debug)
+# macOS App ビルド（Release は Universal、Debug は active arch）
 xcodegen generate --spec App/project.yml
 xcodebuild \
   -project App/StackNest.xcodeproj \
@@ -40,22 +41,22 @@ xcodebuild \
   build
 ```
 
-For per-test filtering during TDD: `swift test --filter <SuiteName>`.
+TDD 中の個別テスト絞り込み: `swift test --filter <SuiteName>`。
 
-4. Use Conventional Commits for messages. Common types in this repo:
-   - `feat:` new functionality
-   - `fix:` bug fix
-   - `refactor:` code change without behavior change
-   - `perf:` performance improvement
-   - `chore:` repo plumbing
-   - `docs:` documentation
+4. コミットメッセージは Conventional Commits 形式。本リポジトリで使う主な type:
+   - `feat:` 新機能
+   - `fix:` バグ修正
+   - `refactor:` 挙動を変えないコード変更
+   - `perf:` 性能改善
+   - `chore:` リポジトリ整備
+   - `docs:` ドキュメント
    - `ci:` CI / GitHub Actions
-   - `test:` test-only changes
-5. Squash on merge
+   - `test:` テストのみの変更
+5. マージ時は squash
 
-`.github/workflows/ci.yml` is the canonical source of truth for build/test commands.
+ビルド／テストコマンドの正は `.github/workflows/ci.yml` です。
 
-For a full end-to-end importer run before pushing significant Importer changes:
+インポータに大きな変更を加える前は、エンドツーエンドの取り込みを一度通しておくこと:
 
 ```bash
 time swift run stackroom-import \
@@ -65,10 +66,10 @@ time swift run stackroom-import \
 sqlite3 /tmp/stackroom.sqlite "SELECT COUNT(*) FROM book"   # ≥ 10000
 ```
 
-## Architecture
+## アーキテクチャ
 
-See `docs/architecture.md` for module boundaries and dependency graph.
+モジュール境界と依存グラフは `docs/architecture.md` を参照してください。
 
-## License
+## ライセンス
 
-By contributing you agree your contributions are MIT licensed.
+貢献することで、あなたの貢献が MIT ライセンスの下に置かれることに同意したものとみなします。

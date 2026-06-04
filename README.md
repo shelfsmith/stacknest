@@ -173,8 +173,7 @@ sqlite3 /path/to/MyLibrary.stacknest/library.sqlite \
 
 ## ロードマップ
 
-開発は段階的フェーズで進めています。各フェーズの正は計画リポジトリの主ロードマップ
-（`docs/superpowers/specs/2026-05-03-roadmap-stackroom-parity.md`）にあります。要約：
+開発は段階的フェーズで進めています。要約：
 
 | フェーズ | 内容 | 状況 |
 |---|---|---|
@@ -202,4 +201,3 @@ MIT — `LICENSE` を参照。
 
 - aroma 氏 / aromatics soft — オリジナル Stackroom の開発と、Swift での書き直しへの
   明示的な後押しに感謝します。
-- hetima 氏 — `HetimaUnZip.framework`、アーカイブレイヤーのインスピレーション源。

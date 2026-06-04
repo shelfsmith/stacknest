@@ -174,8 +174,7 @@ Notes:
 
 ## Roadmap
 
-Development proceeds in incremental phases. The source of truth for each phase is the master
-roadmap in the planning repo (`docs/superpowers/specs/2026-05-03-roadmap-stackroom-parity.md`). Summary:
+Development proceeds in incremental phases. Summary:
 
 | Phase | Scope | Status |
 |---|---|---|
@@ -203,4 +202,3 @@ MIT — see `LICENSE`.
 
 - aroma 氏 / aromatics soft for the original Stackroom and the explicit
   encouragement to rewrite it in Swift.
-- hetima 氏 for `HetimaUnZip.framework`, the inspiration for our archive layer.
