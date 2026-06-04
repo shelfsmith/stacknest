@@ -1,0 +1,21 @@
+* text=auto eol=lf
+*.swift   text diff=swift
+*.md      text
+*.yml     text
+*.yaml    text
+*.json    text
+*.plist   text
+*.xib     text
+*.storyboard text
+*.entitlements text
+*.xcconfig text
+*.xcscheme text
+*.pbxproj text eol=lf
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.icns    binary
+*.zip     binary
+*.rar     binary
+*.7z      binary

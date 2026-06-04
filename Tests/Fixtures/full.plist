@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Books</key>
+    <dict>
+        <key>1</key>
+        <dict>
+            <key>ID</key><integer>1</integer>
+            <key>Title</key><string>Sample Book 1</string>
+            <key>Author</key><string>Test Author 1</string>
+            <key>Genre</key><string>Fiction</string>
+            <key>Path</key><string>/test/books/sample1.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample1.jpg</string>
+            <key>Date Added</key><date>2020-01-15T10:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>Pages</key><integer>120</integer>
+            <key>My Rate</key><integer>0</integer>
+            <key>Unseen</key><true/>
+        </dict>
+        <key>2</key>
+        <dict>
+            <key>ID</key><integer>2</integer>
+            <key>Title</key><string>Sample Book 2</string>
+            <key>Author</key><string>Test Author 2</string>
+            <key>Genre</key><string>Fiction</string>
+            <key>Path</key><string>/test/books/sample2.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample2.jpg</string>
+            <key>Date Added</key><date>2020-06-20T11:30:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>1</integer>
+            <key>Unseen</key><true/>
+            <key>Keyword A</key><string>adventure</string>
+        </dict>
+        <key>3</key>
+        <dict>
+            <key>ID</key><integer>3</integer>
+            <key>Title</key><string>Sample Book 3</string>
+            <key>Author</key><string>Test Author 3</string>
+            <key>Genre</key><string>Mystery</string>
+            <key>Path</key><string>/test/books/sample3.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample3.jpg</string>
+            <key>Date Added</key><date>2021-03-10T08:15:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>2</integer>
+            <key>Unseen</key><true/>
+        </dict>
+        <key>4</key>
+        <dict>
+            <key>ID</key><integer>4</integer>
+            <key>Title</key><string>Sample Book 4</string>
+            <key>Author</key><string>Test Author 4</string>
+            <key>Genre</key><string>Mystery</string>
+            <key>Path</key><string>/test/books/sample4.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample4.jpg</string>
+            <key>Date Added</key><date>2021-09-05T14:45:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>3</integer>
+            <key>Unseen</key><integer>1</integer>
+        </dict>
+        <key>5</key>
+        <dict>
+            <key>ID</key><integer>5</integer>
+            <key>Title</key><string>Sample Book 5</string>
+            <key>Author</key><string>Test Author 5</string>
+            <key>Genre</key><string>SciFi</string>
+            <key>Path</key><string>/test/books/sample5.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample5.jpg</string>
+            <key>Cover Image Name</key><string>sample5_cover</string>
+            <key>Date Added</key><date>2022-02-14T09:00:00Z</date>
+            <key>Play Date</key><date>2022-02-20T19:30:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>Pages</key><integer>240</integer>
+            <key>My Rate</key><integer>4</integer>
+            <key>Unseen</key><integer>0</integer>
+            <key>Keyword A</key><string>space</string>
+            <key>Keyword B</key><string>future</string>
+        </dict>
+        <key>6</key>
+        <dict>
+            <key>ID</key><integer>6</integer>
+            <key>Title</key><string>Sample Book 6</string>
+            <key>Author</key><string>Test Author 6</string>
+            <key>Genre</key><string>SciFi</string>
+            <key>Path</key><string>/test/books/sample6.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample6.jpg</string>
+            <key>Date Added</key><date>2022-08-30T16:20:00Z</date>
+            <key>Play Date</key><date>2022-09-10T20:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>5</integer>
+        </dict>
+        <key>7</key>
+        <dict>
+            <key>ID</key><integer>7</integer>
+            <key>Title</key><string>Sample Book 7</string>
+            <key>Author</key><string>Test Author 7</string>
+            <key>Genre</key><string>Fantasy</string>
+            <key>Path</key><string>/test/books/sample7.zip</string>
+            <key>Cover Image Path</key><string>/test/covers/sample7.jpg</string>
+            <key>Date Added</key><date>2023-04-01T07:00:00Z</date>
+            <key>Play Date</key><date>2023-04-12T22:15:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>0</integer>
+        </dict>
+        <key>8</key>
+        <dict>
+            <key>ID</key><integer>8</integer>
+            <key>Title</key><string>Sample Book 8</string>
+            <key>Author</key><string>Test Author 8</string>
+            <key>Genre</key><string>Fantasy</string>
+            <key>Cover Image Path</key><string>/test/covers/sample8.jpg</string>
+            <key>Date Added</key><date>2023-11-25T12:30:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>0</integer>
+            <key>Keyword C</key><string>magic</string>
+        </dict>
+        <key>9</key>
+        <dict>
+            <key>ID</key><integer>9</integer>
+            <key>Title</key><string>Sample Book 9</string>
+            <key>Genre</key><string>Documentary</string>
+            <key>Cover Image Path</key><string>/test/covers/sample9.jpg</string>
+            <key>Date Added</key><date>2024-07-08T13:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>Pages</key><integer>88</integer>
+            <key>My Rate</key><integer>3</integer>
+            <key>Neta</key><string>spoiler note</string>
+        </dict>
+        <key>10</key>
+        <dict>
+            <key>ID</key><integer>10</integer>
+            <key>Title</key><string>Sample Book 10</string>
+            <key>Genre</key><string>Documentary</string>
+            <key>Cover Image Path</key><string>/test/covers/sample10.jpg</string>
+            <key>Date Added</key><date>2025-12-31T23:59:59Z</date>
+            <key>Book Type</key><integer>1</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>5</integer>
+        </dict>
+    </dict>
+    <key>Playlists</key>
+    <array>
+        <dict>
+            <key>Type</key><integer>0</integer>
+            <key>Title</key><string>Favorites</string>
+            <key>Icon</key><integer>4</integer>
+            <key>ItemView</key><false/>
+            <key>ToolTab</key><false/>
+            <key>Items</key>
+            <array>
+                <integer>1</integer>
+                <integer>3</integer>
+                <integer>5</integer>
+            </array>
+        </dict>
+        <dict>
+            <key>Type</key><integer>0</integer>
+            <key>Title</key><string>Recent</string>
+            <key>Icon</key><integer>5</integer>
+            <key>ItemView</key><false/>
+            <key>ToolTab</key><false/>
+            <key>Items</key>
+            <array>
+                <integer>8</integer>
+                <integer>9</integer>
+                <integer>10</integer>
+            </array>
+            <key>Conditions</key>
+            <dict>
+                <key>Date Condition</key>
+                <dict>
+                    <key>Condition</key><string>newer_than</string>
+                    <key>Key</key><integer>30</integer>
+                    <key>Option</key><integer>0</integer>
+                </dict>
+            </dict>
+        </dict>
+        <dict>
+            <key>Type</key><integer>0</integer>
+            <key>Title</key><string>Empty</string>
+            <key>Icon</key><integer>0</integer>
+            <key>ItemView</key><false/>
+            <key>ToolTab</key><false/>
+            <key>Items</key>
+            <array/>
+        </dict>
+    </array>
+</dict>
+</plist>

@@ -1,0 +1,66 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# xcodegen generated (project file is regenerated from App/project.yml)
+App/*.xcodeproj/
+
+# SPM
+Package.resolved.local
+
+# CI / coverage
+*.xcresult/
+coverage.lcov
+
+# Build artifacts (xcodebuild outputs outside DerivedData)
+*.dSYM/
+*.dSYM.zip
+*.ipa
+*.profraw
+*.profdata
+*.hmap
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Local secrets / personal data
+.env*
+!.env.example
+*.local.swift
+local-config/
+
+# 開発者ローカルの Claude Code 指示書（private ワークスペース/ロードマップ参照を含むため公開しない）
+CLAUDE.md
+
+# アイコン制作の元素材（公開不要・ビルド済みアイコンは App/StackNest/Assets.xcassets に同梱）
+StackNest_simplified_icons_16_32_64/
+
+# Signing artifacts (never commit credentials or provisioning material)
+*.pem
+*.p12
+*.cer
+*.mobileprovision
+.netrc
+
+# Stackroom ユーザーライブラリ（個人データ。互換テスト時にローカル参照のみ）
+test-fixtures/private/
+App/build/
+dist/
+
+# Superpowers brainstorming companion (ephemeral mockups)
+.superpowers/
+
+# Stray root-level xcodebuild output (reviewers using relative -derivedDataPath)
+/build/

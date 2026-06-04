@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Books</key>
+    <dict>
+        <key>1</key>
+        <dict>
+            <key>ID</key><integer>1</integer>
+            <key>Title</key><string>Test Book</string>
+            <key>Cover Image Path</key><string>/dummy</string>
+            <key>Date Added</key><date>2025-01-01T00:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>0</integer>
+        </dict>
+    </dict>
+    <key>Playlists</key>
+    <array/>
+</dict>
+</plist>

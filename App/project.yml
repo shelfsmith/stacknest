@@ -1,0 +1,104 @@
+name: StackNest
+options:
+  deploymentTarget:
+    macOS: "15.0"
+  developmentLanguage: ja
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    SWIFT_STRICT_CONCURRENCY: complete
+    # Universal Binary: arm64 (Apple Silicon) + x86_64 (Intel/Hackintosh).
+    # Required so the same dist/StackNest.app runs natively on both M-series Macs and Hackintosh.
+    ARCHS: "arm64 x86_64"
+    ONLY_ACTIVE_ARCH: NO
+    CODE_SIGN_IDENTITY: ""
+    CODE_SIGNING_REQUIRED: NO
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      ENABLE_HARDENED_RUNTIME: YES
+
+packages:
+  StackNest:
+    path: ..
+
+targets:
+  StackNest:
+    type: application
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: StackNest
+    info:
+      path: StackNest/Info.plist
+      properties:
+        CFBundleName: StackNest
+        CFBundleDisplayName: StackNest
+        CFBundleShortVersionString: "0.0.1"
+        CFBundleVersion: "1"
+        CFBundleIconName: AppIcon
+        CFBundleDevelopmentRegion: ja
+        CFBundleLocalizations:
+          - ja
+          - en
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSFaceIDUsageDescription: "ライブラリのロックを解除するために使用されます。"
+        NSPrincipalClass: NSApplication
+        NSSupportsAutomaticTermination: YES
+        NSSupportsSuddenTermination: YES
+        NSHighResolutionCapable: YES
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: "StackNest Library"
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - app.shelfsmith.stacknest.library
+            LSTypeIsPackage: true
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: app.shelfsmith.stacknest.library
+            UTTypeDescription: StackNest Library
+            UTTypeConformsTo:
+              - com.apple.package
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - stacknest
+          - UTTypeIdentifier: app.shelfsmith.stacknest.cbz
+            UTTypeDescription: "Comic Book Zip Archive"
+            UTTypeConformsTo:
+              - public.zip-archive
+              - public.image
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - cbz
+              public.mime-type:
+                - "application/vnd.comicbook+zip"
+          - UTTypeIdentifier: app.shelfsmith.stacknest.cbr
+            UTTypeDescription: "Comic Book Rar Archive"
+            UTTypeConformsTo:
+              - com.rarlab.rar-archive
+              - public.image
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - cbr
+              public.mime-type:
+                - "application/vnd.comicbook-rar"
+    dependencies:
+      - package: StackNest
+        product: StackroomFormat
+      - package: StackNest
+        product: LibraryStore
+      - package: StackNest
+        product: ImageCache
+      - package: StackNest
+        product: ArchiveAdapter
+      - package: StackNest
+        product: AppCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.shelfsmith.stacknest
+        GENERATE_INFOPLIST_FILE: NO

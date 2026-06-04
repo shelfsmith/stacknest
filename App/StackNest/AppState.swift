@@ -1,0 +1,1117 @@
+// SPDX-License-Identifier: MIT
+import SwiftUI
+import LibraryStore
+import StackroomFormat
+import ImageCache
+import AppCore
+import ArchiveAdapter
+import OSLog
+
+@Observable
+@MainActor
+final class AppState {
+    let bundleURL: URL
+    let bundle: LibraryBundle
+
+    var database: Database?
+    var displayedBooks: [BookRow] = []
+    var thumbnailLoader: ThumbnailLoader?
+    var isImporting: Bool = false
+    var importProgress: (processed: Int, total: Int)?
+    var importSummary: ImportSummary?
+    var error: AppError?
+    let viewerSettings: ViewerSettings = .shared
+
+    // v0.4a additions
+    var selectedSidebarItem: SidebarItem? = .library
+    var shelves: [PlaylistRow] = []  // kind != favorites のみ
+    var favoritesShelfID: Int64?
+    var favoritesBookIDs: Set<Int> = []
+    var selectedBook: BookRow?
+
+    /// 内蔵ビューワのウィンドウコントローラ（表示中のみ非 nil）。
+    var viewerController: ViewerWindowController?
+
+    // v0.4b additions
+    var viewMode: ViewMode = .grid {
+        didSet {
+            guard oldValue != viewMode, let settings = librarySettings else { return }
+            settings.viewMode = viewMode
+        }
+    }
+    var searchQuery: String = "" {
+        didSet {
+            selectedBookIDs = []
+            do { try refreshDisplayedBooks() } catch { self.error = .unexpected(error) }
+        }
+    }
+    var selectedBookIDs: Set<Int> = [] {
+        didSet { refreshDisplayedSelectedBooks() }
+    }
+    var librarySettings: LibrarySettings?
+
+    /// このアプリ単位の UndoManager。SwiftUI `@Environment(\.undoManager)` が
+    /// WindowGroup app では Edit menu の ⌘Z (responder chain 由来 undoManager) と
+    /// 一致しないことが diagnostic ログで確認済 (2026-05-23): SwiftUI 環境変数で渡された
+    /// undoManager に register しても Edit menu からの ⌘Z はそれを trigger しない。
+    /// 構造的解決として AppState 自身が UndoManager を所有し、すべての register/undo を
+    /// この instance に集約。Edit menu は SwiftUI `.commands` で AppState.undoManager に
+    /// bind する (StackNestApp 側で実装)。
+    let undoManager: UndoManager = {
+        let um = UndoManager()
+        um.levelsOfUndo = 0  // unlimited
+        return um
+    }()
+
+    /// `undoManager.canUndo` / `canRedo` は AppKit の旧 KVO API で SwiftUI の
+    /// `@Observable` dependency tracking では監視できない。register / undo / redo の
+    /// たびにこの counter を bump することで SwiftUI に「stack state が変わった」と
+    /// 通知し、Edit menu の disabled / actionName が再評価される。
+    /// menu 側は `.disabled` closure 内で `undoStateVersion` を read することで
+    /// dependency tracking を成立させる。
+    var undoStateVersion: Int = 0
+
+    // v0.5a additions
+    /// Books whose IDs match selectedBookIDs, fetched fresh from displayedBooks.
+    /// Used by detail pane for multi-select editing. Updated whenever
+    /// selectedBookIDs or displayedBooks changes.
+    var displayedSelectedBooks: [BookRow] = []
+
+    /// Cached sorted view of displayedBooks. Updated when displayedBooks or
+    /// listViewSort changes. Avoids re-sorting on every SwiftUI Table render
+    /// (which traverses all 10K+ rows on each redraw).
+    var sortedDisplayedBooks: [BookRow] = []
+
+    /// Monotonically increasing counter bumped whenever sortedDisplayedBooks
+    /// is rebuilt (via refreshSortedDisplayedBooks). NSTableView wrapper uses
+    /// this to detect content-level data changes (e.g., metadata edits that
+    /// don't change row count or id ordering) and trigger reloadData.
+    var sortedDisplayedBooksVersion: Int = 0
+
+    /// Monotonically increasing counter bumped whenever the underlying DB books
+    /// data changes (i.e., on every refreshDisplayedBooks call). BrowserColumnView
+    /// uses this in its refreshTrigger so that adding/deleting books causes the
+    /// Browser pane distinct-value lists to re-fetch immediately.
+    var booksDataVersion: Int = 0
+
+    // MARK: - Phase 2.6a FX2: live sidebar badges
+
+    /// シェルフの内容（条件・所属本）が変わるたびに bump する counter。
+    /// SidebarView.shelfRow がこれを read することで、PlaylistRow の field が変化しない
+    /// 内容変更（スマートシェルフ条件編集・本の追加/除外）でも badge を再評価させる。
+    var shelvesContentVersion: Int = 0
+
+    /// "ライブラリ" バッジ件数（@Observable で live 更新）。reloadSidebarCounts で更新。
+    var libraryBookCount: Int = 0
+
+    /// "最近の項目" バッジ件数（@Observable で live 更新）。reloadSidebarCounts で更新。
+    var recentBookCount: Int = 0
+
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "AppState")
+    private static let sortLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Sort")
+    private static let coverLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "CoverReflow")
+
+    init(bundleURL: URL) {
+        self.bundleURL = bundleURL
+        self.bundle = LibraryBundle(url: bundleURL)
+    }
+
+    /// Opens the bundle: validates structure, opens DB, runs migrations,
+    /// loads initial state. Throws if bundle is corrupt.
+    func openBundle() throws {
+        try bundle.validate()
+        let db = try Database.openExisting(at: bundle.databaseURL)
+        try db.migrate()  // ensures v8 applied
+        self.favoritesShelfID = try db.ensureFavoritesShelf()
+        self.database = db
+        self.librarySettings = try LibrarySettings(database: db)
+        self.viewMode = self.librarySettings?.viewMode ?? .grid
+        self.thumbnailLoader = ThumbnailLoader(bundleURL: bundleURL)
+        reloadFavoritesCache()
+        self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+        reloadSidebarCounts()
+        // 起動直後に残留 state がないことを保証する (grid 初期クリック複数選択防止)
+        self.selectedBookIDs = []
+        self.selectedBook = nil
+        try refreshDisplayedBooks()
+    }
+
+    func closeBundle() {
+        database?.close()
+        database = nil
+        thumbnailLoader = nil
+        displayedBooks = []
+        sortedDisplayedBooks = []
+        shelves = []
+        favoritesShelfID = nil
+        favoritesBookIDs = []
+        selectedBook = nil
+        selectedSidebarItem = .library
+        librarySettings = nil
+    }
+
+    /// Re-fetches displayedBooks based on current selectedSidebarItem, routing through searchBooks.
+    func refreshDisplayedBooks() throws {
+        guard let db = database else { displayedBooks = []; return }
+        guard let item = selectedSidebarItem else { displayedBooks = []; return }
+
+        let scope: SidebarScope
+        switch item {
+        case .library:
+            scope = .library
+        case .favorites:
+            guard let favID = favoritesShelfID else { displayedBooks = []; return }
+            scope = .favorites(playlistID: favID)
+        case .recent:
+            scope = .recent(days: librarySettings?.recentDays ?? 14)
+        case .shelf(let id, _, _):
+            scope = .shelf(playlistID: id)
+        case .smartShelf(let id, _):
+            scope = .smartShelf(playlistID: id)
+        }
+
+        let filter = librarySettings?.filterState ?? FilterState()
+        let browserState = librarySettings?.browserPaneState ?? BrowserPaneState()
+        let browserConstraints: [(String, String)] = (librarySettings?.topPaneMode == "browse")
+            ? zip(browserState.fields, browserState.selections).compactMap { (field, sel) in
+                guard let f = field, let s = sel else { return nil }
+                return (f.sqlColumn, s)
+            }
+            : []
+        displayedBooks = try db.searchBooks(
+            query: searchQuery,
+            sidebarScope: scope,
+            filter: filter,
+            browserConstraints: browserConstraints
+        )
+        booksDataVersion += 1
+        reloadSidebarCounts()
+        refreshSortedDisplayedBooks()
+        refreshDisplayedSelectedBooks()
+    }
+
+    /// "ライブラリ" / "最近の項目" の badge 件数を DB から再計算して stored property に格納する。
+    /// @Observable のため SwiftUI sidebar の builtInRow は値変化で自動 re-render される。
+    /// 失敗時は 0（意図的な握りつぶし — badge は補助情報のため）。
+    func reloadSidebarCounts() {
+        guard let db = database else {
+            libraryBookCount = 0
+            recentBookCount = 0
+            return
+        }
+        libraryBookCount = (try? db.fetchBookCount()) ?? 0
+        recentBookCount = (try? db.fetchRecentBookCount(days: librarySettings?.recentDays ?? 14)) ?? 0
+    }
+
+    /// Switches selected sidebar item, clears selectedBook, clears selection, refreshes displayedBooks.
+    func switchTo(_ item: SidebarItem) {
+        selectedSidebarItem = item
+        selectedBook = nil
+        selectedBookIDs = []
+        do {
+            try refreshDisplayedBooks()
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    @discardableResult
+    func createShelf(name: String) -> Int64? {
+        guard let db = database else { return nil }
+        do {
+            let newID = try db.createUserShelf(title: name)
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            shelvesContentVersion += 1
+            return newID
+        } catch {
+            self.error = .unexpected(error)
+            return nil
+        }
+    }
+
+    func renameShelf(id: Int64, name: String) {
+        guard let db = database else { return }
+        do {
+            try db.renameShelf(id: id, title: name)
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            if case .shelf(let sid, _, let k) = selectedSidebarItem, sid == id {
+                selectedSidebarItem = .shelf(id: id, name: name, kind: k)
+            }
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    func deleteShelf(id: Int64) {
+        guard let db = database else { return }
+        do {
+            try db.deleteShelf(id: id)
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            shelvesContentVersion += 1
+            if case .shelf(let sid, _, _) = selectedSidebarItem, sid == id {
+                switchTo(.library)
+            } else if case .smartShelf(let sid, _) = selectedSidebarItem, sid == id {
+                switchTo(.library)
+            }
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    @discardableResult
+    func createSmartShelf(name: String, conditions: SmartShelfConditions) -> Int64? {
+        guard let db = database else { return nil }
+        do {
+            let newID = try db.createSmartShelf(title: name, conditions: conditions)
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            shelvesContentVersion += 1
+            return newID
+        } catch {
+            self.error = .unexpected(error)
+            return nil
+        }
+    }
+
+    func updateSmartShelf(id: Int64, name: String, conditions: SmartShelfConditions) {
+        guard let db = database else { return }
+        do {
+            try db.updateSmartShelfConditions(id: id, conditions: conditions)
+            try db.renameShelf(id: id, title: name)
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            shelvesContentVersion += 1
+            if case .smartShelf(let sid, _) = selectedSidebarItem, sid == id {
+                selectedSidebarItem = .smartShelf(id: id, name: name)
+                try refreshDisplayedBooks()
+            }
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// サイドバーのバッジ件数。エラー時は 0 を返す（意図的な握りつぶし）。
+    func smartShelfBookCount(id: Int64) -> Int {
+        guard let db = database else { return 0 }
+        return (try? db.searchBooks(query: "", sidebarScope: .smartShelf(playlistID: id)).count) ?? 0
+    }
+
+    /// 編集用に条件を読む。失敗時 nil（= 条件無しと同義の安全側）。
+    func fetchSmartShelfConditions(id: Int64) -> SmartShelfConditions? {
+        guard let db = database else { return nil }
+        return try? db.fetchSmartShelfConditions(id: id)
+    }
+
+    func addBooksToShelf(_ shelfID: Int64, books: [Int]) {
+        guard let db = database else { return }
+        do {
+            try db.appendBooksToShelf(playlistID: shelfID, bookIDs: books)
+            if shelfID == favoritesShelfID {
+                reloadFavoritesCache()
+            }
+            // If currently viewing this shelf, refresh
+            if case .shelf(let sid, _, _) = selectedSidebarItem, sid == shelfID {
+                try refreshDisplayedBooks()
+            }
+            if case .favorites = selectedSidebarItem, shelfID == favoritesShelfID {
+                try refreshDisplayedBooks()
+            }
+            // Update shelves cache for badge counts
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            shelvesContentVersion += 1
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// シェルフから本を一括除外する（FX2 の removeBooksFromShelf wrapper）。
+    /// 手動シェルフ専用。お気に入りの場合は favorites cache も更新する。
+    func removeBooksFromShelf(_ shelfID: Int64, books: [Int]) {
+        guard let db = database, !books.isEmpty else { return }
+        do {
+            try db.removeBooksFromShelf(playlistID: shelfID, bookIDs: books)
+            if shelfID == favoritesShelfID {
+                reloadFavoritesCache()
+            }
+            // If currently viewing this shelf, refresh
+            if case .shelf(let sid, _, _) = selectedSidebarItem, sid == shelfID {
+                try refreshDisplayedBooks()
+            }
+            if case .favorites = selectedSidebarItem, shelfID == favoritesShelfID {
+                try refreshDisplayedBooks()
+            }
+            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+            shelvesContentVersion += 1
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// 手動シェルフ（user/imported、スマートでない）一覧。「シェルフに追加」メニュー用。
+    /// drop 先（ConditionalDrop enabled: !isSmart）と同じ集合に揃える。
+    /// Favorites は shelves ロード時点で既に除外済み。
+    var manualShelves: [PlaylistRow] { shelves.filter { !$0.isSmart } }
+
+    /// 選択中の本を指定手動シェルフに追加。
+    func addSelectedBooksToShelf(_ shelfID: Int64) {
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        addBooksToShelf(shelfID, books: ids)
+    }
+
+    /// 手動シェルフ表示中なら、選択中の本をそのシェルフから外す。
+    /// FX7 cleanup: removeSelectedBooksFromRemovableShelf に委譲（スーパーセット）。
+    /// FX3 のコンテキストメニュー呼び出し元はそのまま使用可能。
+    func removeSelectedBooksFromCurrentShelf() {
+        removeSelectedBooksFromRemovableShelf()
+    }
+
+    /// 現在表示中の scope が「本を手動で出し入れできるシェルフ」なら、その shelfID。
+    /// 手動シェルフ → その id、お気に入り → favoritesShelfID、それ以外（スマートシェルフ/ライブラリ/最近）→ nil。
+    /// FX7: Delete キーの 3択ダイアログ判定に使う。
+    var removableShelfID: Int64? {
+        switch selectedSidebarItem {
+        case .shelf(let id, _, _): return id
+        case .favorites: return favoritesShelfID
+        default: return nil   // .smartShelf / .library / .recent / nil
+        }
+    }
+
+    /// 選択中の本を、現在 scope のシェルフ（手動 or お気に入り）から外す。
+    /// FX7: 3択ダイアログの非破壊ブランチから呼ぶ。removableShelfID == nil なら no-op。
+    func removeSelectedBooksFromRemovableShelf() {
+        guard let shelfID = removableShelfID else { return }
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        removeBooksFromShelf(shelfID, books: ids)
+    }
+
+    /// removableShelf の表示名（ダイアログ第1ボタン文言用）。
+    /// お気に入り→「お気に入りから外す」、手動シェルフ→「シェルフから外す」。
+    var removableShelfRemoveButtonTitle: String {
+        if case .favorites = selectedSidebarItem { return "お気に入りから外す" }
+        return "シェルフから外す"
+    }
+
+    /// "最近の項目" の対象日数を更新する（FX2 A9-UI）。
+    /// LibrarySettings.recentDays の didSet が永続化を担う。badge と、現在 "最近の項目"
+    /// を表示中なら本リストも更新する。
+    func setRecentDays(_ days: Int) {
+        librarySettings?.recentDays = days
+        reloadSidebarCounts()
+        if case .recent = selectedSidebarItem {
+            do { try refreshDisplayedBooks() }
+            catch { self.error = .unexpected(error) }
+        }
+    }
+
+    /// 選択中の全 favorites 状態（全部お気に入りなら true）。メニューのラベル/方向決定に使う。
+    var allSelectedAreFavorites: Bool {
+        !selectedBookIDs.isEmpty && selectedBookIDs.isSubset(of: favoritesBookIDs)
+    }
+
+    /// 選択中の本をすべてお気に入りに追加。
+    func addSelectedBooksToFavorites() {
+        guard let favID = favoritesShelfID else { return }
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        addBooksToShelf(favID, books: ids)
+    }
+
+    /// 選択中の本をすべてお気に入りから外す。
+    func removeSelectedBooksFromFavorites() {
+        guard let favID = favoritesShelfID else { return }
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        removeBooksFromShelf(favID, books: ids)
+    }
+
+    // MARK: - Bulk metadata operations
+
+    func setRatingForSelected(_ rating: Int, undoManager: UndoManager? = nil) {
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        var patch = BookPatch()
+        patch.rating = rating
+        do {
+            try applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
+            refreshSelectedBook()
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    func setBookTypeForSelected(_ type: Int, undoManager: UndoManager? = nil) {
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        var patch = BookPatch()
+        patch.bookType = type
+        do {
+            try applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
+            refreshSelectedBook()
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    func toggleUnreadForSelected(undoManager: UndoManager? = nil) {
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        // Determine toggle direction from first selected book's current state
+        let first = displayedBooks.first(where: { ids.contains($0.id) })
+        let newValue = first.map { !$0.unseen } ?? true
+        var patch = BookPatch()
+        patch.unseen = newValue
+        do {
+            try applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
+            refreshSelectedBook()
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// Marks a single book as read (sets unseen=false). Called automatically when
+    /// the user opens a book via viewer (matches Stackroom behavior).
+    func markAsRead(book: BookRow) {
+        guard let db = database else { return }
+        do {
+            try db.markAsRead(bookID: book.id, at: Date())
+            try refreshDisplayedBooks()
+            refreshSelectedBook()
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// 統一された「本を開く」入口。grid/list の double-click・Enter・コンテキストメニューから呼ぶ。
+    /// useBuiltInViewer が true かつ先頭 book が内蔵表示可能なら内蔵ビューワを開く。
+    /// それ以外（外部設定 / 動画 / 非対応 / 失敗）は従来の外部ビューワ起動にフォールバック。
+    /// 複数選択時、内蔵ビューワは先頭 1 冊のみ開く（外部は各冊起動）。
+    func openBooks(_ books: [BookRow]) {
+        guard !books.isEmpty else { return }
+        if viewerSettings.useBuiltInViewer, let first = books.first {
+            openInBuiltInViewer(first)
+            return
+        }
+        openInExternalViewer(books)
+    }
+
+    /// 単一 book を内蔵ビューワで開く。BookContent 化に失敗したら外部にフォールバック。
+    private func openInBuiltInViewer(_ book: BookRow) {
+        let content: BookContent
+        do {
+            content = try BookContentFactory.make(for: book)
+        } catch {
+            // Phase 2.6b-2 T-A: make 失敗時にログを残して外部にフォールバックする。
+            let bookPath = book.path ?? "(nil)"
+            Self.logger.warning("openInBuiltInViewer: BookContentFactory.make failed for bookID=\(book.id, privacy: .public) path=\(bookPath, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
+            openInExternalViewer([book])
+            return
+        }
+        // Phase 2.6b-2 D3: per-book page direction を解決。本固有の設定が nil なら global 設定を使う。
+        let resolvedDir = book.pageDirection ?? viewerSettings.pageDirection
+        let options = ViewerOptions(pageDirection: resolvedDir, endOfBookBehavior: viewerSettings.endOfBookBehavior)
+        Task { @MainActor in
+            let pageCount: Int
+            do {
+                pageCount = try await content.pageCount
+            } catch {
+                // Phase 2.6b-2 T-A: pageCount throw 時にログを残して外部にフォールバックする。
+                let bookPath = book.path ?? "(nil)"
+                Self.logger.warning("openInBuiltInViewer: pageCount threw for bookID=\(book.id, privacy: .public) path=\(bookPath, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
+                openInExternalViewer([book])
+                return
+            }
+            guard pageCount > 0 else {
+                // Phase 2.6b-2 T-A: pageCount==0 時にログを残して外部にフォールバックする。
+                let bookPath = book.path ?? "(nil)"
+                Self.logger.warning("openInBuiltInViewer: pageCount==0 for bookID=\(book.id, privacy: .public) path=\(bookPath, privacy: .public) → falling back to external viewer")
+                openInExternalViewer([book])
+                return
+            }
+
+            // 本ごと保存状態をロードして App 層の Resolved 型に変換
+            let initialState = Self.resolvedState(for: book, database: self.database)
+
+            let controller = ViewerWindowController(
+                content: content,
+                book: book,
+                pageCount: pageCount,
+                options: options,
+                initialState: initialState,
+                loadNextVolume: { [weak self] cur in
+                    self?.resolveVolume(cur, direction: .next)
+                },
+                loadPrevVolume: { [weak self] cur in
+                    self?.resolveVolume(cur, direction: .prev)
+                },
+                persistState: { [weak self] (b, lastPage, spread, cover) in
+                    try? self?.database?.saveViewerState(
+                        bookID: b.id, spreadEnabled: spread, coverOffset: cover, lastPage: lastPage)
+                },
+                persistPageOverride: { [weak self] (b, page, mode) in
+                    try? self?.database?.setPageOverride(bookID: b.id, page: page, mode: mode)
+                },
+                onClose: { [weak self] in self?.viewerController = nil }
+            )
+            // Phase 2.6b-2 D3: per-book page direction の永続化コールバックを設定する。
+            // DB 書き込み後に displayedBooks を更新する。これにより "r" トグル後にページ遷移なしで
+            // ウィンドウを閉じた場合でも、次回オープン時に新しい方向が反映される（T1 バグ修正）。
+            controller.onSetBookPageDirection = { [weak self] id, dir in
+                try? self?.database?.updateBook(id: id, patch: BookPatch(pageDirection: dir))
+                try? self?.refreshDisplayedBooks()
+                self?.refreshSelectedBook()
+            }
+            self.viewerController = controller
+            controller.present()
+            self.markAsRead(book: book)
+        }
+    }
+
+    private enum VolumeDirection { case next, prev }
+
+    /// 次/前の巻を解決して NextVolume を返す。content 化に失敗したら nil。
+    private func resolveVolume(_ cur: BookRow, direction: VolumeDirection) -> NextVolume? {
+        guard let db = database else { return nil }
+        let sibling: BookRow?
+        switch direction {
+        case .next: sibling = try? db.nextVolumeInSeries(after: cur)
+        case .prev: sibling = try? db.prevVolumeInSeries(before: cur)
+        }
+        guard let next = sibling,
+              let content = try? BookContentFactory.make(for: next) else { return nil }
+        // 巻送りで開く本も Stackroom 同様「閲覧開始」とみなし unseen=0 + play_date=now を更新する（D9）。
+        // DB レベル更新に留め、背景ライブラリ window の displayedBooks/選択を巻送りごとに揺らさない。
+        try? db.markAsRead(bookID: next.id, at: Date())
+        let state = Self.resolvedState(for: next, database: db)
+        return NextVolume(content: content, book: next, state: state)
+    }
+
+    /// 本ごとの保存状態を読み、raw mode int → PageLayoutOverride に変換した ResolvedViewerState を返す。
+    /// Phase 2.6b-2 T5: 本ごとの見開き設定が未保存（book_viewer_state 行なし）の場合は
+    /// ViewerSettings.shared.spreadByDefault をデフォルト値として使用する。
+    /// 保存済み行がある場合はその spreadEnabled をそのまま使う（ユーザーの明示設定を尊重）。
+    private static func resolvedState(for book: BookRow, database: Database?) -> ResolvedViewerState {
+        guard let db = database, let stored = try? db.loadViewerState(bookID: book.id) else {
+            // database が nil または throws: spreadByDefault をグローバルデフォルトとして使用。
+            let defaultSpread = ViewerSettings.shared.spreadByDefault
+            return ResolvedViewerState(spreadEnabled: defaultSpread, coverOffset: true, lastPage: 0, overrides: [:])
+        }
+        var overrides: [Int: PageLayoutOverride] = [:]
+        for (page, mode) in stored.overrides {
+            if let ov = PageLayoutOverride(rawValue: mode) { overrides[page] = ov }
+        }
+        // Phase 2.6b-2 T5: 行が存在しない（hasPersistedState == false）場合は
+        // spreadByDefault をグローバルデフォルトとして使用する。
+        // 行が存在する場合は保存済み spreadEnabled を使う（'d' キーで設定した per-book 値を尊重）。
+        let spreadEnabled = stored.hasPersistedState ? stored.spreadEnabled : ViewerSettings.shared.spreadByDefault
+        return ResolvedViewerState(
+            spreadEnabled: spreadEnabled,
+            coverOffset: stored.coverOffset,
+            lastPage: stored.lastPage,
+            overrides: overrides
+        )
+    }
+
+    /// 選択 books を外部ビューワで起動（従来挙動）。
+    private func openInExternalViewer(_ books: [BookRow]) {
+        for book in books {
+            if let err = HelperLauncher.open(book: book, settings: viewerSettings) {
+                self.error = err
+                break
+            }
+            markAsRead(book: book)
+        }
+    }
+
+    func selectAllInCurrentView() {
+        selectedBookIDs = Set(displayedBooks.map(\.id))
+    }
+
+    /// Refresh selectedBook + displayedSelectedBooks to point at fresh BookRow
+    /// values from displayedBooks. Used after bulk metadata mutations so the
+    /// detail pane shows current values without requiring re-selection.
+    private func refreshSelectedBook() {
+        if let oldID = selectedBook?.id,
+           let fresh = displayedBooks.first(where: { $0.id == oldID }) {
+            selectedBook = fresh
+        }
+        refreshDisplayedSelectedBooks()
+    }
+
+    /// Re-derive displayedSelectedBooks from displayedBooks ∩ selectedBookIDs.
+    /// Call after displayedBooks updates so the detail pane sees fresh values.
+    private func refreshDisplayedSelectedBooks() {
+        displayedSelectedBooks = displayedBooks.filter { selectedBookIDs.contains($0.id) }
+    }
+
+    /// Compare two BookRows according to the current settings.listViewSort.
+    /// Falls back to dateAdded descending when settings is nil.
+    ///
+    /// Note: `librarySettings.listViewSort` is mutated only via BookListView's
+    /// onChange(of: sortOrder) which immediately calls refreshSortedDisplayedBooks().
+    /// If a future code path writes listViewSort outside that handler, it must
+    /// also call refreshSortedDisplayedBooks() to keep this cache fresh.
+    private func bookSortComparator(_ a: BookRow, _ b: BookRow) -> Bool {
+        guard let sort = librarySettings?.listViewSort else {
+            return a.dateAdded > b.dateAdded
+        }
+        let asc = sort.ascending
+        switch sort.column {
+        case .title:     return compareString(a.title, b.title, asc)
+        case .author:    return compareString(a.author ?? "", b.author ?? "", asc)
+        case .genre:     return compareString(a.genre ?? "", b.genre ?? "", asc)
+        case .neta:      return compareString(a.neta ?? "", b.neta ?? "", asc)
+        case .keywordA:  return compareString(a.keywordA ?? "", b.keywordA ?? "", asc)
+        case .keywordB:  return compareString(a.keywordB ?? "", b.keywordB ?? "", asc)
+        case .memo:      return compareString(a.memo ?? "", b.memo ?? "", asc)
+        case .rating:    return asc ? a.rating < b.rating : a.rating > b.rating
+        case .bookType:  return asc ? a.bookType < b.bookType : a.bookType > b.bookType
+        case .unseen:    return asc ? (!a.unseen && b.unseen) : (a.unseen && !b.unseen)
+        case .dateAdded: return asc ? a.dateAdded < b.dateAdded : a.dateAdded > b.dateAdded
+        case .playDate:
+            // Use the same nil sentinel as BookListView.playDateSortKey (epoch 0)
+            // so both sort paths produce identical ordering for nil playDate.
+            let aDate = a.playDate ?? Date(timeIntervalSince1970: 0)
+            let bDate = b.playDate ?? Date(timeIntervalSince1970: 0)
+            return asc ? aDate < bDate : aDate > bDate
+        case .series:    return compareString(a.series ?? "", b.series ?? "", asc)
+        case .volume:
+            let aVol = a.volume ?? (asc ? Double.infinity : -Double.infinity)
+            let bVol = b.volume ?? (asc ? Double.infinity : -Double.infinity)
+            return asc ? aVol < bVol : aVol > bVol
+        }
+    }
+
+    private func compareString(_ a: String, _ b: String, _ asc: Bool) -> Bool {
+        let cmp = a.localizedCaseInsensitiveCompare(b)
+        return asc ? cmp == .orderedAscending : cmp == .orderedDescending
+    }
+
+    /// Re-sort displayedBooks into sortedDisplayedBooks. Call after
+    /// displayedBooks, listViewSort, or sortMode changes.
+    func refreshSortedDisplayedBooks() {
+        let start = ContinuousClock().now
+        let n = displayedBooks.count
+        Self.sortLogger.info("[sort] start n=\(n)")
+        print("[refreshSortedDisplayedBooks] start n=\(n)")
+        let mode = librarySettings?.sortMode ?? .column
+        switch mode {
+        case .seriesVolumeAsc:
+            sortedDisplayedBooks = displayedBooks.sortedBySeriesAndVolume()
+        case .seriesVolumeDesc:
+            sortedDisplayedBooks = displayedBooks.sortedBySeriesAndVolume().reversed()
+        case .column:
+            sortedDisplayedBooks = displayedBooks.sorted(by: bookSortComparator)
+        }
+        sortedDisplayedBooksVersion &+= 1
+        let elapsed = start.duration(to: .now)
+        Self.sortLogger.info("[sort] done n=\(n) elapsed=\(elapsed.description)")
+        print("[refreshSortedDisplayedBooks] done n=\(n) elapsed=\(elapsed)")
+    }
+
+    /// Reloads the favorites cache from DB. Call after favorites table mutations.
+    func reloadFavoritesCache() {
+        guard let db = database, let favID = favoritesShelfID else {
+            favoritesBookIDs = []
+            return
+        }
+        do {
+            favoritesBookIDs = Set(try db.fetchBooksInPlaylist(playlistID: favID).map { $0.id })
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    // MARK: - v0.5a — Detail pane editing
+
+    /// Returns the common value of a field across `displayedSelectedBooks`.
+    /// `.unanimous(value)` if all match, `.mixed` if values differ or selection is empty.
+    func mixedValue<T: Equatable & Sendable>(_ keyPath: KeyPath<BookRow, T>) -> MixedValueState<T> {
+        MixedValueState.from(displayedSelectedBooks.map { $0[keyPath: keyPath] })
+    }
+
+    /// Apply patch to a single book via UndoableCommand (Undo supported).
+    /// Title empty validation is enforced by Database.updateBook inside the command.
+    func applyPatch(bookID: Int, patch: BookPatch, undoManager: UndoManager? = nil) {
+        guard let db = database else { return }
+        do {
+            let cmd = try PatchBooksCommand.prepare(patches: [(bookID: bookID, patch: patch)], database: db)
+            try perform(cmd, undoManager: undoManager)
+            refreshSelectedBook()
+        } catch BookPatchError.emptyTitle {
+            self.error = .titleRequired
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// Apply patch to all selected books via UndoableCommand (Undo supported).
+    /// Title in patch is ignored (multi-select doesn't edit title).
+    func applyPatchToSelected(_ patch: BookPatch, undoManager: UndoManager? = nil) {
+        var p = patch
+        p.title = nil  // safety: never multi-edit title
+        guard !p.isEmpty else { return }
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        do {
+            try applyPatch(bookIDs: ids, patch: p, undoManager: undoManager)
+            refreshSelectedBook()
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    // MARK: - Phase 2.5c Task 15: Undo-aware edit / delete helpers
+
+    /// Apply a patch to one or more books via PatchBooksCommand (Undo supported).
+    /// Single-select: bookIDs = [id]. Multi-select: bookIDs = many ids.
+    /// Title in patch is silently ignored when bookIDs.count > 1 (safety).
+    @discardableResult
+    func applyPatch(
+        bookIDs: [Int],
+        patch: BookPatch,
+        undoManager: UndoManager?
+    ) throws -> Int {
+        guard !bookIDs.isEmpty else { return 0 }
+        var p = patch
+        if bookIDs.count > 1 { p.title = nil }
+        guard !p.isEmpty, let db = database else { return 0 }
+        let patches: [(bookID: Int, patch: BookPatch)] = bookIDs.map { ($0, p) }
+        let cmd = try PatchBooksCommand.prepare(patches: patches, database: db)
+        try perform(cmd, undoManager: undoManager)
+        return bookIDs.count
+    }
+
+    /// Delete books from library (DB-only) via DeleteBooksCommand (Undo supported).
+    /// Thumbnail cleanup is handled by callers after this returns.
+    @discardableResult
+    func deleteBooksFromLibrary(
+        bookIDs: [Int],
+        undoManager: UndoManager?
+    ) throws -> Int {
+        guard !bookIDs.isEmpty, let db = database else { return 0 }
+        let cmd = try DeleteBooksCommand.prepare(bookIDs: bookIDs, database: db)
+        try perform(cmd, undoManager: undoManager)
+        return bookIDs.count
+    }
+
+    /// スタンプ pane の「値 chip クリック」を Undo 可能に処理する。
+    /// 各 book の現在値を読み取り、MultiValueParser.append した結果を BookPatch で適用する。
+    /// これにより ⌘Z でスタンプ適用前の状態に戻せる。
+    func applyStampValue(
+        _ value: String,
+        patchKeyPath: WritableKeyPath<BookPatch, String?>,
+        bookIDs: [Int],
+        database: Database,
+        currentValues: [Int: String?],
+        undoManager: UndoManager?
+    ) throws {
+        guard !bookIDs.isEmpty else { return }
+        var perBookPatches: [(bookID: Int, patch: BookPatch)] = []
+        for id in bookIDs {
+            let current: String? = currentValues[id] ?? nil
+            let (appended, _) = MultiValueParser.append(to: current, value: value)
+            var patch = BookPatch()
+            patch[keyPath: patchKeyPath] = appended
+            perBookPatches.append((bookID: id, patch: patch))
+        }
+        guard !perBookPatches.isEmpty else { return }
+        let cmd = try PatchBooksCommand.prepare(patches: perBookPatches, database: database)
+        try perform(cmd, undoManager: undoManager)
+    }
+
+    /// スタンプ pane の「消去 chip クリック」を Undo 可能に処理する。
+    /// BookPatch で当該フィールドを空文字列に設定 (COALESCE pattern で NULL 相当)。
+    func clearStampValue(
+        patchKeyPath: WritableKeyPath<BookPatch, String?>,
+        bookIDs: [Int],
+        undoManager: UndoManager?
+    ) throws {
+        guard !bookIDs.isEmpty else { return }
+        var patch = BookPatch()
+        patch[keyPath: patchKeyPath] = ""
+        try applyPatch(bookIDs: bookIDs, patch: patch, undoManager: undoManager)
+    }
+
+    // MARK: - Phase 2.5c spec a: UndoableCommand integration
+
+    /// Executes an UndoableCommand and registers undo/redo handlers with the given UndoManager.
+    /// If undoManager is nil, the command is executed without undo support.
+    ///
+    /// Forward 経路: caller (例: setCoverImageName) は呼び出し前に file regenerate + cache
+    /// purge を await 済なので、ここでは DB を進めて view を refresh するだけで良い。
+    /// Undo / Redo 経路は NSUndoManager の closure 内から `undoPerformAsync` / `redoPerformAsync`
+    /// を Task wrap で起動する。これにより DB 更新前に file regenerate + cache purge を await
+    /// できるので、view re-render 時に cache miss が保証され、Detail Pane / grid とも 1 回の
+    /// re-render で正しい thumbnail が表示される (SwiftUI view tree への追加 trigger 不要)。
+    func perform(_ command: UndoableCommand, undoManager: UndoManager?) throws {
+        guard let db = database else { return }
+        try command.perform(database: db)
+        try refreshDisplayedBooks()
+        refreshSelectedBook()
+        // 引数の undoManager (= SwiftUI @Environment 由来) は無視。常に AppState 所有の
+        // self.undoManager に register する。Edit menu の ⌘Z はこの instance に bind 済。
+        // 互換のため引数自体は残す (caller を一括変更しないで済むように)。
+        registerUndoableHandler(for: command)
+        undoStateVersion += 1  // SwiftUI に stack state 変化を通知
+        _ = undoManager  // 引数受け取りつつ未使用 (互換シグネチャ維持)
+    }
+
+    /// NSUndoManager の `isUndoing` / `isRedoing` flag は closure 実行中だけ true で、
+    /// その間に同 undoManager に対して `registerUndo` を呼ぶと「逆方向 (redo / undo) 用 handler」
+    /// として正しく stack に積まれる。Task wrap で flag が消えてから register すると
+    /// 「新規 forward 操作」として undo stack に push されてしまい、結果として ⌘Z が
+    /// 「undo → 新規 undo (実は redo) → undo …」を繰り返す cycle に陥る (2026-05-24 観測)。
+    ///
+    /// 構造的対策: registerUndo の closure 内で **sync に同じ helper を再帰 register**
+    /// (= flag が true な間に register が完了する)。actual な DB undo/redo + file regenerate
+    /// は別 Task で async に流す。direction は closure 内 sync で capture して Task に渡す。
+    private func registerUndoableHandler(for command: UndoableCommand) {
+        let um = self.undoManager
+        um.registerUndo(withTarget: self) { [weak self] _ in
+            guard let self else { return }
+            // direction を sync capture (Task 実行時には flag は既に消えている)
+            let direction: UndoDirection = um.isUndoing ? .undo : (um.isRedoing ? .redo : .undo)
+            Self.coverLogger.info("registerUndoable closure FIRED, direction=\(direction.rawValue, privacy: .public), action=\(command.actionName, privacy: .public)")
+            // 逆方向の handler を sync re-register。NSUndoManager の flag を尊重した stack 操作。
+            self.registerUndoableHandler(for: command)
+            // actual work を Task で async (DB I/O + file regenerate を await できる)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    switch direction {
+                    case .undo:
+                        try await self.applyUndoSide(command)
+                    case .redo:
+                        try await self.applyRedoSide(command)
+                    }
+                    self.undoStateVersion += 1
+                } catch {
+                    Self.coverLogger.error("apply\(direction.rawValue, privacy: .public)Side threw \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+        um.setActionName(command.actionName)
+    }
+
+    private enum UndoDirection: String { case undo, redo }
+
+    /// Undo path: cover 変更を含む PatchBooksCommand なら、DB undo の **前** に
+    /// 元の cover に対応する file regenerate + cache purge を await する。
+    /// その後 DB undo → refresh で view re-render → BookCell / CoverImageView の
+    /// `.task(id:)` が cache miss (purge 済) → disk から元 file 読込 → 元 image 表示。
+    /// register は呼び出し元 (registerUndoableHandler) が closure 内 sync で実施済。
+    private func applyUndoSide(_ command: UndoableCommand) async throws {
+        guard let db = database else { return }
+
+        if let patchCmd = command as? PatchBooksCommand {
+            await prepareCoverFiles(forPatches: patchCmd.previousValues.map { ($0.key, $0.value) },
+                                    direction: "undo")
+        }
+
+        try command.undo(database: db)
+        Self.coverLogger.info("applyUndoSide: command.undo done, action=\(command.actionName, privacy: .public)")
+        try refreshDisplayedBooks()
+        refreshSelectedBook()
+
+        // DeleteBooksCommand の Undo 時: 削除されたサムネイルを再生成する。
+        // Thumbnail cleanup は Undo 対象外のため、restoreBook 後にファイルが存在しない。
+        if let deleteCmd = command as? DeleteBooksCommand {
+            let restoredIDs = Set(deleteCmd.bookIDs)
+            let booksToRegenerate = displayedBooks.filter { restoredIDs.contains($0.id) }
+            for book in booksToRegenerate {
+                Task { await self.regenerateThumbnail(for: book) }
+            }
+        }
+    }
+
+    /// Redo path: cover 変更を含む PatchBooksCommand なら、DB redo の **前** に
+    /// forward 後の cover に対応する file regenerate + cache purge を await する。
+    /// register は呼び出し元 (registerUndoableHandler) が closure 内 sync で実施済。
+    private func applyRedoSide(_ command: UndoableCommand) async throws {
+        guard let db = database else { return }
+
+        if let patchCmd = command as? PatchBooksCommand {
+            let entries: [(Int, BookPatch)] = patchCmd.patches.map { ($0.bookID, $0.patch) }
+            await prepareCoverFiles(forPatches: entries, direction: "redo")
+        }
+
+        try command.perform(database: db)
+        Self.coverLogger.info("applyRedoSide: command.perform done, action=\(command.actionName, privacy: .public)")
+        try refreshDisplayedBooks()
+        refreshSelectedBook()
+    }
+
+    /// undo / redo の DB 更新前に呼ばれる helper。各 patch が cover を変更するなら、
+    /// 該当方向の cover 値で thumbnail.jpg を書き直し、cache を purge する。
+    /// patch.coverImageName が nil かつ clearCoverImageName == false なら no-op。
+    private func prepareCoverFiles(
+        forPatches entries: [(Int, BookPatch)],
+        direction: String
+    ) async {
+        let thumbDir = bundleURL.appending(path: "Thumbnails")
+        for (id, patch) in entries {
+            guard patch.coverImageName != nil || patch.clearCoverImageName else { continue }
+            let preferredName: String? = patch.clearCoverImageName ? nil : patch.coverImageName
+            guard let book = displayedBooks.first(where: { $0.id == id }),
+                  let path = book.path else { continue }
+            let sourceURL = URL(fileURLWithPath: path)
+            guard let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) else { continue }
+            do {
+                try await CoverRefresher.regenerate(
+                    bookID: id,
+                    sourceURL: sourceURL,
+                    preferredName: preferredName,
+                    thumbnailsDirURL: thumbDir,
+                    extractor: extractor
+                )
+                Self.coverLogger.info("prepareCoverFiles: \(direction, privacy: .public) file written, bookID=\(id, privacy: .public)")
+            } catch {
+                Self.coverLogger.error("prepareCoverFiles: \(direction, privacy: .public) file write failed bookID=\(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+            await thumbnailLoader?.purge(bookID: id)
+            Self.coverLogger.info("prepareCoverFiles: \(direction, privacy: .public) cache purged, bookID=\(id, privacy: .public)")
+        }
+    }
+
+    // MARK: - Phase 2.5c spec b Task 8: cover_image_name setter
+
+    /// 単一 book の cover_image_name を設定 (Undo 対応 + 即時反映)。
+    /// **重要な順序**: file write → cache purge → DB 更新の順で、
+    /// view 再 render trigger 時に disk + cache 共に新 state を保証する。
+    /// name == nil → clearCoverImageName: true (自動に戻す)
+    /// name != nil → coverImageName: name (手動指定)
+    @MainActor
+    func setCoverImageName(
+        _ name: String?,
+        for bookID: Int,
+        undoManager: UndoManager?
+    ) async throws {
+        guard let book = displayedBooks.first(where: { $0.id == bookID }) else { return }
+        guard let path = book.path else { return }
+
+        let umStatus: String = (undoManager == nil) ? "nil" : "set"
+        Self.coverLogger.info("setCoverImageName: bookID=\(bookID, privacy: .public), name=\(name ?? "nil", privacy: .public), undoManager=\(umStatus, privacy: .public)")
+
+        // === Step 1: file write を await (DB 更新 / view 再 render の前) ===
+        let sourceURL = URL(fileURLWithPath: path)
+        if let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) {
+            let thumbDir = bundleURL.appending(path: "Thumbnails")
+            do {
+                try await CoverRefresher.regenerate(
+                    bookID: bookID,
+                    sourceURL: sourceURL,
+                    preferredName: name,
+                    thumbnailsDirURL: thumbDir,
+                    extractor: extractor
+                )
+                Self.coverLogger.info("setCoverImageName: file written (pre-DB), bookID=\(bookID, privacy: .public)")
+            } catch {
+                Self.coverLogger.error("setCoverImageName: file write failed: \(error.localizedDescription)")
+                // file write 失敗しても DB 更新は続行 (UI が古い image のままで残る、許容)
+            }
+        }
+
+        // === Step 2: cache purge (DB 更新の前) ===
+        await thumbnailLoader?.purge(bookID: bookID)
+        Self.coverLogger.info("setCoverImageName: cache purged (pre-DB), bookID=\(bookID, privacy: .public)")
+
+        // === Step 3: DB 更新 + Undo 登録 (view 再 render trigger) ===
+        let patch: BookPatch = (name == nil)
+            ? BookPatch(clearCoverImageName: true)
+            : BookPatch(coverImageName: name)
+        try applyPatch(bookIDs: [bookID], patch: patch, undoManager: undoManager)
+        Self.coverLogger.info("setCoverImageName: applyPatch done, bookID=\(bookID, privacy: .public)")
+    }
+
+    // MARK: - Phase 2.5c spec b Task 6: Thumbnail 再生成 helper
+
+    /// 指定 book の thumbnail を cover_image_name に基づいて再生成。
+    /// thumbnail loader cache を purge して UI に再表示を促す。
+    /// エラーは log only — UI へのアラートは出さない (Task 8 で background refresh として利用)。
+    func regenerateThumbnail(for book: BookRow) async {
+        Self.coverLogger.info("regenerateThumbnail: bookID=\(book.id), coverImageName=\(book.coverImageName ?? "nil")")
+        guard let path = book.path else { return }
+        let thumbDir = bundleURL.appending(path: "Thumbnails")
+        let sourceURL = URL(fileURLWithPath: path)
+        guard let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) else {
+            Self.logger.warning("regenerateThumbnail: unsupported format for book \(book.id) path=\(path)")
+            return
+        }
+        do {
+            try await CoverRefresher.regenerate(
+                bookID: book.id,
+                sourceURL: sourceURL,
+                preferredName: book.coverImageName,
+                thumbnailsDirURL: thumbDir,
+                extractor: extractor
+            )
+            Self.coverLogger.info("regenerateThumbnail: file written, bookID=\(book.id)")
+            // 🔧 Fix A: per-book purge instead of full-cache purge (cheaper + avoids CGImageSource URL cache).
+            await thumbnailLoader?.purge(bookID: book.id)
+            Self.coverLogger.info("regenerateThumbnail: cache purged (per-book), bookID=\(book.id)")
+            try? refreshDisplayedBooks()
+            Self.coverLogger.info("regenerateThumbnail: refresh done, bookID=\(book.id)")
+        } catch {
+            Self.logger.error("regenerateThumbnail failed for book \(book.id): \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Phase 2.5c Task 14: 遡及 parser 適用
+
+    /// 全 books に対し FilenameParser を実行し、series/volume の空欄を埋める。
+    /// 1 PatchBooksCommand にまとめて Undo 可能にする。
+    /// 戻り値: 更新された book 件数 (0 なら何もしなかった)
+    @discardableResult
+    func recomputeMetadataFromFilenames(undoManager: UndoManager?) throws -> Int {
+        guard let db = database else { return 0 }
+        let allBooks = try db.fetchAllBooks()
+        var patches: [(bookID: Int, patch: BookPatch)] = []
+        for book in allBooks {
+            let filename = book.path.map { ($0 as NSString).lastPathComponent }
+            let parsed = FilenameParser.parse(title: book.title, filename: filename)
+            var patch = BookPatch()
+            var hasChange = false
+            if (book.series == nil || book.series?.isEmpty == true), let s = parsed.series {
+                patch.series = s
+                hasChange = true
+            }
+            if book.volume == nil, let v = parsed.volume {
+                patch.volume = v
+                hasChange = true
+            }
+            if hasChange { patches.append((bookID: book.id, patch: patch)) }
+        }
+        guard !patches.isEmpty else { return 0 }
+        let cmd = try PatchBooksCommand.prepare(patches: patches, database: db)
+        try perform(cmd, undoManager: undoManager)
+        return patches.count
+    }
+}
+
+// MARK: - Phase 2.5c spec b Task 10: chip jump helper
+
+extension AppState {
+    /// Detail Pane chip の右矢印クリック時のジャンプ処理。
+    /// BrowseField に対応する DetailField なら Browser pane filter で当該フィールドの
+    /// selected set を {value} に上書き（他フィールドの filter は維持）。
+    /// 対応しない DetailField (title / volume / memo) なら searchQuery に value をセット。
+    @MainActor
+    func jumpToFilterOrSearch(field: DetailField, value: String) {
+        if let browseField = BrowserPaneState.BrowseField(from: field) {
+            // FilterState は struct (値型) なので一度コピーして mutate → 書き戻す
+            var fs = librarySettings?.filterState ?? FilterState()
+            fs.replaceSelection(for: browseField.rawValue, with: [value])
+            librarySettings?.filterState = fs
+            try? refreshDisplayedBooks()
+        } else {
+            // 検索欄 fallback (searchQuery の didSet が refreshDisplayedBooks を呼ぶ)
+            searchQuery = value
+        }
+    }
+}
+
+private final class AppStateProgressReporter: ProgressReporter, @unchecked Sendable {
+    let onProgress: (Int, Int) -> Void
+    init(onProgress: @escaping (Int, Int) -> Void) { self.onProgress = onProgress }
+    func reportProgress(processed: Int, total: Int) { onProgress(processed, total) }
+}

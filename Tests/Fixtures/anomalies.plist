@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Books</key>
+    <dict>
+        <key>1</key>
+        <dict>
+            <key>ID</key><integer>1</integer>
+            <key>Title</key><string>Unseen as int</string>
+            <key>Genre</key><string>test</string>
+            <key>Cover Image Path</key><string>/test/1.zip</string>
+            <key>Date Added</key><date>2024-01-01T00:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>0</integer>
+            <key>Unseen</key><integer>2</integer>
+        </dict>
+        <key>2</key>
+        <dict>
+            <key>ID</key><integer>2</integer>
+            <key>Title</key><string>No path</string>
+            <key>Genre</key><string>test</string>
+            <key>Cover Image Path</key><string>/test/2.zip</string>
+            <key>Date Added</key><date>2024-02-01T00:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>0</integer>
+        </dict>
+        <key>abc</key>
+        <dict>
+            <key>ID</key><integer>3</integer>
+            <key>Title</key><string>Bad dict key</string>
+            <key>Genre</key><string>test</string>
+            <key>Cover Image Path</key><string>/test/3.zip</string>
+            <key>Date Added</key><date>2024-03-01T00:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>0</integer>
+        </dict>
+        <key>4</key>
+        <dict>
+            <key>ID</key><integer>4</integer>
+            <key>Title</key><string>File Type 3</string>
+            <key>Genre</key><string>test</string>
+            <key>Cover Image Path</key><string>/test/4.zip</string>
+            <key>Date Added</key><date>2024-04-01T00:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>3</integer>
+            <key>My Rate</key><integer>0</integer>
+        </dict>
+        <key>5</key>
+        <dict>
+            <key>ID</key><integer>5</integer>
+            <key>Title</key><string>My Rate 9</string>
+            <key>Genre</key><string>test</string>
+            <key>Cover Image Path</key><string>/test/5.zip</string>
+            <key>Date Added</key><date>2024-05-01T00:00:00Z</date>
+            <key>Book Type</key><integer>0</integer>
+            <key>File Type</key><integer>2</integer>
+            <key>My Rate</key><integer>9</integer>
+        </dict>
+        <key>MalformedEntry</key>
+        <integer>999</integer>
+    </dict>
+    <key>Playlists</key>
+    <array/>
+</dict>
+</plist>
