@@ -42,14 +42,20 @@ public enum FormatToken: String, CaseIterable, Sendable {
 /// Stackroom-compatible book_type label mapping (0-5).
 /// Used by `FormatToken.type` for forward rendering and reverse lookup.
 public enum BookTypeLabel {
-    static let labels: [Int: String] = [
-        0: "厚い本",
-        1: "薄い本",
-        2: "本の一部",
-        3: "画像セット",
-        4: "テキスト",
-        5: "ムービー"
+    /// 正準ラベル（index = book_type 0..5）。表示の単一ソース。
+    public static let canonicalLabels: [String] = [
+        "厚い本", "薄い本", "本の一部", "画像セット", "テキスト", "ムービー"
     ]
+
+    static let labels: [Int: String] = Dictionary(
+        uniqueKeysWithValues: canonicalLabels.enumerated().map { ($0.offset, $0.element) }
+    )
+
+    /// 範囲内なら正準ラベル、範囲外は空文字。
+    public static func canonicalLabel(for type: Int) -> String {
+        guard canonicalLabels.indices.contains(type) else { return "" }
+        return canonicalLabels[type]
+    }
 
     public static func label(for type: Int) -> String? {
         labels[type]
