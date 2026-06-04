@@ -110,6 +110,18 @@ struct LibraryOpenLockTests {
     }
 
     @Test
+    func acquireReclaimsDeadSameHost() throws {
+        let bundle = tempBundle()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let other = Self.sample(instance: "OTHER", host: "HOST-A") // same host as ours
+        try JSONEncoder().encode(other).write(to: LibraryOpenLock.lockFileURL(bundleURL: bundle))
+        let mine = Self.sample(instance: "INST-1", host: "HOST-A")
+        let outcome = LibraryOpenLock.acquire(bundleURL: bundle, ourInfo: mine, now: 6000, isPidAlive: { _, _ in false })
+        #expect(outcome == .acquired)
+        #expect(LibraryOpenLock.readLock(bundleURL: bundle)?.appInstanceUUID == "INST-1")
+    }
+
+    @Test
     func forceAcquireOverwrites() throws {
         let bundle = tempBundle()
         defer { try? FileManager.default.removeItem(at: bundle) }
@@ -146,7 +158,17 @@ struct LibraryOpenLockTests {
     }
 
     @Test
-    func acquireOnReadOnlyDirIsUnprotected() throws {
+    func heartbeatAndReleaseOnMissingFileAreSafe() throws {
+        let bundle = tempBundle()
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        // No .openlock.json present → readLock nil → guards short-circuit.
+        #expect(LibraryOpenLock.heartbeat(bundleURL: bundle, instanceUUID: "INST-1", now: 6100) == false)
+        LibraryOpenLock.release(bundleURL: bundle, instanceUUID: "INST-1") // no-op, must not throw
+        #expect(LibraryOpenLock.readLock(bundleURL: bundle) == nil)
+    }
+
+    @Test
+    func acquireWithUnwritableParentIsUnprotected() throws {
         // Non-existent parent makes the write fail → .unprotected (open without lock).
         let bundle = FileManager.default.temporaryDirectory.appending(path: "no-such-\(UUID().uuidString)/nested")
         let mine = Self.sample(instance: "INST-1", host: "HOST-A")

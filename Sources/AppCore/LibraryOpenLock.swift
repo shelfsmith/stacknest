@@ -9,12 +9,15 @@ public struct LibraryOpenLockInfo: Codable, Equatable, Sendable {
     public var hostUUID: String
     public var hostName: String
     public var pid: Int32
+    /// Process start time, in Unix epoch seconds.
     public var processStartTime: Double
     public var appInstanceUUID: String
+    /// When the lock was first acquired, in Unix epoch seconds.
     public var acquiredAt: Double
+    /// Last heartbeat refresh, in Unix epoch seconds.
     public var heartbeatAt: Double
 
-    public init(schemaVersion: Int = 1, hostUUID: String, hostName: String, pid: Int32,
+    public init(schemaVersion: Int = LibraryOpenLock.currentSchemaVersion, hostUUID: String, hostName: String, pid: Int32,
                 processStartTime: Double, appInstanceUUID: String, acquiredAt: Double, heartbeatAt: Double) {
         self.schemaVersion = schemaVersion
         self.hostUUID = hostUUID
@@ -35,8 +38,10 @@ public enum LibraryOpenLockStatus: Equatable, Sendable {
 }
 
 public enum LibraryOpenLock {
+    public static let currentSchemaVersion = 1
     public static let heartbeatInterval: TimeInterval = 30
-    public static let staleThreshold: TimeInterval = 90
+    /// A remote lock is considered stale after 3 missed heartbeats (tolerate 2 dropped beats).
+    public static let staleThreshold: TimeInterval = heartbeatInterval * 3
 
     /// Decide what to do given the existing lock (if any) and our environment.
     /// `isPidAlive(pid, recordedStartTime)` is supplied by the App layer.
@@ -69,6 +74,7 @@ public enum LibraryOpenLockOutcome: Equatable, Sendable {
 extension LibraryOpenLock {
     public static let fileName = ".openlock.json"
 
+    /// `bundleURL` is the `.stacknest` package directory itself; the lock lives INSIDE the bundle.
     public static func lockFileURL(bundleURL: URL) -> URL {
         bundleURL.appending(path: fileName)
     }
@@ -76,7 +82,11 @@ extension LibraryOpenLock {
     public static func readLock(bundleURL: URL) -> LibraryOpenLockInfo? {
         let url = lockFileURL(bundleURL: bundleURL)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONDecoder().decode(LibraryOpenLockInfo.self, from: data)  // corrupt → nil → treated as stale
+        // Decode failure → nil → treated as absent/stale (acquirable). Forward-compat hazard:
+        // a newer schemaVersion lock an older build cannot decode is treated as absent, so an
+        // older build may reclaim it. Discriminating decode (read schemaVersion first) is a
+        // conscious deferral, out of scope for now.
+        return try? JSONDecoder().decode(LibraryOpenLockInfo.self, from: data)
     }
 
     private static func write(_ info: LibraryOpenLockInfo, bundleURL: URL) -> Bool {
@@ -91,6 +101,9 @@ extension LibraryOpenLock {
 
     /// Read+evaluate+write. Writes our lock when acquirable/held; returns `.conflict` otherwise,
     /// and `.unprotected` when the lock file cannot be written.
+    ///
+    /// Advisory only: the read→write window is NOT atomic, so two near-simultaneous opens on a
+    /// shared volume can race past each other. This is a best-effort conflict warning, not a hard mutex.
     public static func acquire(
         bundleURL: URL,
         ourInfo: LibraryOpenLockInfo,
