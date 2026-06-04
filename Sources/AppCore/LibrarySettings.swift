@@ -502,3 +502,53 @@ public final class LibrarySettings {
         }
     }
 }
+
+// MARK: - Label resolvers (A22/A23)
+
+public extension LibrarySettings {
+    /// カスタマイズ対象フィールドの dbColumn 名。これ以外は常に正準ラベル。
+    /// - BookColumn: genre / neta / keyword_a / keyword_b（keywordC は BookColumn 未定義）
+    /// - StampField / BrowseField: 上記 + keyword_c も対象
+    static let customizableFieldKeys: Set<String> =
+        ["genre", "neta", "keyword_a", "keyword_b", "keyword_c"]
+
+    /// 列ラベル。対象フィールドのみカスタム、それ以外は正準（localizedTitleString）。
+    func label(for column: BookColumn) -> String {
+        let key = column.rawValue   // BookColumn の rawValue は dbColumn と一致（genre/neta/keyword_a/keyword_b）
+        guard Self.customizableFieldKeys.contains(key) else { return column.localizedTitleString }
+        return effectiveLabel(default: column.localizedTitleString, override: customFieldLabels[key])
+    }
+
+    /// スタンプペインのフィールドラベル。
+    func stampLabel(for field: StampField) -> String {
+        effectiveLabel(default: field.localizedTitle, override: customFieldLabels[field.dbColumn])
+    }
+
+    /// ブラウズペインのフィールドラベル（String 版。SwiftUI では Text(_:) に渡す）。
+    func browseLabel(for field: BrowserPaneState.BrowseField) -> String {
+        let key = field.sqlColumn
+        let canonical = Self.browseDefaultString(field)
+        guard Self.customizableFieldKeys.contains(key) else { return canonical }
+        return effectiveLabel(default: canonical, override: customFieldLabels[key])
+    }
+
+    /// bookType ラベル（0..5）。
+    func bookTypeLabel(_ raw: Int) -> String {
+        effectiveLabel(default: BookTypeLabel.canonicalLabel(for: raw), override: customBookTypeLabels[String(raw)])
+    }
+}
+
+private extension LibrarySettings {
+    /// BrowseField の正準ラベル（String）。LocalizedStringKey を文字列化するための対応表。
+    static func browseDefaultString(_ field: BrowserPaneState.BrowseField) -> String {
+        switch field {
+        case .genre:    return String(localized: "ジャンル")
+        case .series:   return String(localized: "シリーズ")
+        case .author:   return String(localized: "作者")
+        case .neta:     return String(localized: "関連")
+        case .keywordA: return String(localized: "キーワード A")
+        case .keywordB: return String(localized: "キーワード B")
+        case .keywordC: return String(localized: "キーワード C")
+        }
+    }
+}
