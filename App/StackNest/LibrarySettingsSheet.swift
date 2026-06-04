@@ -87,6 +87,8 @@ struct LibrarySettingsSheet: View {
 
             lockSection()
 
+            labelSection()
+
             metadataSection()
 
             storageSection()
