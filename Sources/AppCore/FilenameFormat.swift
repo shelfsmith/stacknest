@@ -22,7 +22,12 @@ public enum FormatToken: String, CaseIterable, Sendable {
     public var rawSyntax: String { "@" + rawValue }
 
     /// Returns the value of the corresponding field on the record, or nil if empty/missing.
-    public func value(in record: BookRecord) -> String? {
+    ///
+    /// - Parameter bookTypeLabels: Optional override map (bookType Int → label String).
+    ///   When a key matches `record.bookType`, the override label is used instead of the
+    ///   canonical label. Defaults to empty (canonical labels only). Pass
+    ///   `LibrarySettings.bookTypeLabelOverrides` for WYSIWYG filename generation.
+    public func value(in record: BookRecord, bookTypeLabels: [Int: String] = [:]) -> String? {
         let raw: String?
         switch self {
         case .title:    raw = record.title
@@ -32,7 +37,9 @@ public enum FormatToken: String, CaseIterable, Sendable {
         case .keywordB: raw = record.keywordB
         // Stackroom legacy: "Relation" field is stored as `neta` column (Phase 2.4 schema decision)
         case .relation: raw = record.neta
-        case .type:     raw = BookTypeLabel.label(for: record.bookType)
+        case .type:
+            // Use custom override if provided; fall back to canonical label for in-range types.
+            raw = bookTypeLabels[record.bookType] ?? BookTypeLabel.label(for: record.bookType)
         }
         guard let s = raw, !s.isEmpty else { return nil }
         return s

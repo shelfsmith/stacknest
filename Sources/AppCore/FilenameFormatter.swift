@@ -6,24 +6,37 @@ public enum FilenameFormatter {
     /// Renders a BookRecord to a filename (without extension) using the given format.
     /// Empty bracketGroups (whose tokens all evaluate to nil) are omitted entirely.
     /// Trailing/leading whitespace and consecutive whitespace are collapsed.
-    public static func format(_ record: BookRecord, with format: FilenameFormat) -> String {
+    ///
+    /// - Parameter bookTypeLabels: Optional override map (bookType Int → label String) used to
+    ///   resolve the `@type` token. Pass `LibrarySettings.bookTypeLabelOverrides` for WYSIWYG
+    ///   filename generation that reflects user-customized bookType labels.
+    ///   Defaults to empty (canonical labels only); existing callers need no changes.
+    public static func format(
+        _ record: BookRecord,
+        with format: FilenameFormat,
+        bookTypeLabels: [Int: String] = [:]
+    ) -> String {
         var result = ""
         for seg in format.segments {
-            result += render(seg, record: record)
+            result += render(seg, record: record, bookTypeLabels: bookTypeLabels)
         }
         return collapseWhitespace(sanitize(result))
     }
 
-    private static func render(_ seg: FormatSegment, record: BookRecord) -> String {
+    private static func render(
+        _ seg: FormatSegment,
+        record: BookRecord,
+        bookTypeLabels: [Int: String]
+    ) -> String {
         switch seg {
         case .literal(let s):
             return s
         case .token(let t):
-            return t.value(in: record) ?? ""
+            return t.value(in: record, bookTypeLabels: bookTypeLabels) ?? ""
         case .bracketGroup(let open, let body, let close):
             // Group is omitted iff every token in body resolves to nil
-            if bodyHasAnyValue(body, record: record) {
-                let inner = body.map { render($0, record: record) }.joined()
+            if bodyHasAnyValue(body, record: record, bookTypeLabels: bookTypeLabels) {
+                let inner = body.map { render($0, record: record, bookTypeLabels: bookTypeLabels) }.joined()
                 return String(open) + inner + String(close)
             } else {
                 return ""
@@ -31,15 +44,19 @@ public enum FilenameFormatter {
         }
     }
 
-    private static func bodyHasAnyValue(_ segs: [FormatSegment], record: BookRecord) -> Bool {
+    private static func bodyHasAnyValue(
+        _ segs: [FormatSegment],
+        record: BookRecord,
+        bookTypeLabels: [Int: String]
+    ) -> Bool {
         for s in segs {
             switch s {
             case .literal:
                 continue
             case .token(let t):
-                if t.value(in: record) != nil { return true }
+                if t.value(in: record, bookTypeLabels: bookTypeLabels) != nil { return true }
             case .bracketGroup(_, let inner, _):
-                if bodyHasAnyValue(inner, record: record) { return true }
+                if bodyHasAnyValue(inner, record: record, bookTypeLabels: bookTypeLabels) { return true }
             }
         }
         return false

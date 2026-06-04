@@ -89,7 +89,8 @@ struct LibraryBrowserView: View {
                         onComplete: { _ in
                             do { try appState.refreshDisplayedBooks() }
                             catch { appState.error = .unexpected(error) }
-                        }
+                        },
+                        bookTypeLabelOverrides: appState.librarySettings?.bookTypeLabelOverrides ?? [:]
                     )
                 }
             }

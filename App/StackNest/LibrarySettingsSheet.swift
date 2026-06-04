@@ -238,8 +238,9 @@ struct LibrarySettingsSheet: View {
     private func updatePreview(_ raw: String) {
         do {
             let format = try FilenameFormat(raw: raw)
+            let overrides = settings.bookTypeLabelOverrides
             samplePreview = Self.sampleRecords.map { record in
-                let name = FilenameFormatter.format(record, with: format)
+                let name = FilenameFormatter.format(record, with: format, bookTypeLabels: overrides)
                 return "  • \(name)"
             }
             formatError = nil

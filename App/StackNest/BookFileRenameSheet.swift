@@ -10,6 +10,9 @@ struct BookFileRenameSheet: View {
     let format: FilenameFormat
     let database: Database
     let onComplete: ([Int]) -> Void
+    /// Custom bookType label overrides for WYSIWYG @type token rendering.
+    /// Pass `LibrarySettings.bookTypeLabelOverrides`; defaults to canonical labels.
+    var bookTypeLabelOverrides: [Int: String] = [:]
     @Environment(\.dismiss) private var dismiss
 
     private struct PreviewRow: Identifiable {
@@ -28,7 +31,7 @@ struct BookFileRenameSheet: View {
             let ext = url.pathExtension
             let oldName = url.lastPathComponent
             let bookRecord = book.toRecord()
-            let baseName = FilenameFormatter.format(bookRecord, with: format)
+            let baseName = FilenameFormatter.format(bookRecord, with: format, bookTypeLabels: bookTypeLabelOverrides)
             let finalName = ext.isEmpty ? baseName : "\(baseName).\(ext)"
             let newURL = url.deletingLastPathComponent().appendingPathComponent(finalName)
             let exists = FileManager.default.fileExists(atPath: newURL.path) && newURL.path != url.path

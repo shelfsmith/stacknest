@@ -536,6 +536,15 @@ public extension LibrarySettings {
     func bookTypeLabel(_ raw: Int) -> String {
         effectiveLabel(default: BookTypeLabel.canonicalLabel(for: raw), override: customBookTypeLabels[String(raw)])
     }
+
+    /// ファイル名生成 `@type` 用の bookType カスタムラベル（Int キー・空値除外）。
+    /// `FilenameFormatter.format(_:with:bookTypeLabels:)` に渡すことで WYSIWYG を実現する。
+    var bookTypeLabelOverrides: [Int: String] {
+        Dictionary(uniqueKeysWithValues: customBookTypeLabels.compactMap { key, value in
+            guard let i = Int(key), !value.isEmpty else { return nil }
+            return (i, value)
+        })
+    }
 }
 
 private extension LibrarySettings {
