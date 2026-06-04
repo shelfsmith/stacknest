@@ -39,7 +39,7 @@ struct LibraryUnlockSheet: View {
                 .onSubmit { tryPassword() }
 
             if showPasswordHint {
-                Text("このマシンでの生体認証を有効にするため、パスワードの入力が必要です")
+                Text("この Mac で生体認証を有効にするため、パスワードの入力が必要です")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -56,7 +56,7 @@ struct LibraryUnlockSheet: View {
                     Button(action: tryBiometric) {
                         let label: String = {
                             switch biometricInfo.kind {
-                            case .touchID: return "Touch ID で解錠"
+                            case .touchID: return "Touch ID / Apple Watch で解錠"
                             case .appleWatch: return "Apple Watch で解錠"
                             default: return "生体認証で解錠"
                             }

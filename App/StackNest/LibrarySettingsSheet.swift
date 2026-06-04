@@ -270,16 +270,21 @@ struct LibrarySettingsSheet: View {
             BiometricArming.disarm(settings)
             if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
         } else if !passwordInput.isEmpty && passwordInput == passwordConfirm {
+            // 新ハッシュで上書きする前に「新規設定 or 変更」を判定する。
+            let isChange = settings.lockPasswordHash != nil
             let salt = LibraryLock.generateSalt()
             let hash = LibraryLock.computeHash(password: passwordInput, saltHex: salt)
             settings.lockPasswordHash = hash
             settings.lockPasswordSalt = salt
             settings.useBiometric = useBiometricInput
-            settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput)")
-            if useBiometricInput {
-                // この Mac をアーム（平文は保存しない。armedHash = 新ハッシュ）。
+            settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput), isChange=\(isChange)")
+            if useBiometricInput && !isChange {
+                // 新規設定: この Mac を即アーム（次回から生体のみで解錠。平文は保存しない＝armedHash は新ハッシュ）。
                 BiometricArming.arm(settings, hash: hash)
             } else {
+                // パスワード変更時（isChange）または生体認証 OFF: アーム解除。
+                // 変更時は同一 Mac でも次回 1 回だけ新パスワードの再入力を求め、解錠シートの
+                // requirePassword 経路（入力成功 → armThisMachine）で再アームされる。
                 BiometricArming.disarm(settings)
             }
             if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }

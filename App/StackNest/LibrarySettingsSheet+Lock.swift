@@ -95,7 +95,7 @@ extension LibrarySettingsSheet {
             return "この Mac では生体認証 / Apple Watch が利用できません。パスワードのみで解錠されます。"
         }
         switch kind {
-        case .touchID: return "Touch ID で解錠できます"
+        case .touchID: return "Touch ID / Apple Watch で解錠できます"
         case .appleWatch: return "Apple Watch で解錠できます"
         default: return "生体認証で解錠できます"
         }
