@@ -389,6 +389,12 @@ struct LibraryWindowContainer: View {
                             salt: settings?.lockPasswordSalt ?? "",
                             hash: settings?.lockPasswordHash ?? "",
                             useBiometric: settings?.useBiometric ?? false,
+                            armedHash: { BiometricArming.armedHash(for: settings) },
+                            armThisMachine: {
+                                BiometricArming.arm(settings, hash: settings?.lockPasswordHash ?? "")
+                                // 2.6g 以前の plaintext Keychain item を除去（one-shot、no-throw）
+                                if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
+                            },
                             onUnlock: { unlocked = true },
                             onCancel: {
                                 if let url = bundleURL {
