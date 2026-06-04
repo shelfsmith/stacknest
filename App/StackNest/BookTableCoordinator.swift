@@ -196,6 +196,15 @@ final class BookTableCoordinator: NSObject {
         let desiredCols = visibleColumns
         if currentCols != desiredCols {
             installColumns(in: table)
+        } else {
+            // 列セットは不変でも、カスタムラベル変更を既存列ヘッダに反映する。
+            // installColumns は列セット変更時のみ走るため、表示名だけの変更はここで拾う。
+            // .title のみ更新（identifier / sortDescriptorPrototype / width / 列順は保持）。
+            for nsCol in table.tableColumns {
+                guard let bookCol = BookColumn(rawValue: nsCol.identifier.rawValue) else { continue }
+                let newTitle = settings.label(for: bookCol)
+                if nsCol.title != newTitle { nsCol.title = newTitle }
+            }
         }
     }
 
