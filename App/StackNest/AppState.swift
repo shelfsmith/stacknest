@@ -120,6 +120,17 @@ final class AppState {
     /// loads initial state. Throws if bundle is corrupt.
     func openBundle() throws {
         try bundle.validate()
+        // Finder-locked (user-immutable) / read-only libraries can't run migrations
+        // (SQLite must write a journal/WAL); surface a clear localized error instead of
+        // a cryptic SQLite "unable to open database file" message.
+        let fm = FileManager.default
+        let dirImmutable = (try? bundle.url.resourceValues(forKeys: [.isUserImmutableKey]).isUserImmutable) ?? false
+        let dbImmutable = (try? bundle.databaseURL.resourceValues(forKeys: [.isUserImmutableKey]).isUserImmutable) ?? false
+        if dirImmutable || dbImmutable
+            || !fm.isWritableFile(atPath: bundle.url.path(percentEncoded: false))
+            || !fm.isWritableFile(atPath: bundle.databaseURL.path(percentEncoded: false)) {
+            throw LibraryOpenError.readOnly(bundle.url)
+        }
         let db = try Database.openExisting(at: bundle.databaseURL)
         try db.migrate()  // ensures v8 applied
         self.favoritesShelfID = try db.ensureFavoritesShelf()

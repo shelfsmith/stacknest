@@ -548,7 +548,7 @@ struct FileCommands: Commands {
                             // appendLastOpenedBundleURL は LibraryWindowContainer.openBundleIfNeeded に集約済 (Phase 2.5f)
                             openWindow(value: bundleURL)
                         } catch {
-                            NSAlert.presentError(error, title: "Failed to open library")
+                            NSAlert.presentError(error, title: "ライブラリを開けませんでした")
                         }
                     }
                 }
@@ -760,7 +760,7 @@ struct ErrorView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
                 .foregroundColor(.red)
-            Text("Failed to Open Library")
+            Text("ライブラリを開けませんでした")
                 .font(.headline)
             Text(error.localizedDescription)
                 .font(.body)
@@ -777,7 +777,7 @@ extension NSAlert {
     /// Present an error alert to the user.
     static func presentError(
         _ error: Error?,
-        title: String = "Error",
+        title: String = "エラー",
         message: String? = nil
     ) {
         let alert = NSAlert()
@@ -789,7 +789,7 @@ extension NSAlert {
         } else if let error = error {
             alert.informativeText = error.localizedDescription
         } else {
-            alert.informativeText = "An unknown error occurred"
+            alert.informativeText = "不明なエラーが発生しました"
         }
 
         alert.addButton(withTitle: "OK")

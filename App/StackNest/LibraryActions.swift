@@ -41,7 +41,7 @@ enum LibraryActions {
                     try bundle.validate()
                     onOpen(bundleURL)
                 } catch {
-                    onError(error, "Failed to open library")
+                    onError(error, "ライブラリを開けませんでした")
                 }
             }
         }

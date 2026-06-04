@@ -61,9 +61,12 @@ final class LibraryOpenLockManager {
     }
 
     func release(bundleURL: URL) {
+        let hadTimer = timers[bundleURL] != nil
         timers[bundleURL]?.invalidate()
         timers[bundleURL] = nil
         LibraryOpenLock.release(bundleURL: bundleURL, instanceUUID: instanceUUID)
+        // Balance the disableSuddenTermination() taken in startHeartbeat for this held lock.
+        if hadTimer { ProcessInfo.processInfo.enableSuddenTermination() }
     }
 
     func releaseAll() {
@@ -72,6 +75,7 @@ final class LibraryOpenLockManager {
     }
 
     private func startHeartbeat(bundleURL: URL) {
+        let isNew = timers[bundleURL] == nil
         timers[bundleURL]?.invalidate()
         let t = Timer.scheduledTimer(withTimeInterval: LibraryOpenLock.heartbeatInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -80,11 +84,14 @@ final class LibraryOpenLockManager {
                                                       now: Date().timeIntervalSince1970)
                 if !alive {
                     Self.logger.warning("Lost lock ownership for \(bundleURL.lastPathComponent, privacy: .public); stopping heartbeat")
-                    self.timers[bundleURL]?.invalidate(); self.timers[bundleURL] = nil
+                    self.release(bundleURL: bundleURL)   // clears timer + re-enables sudden termination; on-disk release no-ops (not ours)
                 }
             }
         }
         timers[bundleURL] = t
+        // Hold off macOS sudden termination while we own a lock, so applicationWillTerminate
+        // (→ releaseAll) is guaranteed to run on ⌘Q and delete the lock file.
+        if isNew { ProcessInfo.processInfo.disableSuddenTermination() }
     }
 
     // MARK: - Environment helpers
