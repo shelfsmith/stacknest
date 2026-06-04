@@ -353,10 +353,13 @@ struct LibraryWindowContainer: View {
                     }
                 }
             }
-            .onChange(of: bundleURL) { _, _ in
-                Task {
-                    await openBundleIfNeeded()
+            .onChange(of: bundleURL) { oldURL, _ in
+                if let oldURL {
+                    appState?.closeBundle()
+                    LibraryOpenLockManager.shared.release(bundleURL: oldURL)
+                    OpenLibraryRegistry.shared.unregister(oldURL)
                 }
+                Task { await openBundleIfNeeded() }
             }
             .onDisappear {
                 if let url = bundleURL {
@@ -490,6 +493,7 @@ struct LibraryWindowContainer: View {
             }
         } catch {
             self.error = error
+            LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
             OpenLibraryRegistry.shared.unregister(bundleURL)
         }
     }
@@ -499,10 +503,10 @@ struct LibraryWindowContainer: View {
     @MainActor
     static func confirmForceOpen(bundleName: String, holder: LibraryOpenLockInfo) -> Bool {
         let sameHost = holder.hostUUID == LibraryOpenLockManager.shared.currentHostUUIDString
-        let where_ = sameHost ? "別のプロセス" : "別の Mac（\(holder.hostName)）"
+        let location = sameHost ? "別のプロセス" : "別の Mac（\(holder.hostName)）"
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "「\(bundleName)」は\(where_)で開かれています"
+        alert.messageText = "「\(bundleName)」は\(location)で開かれています"
         alert.informativeText = "同時に開くとデータベースが破損する恐れがあります。通常は開かないことを強く推奨します。"
         alert.addButton(withTitle: "開かない")                 // default (return .alertFirstButtonReturn)
         alert.addButton(withTitle: "強制的に開く（危険）")
