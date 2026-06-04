@@ -95,6 +95,11 @@ public final class LibrarySettings {
     public var useBiometric: Bool {
         didSet { persistUseBiometric() }
     }
+    /// ライブラリの安定識別子。per-machine の生体認証アーム状態のキーに使う。
+    /// 読み取り専用に公開し、生成は `ensureLibraryUUID()` 経由（遅延生成）。
+    /// - Note: 他プロパティと異なり `didSet` を持たない。書き込みは `ensureLibraryUUID()`
+    ///   内でのみ行われ、そこで直接永続化されるため（didSet 永続化との二重化を避ける）。
+    public private(set) var libraryUUID: String?
     /// Per-column widths for the list view (key = BookColumn.rawValue, value = width in points).
     /// Persisted as JSON in library_settings. Restored when the bundle is opened.
     public var columnWidths: [String: Double] {
@@ -127,6 +132,7 @@ public final class LibrarySettings {
     private static let lockHashKey = "lock_password_hash"
     private static let lockSaltKey = "lock_password_salt"
     private static let useBiometricKey = "lock_use_biometric"
+    private static let libraryUUIDKey = "library_uuid"
     private static let columnWidthsKey = "columnWidths"
     private static let stampDefinitionsKey = "stamp_definitions"
     private static let gridItemSizeKey = "grid_item_size"
@@ -219,6 +225,7 @@ public final class LibrarySettings {
         self.lockPasswordHash = try database.getLibrarySetting(key: Self.lockHashKey)
         self.lockPasswordSalt = try database.getLibrarySetting(key: Self.lockSaltKey)
         self.useBiometric = (try database.getLibrarySetting(key: Self.useBiometricKey)) == "true"
+        self.libraryUUID = try database.getLibrarySetting(key: Self.libraryUUIDKey)
         // Load columnWidths. Decode failure (first launch or corrupt data) starts with empty map.
         if let json = try database.getLibrarySetting(key: Self.columnWidthsKey),
            let data = json.data(using: .utf8),
@@ -256,6 +263,21 @@ public final class LibrarySettings {
         } else {
             self.sortMode = Self.defaultSortMode
         }
+    }
+
+    /// libraryUUID が無ければ生成して永続化し、返す。読み取り経路では呼ばないこと。
+    public func ensureLibraryUUID() -> String {
+        if let existing = libraryUUID { return existing }
+        let new = UUID().uuidString
+        do {
+            try database.setLibrarySetting(key: Self.libraryUUIDKey, value: new)
+            libraryUUID = new
+        } catch {
+            Self.logger.error("Failed to persist libraryUUID: \(error.localizedDescription, privacy: .public)")
+            // 永続化に失敗しても呼び出し元には new を返す。libraryUUID は更新しないため
+            // 次回呼び出しで再試行される（アーム失敗時はパスワード要求にフォールバック）。
+        }
+        return new
     }
 
     public func toggleColumn(_ col: BookColumn) {
