@@ -7,7 +7,7 @@
 A Swift-native, Apple Silicon image library manager compatible with the original
 [Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) library format.
 
-> **Status:** Pre-alpha (Phase 2.6c — first-run wizard: built-in vs external viewer choice, built-in viewer initial settings, first library creation. Built-in viewer extensions: two-page spread, per-book page direction, slideshow, resume reading, full-screen, HEIC/AVIF support. Library CRUD / lock / stamp pane / multi-value filtering / full-text search / smart shelves / grid & list keyboard navigation).
+> **Status:** Pre-alpha (Phase 2.7 in progress — duplicate detection, field / bookType label customization, large-scale sort optimization, and a viewer key-rebinding UI are implemented. Plus the first-run wizard, built-in viewer extensions [two-page spread, per-book page direction, slideshow, resume reading, full-screen, HEIC/AVIF], library CRUD / lock / stamp pane / multi-value filtering / full-text search / smart shelves / keyboard navigation).
 
 ## What is this
 
@@ -48,7 +48,11 @@ re-implemented from observation.
 - **Multi-value fields**: genre / author / keyword A / B / C are stored as comma-separated values and can be filtered by each individual value in the Browser pane
 - **Smart shelves**: dynamic collections from rule lists (N conditions × AND/OR × 4 match types), with an Apple Mail–style condition editor; imported Stackroom smart playlists are evaluated dynamically too
 - **Stamp pane**: user-defined chips (5 columns: clear / value / new-add) for batch-applying attributes to multiple books
-- **Built-in viewer**: dedicated window / full-screen viewing with a unified pipeline for zip/cbz/cbr/7z, folders, single images, and PDF. Fit-to-window (=), pinch / ＋− zoom, drag panning, left/right zone-click + arrow + Space paging, digit keys 0–9 to jump by position (0=start … 9=90%), Tab / ⇧Tab to skip multiple pages. **Two-page spread** (global default ON/OFF + per-book override; cover-alone and auto-solo for wide pages, W), **per-book page direction** (right-to-left / left-to-right, 2-way toggle in Detail and r in the viewer), **slideshow** (auto-advance, s), **resume reading** (per-book last page & spread state persisted), **end-of-book behavior** (stop / next volume / loop, e) with previous/next volume nav ([ / ]), an **open-in-full-screen** setting, and a key-binding help overlay (? / h). Minimal bottom HUD (progress). Built-in vs. external viewer is switchable in settings
+- **Duplicate detection**: finds same-content books in different directories by SHA-256 byte equality (plus series + volume match). A resolution sheet offers "remove entry only" / "also move file to Trash" and per-group ignore
+- **Label customization**: content fields (genre / neta / keyword A / B / C) and the 6 bookType labels can be renamed per-library, reflected consistently across all surfaces (column headers / sort / Detail / stamps / filters / smart shelves)
+- **Viewer key rebinding**: Settings ▸ Keys lets you remap every built-in viewer action to any key (conflicts are rejected; per-row / global reset; the help table reflects the current bindings)
+- **Large-library performance**: sorting is optimized for thousands–tens of thousands of items (precomputed ICU collation keys speed up the re-sort that runs on every list refresh)
+- **Built-in viewer**: dedicated window / full-screen viewing with a unified pipeline for zip/cbz/cbr/7z, folders, single images, and PDF. Fit-to-window (=), pinch / ＋− zoom, drag panning, left/right zone-click + arrow + Space paging, digit keys 0–9 to jump by position (0=start … 9=90%), Tab / ⇧Tab to skip multiple pages. **Two-page spread** (global default ON/OFF + per-book override; cover-alone and auto-solo for wide pages, W), **per-book page direction** (right-to-left / left-to-right, 2-way toggle in Detail and r in the viewer), **slideshow** (auto-advance, s), **resume reading** (per-book last page & spread state persisted), **end-of-book behavior** (stop / next volume / loop, e) with previous/next volume nav ([ / ]), an **open-in-full-screen** setting, and a key-binding help overlay (? / h). **All viewer keys are fully remappable in Settings ▸ Keys.** Minimal bottom HUD (progress). Built-in vs. external viewer is switchable in settings
 - **File operations**: add / remove from library / ⌫ remove / ⌘⌫ trash / ⇧⌘R rename / ⌘D file move, each with confirmation dialogs
 - **Keyboard navigation**: grid / list arrows, Shift+arrows (range select), ⌘↑↓, Home/End, PageUp/Down, Enter to open
 - **Grid item size**: per-library persisted slider
@@ -62,6 +66,20 @@ re-implemented from observation.
 - macOS 14 Sonoma or later (macOS 26 Tahoe is the primary target)
 - Apple Silicon native (Universal Binary also produced for x86_64)
 - Xcode 26+ to build from source
+
+## Installation (release builds)
+
+Releases are distributed as **ad-hoc-signed Universal builds produced by CI** (not Apple-notarized). Download `StackNest.app` (zip) from [Releases](https://github.com/shelfsmith/stacknest/releases) and move it to `/Applications` (or anywhere).
+
+Because ad-hoc-signed apps are blocked by Gatekeeper, open it **once** with either of the following (subsequent launches are normal double-clicks):
+
+- **Option A (recommended)**: in Finder, **right-click `StackNest.app` → Open**, then click "Open" again in the warning dialog.
+- **Option B (Terminal)**: remove the quarantine attribute, then launch:
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/StackNest.app
+  ```
+
+> ⚠️ Ad-hoc signing does not vouch for a verified developer. Install only from a source you trust (this repo's Releases). Apple notarization is under consideration for the future. To build it yourself, see "Build" below.
 
 ## Repository structure
 
@@ -187,12 +205,13 @@ Development proceeds in incremental phases. Summary:
 | **2.6a** | **Smart shelves MVP** (rule-based collections) | ✅ Done |
 | **2.6b** | **Built-in viewer core MVP** (full-screen, fit / zoom / pan, paging; PDF / archive / folder / single image) | ✅ Done |
 | **2.6b-2** | **Built-in viewer extensions** (two-page spread, per-book page direction, slideshow auto-advance, resume reading, end-of-book next / loop, open-in-full-screen, HEIC / HEIF / TIFF / AVIF support) | ✅ Done |
-| **2.6c** | **First-run wizard** (built-in vs external viewer choice, built-in viewer initial settings, first library creation, re-show from Settings) | ✅ Done (this release) |
-| 2.7 | Polish & performance (large-scale optimization, dedup, label customization, 90° rotation, full viewer-key remapping UI, etc.) | ⏳ Planned |
-| 3.0 | Stable release | ⏳ Planned |
+| **2.6c** | **First-run wizard** (built-in vs external viewer choice, built-in viewer initial settings, first library creation, re-show from Settings) | ✅ Done |
+| 2.7 | Polish & performance (duplicate detection, label customization, sort optimization, viewer key-rebinding UI ✅ / naming-format presets and others in progress) | 🔄 In progress |
 | 4.0 | Server / client (remote viewing, screen-size-aware image delivery) | 🔭 Future |
 
-Legend: ✅ done / ⏳ planned / 🔭 future
+Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
+
+> Phase 3 (the stable-release ceremony) was dismantled in favor of a personal-use, non-redistribution policy; its completed items (icon / branding, etc.) were absorbed into earlier phases.
 
 ## License
 
