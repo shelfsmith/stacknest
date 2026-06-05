@@ -32,8 +32,9 @@ struct SortBySeriesVolumeIdentityTests {
         }
     }
 
-    @Test func matchesReferenceOnRandomData() {
-        var rng = SplitMix64(seed: 33)
+    @Test(arguments: [33, 42, 99] as [UInt64])
+    func matchesReferenceOnRandomData(seed: UInt64) {
+        var rng = SplitMix64(seed: seed)
         let seriesPool: [String?] = ["シリーズ2","シリーズ10","シリーズ1","アキラ","ワンピース","ABC","abc",nil]
         let books = (1...500).map { id -> BookRow in
             let s = seriesPool[Int(rng.next() % UInt64(seriesPool.count))]
