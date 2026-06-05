@@ -178,6 +178,13 @@ struct SettingsView: View {
                 Label("取り込み", systemImage: "tray.and.arrow.down")
             }
             .tag(2)
+
+            // MARK: - Tab 4: キー
+            KeyBindingsSettingsView()
+                .tabItem {
+                    Label("キー", systemImage: "keyboard")
+                }
+                .tag(3)
         }
         // 横は 460pt 完全固定。縦は SettingsWindowFixedSize 側でアクティブタブの
         // フィット高さに追従させる (grow / shrink 両方向)。
