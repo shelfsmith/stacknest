@@ -46,8 +46,15 @@ private enum Collators {
 
 // MARK: - Public API
 
-/// localized 照合キー。バイト辞書比較（`lexicographicallyPrecedes` / `==`）の結果が
-/// `localized*Compare` と一致するバイナリキーを返す。
+/// localized 照合キー（ICU `ucol_getSortKey`）。バイト辞書比較
+/// （`lexicographicallyPrecedes` / `==`）の結果が、**現実的な書誌データに対しては**
+/// `localized*Compare` と完全一致するバイナリキーを返す。
+///
+/// 既知の乖離（ユーザー判断 2026-06-05「ICUキー採用」で容認）: ICU キーは
+/// 合成リガチャ（ﬀ ﬁ ½ Ⅷ）・20桁超の数字列・分解かな+結合文字 といった病的入力では
+/// `localized*Compare` をバイト厳密再現できず順序が異なり得る（書誌タイトルには出現しない）。
+/// これは O(n log n) 回の ICU 照合呼び出しを O(n) のキー前計算 + 安価なバイト比較に
+/// 置換するための代償。詳細は `LocalizedSortKeyTests` のコメント参照。
 ///
 /// - Parameters:
 ///   - s: 対象文字列
