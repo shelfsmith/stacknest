@@ -31,6 +31,14 @@ struct DuplicateResolutionSheet: View {
             case .idle:
                 Text("ライブラリ内の重複を検出します。完全一致（同一ファイル）と、シリーズ+巻数が一致する「同一の可能性」を表示します。")
                     .foregroundStyle(.secondary)
+                if !settings.ignoredDuplicateKeys.isEmpty {
+                    HStack {
+                        Text("無視中の重複 \(settings.ignoredDuplicateKeys.count) 件は検出結果に表示されません。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Button("無視をすべて解除") { settings.ignoredDuplicateKeys = [] }
+                            .controlSize(.small)
+                    }
+                }
                 HStack { Spacer()
                     Button("キャンセル") { dismiss() }
                     Button("検出開始") { startScan() }.keyboardShortcut(.defaultAction)
@@ -81,6 +89,13 @@ struct DuplicateResolutionSheet: View {
         let keepID = keepByGroup[group.key] ?? group.members.first?.id
         GroupBox {
             VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    Image(systemName: confident ? "checkmark.seal.fill" : "questionmark.circle")
+                        .foregroundStyle(confident ? Color.green : Color.orange)
+                    Text(confident ? "完全一致（同一ファイル）" : "同一の可能性（要確認）")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                }
                 ForEach(group.members) { b in
                     HStack {
                         Image(systemName: b.id == keepID ? "largecircle.fill.circle" : "circle")
@@ -137,9 +152,11 @@ struct DuplicateResolutionSheet: View {
                 try? fm.trashItem(at: URL(fileURLWithPath: p), resultingItemURL: nil)
             }
         }
-        // 2) 登録削除（既存の削除経路: DB 行 + Thumbnails、undo 対応）
+        // 2) 登録削除（既存の削除経路: DB 行 + Thumbnails、undo 対応）。
+        //    シートの confirmationDialog で件数提示つき確認済みのため confirm:false（二重確認回避）。
         BookDeleteCommand.deleteFromLibrary(bookIDs: deleteIDs, database: database,
-                                            bundleURL: bundleURL, appState: appState, undoManager: undoManager)
+                                            bundleURL: bundleURL, appState: appState, undoManager: undoManager,
+                                            confirm: false)
         dismiss()
     }
 }

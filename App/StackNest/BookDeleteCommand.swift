@@ -30,9 +30,11 @@ public enum BookDeleteCommand {
         database: Database,
         bundleURL: URL,
         appState: AppState? = nil,
-        undoManager: UndoManager? = nil
+        undoManager: UndoManager? = nil,
+        confirm: Bool = true
     ) {
-        if AppPreferences.confirmDeleteFromLibrary {
+        // confirm=false: 呼び出し側で既に件数提示つき確認済み（重複検出シート等）。二重確認を避ける。
+        if confirm && AppPreferences.confirmDeleteFromLibrary {
             let alert = NSAlert()
             alert.messageText = "選択した \(bookIDs.count) 件をライブラリから削除しますか?"
             alert.informativeText = "ファイル本体は保持されます。"
