@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 
+public extension Notification.Name {
+    /// ビューワキー割当が保存されたとき発火（ヘルプ表示などの再読込トリガ）。
+    static let viewerKeyBindingsChanged = Notification.Name("app.shelfsmith.stacknest.viewerKeyBindingsChanged")
+}
+
 /// 内蔵ビューワの操作意図。keyDown / ゾーンクリックはこの値に解決してから実行する。
 /// 将来 rotate / toggleSpread 等を足す拡張点。
 public enum ViewerAction: String, Codable, Sendable, CaseIterable {
@@ -100,7 +105,6 @@ public struct ViewerKeyBindings: Codable, Sendable {
         // keyCode 29 (0) は削除 → characterMap の jumpToPercent0 にフォールスルー
         KeyChord(keyCode: 48): .skipForward,                              // Tab
         KeyChord(keyCode: 48, modifiers: KeyChord.shift): .skipBackward,  // ⇧Tab
-        KeyChord(keyCode: 3, modifiers: KeyChord.command | KeyChord.control): .toggleFullScreen, // ⌃⌘F
         KeyChord(keyCode: 53): .close,                                    // Esc
         KeyChord(keyCode: 13, modifiers: KeyChord.command): .close,       // ⌘W
     ], characterMap: [
@@ -120,6 +124,7 @@ public struct ViewerKeyBindings: Codable, Sendable {
         "?": .showHelp,
         "h": .showHelp,
         "r": .togglePageDirection,
+        "f": .toggleFullScreen,
     ])
 
     // MARK: - 変更・永続（Phase 2.7 キー再割当）
@@ -162,7 +167,14 @@ public struct ViewerKeyBindings: Codable, Sendable {
         return .success(())
     }
 
+    /// Esc（keyCode 53）はキー キャプチャのキャンセルに常用するため再割当不可。
+    /// 既定の「閉じる」に固定し、UI からの削除も無効とする。
+    public static func isFixed(_ capture: CapturedBinding) -> Bool {
+        capture == .chord(KeyChord(keyCode: 53))
+    }
+
     public mutating func remove(_ capture: CapturedBinding, from action: ViewerAction) {
+        if Self.isFixed(capture) { return }
         switch capture {
         case .character(let s): if characterMap[s] == action { characterMap[s] = nil }
         case .chord(let c):     if map[c] == action { map[c] = nil }
@@ -199,6 +211,7 @@ public struct ViewerKeyBindings: Codable, Sendable {
     public func save(_ ud: UserDefaults = .standard) {
         if let data = try? JSONEncoder().encode(self) {
             ud.set(data, forKey: ViewerKeyBindings.userDefaultsKey)
+            NotificationCenter.default.post(name: .viewerKeyBindingsChanged, object: nil)
         }
     }
 }

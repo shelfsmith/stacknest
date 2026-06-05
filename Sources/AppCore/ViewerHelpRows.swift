@@ -12,6 +12,14 @@ public enum ViewerHelpRows {
         }
     }
 
+    /// セクション見出し付きのヘルプ表（HUD オーバーレイ / ヘルプページ共有）。
+    public static func makeGrouped(from bindings: ViewerKeyBindings) -> [(section: String, rows: [(action: String, keys: String)])] {
+        ViewerActionSection.allCases.map { section in
+            (section: section.title,
+             rows: section.actions.map { (action: $0.displayName, keys: keysString(for: $0, in: bindings)) })
+        }
+    }
+
     private static func keysString(for action: ViewerAction, in bindings: ViewerKeyBindings) -> String {
         let parts = bindings.boundBindings(for: action).map { capture -> String in
             switch capture {

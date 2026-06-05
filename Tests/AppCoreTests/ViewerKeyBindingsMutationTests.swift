@@ -72,4 +72,14 @@ struct ViewerKeyBindingsMutationTests {
         let loaded = ViewerKeyBindings.load(ud)
         #expect(loaded.action(for: KeyChord(keyCode: 49)) == .nextPage)
     }
+    @Test func escIsFixedToClose() {
+        #expect(ViewerKeyBindings.isFixed(.chord(KeyChord(keyCode: 53))))
+        #expect(!ViewerKeyBindings.isFixed(.character("f")))
+        #expect(ViewerKeyBindings.defaults.boundBindings(for: .close).contains(.chord(KeyChord(keyCode: 53))))
+    }
+    @Test func removeIgnoresFixedEsc() {
+        var b = ViewerKeyBindings.defaults
+        b.remove(.chord(KeyChord(keyCode: 53)), from: .close)
+        #expect(b.boundBindings(for: .close).contains(.chord(KeyChord(keyCode: 53))), "Esc は固定なので削除されない")
+    }
 }

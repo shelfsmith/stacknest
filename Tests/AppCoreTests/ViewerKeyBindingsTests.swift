@@ -32,7 +32,8 @@ struct ViewerKeyBindingsTests {
         let b = ViewerKeyBindings.defaults
         #expect(b.action(for: KeyChord(keyCode: 53)) == .close)
         #expect(b.action(for: KeyChord(keyCode: 13, modifiers: KeyChord.command)) == .close)
-        #expect(b.action(for: KeyChord(keyCode: 3, modifiers: KeyChord.command | KeyChord.control)) == .toggleFullScreen)
+        #expect(b.action(forCharacter: "f") == .toggleFullScreen)
+        #expect(b.action(for: KeyChord(keyCode: 3, modifiers: KeyChord.command | KeyChord.control)) == nil)
     }
     @Test func unboundChordReturnsNil() {
         #expect(ViewerKeyBindings.defaults.action(for: KeyChord(keyCode: 200)) == nil)

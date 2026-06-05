@@ -27,4 +27,11 @@ struct ViewerHelpRowsTests {
         let rows = ViewerHelpRows.make(from: b)
         #expect(rows.allSatisfy { $0.keys == "—" })
     }
+    @Test func groupedHasAllSectionsAndCoversAllActions() {
+        let grouped = ViewerHelpRows.makeGrouped(from: .defaults)
+        #expect(grouped.count == ViewerActionSection.allCases.count)
+        #expect(grouped.map(\.section) == ViewerActionSection.allCases.map(\.title))
+        let total = grouped.flatMap(\.rows).count
+        #expect(total == ViewerAction.allCases.count)
+    }
 }
