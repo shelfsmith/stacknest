@@ -181,6 +181,18 @@ enum Tables {
         ALTER TABLE book ADD COLUMN page_direction TEXT
         """
 
+    // MARK: - v15 migrations (Phase 2.7 A20/B11: duplicate detection)
+
+    static let migrateV15AddContentHash = """
+        ALTER TABLE book ADD COLUMN content_hash TEXT
+        """
+    static let migrateV15AddFileSize = """
+        ALTER TABLE book ADD COLUMN file_size INTEGER
+        """
+    static let migrateV15AddFileMtime = """
+        ALTER TABLE book ADD COLUMN file_mtime REAL
+        """
+
     // MARK: - v6 migrations (FTS5 rebuild with memo + filter indexes)
 
     static let dropBookFTSTableV4 = "DROP TABLE IF EXISTS book_fts"

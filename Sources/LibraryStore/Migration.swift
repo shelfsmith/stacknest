@@ -50,6 +50,9 @@ enum Migration {
 
         // v14 — per-book page direction TEXT NULL (Phase 2.6b-2 D1), idempotent.
         try migrateV14AddPageDirectionIfNeeded(db: db)
+
+        // v15 — duplicate detection columns (Phase 2.7 A20/B11), idempotent.
+        try migrateV15AddDuplicateColumnsIfNeeded(db: db)
     }
 
     /// Adds `thumbnails_directory_path TEXT` to import_meta if it's not already present.
@@ -226,5 +229,15 @@ enum Migration {
         if !hasColumn {
             try db.execute(sql: Tables.migrateV14AddPageDirection)
         }
+    }
+
+    /// Adds content_hash/file_size/file_mtime columns to book if absent (v15).
+    /// Used by duplicate detection (A20/B11). NULL = not yet computed / not eligible.
+    private static func migrateV15AddDuplicateColumnsIfNeeded(db: GRDB.Database) throws {
+        let info = try Row.fetchAll(db, sql: "PRAGMA table_info(book)")
+        let names = Set(info.compactMap { $0["name"] as? String })
+        if !names.contains("content_hash") { try db.execute(sql: Tables.migrateV15AddContentHash) }
+        if !names.contains("file_size")    { try db.execute(sql: Tables.migrateV15AddFileSize) }
+        if !names.contains("file_mtime")   { try db.execute(sql: Tables.migrateV15AddFileMtime) }
     }
 }
