@@ -41,6 +41,28 @@ struct BookSortIdentityTests {
         #expect(Set(new.map(\.id)) == Set(books.map(\.id)))
     }
 
+    @Test func authorAscMatchesReference() {
+        // 文字列列ルーティングのガード（switch で .author が誤って別列に振られない）
+        var rng = SplitMix64(seed: 33)
+        let books = (1...200).map { mk($0, randomString(&rng)) }
+        let new = books.sortedByColumn(ColumnSort(column: .author, ascending: true))
+        for i in 0..<(new.count - 1) {
+            #expect((new[i].author ?? "").localizedCaseInsensitiveCompare(new[i+1].author ?? "") != .orderedDescending)
+        }
+        #expect(Set(new.map(\.id)) == Set(books.map(\.id)))
+    }
+
+    @Test func seriesAscMatchesReference() {
+        // .series は文字列列（numeric:false）として扱う — このルーティングのガード
+        var rng = SplitMix64(seed: 44)
+        let books = (1...200).map { mk($0, randomString(&rng)) }
+        let new = books.sortedByColumn(ColumnSort(column: .series, ascending: true))
+        for i in 0..<(new.count - 1) {
+            #expect((new[i].series ?? "").localizedCaseInsensitiveCompare(new[i+1].series ?? "") != .orderedDescending)
+        }
+        #expect(Set(new.map(\.id)) == Set(books.map(\.id)))
+    }
+
     @Test func numericColumnUnchanged() {
         // 数値列は従来どおり（rating 降順）
         let books = (0..<3).map { i in
