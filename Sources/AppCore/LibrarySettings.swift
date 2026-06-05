@@ -86,6 +86,11 @@ public final class LibrarySettings {
     public var stampDefinitions: [String: [String]] {
         didSet { persistStampDefinitions() }
     }
+    /// 重複検出で「無視」したグループのキー集合（per-library）。
+    /// key: "exact:<hash>" または "possible:<series>\u{0}<volume>"。
+    public var ignoredDuplicateKeys: Set<String> {
+        didSet { persistIgnoredDuplicateKeys() }
+    }
     /// 内容系フィールドのカスタムラベル。key = dbColumn（genre/neta/keyword_a/keyword_b/keyword_c）。
     /// 空文字値は永続化時に除外され、表示時は正準デフォルトにフォールバックする。
     public var customFieldLabels: [String: String] {
@@ -144,6 +149,7 @@ public final class LibrarySettings {
     private static let libraryUUIDKey = "library_uuid"
     private static let columnWidthsKey = "columnWidths"
     private static let stampDefinitionsKey = "stamp_definitions"
+    private static let ignoredDuplicateKeysKey = "ignored_duplicate_keys"
     private static let customFieldLabelsKey = "custom_field_labels"
     private static let customBookTypeLabelsKey = "custom_book_type_labels"
     private static let gridItemSizeKey = "grid_item_size"
@@ -252,6 +258,14 @@ public final class LibrarySettings {
             self.stampDefinitions = decoded
         } else {
             self.stampDefinitions = [:]
+        }
+        // Load ignoredDuplicateKeys. Decode failure starts with empty set.
+        if let json = try database.getLibrarySetting(key: Self.ignoredDuplicateKeysKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(Set<String>.self, from: data) {
+            self.ignoredDuplicateKeys = decoded
+        } else {
+            self.ignoredDuplicateKeys = []
         }
         // Load customFieldLabels. Decode failure starts with empty map.
         if let json = try database.getLibrarySetting(key: Self.customFieldLabelsKey),
@@ -455,6 +469,15 @@ public final class LibrarySettings {
             try database.setLibrarySetting(key: Self.stampDefinitionsKey, value: str)
         } catch {
             Self.logger.error("Failed to persist stampDefinitions: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistIgnoredDuplicateKeys() {
+        do {
+            let data = try JSONEncoder().encode(ignoredDuplicateKeys)
+            try database.setLibrarySetting(key: Self.ignoredDuplicateKeysKey, value: String(decoding: data, as: UTF8.self))
+        } catch {
+            Self.logger.error("Failed to persist ignoredDuplicateKeys: \(error.localizedDescription, privacy: .public)")
         }
     }
 
