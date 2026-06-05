@@ -186,10 +186,10 @@ struct SettingsView: View {
                 }
                 .tag(3)
         }
-        // 横は 460pt 完全固定。縦は SettingsWindowFixedSize 側でアクティブタブの
-        // フィット高さに追従させる (grow / shrink 両方向)。
+        // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。
+        // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
         // tab: settingsTab を渡すことで、タブ切替時に updateNSView が再発火する。
-        .frame(width: 460)
+        .frame(width: 600)
         .background(SettingsWindowFixedSize(tabBarPadding: 32, tab: settingsTab))
     }
 
@@ -325,7 +325,7 @@ struct SettingsView: View {
 /// **grow / shrink 両方向** で snap する (最初のタブ高さに固定すると、より高いタブで clip し
 /// scrollbar が出る / より低いタブで余白が出る)。
 private struct SettingsWindowFixedSize: NSViewRepresentable {
-    private let fixedWidth: CGFloat = 460
+    private let fixedWidth: CGFloat = 600
     private let minHeight: CGFloat = 240
     /// documentView.frame.height に加える余裕。
     /// 24pt では smoke v13 でわずかに scrollbar が残ったため 48pt に増量。
@@ -378,8 +378,8 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
         let baseHeight: CGFloat
         if tab == 3 {
             // 「キー」タブは内部 ScrollView が長大なため documentView 計測を使わず固定高にする
-            // (auto 計測だと window が content 全高に伸び、上部に巨大な余白が出る)。
-            baseHeight = 460
+            // (auto 計測だと window が content 全高に伸び、上部に巨大な余白が出る)。「表示」タブと同程度の縦。
+            baseHeight = 600
         } else {
             let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
             baseHeight = documentHeight ?? contentView.fittingSize.height

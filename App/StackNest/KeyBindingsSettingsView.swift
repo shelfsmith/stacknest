@@ -29,7 +29,7 @@ struct KeyBindingsSettingsView: View {
             }
             .padding(16)
         }
-        .frame(height: 460)
+        .frame(height: 600)
     }
 
     @ViewBuilder
@@ -71,6 +71,7 @@ struct KeyBindingsSettingsView: View {
     private func chip(label: String, removable: Bool, onRemove: @escaping () -> Void) -> some View {
         HStack(spacing: 3) {
             Text(label).font(.system(size: 11, design: .monospaced))
+                .lineLimit(1).fixedSize()   // チップ内で "Space"→S/p/a/c/e と文字折り返ししない
             if removable {
                 Button(action: onRemove) { Image(systemName: "xmark.circle.fill").font(.system(size: 10)) }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
