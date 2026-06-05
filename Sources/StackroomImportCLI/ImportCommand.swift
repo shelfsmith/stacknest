@@ -7,7 +7,7 @@ import StackroomFormat
 
 public struct ImportCommand: ParsableCommand {
     public static let configuration = CommandConfiguration(
-        commandName: "stackroom-import",
+        commandName: "import",
         abstract: "Import a Stackroom Library.xml into a SQLite database."
     )
 
