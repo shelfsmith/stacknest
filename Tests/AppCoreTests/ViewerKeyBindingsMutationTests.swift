@@ -53,9 +53,17 @@ struct ViewerKeyBindingsMutationTests {
         defer { ud.removePersistentDomain(forName: suite) }
         var b = ViewerKeyBindings(map: [:], characterMap: [:])
         _ = b.assign(.character("q"), to: .nextPage)
+        _ = b.assign(.chord(KeyChord(keyCode: 3, modifiers: KeyChord.command)), to: .close)
         b.save(ud)
         let loaded = ViewerKeyBindings.load(ud)
         #expect(loaded.boundBindings(for: .nextPage) == [.character("q")])
+        #expect(loaded.boundBindings(for: .close) == [.chord(KeyChord(keyCode: 3, modifiers: KeyChord.command))])
+    }
+    @Test func zoomKeysAreCharacterOnlyInDefaults() {
+        let b = ViewerKeyBindings.defaults
+        #expect(b.boundBindings(for: .fitToWindow) == [.character("=")])
+        #expect(b.boundBindings(for: .zoomOut) == [.character("-")])
+        #expect(b.boundBindings(for: .zoomIn) == [.character("+")])
     }
     @Test func loadMissingReturnsDefaults() {
         let suite = "test.\(UUID().uuidString)"

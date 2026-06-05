@@ -17,11 +17,16 @@ struct ViewerKeyBindingsTests {
     }
     @Test func defaultsZoomKeys() {
         let b = ViewerKeyBindings.defaults
-        // Phase 2.6b-2-3: keyCode 24 (=) は fitToWindow に変更; keyCode 29 (0) の binding は削除
-        #expect(b.action(for: KeyChord(keyCode: 24)) == .fitToWindow)
-        #expect(b.action(for: KeyChord(keyCode: 24, modifiers: KeyChord.shift)) == .zoomIn)
-        #expect(b.action(for: KeyChord(keyCode: 27)) == .zoomOut)
-        #expect(b.action(for: KeyChord(keyCode: 29)) == nil)  // 削除済み → characterMap "0" にフォールスルー
+        // Phase 2.7: keyCode 24 (=), 24+shift (+), 27 (-) のチョードエントリを削除
+        // → characterMap "=" / "+" / "-" にフォールスルー（keyCode 29 (0) と同方針）
+        #expect(b.action(for: KeyChord(keyCode: 24)) == nil)               // chord は削除済み
+        #expect(b.action(for: KeyChord(keyCode: 24, modifiers: KeyChord.shift)) == nil) // chord は削除済み
+        #expect(b.action(for: KeyChord(keyCode: 27)) == nil)               // chord は削除済み
+        #expect(b.action(for: KeyChord(keyCode: 29)) == nil)               // 削除済み → characterMap "0" にフォールスルー
+        // characterMap 経由で解決されることを確認
+        #expect(b.action(forCharacter: "=") == .fitToWindow)
+        #expect(b.action(forCharacter: "+") == .zoomIn)
+        #expect(b.action(forCharacter: "-") == .zoomOut)
     }
     @Test func defaultsCloseAndFullScreen() {
         let b = ViewerKeyBindings.defaults

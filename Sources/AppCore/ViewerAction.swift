@@ -95,9 +95,8 @@ public struct ViewerKeyBindings: Codable, Sendable {
         KeyChord(keyCode: 124): .pageRightward,                           // →
         KeyChord(keyCode: 115): .firstPage,                               // Home
         KeyChord(keyCode: 119): .lastPage,                               // End
-        KeyChord(keyCode: 24): .fitToWindow,                              // = → fit to window
-        KeyChord(keyCode: 24, modifiers: KeyChord.shift): .zoomIn,        // + → zoom in
-        KeyChord(keyCode: 27): .zoomOut,                                  // -
+        // keyCode 24 (=), 24+shift (+), 27 (-) は削除 → characterMap の fitToWindow/zoomIn/zoomOut にフォールスルー
+        // （keyCode 29 (0) と同じ理由: characterMap 経由が JIS/テンキー非依存で確実）
         // keyCode 29 (0) は削除 → characterMap の jumpToPercent0 にフォールスルー
         KeyChord(keyCode: 48): .skipForward,                              // Tab
         KeyChord(keyCode: 48, modifiers: KeyChord.shift): .skipBackward,  // ⇧Tab

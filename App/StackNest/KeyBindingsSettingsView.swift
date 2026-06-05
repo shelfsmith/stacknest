@@ -21,6 +21,7 @@ struct KeyBindingsSettingsView: View {
                 Divider()
                 Button("すべて既定に戻す") {
                     bindings.resetAll()
+                    conflictMessage.removeAll()
                     persist()
                 }
             }
@@ -36,7 +37,7 @@ struct KeyBindingsSettingsView: View {
                 Text(action.displayName).frame(width: 180, alignment: .leading)
                 ForEach(bindings.boundBindings(for: action), id: \.self) { capture in
                     chip(label: display(capture)) {
-                        bindings.remove(capture, from: action); persist()
+                        bindings.remove(capture, from: action); conflictMessage[action] = nil; persist()
                     }
                 }
                 Spacer(minLength: 4)
@@ -52,7 +53,7 @@ struct KeyBindingsSettingsView: View {
                 } else {
                     Button("＋ 追加") { conflictMessage[action] = nil; capturingAction = action }
                         .controlSize(.small)
-                    Button("既定に戻す") { bindings.resetAction(action); persist() }
+                    Button("既定に戻す") { bindings.resetAction(action); conflictMessage[action] = nil; persist() }
                         .controlSize(.small)
                 }
             }
