@@ -44,6 +44,12 @@ public struct BookRow: Sendable, Equatable, Identifiable {
     public let coverCropRect: CGRect?
     /// Phase 2.6b-2 D1: per-book page direction. nil = inherit global setting.
     public let pageDirection: PageDirection?
+    /// Phase 2.7 A20/B11: SHA-256 (hex) of the source file. nil = not computed / not eligible (folder/missing).
+    public let contentHash: String?
+    /// File size (bytes) at hash time. Used for size-prefilter and cache invalidation.
+    public let fileSize: Int64?
+    /// File mtime (epoch seconds) at hash time. Used for cache invalidation.
+    public let fileMtime: Double?
 
     /// Public memberwise initializer. Provided so external library callers
     /// (notably AppCoreTests fixtures) can construct BookRow values outside
@@ -71,7 +77,10 @@ public struct BookRow: Sendable, Equatable, Identifiable {
         volume: Double? = nil,
         coverImageName: String? = nil,
         coverCropRect: CGRect? = nil,
-        pageDirection: PageDirection? = nil
+        pageDirection: PageDirection? = nil,
+        contentHash: String? = nil,
+        fileSize: Int64? = nil,
+        fileMtime: Double? = nil
     ) {
         self.id = id
         self.title = title
@@ -95,6 +104,9 @@ public struct BookRow: Sendable, Equatable, Identifiable {
         self.coverImageName = coverImageName
         self.coverCropRect = coverCropRect
         self.pageDirection = pageDirection
+        self.contentHash = contentHash
+        self.fileSize = fileSize
+        self.fileMtime = fileMtime
     }
 
     /// JSON `{"x":...,"y":...,"w":...,"h":...}` を CGRect に復号。`nil` / 空 / 不正 JSON は nil。
@@ -351,7 +363,11 @@ public final class Database: @unchecked Sendable {
             coverImageName: row["cover_image_name"] as? String,
             coverCropRect: BookRow.decodeCoverCropRect(json: row["cover_crop_rect"] as? String),
             // nil when column absent (pre-v14 DB) or value invalid; never defaults to .rightToLeft here
-            pageDirection: (row["page_direction"] as? String).flatMap(PageDirection.init(rawValue:))
+            pageDirection: (row["page_direction"] as? String).flatMap(PageDirection.init(rawValue:)),
+            // Phase 2.7 A20/B11: nil when column absent from this SELECT or NULL in DB.
+            contentHash: row["content_hash"],
+            fileSize: row["file_size"],
+            fileMtime: row["file_mtime"]
         )
     }
 
@@ -360,7 +376,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let row = try Row.fetchOne(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction FROM book ORDER BY id LIMIT 1"
+                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book ORDER BY id LIMIT 1"
             )
             return row.map(Self.bookRow(from:))
         }
@@ -371,7 +387,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let cursor = try Row.fetchCursor(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction FROM book ORDER BY date_added DESC"
+                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book ORDER BY date_added DESC"
             )
             var result: [BookRow] = []
             while let row = try cursor.next() {
@@ -389,7 +405,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let rows = try Row.fetchAll(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction FROM book WHERE date_added >= ? ORDER BY date_added DESC",
+                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book WHERE date_added >= ? ORDER BY date_added DESC",
                 arguments: [cutoff]
             )
             return rows.map { Self.bookRow(from: $0) }
@@ -401,7 +417,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let row = try Row.fetchOne(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction FROM book WHERE id = ?",
+                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book WHERE id = ?",
                 arguments: [id]
             )
             return row.map(Self.bookRow(from:))
@@ -859,7 +875,8 @@ public final class Database: @unchecked Sendable {
                 SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                        b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                        b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                       b.cover_image_name, b.cover_crop_rect, b.page_direction
+                       b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                       b.content_hash, b.file_size, b.file_mtime
                 FROM book b
                 INNER JOIN playlist_item pi ON pi.book_id = b.id
                 WHERE pi.playlist_id = ?
@@ -1270,7 +1287,8 @@ public final class Database: @unchecked Sendable {
                         SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                                b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                                b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction
+                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                               b.content_hash, b.file_size, b.file_mtime
                         FROM book b
                         WHERE 1=1\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
                         ORDER BY b.id
@@ -1287,7 +1305,8 @@ public final class Database: @unchecked Sendable {
                         SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                                b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                                b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction
+                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                               b.content_hash, b.file_size, b.file_mtime
                         FROM book b
                         INNER JOIN playlist_item pi ON pi.book_id = b.id
                         WHERE pi.playlist_id = ?\(filterSQL)\(browserSQL)
@@ -1306,7 +1325,8 @@ public final class Database: @unchecked Sendable {
                         SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                                b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                                b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction
+                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                               b.content_hash, b.file_size, b.file_mtime
                         FROM book b
                         WHERE 1=1\(filterSQL)\(browserSQL)
                           AND b.date_added >= ?
@@ -1335,7 +1355,8 @@ public final class Database: @unchecked Sendable {
                         SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                                b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                                b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction
+                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                               b.content_hash, b.file_size, b.file_mtime
                         FROM book b
                         WHERE \(likeSQL)\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
                         ORDER BY b.id
@@ -1353,7 +1374,8 @@ public final class Database: @unchecked Sendable {
                         SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                                b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                                b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction
+                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                               b.content_hash, b.file_size, b.file_mtime
                         FROM book b
                         INNER JOIN playlist_item pi ON pi.book_id = b.id
                         WHERE pi.playlist_id = ? AND \(likeSQL)\(filterSQL)\(browserSQL)
@@ -1373,7 +1395,8 @@ public final class Database: @unchecked Sendable {
                         SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                                b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                                b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction
+                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                               b.content_hash, b.file_size, b.file_mtime
                         FROM book b
                         WHERE \(likeSQL)\(filterSQL)\(browserSQL)
                           AND b.date_added >= ?
@@ -1402,7 +1425,8 @@ public final class Database: @unchecked Sendable {
                     SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                            b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                            b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                           b.cover_image_name, b.cover_crop_rect, b.page_direction
+                           b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                           b.content_hash, b.file_size, b.file_mtime
                     FROM book b
                     INNER JOIN book_fts ON book_fts.rowid = b.id
                     WHERE book_fts MATCH ?\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
@@ -1421,7 +1445,8 @@ public final class Database: @unchecked Sendable {
                     SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                            b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                            b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                           b.cover_image_name, b.cover_crop_rect, b.page_direction
+                           b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                           b.content_hash, b.file_size, b.file_mtime
                     FROM book b
                     INNER JOIN book_fts ON book_fts.rowid = b.id
                     INNER JOIN playlist_item pi ON pi.book_id = b.id
@@ -1441,7 +1466,8 @@ public final class Database: @unchecked Sendable {
                     SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
                            b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
                            b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                           b.cover_image_name, b.cover_crop_rect, b.page_direction
+                           b.cover_image_name, b.cover_crop_rect, b.page_direction,
+                           b.content_hash, b.file_size, b.file_mtime
                     FROM book b
                     INNER JOIN book_fts ON book_fts.rowid = b.id
                     WHERE book_fts MATCH ?\(filterSQL)\(browserSQL)
@@ -1855,7 +1881,8 @@ public final class Database: @unchecked Sendable {
                 SELECT id, title, author, genre, path, date_added, play_date,
                        book_type, file_type, pages, rating, unseen, keyword_a,
                        keyword_b, keyword_c, neta, memo, series, volume,
-                       cover_image_name, cover_crop_rect, page_direction
+                       cover_image_name, cover_crop_rect, page_direction,
+                       content_hash, file_size, file_mtime
                 FROM book
                 WHERE series = ? AND series != '' AND volume IS NOT NULL AND volume > ?
                 ORDER BY volume ASC, id ASC
@@ -1880,7 +1907,8 @@ public final class Database: @unchecked Sendable {
                 SELECT id, title, author, genre, path, date_added, play_date,
                        book_type, file_type, pages, rating, unseen, keyword_a,
                        keyword_b, keyword_c, neta, memo, series, volume,
-                       cover_image_name, cover_crop_rect, page_direction
+                       cover_image_name, cover_crop_rect, page_direction,
+                       content_hash, file_size, file_mtime
                 FROM book
                 WHERE series = ? AND series != '' AND volume IS NOT NULL AND volume < ?
                 ORDER BY volume DESC, id DESC
