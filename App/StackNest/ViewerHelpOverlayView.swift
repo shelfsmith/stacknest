@@ -1,24 +1,12 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
+import AppCore
 
 struct ViewerHelpOverlayView: View {
-    static let rows: [(action: String, keys: String)] = [
-        ("ページ送り / 戻し", "Space ↓ / ⇧Space ↑ ・ ← / →（左右ゾーンクリック）"),
-        ("先頭 / 末尾", "Home / End"),
-        ("ズーム / フィット", "+ - / =  (ピンチ・ドラッグでパン)"),
-        ("位置ジャンプ", "0〜9  (0=先頭 / 5=50% / 9=90%)"),
-        ("ページスキップ", "Tab / ⇧Tab  (設定のページ数分)"),
-        ("見開き ON/OFF", "d"),
-        ("表紙オフセット", "P"),
-        ("横長レイアウト巡回", "w"),
-        ("スライドショー 開始/停止", "s"),
-        ("前の巻 / 次の巻", "[ / ]"),
-        ("巻末挙動 切替", "e"),
-        ("ページ方向 切替（この本）", "r"),
-        ("全画面", "⌃⌘F"),
-        ("閉じる", "Esc / ⌘W"),
-        ("このヘルプ", "? / h"),
-    ]
+    /// 現在の割当から生成（再割当に追従）。HelpView も同じ rows を参照する。
+    static var rows: [(action: String, keys: String)] {
+        ViewerHelpRows.make(from: ViewerKeyBindings.load())
+    }
     var isVisible: Bool
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
