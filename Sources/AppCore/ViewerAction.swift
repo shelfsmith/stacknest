@@ -122,4 +122,84 @@ public struct ViewerKeyBindings: Codable, Sendable {
         "h": .showHelp,
         "r": .togglePageDirection,
     ])
+
+    // MARK: - 変更・永続（Phase 2.7 キー再割当）
+
+    public struct RebindConflict: Error, Equatable, Sendable {
+        public let existing: ViewerAction
+        public init(existing: ViewerAction) { self.existing = existing }
+    }
+
+    /// 指定 action に割り当たっている全キー（chord→character 順・各内は安定ソート）。
+    public func boundBindings(for action: ViewerAction) -> [CapturedBinding] {
+        let chords = map.filter { $0.value == action }.keys
+            .sorted { ($0.keyCode, $0.modifiers) < ($1.keyCode, $1.modifiers) }
+            .map { CapturedBinding.chord($0) }
+        let chars = characterMap.filter { $0.value == action }.keys
+            .sorted()
+            .map { CapturedBinding.character($0) }
+        return chords + chars
+    }
+
+    /// 同一物理キーが既に解決するアクション（無ければ nil）。
+    /// classify の不変条件（文字割当は ⌘⌃⌥ 無し印字キー / chord はそれ以外）により、
+    /// character は characterMap、chord は map のみを確認すれば衝突は網羅できる。
+    public func existingAction(for capture: CapturedBinding) -> ViewerAction? {
+        switch capture {
+        case .character(let s): return characterMap[s]
+        case .chord(let c):     return map[c]
+        }
+    }
+
+    /// 競合は拒否（状態不変・使用中アクションを返す）。空き or 同 action なら確定。
+    public mutating func assign(_ capture: CapturedBinding, to action: ViewerAction) -> Result<Void, RebindConflict> {
+        if let existing = existingAction(for: capture), existing != action {
+            return .failure(RebindConflict(existing: existing))
+        }
+        switch capture {
+        case .character(let s): characterMap[s] = action
+        case .chord(let c):     map[c] = action
+        }
+        return .success(())
+    }
+
+    public mutating func remove(_ capture: CapturedBinding, from action: ViewerAction) {
+        switch capture {
+        case .character(let s): if characterMap[s] == action { characterMap[s] = nil }
+        case .chord(let c):     if map[c] == action { map[c] = nil }
+        }
+    }
+
+    /// 指定 action のキーを既定へ戻す（現キーを除去し defaults の該当キーを設定）。
+    /// defaults のキーが他 action で使用中なら上書きする（=既定復元を優先）。
+    public mutating func resetAction(_ action: ViewerAction) {
+        for c in map.filter({ $0.value == action }).keys { map[c] = nil }
+        for s in characterMap.filter({ $0.value == action }).keys { characterMap[s] = nil }
+        for capture in ViewerKeyBindings.defaults.boundBindings(for: action) {
+            switch capture {
+            case .character(let s): characterMap[s] = action
+            case .chord(let c):     map[c] = action
+            }
+        }
+    }
+
+    /// 全キーを既定へ戻す。
+    public mutating func resetAll() { self = .defaults }
+
+    // MARK: - UserDefaults 永続（アプリ全体）
+
+    public static let userDefaultsKey = "viewerKeyBindings"
+
+    public static func load(_ ud: UserDefaults = .standard) -> ViewerKeyBindings {
+        guard let data = ud.data(forKey: userDefaultsKey),
+              let decoded = try? JSONDecoder().decode(ViewerKeyBindings.self, from: data)
+        else { return .defaults }
+        return decoded
+    }
+
+    public func save(_ ud: UserDefaults = .standard) {
+        if let data = try? JSONEncoder().encode(self) {
+            ud.set(data, forKey: ViewerKeyBindings.userDefaultsKey)
+        }
+    }
 }
