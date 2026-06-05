@@ -654,49 +654,6 @@ final class AppState {
         displayedSelectedBooks = displayedBooks.filter { selectedBookIDs.contains($0.id) }
     }
 
-    /// Compare two BookRows according to the current settings.listViewSort.
-    /// Falls back to dateAdded descending when settings is nil.
-    ///
-    /// Note: `librarySettings.listViewSort` is mutated only via BookListView's
-    /// onChange(of: sortOrder) which immediately calls refreshSortedDisplayedBooks().
-    /// If a future code path writes listViewSort outside that handler, it must
-    /// also call refreshSortedDisplayedBooks() to keep this cache fresh.
-    private func bookSortComparator(_ a: BookRow, _ b: BookRow) -> Bool {
-        guard let sort = librarySettings?.listViewSort else {
-            return a.dateAdded > b.dateAdded
-        }
-        let asc = sort.ascending
-        switch sort.column {
-        case .title:     return compareString(a.title, b.title, asc)
-        case .author:    return compareString(a.author ?? "", b.author ?? "", asc)
-        case .genre:     return compareString(a.genre ?? "", b.genre ?? "", asc)
-        case .neta:      return compareString(a.neta ?? "", b.neta ?? "", asc)
-        case .keywordA:  return compareString(a.keywordA ?? "", b.keywordA ?? "", asc)
-        case .keywordB:  return compareString(a.keywordB ?? "", b.keywordB ?? "", asc)
-        case .memo:      return compareString(a.memo ?? "", b.memo ?? "", asc)
-        case .rating:    return asc ? a.rating < b.rating : a.rating > b.rating
-        case .bookType:  return asc ? a.bookType < b.bookType : a.bookType > b.bookType
-        case .unseen:    return asc ? (!a.unseen && b.unseen) : (a.unseen && !b.unseen)
-        case .dateAdded: return asc ? a.dateAdded < b.dateAdded : a.dateAdded > b.dateAdded
-        case .playDate:
-            // Use the same nil sentinel as BookListView.playDateSortKey (epoch 0)
-            // so both sort paths produce identical ordering for nil playDate.
-            let aDate = a.playDate ?? Date(timeIntervalSince1970: 0)
-            let bDate = b.playDate ?? Date(timeIntervalSince1970: 0)
-            return asc ? aDate < bDate : aDate > bDate
-        case .series:    return compareString(a.series ?? "", b.series ?? "", asc)
-        case .volume:
-            let aVol = a.volume ?? (asc ? Double.infinity : -Double.infinity)
-            let bVol = b.volume ?? (asc ? Double.infinity : -Double.infinity)
-            return asc ? aVol < bVol : aVol > bVol
-        }
-    }
-
-    private func compareString(_ a: String, _ b: String, _ asc: Bool) -> Bool {
-        let cmp = a.localizedCaseInsensitiveCompare(b)
-        return asc ? cmp == .orderedAscending : cmp == .orderedDescending
-    }
-
     /// Re-sort displayedBooks into sortedDisplayedBooks. Call after
     /// displayedBooks, listViewSort, or sortMode changes.
     func refreshSortedDisplayedBooks() {
@@ -711,7 +668,8 @@ final class AppState {
         case .seriesVolumeDesc:
             sortedDisplayedBooks = displayedBooks.sortedBySeriesAndVolume().reversed()
         case .column:
-            sortedDisplayedBooks = displayedBooks.sorted(by: bookSortComparator)
+            let sort = librarySettings?.listViewSort ?? ColumnSort(column: .dateAdded, ascending: false)
+            sortedDisplayedBooks = displayedBooks.sortedByColumn(sort)
         }
         sortedDisplayedBooksVersion &+= 1
         let elapsed = start.duration(to: .now)
