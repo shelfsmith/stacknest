@@ -27,6 +27,16 @@ public enum DuplicateFinder {
         return String(Int(v))
     }
 
+    /// 同一サイズが 2 件以上衝突する本の id 集合（= バイト一致しうる＝ハッシュ要）。
+    /// サイズが一意の単一ファイルはバイト双子になり得ないのでハッシュ不要。
+    public static func idsNeedingHash(sizes: [(id: Int, size: Int64)]) -> Set<Int> {
+        var bySize: [Int64: [Int]] = [:]
+        for s in sizes { bySize[s.size, default: []].append(s.id) }
+        var result: Set<Int> = []
+        for (_, ids) in bySize where ids.count >= 2 { result.formUnion(ids) }
+        return result
+    }
+
     /// 完全一致: content_hash が非 nil・非空の本を hash でグループ化（2 件以上）。members は id 昇順。
     public static func findExact(_ books: [BookRow]) -> [DuplicateGroup] {
         var byHash: [String: [BookRow]] = [:]
