@@ -51,7 +51,15 @@ struct DuplicateResolutionSheet: View {
                 resultsView
             }
         }
-        .padding(20).frame(minWidth: 640, minHeight: 480)
+        .padding(20)
+        // idle / scanning は内容サイズ（コンパクト）。結果一覧のときだけ広く。
+        .frame(
+            minWidth: phase == .results ? 640 : 460,
+            idealWidth: phase == .results ? 760 : 460,
+            minHeight: phase == .results ? 480 : nil,
+            idealHeight: phase == .results ? 560 : nil,
+            alignment: .topLeading
+        )
         .confirmationDialog("削除を実行します", isPresented: $showExecuteConfirm, titleVisibility: .visible) {
             Button("実行（登録 \(plannedDeleteIDs.count) 件・ファイル \(trashFileIDs.intersection(Set(plannedDeleteIDs)).count) 件）", role: .destructive) { execute() }
             Button("キャンセル", role: .cancel) {}
