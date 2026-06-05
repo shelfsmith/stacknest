@@ -29,7 +29,8 @@ let package = Package(
                 "StackroomFormat",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
-            path: "Sources/LibraryStore"
+            path: "Sources/LibraryStore",
+            linkerSettings: [.linkedLibrary("icucore")]
         ),
         .target(
             name: "ImageCache",
