@@ -49,7 +49,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// ノートなし時の idle-hide 遅延（秒）。
     private let hudIdleHideDelay: TimeInterval = 2.0
     private var prefetch: [Int: NSImage] = [:]
-    private let bindings = ViewerKeyBindings.defaults
+    private let bindings = ViewerKeyBindings.load()
     /// ヘルプオーバーレイ（? / h）。PassthroughHostingView で canvas にジェスチャを通す。
     private var helpOverlayHosting: PassthroughHostingView<ViewerHelpOverlayView>?
     private var helpOverlayTimer: Timer?
