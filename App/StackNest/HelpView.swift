@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
+import AppCore
 
 /// アプリ内ヘルプページ。メニューバー「ヘルプ ▸ StackNest ヘルプ」(⌘?) から
 /// `openWindow(id: "help")` で表示する独立ウィンドウ。
 /// 外部 README へのリンクではなく、アプリ自身が操作リファレンスを内包する。
 struct HelpView: View {
     private static let repoURL = "https://github.com/shelfsmith/stacknest"
+    @State private var keyVersion = 0
 
     var body: some View {
         ScrollView {
@@ -67,6 +69,8 @@ struct HelpView: View {
             .textSelection(.enabled)
         }
         .frame(minWidth: 580, idealWidth: 660, minHeight: 540, idealHeight: 740)
+        .onAppear { keyVersion += 1 }
+        .onReceive(NotificationCenter.default.publisher(for: .viewerKeyBindingsChanged)) { _ in keyVersion += 1 }
     }
 
     // MARK: - Building blocks
@@ -110,17 +114,22 @@ struct HelpView: View {
 
     /// 内蔵ビューワのキー表は ViewerHelpOverlayView と単一ソースを共有する。
     private var viewerKeyTable: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            ForEach(ViewerHelpOverlayView.rows, id: \.action) { row in
-                HStack(alignment: .top, spacing: 12) {
-                    Text(row.keys).font(.system(size: 11.5, weight: .semibold, design: .monospaced))
-                        .frame(width: 300, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(row.action).font(.system(size: 12))
-                        .fixedSize(horizontal: false, vertical: true)
+        let grouped = ViewerHelpOverlayView.grouped
+        return VStack(alignment: .leading, spacing: 5) {
+            ForEach(grouped, id: \.section) { group in
+                Text(group.section).font(.system(size: 11.5, weight: .bold)).foregroundStyle(.secondary)
+                ForEach(group.rows, id: \.action) { row in
+                    HStack(alignment: .top, spacing: 12) {
+                        Text(row.keys).font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                            .frame(width: 300, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(row.action).font(.system(size: 12))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
         }
+        .id(keyVersion)
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 8))

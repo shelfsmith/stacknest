@@ -18,6 +18,8 @@ struct KeyBindingsSettingsView: View {
                         }
                     }
                 }
+                Text("Esc は常にキャンセル / 閉じるに使われるため固定です。")
+                    .font(.caption).foregroundStyle(.secondary)
                 Divider()
                 Button("すべて既定に戻す") {
                     bindings.resetAll()
@@ -27,7 +29,7 @@ struct KeyBindingsSettingsView: View {
             }
             .padding(16)
         }
-        .frame(maxHeight: 420)
+        .frame(height: 460)
     }
 
     @ViewBuilder
@@ -36,8 +38,11 @@ struct KeyBindingsSettingsView: View {
             HStack(spacing: 8) {
                 Text(action.displayName).frame(width: 180, alignment: .leading)
                 ForEach(bindings.boundBindings(for: action), id: \.self) { capture in
-                    chip(label: display(capture)) {
-                        bindings.remove(capture, from: action); conflictMessage[action] = nil; persist()
+                    let fixed = ViewerKeyBindings.isFixed(capture)
+                    chip(label: display(capture), removable: !fixed) {
+                        bindings.remove(capture, from: action)
+                        conflictMessage[action] = nil
+                        persist()
                     }
                 }
                 Spacer(minLength: 4)
@@ -63,14 +68,19 @@ struct KeyBindingsSettingsView: View {
         }
     }
 
-    private func chip(label: String, onRemove: @escaping () -> Void) -> some View {
+    private func chip(label: String, removable: Bool, onRemove: @escaping () -> Void) -> some View {
         HStack(spacing: 3) {
             Text(label).font(.system(size: 11, design: .monospaced))
-            Button(action: onRemove) { Image(systemName: "xmark.circle.fill").font(.system(size: 10)) }
-                .buttonStyle(.plain).foregroundStyle(.secondary)
+            if removable {
+                Button(action: onRemove) { Image(systemName: "xmark.circle.fill").font(.system(size: 10)) }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "lock.fill").font(.system(size: 9)).foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 6).padding(.vertical, 2)
         .background(Color(nsColor: .quaternarySystemFill), in: Capsule())
+        .help(removable ? "" : "Esc は「閉じる」に固定（キー キャプチャのキャンセルに使用するため再割当できません）")
     }
 
     private func display(_ capture: CapturedBinding) -> String {

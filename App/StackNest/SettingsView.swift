@@ -375,8 +375,15 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
         // **scroll content の真サイズ** (= 全項目を表示しきる高さ)。これを使わないと、
         // fittingSize は ScrollView viewport size (現 window 高さ依存) を返し、循環参照で
         // max が現高さに張り付いて全項目を表示できなかった (smoke v12 で観測)。
-        let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
-        let baseHeight = documentHeight ?? contentView.fittingSize.height
+        let baseHeight: CGFloat
+        if tab == 3 {
+            // 「キー」タブは内部 ScrollView が長大なため documentView 計測を使わず固定高にする
+            // (auto 計測だと window が content 全高に伸び、上部に巨大な余白が出る)。
+            baseHeight = 460
+        } else {
+            let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
+            baseHeight = documentHeight ?? contentView.fittingSize.height
+        }
         guard baseHeight > 0 else { return }
 
         // アクティブタブの fitted 高さ。tab bar 分も含めた全項目を表示しきる高さ。
