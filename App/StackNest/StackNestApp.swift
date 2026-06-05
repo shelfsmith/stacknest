@@ -665,6 +665,14 @@ struct WindowCommands: Commands {
             .disabled(appState == nil)
         }
 
+        // Phase 2.7: 重複検出シートを開く。key window の LibraryBrowserView が通知を受ける。
+        CommandGroup(after: .toolbar) {
+            Button("重複を検出…") {
+                NotificationCenter.default.post(name: .openDuplicateScan, object: nil)
+            }
+            .disabled(appState == nil)
+        }
+
         // Phase 2.5c spec a / 2.5c spec b v14-v15: Undo / Redo を AppState.undoManager にバインド。
         //
         // 旧実装は `NSApp.keyWindow?.firstResponder?.undoManager` を参照していたが、これは
@@ -875,6 +883,8 @@ extension Notification.Name {
     /// Task 6: context menu の keyboardShortcut 表記削除対応。main menu から削除/ゴミ箱を操作するための通知。
     static let stacknestDeleteFromLibraryRequest = Notification.Name("stacknest.deleteFromLibraryRequest")
     static let stacknestMoveToTrashRequest = Notification.Name("stacknest.moveToTrashRequest")
+    /// Phase 2.7: 重複検出シートを開く（WindowCommands の「重複を検出…」から post）。
+    static let openDuplicateScan = Notification.Name("stacknest.openDuplicateScan")
 }
 
 // MARK: - UTType Extension

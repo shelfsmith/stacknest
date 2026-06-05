@@ -17,6 +17,7 @@ struct LibraryBrowserView: View {
     @State private var currentModifiers: NSEvent.ModifierFlags = []
     @State private var modifierMonitor: Any?
     @State private var showLibrarySettings = false
+    @State private var showDuplicateScan = false
     @State private var renameSelection: BookRenameSelection?
     /// Task 5: 自 window への参照。openLibrarySettings 通知受信時に key window 判定に使用。
     @State private var hostWindow: NSWindow?
@@ -75,6 +76,21 @@ struct LibraryBrowserView: View {
                 // hostWindow が nil の場合は fallback として従来動作 (先頭が開く)。
                 guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
                 showLibrarySettings = true
+            }
+            // Phase 2.7: 重複検出シート。openLibrarySettings と同 pattern で key window のみ反応。
+            .sheet(isPresented: $showDuplicateScan) {
+                if let settings = appState.librarySettings, let db = appState.database {
+                    DuplicateResolutionSheet(
+                        settings: settings,
+                        database: db,
+                        bundleURL: appState.bundleURL,
+                        appState: appState
+                    )
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openDuplicateScan)) { _ in
+                guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
+                showDuplicateScan = true
             }
             .onReceive(NotificationCenter.default.publisher(for: .renameSelectedBooks)) { _ in
                 showRenameSheet()
