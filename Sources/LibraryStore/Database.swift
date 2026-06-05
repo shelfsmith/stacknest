@@ -599,6 +599,17 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// Phase 2.7 A20/B11: write the computed content hash + size/mtime for a single book.
+    public func updateBookContentHash(id: Int, hash: String, size: Int64, mtime: Double) throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            try db.execute(
+                sql: "UPDATE book SET content_hash = ?, file_size = ?, file_mtime = ? WHERE id = ?",
+                arguments: [hash, size, mtime, id]
+            )
+        }
+    }
+
     // MARK: - Multi-value field mutations
 
     /// マルチ値 field に値を append。重複は skip。
