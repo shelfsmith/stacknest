@@ -96,17 +96,17 @@ struct LibraryBrowserView: View {
                 showRenameSheet()
             }
             .sheet(item: $renameSelection) { sel in
-                if let db = appState.database,
-                   let format = try? FilenameFormat(raw: appState.librarySettings?.filenameFormat ?? "@title") {
+                if let db = appState.database, let settings = appState.librarySettings {
                     BookFileRenameSheet(
                         books: sel.books,
-                        format: format,
+                        presets: settings.filenameFormatPresets,
+                        initialPresetID: settings.defaultFilenameFormatPresetID,
                         database: db,
                         onComplete: { _ in
                             do { try appState.refreshDisplayedBooks() }
                             catch { appState.error = .unexpected(error) }
                         },
-                        bookTypeLabelOverrides: appState.librarySettings?.bookTypeLabelOverrides ?? [:]
+                        bookTypeLabelOverrides: settings.bookTypeLabelOverrides
                     )
                 }
             }

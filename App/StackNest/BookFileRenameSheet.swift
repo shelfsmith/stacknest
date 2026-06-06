@@ -7,13 +7,23 @@ import StackroomFormat  // BookRecord
 
 struct BookFileRenameSheet: View {
     let books: [BookRow]
-    let format: FilenameFormat
+    let presets: [FilenameFormatPreset]
+    let initialPresetID: String
     let database: Database
     let onComplete: ([Int]) -> Void
     /// Custom bookType label overrides for WYSIWYG @type token rendering.
     /// Pass `LibrarySettings.bookTypeLabelOverrides`; defaults to canonical labels.
     var bookTypeLabelOverrides: [Int: String] = [:]
     @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedPresetID: String = ""
+
+    private var activeFormat: FilenameFormat {
+        let raw = FilenameFormatPresetLogic.defaultFormat(
+            in: presets,
+            defaultID: selectedPresetID.isEmpty ? initialPresetID : selectedPresetID)
+        return (try? FilenameFormat(raw: raw)) ?? (try! FilenameFormat(raw: "@title"))
+    }
 
     private struct PreviewRow: Identifiable {
         let id: Int  // book ID
@@ -31,7 +41,7 @@ struct BookFileRenameSheet: View {
             let ext = url.pathExtension
             let oldName = url.lastPathComponent
             let bookRecord = book.toRecord()
-            let baseName = FilenameFormatter.format(bookRecord, with: format, bookTypeLabels: bookTypeLabelOverrides)
+            let baseName = FilenameFormatter.format(bookRecord, with: activeFormat, bookTypeLabels: bookTypeLabelOverrides)
             let finalName = ext.isEmpty ? baseName : "\(baseName).\(ext)"
             let newURL = url.deletingLastPathComponent().appendingPathComponent(finalName)
             let exists = FileManager.default.fileExists(atPath: newURL.path) && newURL.path != url.path
@@ -48,9 +58,10 @@ struct BookFileRenameSheet: View {
             Text("ファイル名を変更 (\(books.count) 件)")
                 .font(.title2.bold())
 
-            Text("フォーマット: \(format.raw)")
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+            Picker("プリセット", selection: $selectedPresetID) {
+                ForEach(presets) { p in Text(p.displayName).tag(p.id) }
+            }
+            .frame(maxWidth: 280)
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
@@ -86,6 +97,7 @@ struct BookFileRenameSheet: View {
         }
         .padding(20)
         .frame(width: 540, height: 400)
+        .onAppear { if selectedPresetID.isEmpty { selectedPresetID = initialPresetID } }
     }
 
     private func apply() {
