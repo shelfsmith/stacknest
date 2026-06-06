@@ -119,16 +119,12 @@ struct StackNestApp: App {
 
     @Environment(\.openWindow) private var openWindow
 
-    /// 標準 About パネルを独自クレジット付きで表示する。
-    /// アプリ名・バージョン・アイコンはバンドルから自動取得され、クレジットで
-    /// Stackroom 非関連（独立実装）を明示する（docs/02_constraints.md 整合）。
+    /// 標準 About パネルを表示する。
+    /// アプリ名・アイコン・バージョン（CFBundleShortVersionString / CFBundleVersion）・
+    /// コピーライト（NSHumanReadableCopyright）はバンドルから自動表示される。
     @MainActor
     static func showAboutPanel() {
-        let credits = NSAttributedString(
-            string: "ライブラリ XML 互換の画像ライブラリ管理アプリ。\naroma 氏 / aromatics soft の Stackroom とは無関係の独立実装です。",
-            attributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]
-        )
-        NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
+        NSApplication.shared.orderFrontStandardAboutPanel(nil)
     }
 }
 

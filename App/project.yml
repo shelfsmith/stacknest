@@ -39,8 +39,9 @@ targets:
       properties:
         CFBundleName: StackNest
         CFBundleDisplayName: StackNest
-        CFBundleShortVersionString: "0.0.1"
+        CFBundleShortVersionString: "0.8.0"
         CFBundleVersion: "1"
+        NSHumanReadableCopyright: "© 2026 shelfsmith. MIT License."
         CFBundleIconName: AppIcon
         CFBundleDevelopmentRegion: ja
         CFBundleLocalizations:

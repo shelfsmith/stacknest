@@ -1,0 +1,93 @@
+name: Release
+
+# タグ `vX.Y.Z` を push するとリリースビルド（ad-hoc 署名 Universal）を作り、
+# GitHub Release（リポジトリが Private の間は非公開）を作成して zip を添付する。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "リリースタグ (例: v0.8.0)"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      # 信頼できない可能性のある入力（タグ名）は env 経由で受け、run 内で ${{ }} 直挿しを避ける。
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          # 形式検証（vX.Y.Z[-suffix] のみ許可）。
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$'; then
+            echo "::error::Invalid tag format: $TAG"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies (xcodegen + libarchive)
+        run: brew install xcodegen libarchive
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec App/project.yml --use-cache
+
+      - name: Build Release (Universal, ad-hoc signed)
+        run: |
+          xcodebuild \
+            -project App/StackNest.xcodeproj \
+            -scheme StackNest \
+            -configuration Release \
+            -derivedDataPath build \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=YES \
+            build
+
+      - name: Verify universal binary
+        run: lipo -info build/Build/Products/Release/StackNest.app/Contents/MacOS/StackNest
+
+      - name: Package app (zip, preserve bundle)
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          ditto -c -k --keepParent \
+            build/Build/Products/Release/StackNest.app \
+            "StackNest-${TAG}.zip"
+
+      - name: Create GitHub Release
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            "StackNest-${TAG}.zip" \
+            --title "StackNest $TAG" \
+            --prerelease \
+            --notes "$(cat <<'EOF'
+          ad-hoc 署名（Apple 公証なし）の Universal ビルド（arm64 + x86_64・macOS 15+）。
+
+          ## インストール
+          ダウンロードした `StackNest.app` を `/Applications` などへ展開し、初回のみ次のいずれかで開いてください（2 回目以降は通常起動）:
+          - Finder で `StackNest.app` を **右クリック →「開く」** → 警告でもう一度「開く」
+          - またはターミナルで `xattr -dr com.apple.quarantine /Applications/StackNest.app`
+
+          ⚠ 未公証のため Gatekeeper の警告が出ます。信頼できる入手元からのみ導入してください。
+          EOF
+          )"
