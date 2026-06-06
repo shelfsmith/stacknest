@@ -654,6 +654,31 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// 再リンク: path を更新し、旧ファイルのハッシュ情報（content_hash/file_size/file_mtime）を
+    /// NULL 化する（再リンク先は別ファイルの可能性があり旧ハッシュは無効。次回 dedup で再計算）。
+    public func relinkBook(id: Int, newPath: String) throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            try db.execute(
+                sql: "UPDATE book SET path = ?, content_hash = NULL, file_size = NULL, file_mtime = NULL WHERE id = ?",
+                arguments: [newPath, id]
+            )
+        }
+    }
+
+    /// 複数本の再リンクを 1 トランザクションで適用（フォルダ再マップ用）。
+    public func applyRelinks(_ pairs: [(id: Int, newPath: String)]) throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            for pair in pairs {
+                try db.execute(
+                    sql: "UPDATE book SET path = ?, content_hash = NULL, file_size = NULL, file_mtime = NULL WHERE id = ?",
+                    arguments: [pair.newPath, pair.id]
+                )
+            }
+        }
+    }
+
     public func updateBookTitle(id: Int, newTitle: String) throws {
         guard let q = queue else { return }
         try q.write { db in
