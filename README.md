@@ -4,8 +4,10 @@
 
 [![CI](https://github.com/shelfsmith/stacknest/actions/workflows/ci.yml/badge.svg)](https://github.com/shelfsmith/stacknest/actions/workflows/ci.yml)
 
-Swift ネイティブ、Apple Silicon 対応の画像ライブラリマネージャです。オリジナルの
-[Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) ライブラリフォーマットと互換性があります。
+Swift ネイティブ、Apple Silicon 対応の画像ライブラリ（カタログ）マネージャです。オリジナルの
+[Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) のライブラリ XML を**取り込む（インポートする）**ことができます。
+
+> ⚠️ **互換性についての注記:** StackNest が対応するのは Stackroom ライブラリ XML の**インポート（一方向の読み込み）だけ**です。StackNest 自身のライブラリ形式（`.stacknest`）は独自で、**Stackroom と相互互換ではありません**（Stackroom で開いたり書き戻したりはできません）。また StackNest は**カタログ**ソフトで、`.stacknest` はメタデータと表紙サムネの目録です。画像・本の実体ファイルはライブラリの外（元の場所）に置かれ、StackNest はそのパスを参照します。
 
 > **Status:** プレアルファ（Phase 2.7 進行中 — 重複検出・フィールド / bookType ラベルカスタマイズ・大規模ソート最適化・ビューワキー再割当 UI を実装済。加えて初回起動ウィザード・内蔵ビューワ拡張〔見開き・本ごとページ方向・スライドショー・続きから読む・全画面・HEIC/AVIF〕・ライブラリ CRUD / ロック / スタンプ / マルチ値フィルタ / 全文検索 / スマートシェルフ / キーボードナビ）
 
@@ -16,7 +18,7 @@ Apple Property List XML ライブラリファイルを読み込み、大規模�
 （10,000 件以上で動作確認済み）をブラウズ・管理するモダンな macOS ネイティブ体験を提供します。
 
 本プロジェクトは **aroma / aromatics soft とは無関係**です。Swift でゼロから書かれた
-独立した互換実装です。
+独立実装で、Stackroom のライブラリ XML を**取り込める**（インポート専用）だけで、形式互換ではありません。
 
 ## なぜこのプロジェクトがあるか
 
@@ -81,7 +83,7 @@ ad-hoc 署名アプリは Gatekeeper にブロックされるため、**初回�
 ```
 App/                  -- macOS App ターゲット（xcodegen 経由で生成、xcodeproj は gitignored）
 Sources/
-  StackroomFormat/    -- ライブラリ plist の読み書き（互換レイヤー）
+  StackroomFormat/    -- Stackroom ライブラリ XML/plist の読み取り（インポート用）
   LibraryStore/       -- SQLite（GRDB）リポジトリ、Migration、FTS5、マルチ値正規化
   ImageCache/         -- サムネイル描画 / キャッシュ
   ArchiveAdapter/     -- libarchive 経由の ZIP / CBZ / RAR / CBR / 7z 読み込み
