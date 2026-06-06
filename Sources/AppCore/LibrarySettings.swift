@@ -77,6 +77,13 @@ public final class LibrarySettings {
     public var filenameFormat: String {
         didSet { persistFilenameFormat() }
     }
+    /// 命名フォーマットのプリセット集合（per-library）。`filenameFormat` は既定プリセットの format ミラー。
+    public var filenameFormatPresets: [FilenameFormatPreset] {
+        didSet { persistFilenameFormatPresets() }
+    }
+    public var defaultFilenameFormatPresetID: String {
+        didSet { persistDefaultFilenameFormatPresetID() }
+    }
     public var topPaneMode: String {
         didSet { persistTopPaneMode() }
     }
@@ -142,6 +149,8 @@ public final class LibrarySettings {
     private static let viewModeKey = "viewMode"
     private static let windowFrameKey = "windowFrame"
     private static let filenameFormatKey = "filename_format"
+    private static let filenameFormatPresetsKey = "filename_format_presets"
+    private static let filenameFormatDefaultIDKey = "filename_format_default_id"
     private static let topPaneModeKey = "top_pane_mode"
     private static let lockHashKey = "lock_password_hash"
     private static let lockSaltKey = "lock_password_salt"
@@ -227,10 +236,30 @@ public final class LibrarySettings {
         }
         // Load filenameFormat. Migration v9 seeds the default; if for any reason
         // the value is missing, fall back to the same hardcoded default.
+        // Note: ローカル変数に先に受けて preset 移行ロジックでも使う（@Observable の init 内では
+        // 全 stored property が代入される前に self メンバーを読めないため）。
+        let loadedFilenameFormat: String
         if let value = try database.getLibrarySetting(key: Self.filenameFormatKey) {
-            self.filenameFormat = value
+            loadedFilenameFormat = value
         } else {
-            self.filenameFormat = Self.defaultFilenameFormat
+            loadedFilenameFormat = Self.defaultFilenameFormat
+        }
+        self.filenameFormat = loadedFilenameFormat
+        // Load filename-format presets (Phase 2.7 B6). 無ければ単一 filenameFormat から移行。
+        var didSeedPresets = false
+        if let json = try database.getLibrarySetting(key: Self.filenameFormatPresetsKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([FilenameFormatPreset].self, from: data),
+           !decoded.isEmpty {
+            self.filenameFormatPresets = decoded
+            let stored = try database.getLibrarySetting(key: Self.filenameFormatDefaultIDKey) ?? ""
+            self.defaultFilenameFormatPresetID =
+                FilenameFormatPresetLogic.validatedDefaultID(presets: decoded, requested: stored)
+        } else {
+            let m = FilenameFormatPresetLogic.migrate(existingFormat: loadedFilenameFormat, id: UUID().uuidString)
+            self.filenameFormatPresets = m.presets
+            self.defaultFilenameFormatPresetID = m.defaultID
+            didSeedPresets = true
         }
         // Load topPaneMode. Default to "browse" if not set.
         if let value = try database.getLibrarySetting(key: Self.topPaneModeKey) {
@@ -303,6 +332,11 @@ public final class LibrarySettings {
             self.sortMode = decoded
         } else {
             self.sortMode = Self.defaultSortMode
+        }
+        // init 内の代入では didSet が発火しないため、移行で新規生成した場合は明示的に永続する。
+        if didSeedPresets {
+            persistFilenameFormatPresets()
+            persistDefaultFilenameFormatPresetID()
         }
     }
 
@@ -410,6 +444,57 @@ public final class LibrarySettings {
         } catch {
             Self.logger.error("Failed to persist filenameFormat: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func persistFilenameFormatPresets() {
+        do {
+            let data = try JSONEncoder().encode(filenameFormatPresets)
+            let str = String(data: data, encoding: .utf8) ?? "[]"
+            try database.setLibrarySetting(key: Self.filenameFormatPresetsKey, value: str)
+        } catch {
+            Self.logger.error("Failed to persist filenameFormatPresets: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistDefaultFilenameFormatPresetID() {
+        do {
+            try database.setLibrarySetting(key: Self.filenameFormatDefaultIDKey, value: defaultFilenameFormatPresetID)
+        } catch {
+            Self.logger.error("Failed to persist defaultFilenameFormatPresetID: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// プリセットを追加 or 同 id を更新し、既定 format ミラーを同期する。
+    public func upsertPreset(_ preset: FilenameFormatPreset) {
+        if let i = filenameFormatPresets.firstIndex(where: { $0.id == preset.id }) {
+            filenameFormatPresets[i] = preset
+        } else {
+            filenameFormatPresets.append(preset)
+        }
+        syncDefaultFilenameFormat()
+    }
+
+    /// プリセット削除（最後の1件は no-op、既定削除時は先頭へ振替）。
+    public func removePreset(id: String) {
+        let r = FilenameFormatPresetLogic.removing(id: id, presets: filenameFormatPresets,
+                                                   defaultID: defaultFilenameFormatPresetID)
+        filenameFormatPresets = r.presets
+        defaultFilenameFormatPresetID = r.defaultID
+        syncDefaultFilenameFormat()
+    }
+
+    /// 既定プリセットを設定（無効 id は弾く）。
+    public func setDefaultPreset(id: String) {
+        defaultFilenameFormatPresetID =
+            FilenameFormatPresetLogic.validatedDefaultID(presets: filenameFormatPresets, requested: id)
+        syncDefaultFilenameFormat()
+    }
+
+    /// 既定プリセットの format を `filenameFormat`（消費側が読むミラー）へ反映。
+    private func syncDefaultFilenameFormat() {
+        let f = FilenameFormatPresetLogic.defaultFormat(in: filenameFormatPresets,
+                                                        defaultID: defaultFilenameFormatPresetID)
+        if filenameFormat != f { filenameFormat = f }  // didSet で永続
     }
 
     private func persistTopPaneMode() {
