@@ -593,6 +593,15 @@ extension BookTableCoordinator: NSMenuDelegate {
         moveItem.target = self
         menu.addItem(moveItem)
 
+        // ファイルを再指定… (single-book relink, no file move)
+        let relinkItem = NSMenuItem(
+            title: String(localized: "ファイルを再指定…"),
+            action: #selector(relinkSelectedAction(_:)),
+            keyEquivalent: ""
+        )
+        relinkItem.target = self
+        menu.addItem(relinkItem)
+
         menu.addItem(.separator())
 
         // ライブラリから削除 (⌫)
@@ -700,6 +709,7 @@ extension BookTableCoordinator: NSMenuDelegate {
         let disabledTitles3: [String] = [
             String(localized: "ファイル名を変更…"),
             String(localized: "ファイルを移動…"),
+            String(localized: "ファイルを再指定…"),
         ]
         for title in disabledTitles3 {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -801,6 +811,36 @@ extension BookTableCoordinator: NSMenuDelegate {
 
     @objc private func moveSelectedAction(_ sender: Any?) {
         NotificationCenter.default.post(name: .moveSelectedBooks, object: nil)
+    }
+
+    @objc private func relinkSelectedAction(_ sender: Any?) {
+        // 単一本対象。クリックされた行の book を取得する。
+        // moveSelectedAction は notification 経由のため直接 book を持たないが、
+        // relink は単一本操作なので table.clickedRow から直接取得する。
+        guard let table = tableView else { return }
+        let row = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
+        guard row >= 0, row < appState.sortedDisplayedBooks.count else { return }
+        let book = appState.sortedDisplayedBooks[row]
+        guard let db = appState.database else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "「\(book.title)」 にリンクするファイルを選択してください。")
+        if let cur = book.path {
+            panel.directoryURL = URL(fileURLWithPath: cur).deletingLastPathComponent()
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try db.relinkBook(id: book.id, newPath: url.path(percentEncoded: false))
+            try? appState.refreshDisplayedBooks()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "再リンクに失敗しました")
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 
     @objc private func setSortAction(_ sender: NSMenuItem) {

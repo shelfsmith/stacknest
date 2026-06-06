@@ -640,6 +640,11 @@ struct LibraryBrowserView: View {
             moveSelectedBooks()
         }
         .disabled(!enabled || appState.displayedSelectedBooks.isEmpty)
+        Button("ファイルを再指定…") {
+            ensureSelected(book)
+            relinkSingleBook(book)
+        }
+        .disabled(!enabled)
         Divider()
         Button("ライブラリから削除") {
             ensureSelected(book)
@@ -837,5 +842,28 @@ struct LibraryBrowserView: View {
         guard !books.isEmpty else { return }
         BookMoveCommand.runMoveFlow(books: books, database: db)
         try? appState.refreshDisplayedBooks()
+    }
+
+    /// 単一本のファイルを再指定する（ファイル移動なし、DB パスとハッシュを更新）。
+    private func relinkSingleBook(_ book: BookRow) {
+        guard let db = appState.database else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.message = String(localized: "「\(book.title)」 にリンクするファイルを選択してください。")
+        if let cur = book.path {
+            panel.directoryURL = URL(fileURLWithPath: cur).deletingLastPathComponent()
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try db.relinkBook(id: book.id, newPath: url.path(percentEncoded: false))
+            try? appState.refreshDisplayedBooks()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "再リンクに失敗しました")
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
     }
 }
