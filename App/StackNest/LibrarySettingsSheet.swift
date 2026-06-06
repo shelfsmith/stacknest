@@ -51,76 +51,34 @@ struct LibrarySettingsSheet: View {
     @State var stagedFieldLabels: [String: String] = [:]
     @State var stagedBookTypeLabels: [String: String] = [:]
 
+    /// 現在表示中の設定タブ (0=フォーマット / 1=ラベル / 2=ロック / 3=メタデータ)。
+    @State private var settingsTab = 0
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 0) {
             Text("「\(bundleName)」 の設定")
                 .font(.title2.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding([.horizontal, .top], 20)
+                .padding(.bottom, 8)
 
-            // ファイル名フォーマット section
-            GroupBox("ファイル名フォーマット（プリセット）") {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Picker("プリセット", selection: $selectedPresetID) {
-                            ForEach(stagedPresets) { p in
-                                Text(p.id == stagedDefaultID ? "★ \(p.displayName)" : p.displayName).tag(p.id)
-                            }
-                        }
-                        .frame(maxWidth: 240)
-                        .onChange(of: selectedPresetID) { _, _ in loadSelectedPreset() }
-                        Spacer()
-                        Button("追加") { addPreset() }
-                        Button("複製") { duplicatePreset() }
-                        Button("削除") { deletePreset() }
-                            .disabled(stagedPresets.count <= 1)
-                    }
-
-                    HStack {
-                        Text("名前").frame(width: 40, alignment: .leading)
-                        TextField("プリセット名", text: $presetName)
-                            .onChange(of: presetName) { _, new in updateSelectedPreset(name: new, format: formatString) }
-                        Button(selectedPresetID == stagedDefaultID ? "既定 ✓" : "既定に設定") {
-                            stagedDefaultID = selectedPresetID
-                        }
-                        .disabled(selectedPresetID == stagedDefaultID)
-                    }
-
-                    CursorTrackingTextField(text: $formatString, selectedRange: $cursorRange)
-                        .frame(height: 28)
-                        .onChange(of: formatString) { _, new in
-                            updatePreview(new)
-                            updateSelectedPreset(name: presetName, format: new)
-                        }
-
-                    HStack {
-                        Menu("トークンを挿入") {
-                            ForEach(FormatToken.allCases, id: \.self) { tok in
-                                Button(tok.rawSyntax) { insertToken(tok.rawSyntax) }
-                            }
-                        }
-                        .frame(maxWidth: 160)
-                        Spacer()
-                    }
-
-                    if let err = formatError {
-                        Text(err).foregroundStyle(.red).font(.caption)
-                    }
-
-                    Text("プレビュー:").font(.caption.bold()).padding(.top, 4)
-                    ForEach(Array(samplePreview.enumerated()), id: \.offset) { _, line in
-                        Text(line).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    }
-                    Text("⚠ コロン (:) は ： に自動変換されます")
-                        .font(.caption2).foregroundStyle(.secondary)
-                }
-                .padding(8)
+            TabView(selection: $settingsTab) {
+                ScrollView { formatSection().padding(16) }
+                    .tabItem { Label("フォーマット", systemImage: "textformat") }
+                    .tag(0)
+                ScrollView { labelSection().padding(16) }
+                    .tabItem { Label("ラベル", systemImage: "tag") }
+                    .tag(1)
+                ScrollView { lockSection().padding(16) }
+                    .tabItem { Label("ロック", systemImage: "lock") }
+                    .tag(2)
+                ScrollView { metadataSection().padding(16) }
+                    .tabItem { Label("メタデータ", systemImage: "wand.and.stars") }
+                    .tag(3)
             }
+            .padding(.horizontal, 12)
 
-            lockSection()
-
-            labelSection()
-
-            metadataSection()
-
+            Divider()
             HStack {
                 Spacer()
                 Button("キャンセル") { dismiss() }
@@ -132,10 +90,9 @@ struct LibrarySettingsSheet: View {
                         (lockToggleOn && !passwordInput.isEmpty && passwordInput != passwordConfirm)
                     )
             }
+            .padding(16)
         }
-        .padding(20)
-        .frame(minWidth: 520, minHeight: 480)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 580, height: 640)
         .onAppear {
             stagedPresets = settings.filenameFormatPresets
             stagedDefaultID = settings.defaultFilenameFormatPresetID
@@ -201,6 +158,69 @@ struct LibrarySettingsSheet: View {
             }
             regenerationSavedMB = Double(task.bytesSavedEstimate) / (1024 * 1024)
             showRegenerationResult = true
+        }
+    }
+
+    // MARK: - B6: ファイル名フォーマット（プリセット）セクション
+
+    @ViewBuilder
+    private func formatSection() -> some View {
+        GroupBox("ファイル名フォーマット（プリセット）") {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Picker("プリセット", selection: $selectedPresetID) {
+                        ForEach(stagedPresets) { p in
+                            Text(p.id == stagedDefaultID ? "★ \(p.displayName)" : p.displayName).tag(p.id)
+                        }
+                    }
+                    .frame(maxWidth: 240)
+                    .onChange(of: selectedPresetID) { _, _ in loadSelectedPreset() }
+                    Spacer()
+                    Button("追加") { addPreset() }
+                    Button("複製") { duplicatePreset() }
+                    Button("削除") { deletePreset() }
+                        .disabled(stagedPresets.count <= 1)
+                }
+
+                HStack {
+                    Text("名前").frame(width: 40, alignment: .leading)
+                    TextField("プリセット名", text: $presetName)
+                        .onChange(of: presetName) { _, new in updateSelectedPreset(name: new, format: formatString) }
+                    Button(selectedPresetID == stagedDefaultID ? "既定 ✓" : "既定に設定") {
+                        stagedDefaultID = selectedPresetID
+                    }
+                    .disabled(selectedPresetID == stagedDefaultID)
+                }
+
+                CursorTrackingTextField(text: $formatString, selectedRange: $cursorRange)
+                    .frame(height: 28)
+                    .onChange(of: formatString) { _, new in
+                        updatePreview(new)
+                        updateSelectedPreset(name: presetName, format: new)
+                    }
+
+                HStack {
+                    Menu("トークンを挿入") {
+                        ForEach(FormatToken.allCases, id: \.self) { tok in
+                            Button(tok.rawSyntax) { insertToken(tok.rawSyntax) }
+                        }
+                    }
+                    .frame(maxWidth: 160)
+                    Spacer()
+                }
+
+                if let err = formatError {
+                    Text(err).foregroundStyle(.red).font(.caption)
+                }
+
+                Text("プレビュー:").font(.caption.bold()).padding(.top, 4)
+                ForEach(Array(samplePreview.enumerated()), id: \.offset) { _, line in
+                    Text(line).font(.caption.monospaced()).foregroundStyle(.secondary)
+                }
+                Text("⚠ コロン (:) は ： に自動変換されます")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(8)
         }
     }
 
