@@ -601,6 +601,10 @@ struct FileCommands: Commands {
             }
             .keyboardShortcut("d", modifiers: .command)
 
+            Button("リンク切れを検出…") {
+                NotificationCenter.default.post(name: .detectBrokenLinks, object: nil)
+            }
+
             Divider()
             Button("ライブラリから削除") {
                 NotificationCenter.default.post(name: .stacknestDeleteFromLibraryRequest, object: nil)
@@ -881,6 +885,8 @@ extension Notification.Name {
     static let stacknestMoveToTrashRequest = Notification.Name("stacknest.moveToTrashRequest")
     /// Phase 2.7: 重複検出シートを開く（WindowCommands の「重複を検出…」から post）。
     static let openDuplicateScan = Notification.Name("stacknest.openDuplicateScan")
+    /// Phase 2.8: リンク切れ検出シートを開く（File menu の「リンク切れを検出…」から post）。
+    static let detectBrokenLinks = Notification.Name("stacknest.detectBrokenLinks")
 }
 
 // MARK: - UTType Extension

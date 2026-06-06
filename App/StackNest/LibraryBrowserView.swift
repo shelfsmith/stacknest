@@ -18,6 +18,7 @@ struct LibraryBrowserView: View {
     @State private var modifierMonitor: Any?
     @State private var showLibrarySettings = false
     @State private var showDuplicateScan = false
+    @State private var showRelink = false
     @State private var renameSelection: BookRenameSelection?
     /// Task 5: 自 window への参照。openLibrarySettings 通知受信時に key window 判定に使用。
     @State private var hostWindow: NSWindow?
@@ -26,72 +27,21 @@ struct LibraryBrowserView: View {
     @Environment(\.undoManager) private var undoManager
 
     var body: some View {
-        mainContent
-            .background(
-                WindowAccessor { window in
-                    // Task 5: capture hosting window for key-window-based filtering
-                    if self.hostWindow == nil {
-                        self.hostWindow = window
-                    }
-                }
-            )
-            .onChange(of: appState.selectedSidebarItem) { _, _ in
-                anchorBookID = nil
+        baseModifiersA
+            // Phase 2.8: リンク切れ検出シート。openDuplicateScan と同 pattern で key window のみ反応。
+            .sheet(isPresented: $showRelink) {
+                relinkSheetContent
             }
-            .onChange(of: appState.librarySettings?.filterState) { _, _ in
-                do { try appState.refreshDisplayedBooks() }
-                catch { appState.error = .unexpected(error) }
-            }
-            .onChange(of: appState.librarySettings?.browserPaneState) { _, _ in
-                do { try appState.refreshDisplayedBooks() }
-                catch { appState.error = .unexpected(error) }
-            }
-            .alert("Error", isPresented: errorBinding, presenting: appState.error) { _ in
-                Button("OK", role: .cancel) { appState.error = nil }
-            } message: { e in
-                Text(e.errorDescription ?? "Unknown error")
-            }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button(action: showAddPanel) {
-                        Label("追加", systemImage: "plus")
-                    }
-                    .help("ファイルまたはフォルダを追加")
-                }
-            }
-            .onAppear { startModifierMonitor() }
-            .onDisappear { stopModifierMonitor() }
-            .sheet(isPresented: $showLibrarySettings) {
-                if let settings = appState.librarySettings {
-                    LibrarySettingsSheet(
-                        settings: settings,
-                        bundleName: appState.bundleURL.deletingPathExtension().lastPathComponent,
-                        bundleURL: appState.bundleURL,
-                        appState: appState
-                    )
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openLibrarySettings)) { _ in
-                // Task 5: 複数 library window が開いている場合、key window のみが反応する。
-                // hostWindow が nil の場合は fallback として従来動作 (先頭が開く)。
+            .onReceive(NotificationCenter.default.publisher(for: .detectBrokenLinks)) { _ in
                 guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
-                showLibrarySettings = true
+                showRelink = true
             }
-            // Phase 2.7: 重複検出シート。openLibrarySettings と同 pattern で key window のみ反応。
-            .sheet(isPresented: $showDuplicateScan) {
-                if let settings = appState.librarySettings, let db = appState.database {
-                    DuplicateResolutionSheet(
-                        settings: settings,
-                        database: db,
-                        bundleURL: appState.bundleURL,
-                        appState: appState
-                    )
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .openDuplicateScan)) { _ in
-                guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
-                showDuplicateScan = true
-            }
+    }
+
+    /// body の modifier chain を A/B に分割して Swift type-checker のタイムアウトを回避する。
+    /// Phase 2.8 追加分 (.sheet/$showRelink + .onReceive/.detectBrokenLinks) は body 層に残す。
+    private var baseModifiersA: some View {
+        baseModifiersB
             .onReceive(NotificationCenter.default.publisher(for: .renameSelectedBooks)) { _ in
                 showRenameSheet()
             }
@@ -157,6 +107,75 @@ struct LibraryBrowserView: View {
                     bundleURL: appState.bundleURL,
                     undoManager: undoManager
                 )
+            }
+    }
+
+    private var baseModifiersB: some View {
+        mainContent
+            .background(
+                WindowAccessor { window in
+                    // Task 5: capture hosting window for key-window-based filtering
+                    if self.hostWindow == nil {
+                        self.hostWindow = window
+                    }
+                }
+            )
+            .onChange(of: appState.selectedSidebarItem) { _, _ in
+                anchorBookID = nil
+            }
+            .onChange(of: appState.librarySettings?.filterState) { _, _ in
+                do { try appState.refreshDisplayedBooks() }
+                catch { appState.error = .unexpected(error) }
+            }
+            .onChange(of: appState.librarySettings?.browserPaneState) { _, _ in
+                do { try appState.refreshDisplayedBooks() }
+                catch { appState.error = .unexpected(error) }
+            }
+            .alert("Error", isPresented: errorBinding, presenting: appState.error) { _ in
+                Button("OK", role: .cancel) { appState.error = nil }
+            } message: { e in
+                Text(e.errorDescription ?? "Unknown error")
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: showAddPanel) {
+                        Label("追加", systemImage: "plus")
+                    }
+                    .help("ファイルまたはフォルダを追加")
+                }
+            }
+            .onAppear { startModifierMonitor() }
+            .onDisappear { stopModifierMonitor() }
+            .sheet(isPresented: $showLibrarySettings) {
+                if let settings = appState.librarySettings {
+                    LibrarySettingsSheet(
+                        settings: settings,
+                        bundleName: appState.bundleURL.deletingPathExtension().lastPathComponent,
+                        bundleURL: appState.bundleURL,
+                        appState: appState
+                    )
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openLibrarySettings)) { _ in
+                // Task 5: 複数 library window が開いている場合、key window のみが反応する。
+                // hostWindow が nil の場合は fallback として従来動作 (先頭が開く)。
+                guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
+                showLibrarySettings = true
+            }
+            // Phase 2.7: 重複検出シート。openLibrarySettings と同 pattern で key window のみ反応。
+            .sheet(isPresented: $showDuplicateScan) {
+                if let settings = appState.librarySettings, let db = appState.database {
+                    DuplicateResolutionSheet(
+                        settings: settings,
+                        database: db,
+                        bundleURL: appState.bundleURL,
+                        appState: appState
+                    )
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .openDuplicateScan)) { _ in
+                guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
+                showDuplicateScan = true
             }
     }
 
@@ -842,6 +861,15 @@ struct LibraryBrowserView: View {
         guard !books.isEmpty else { return }
         BookMoveCommand.runMoveFlow(books: books, database: db)
         try? appState.refreshDisplayedBooks()
+    }
+
+    @ViewBuilder
+    private var relinkSheetContent: some View {
+        if let db = appState.database {
+            RelinkSheet(database: db, onApplied: {
+                try? appState.refreshDisplayedBooks()
+            })
+        }
     }
 
     /// 単一本のファイルを再指定する（ファイル移動なし、DB パスとハッシュを更新）。
