@@ -20,6 +20,12 @@ struct LibrarySettingsSheet: View {
     @State private var samplePreview: [String] = []
     @State private var cursorRange = NSRange(location: 0, length: 0)
 
+    // B6: プリセット編集はステージし、保存でのみ settings に反映する。
+    @State private var stagedPresets: [FilenameFormatPreset] = []
+    @State private var stagedDefaultID: String = ""
+    @State private var selectedPresetID: String = ""
+    @State private var presetName: String = ""
+
     // Lock section state
     @State var lockToggleOn = false
     @State var passwordInput = ""
@@ -51,18 +57,44 @@ struct LibrarySettingsSheet: View {
                 .font(.title2.bold())
 
             // ファイル名フォーマット section
-            GroupBox("ファイル名フォーマット") {
+            GroupBox("ファイル名フォーマット（プリセット）") {
                 VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Picker("プリセット", selection: $selectedPresetID) {
+                            ForEach(stagedPresets) { p in
+                                Text(p.id == stagedDefaultID ? "★ \(p.displayName)" : p.displayName).tag(p.id)
+                            }
+                        }
+                        .frame(maxWidth: 240)
+                        .onChange(of: selectedPresetID) { _, _ in loadSelectedPreset() }
+                        Spacer()
+                        Button("追加") { addPreset() }
+                        Button("複製") { duplicatePreset() }
+                        Button("削除") { deletePreset() }
+                            .disabled(stagedPresets.count <= 1)
+                    }
+
+                    HStack {
+                        Text("名前").frame(width: 40, alignment: .leading)
+                        TextField("プリセット名", text: $presetName)
+                            .onChange(of: presetName) { _, new in updateSelectedPreset(name: new, format: formatString) }
+                        Button(selectedPresetID == stagedDefaultID ? "既定 ✓" : "既定に設定") {
+                            stagedDefaultID = selectedPresetID
+                        }
+                        .disabled(selectedPresetID == stagedDefaultID)
+                    }
+
                     CursorTrackingTextField(text: $formatString, selectedRange: $cursorRange)
                         .frame(height: 28)
-                        .onChange(of: formatString) { _, new in updatePreview(new) }
+                        .onChange(of: formatString) { _, new in
+                            updatePreview(new)
+                            updateSelectedPreset(name: presetName, format: new)
+                        }
 
                     HStack {
                         Menu("トークンを挿入") {
                             ForEach(FormatToken.allCases, id: \.self) { tok in
-                                Button(tok.rawSyntax) {
-                                    insertToken(tok.rawSyntax)
-                                }
+                                Button(tok.rawSyntax) { insertToken(tok.rawSyntax) }
                             }
                         }
                         .frame(maxWidth: 160)
@@ -70,22 +102,15 @@ struct LibrarySettingsSheet: View {
                     }
 
                     if let err = formatError {
-                        Text(err)
-                            .foregroundStyle(.red)
-                            .font(.caption)
+                        Text(err).foregroundStyle(.red).font(.caption)
                     }
 
-                    Text("プレビュー:")
-                        .font(.caption.bold())
-                        .padding(.top, 4)
+                    Text("プレビュー:").font(.caption.bold()).padding(.top, 4)
                     ForEach(Array(samplePreview.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                        Text(line).font(.caption.monospaced()).foregroundStyle(.secondary)
                     }
                     Text("⚠ コロン (:) は ： に自動変換されます")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 .padding(8)
             }
@@ -112,8 +137,10 @@ struct LibrarySettingsSheet: View {
         .frame(minWidth: 520, minHeight: 480)
         .fixedSize(horizontal: false, vertical: true)
         .onAppear {
-            formatString = settings.filenameFormat
-            updatePreview(formatString)
+            stagedPresets = settings.filenameFormatPresets
+            stagedDefaultID = settings.defaultFilenameFormatPresetID
+            selectedPresetID = stagedDefaultID.isEmpty ? (stagedPresets.first?.id ?? "") : stagedDefaultID
+            loadSelectedPreset()
             lockToggleOn = settings.lockPasswordHash != nil
             useBiometricInput = settings.useBiometric
             stagedFieldLabels = settings.customFieldLabels
@@ -223,6 +250,40 @@ struct LibrarySettingsSheet: View {
         }
     }
 
+    // MARK: - B6: プリセット操作ヘルパー
+
+    private func loadSelectedPreset() {
+        guard let p = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
+        presetName = p.name
+        formatString = p.format
+        updatePreview(formatString)
+    }
+    private func updateSelectedPreset(name: String, format: String) {
+        guard let i = stagedPresets.firstIndex(where: { $0.id == selectedPresetID }) else { return }
+        stagedPresets[i].name = name
+        stagedPresets[i].format = format
+    }
+    private func addPreset() {
+        let p = FilenameFormatPreset(id: UUID().uuidString, name: "新規プリセット", format: "@title")
+        stagedPresets.append(p)
+        selectedPresetID = p.id
+        loadSelectedPreset()
+    }
+    private func duplicatePreset() {
+        guard let src = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
+        let p = FilenameFormatPreset(id: UUID().uuidString, name: src.name + " のコピー", format: src.format)
+        stagedPresets.append(p)
+        selectedPresetID = p.id
+        loadSelectedPreset()
+    }
+    private func deletePreset() {
+        let r = FilenameFormatPresetLogic.removing(id: selectedPresetID, presets: stagedPresets, defaultID: stagedDefaultID)
+        stagedPresets = r.presets
+        stagedDefaultID = r.defaultID
+        selectedPresetID = stagedPresets.first?.id ?? ""
+        loadSelectedPreset()
+    }
+
     /// カーソル位置（または選択範囲）にトークンを挿入し、カーソルを挿入後の位置に移動する。
     private func insertToken(_ token: String) {
         let nsText = formatString as NSString
@@ -262,7 +323,9 @@ struct LibrarySettingsSheet: View {
 
     private func save() {
         guard formatError == nil else { return }
-        settings.filenameFormat = formatString
+        // B6: プリセットと既定を反映（filenameFormat は setDefaultPreset 内で同期される）
+        settings.filenameFormatPresets = stagedPresets
+        settings.setDefaultPreset(id: stagedDefaultID)
 
         // ラベルカスタマイズ反映（ステージした内容を保存時のみ適用）
         if settings.customFieldLabels != stagedFieldLabels {
