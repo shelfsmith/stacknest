@@ -179,8 +179,8 @@ struct SettingsView: View {
             }
             .tag(2)
 
-            // MARK: - Tab 4: キー
-            KeyBindingsSettingsView()
+            // MARK: - Tab 4: キー（キー設定は内蔵ビューワ専用。外部選択時はグレーアウト）
+            KeyBindingsSettingsView(enabled: settings.useBuiltInViewer)
                 .tabItem {
                     Label("キー", systemImage: "keyboard")
                 }
@@ -375,15 +375,10 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
         // **scroll content の真サイズ** (= 全項目を表示しきる高さ)。これを使わないと、
         // fittingSize は ScrollView viewport size (現 window 高さ依存) を返し、循環参照で
         // max が現高さに張り付いて全項目を表示できなかった (smoke v12 で観測)。
-        let baseHeight: CGFloat
-        if tab == 3 {
-            // 「キー」タブは内部 ScrollView が長大なため documentView 計測を使わず固定高にする
-            // (auto 計測だと window が content 全高に伸び、上部に巨大な余白が出る)。「表示」タブと同程度の縦。
-            baseHeight = 760
-        } else {
-            let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
-            baseHeight = documentHeight ?? contentView.fittingSize.height
-        }
+        // 「キー」タブも他タブ同様 documentView 全高に追従（ScrollView は maxHeight:.infinity で充填）。
+        // これで全行が収まる高さに window が伸び、スクロール不要になる（画面より高い場合のみ内部スクロール）。
+        let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
+        let baseHeight = documentHeight ?? contentView.fittingSize.height
         guard baseHeight > 0 else { return }
 
         // アクティブタブの fitted 高さ。tab bar 分も含めた全項目を表示しきる高さ。

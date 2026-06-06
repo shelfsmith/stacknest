@@ -3,6 +3,9 @@ import SwiftUI
 import AppCore
 
 struct KeyBindingsSettingsView: View {
+    /// キー設定は内蔵ビューワ専用。外部ビューワ選択時は false でグレーアウトする。
+    var enabled: Bool = true
+
     @State private var bindings = ViewerKeyBindings.load()
     @State private var capturingAction: ViewerAction?
     @State private var conflictMessage: [ViewerAction: String] = [:]
@@ -10,26 +13,41 @@ struct KeyBindingsSettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                ForEach(ViewerActionSection.allCases, id: \.self) { section in
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(section.title).font(.headline)
-                        ForEach(section.actions, id: \.self) { action in
-                            row(for: action)
+                if !enabled {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "info.circle")
+                        Text("キー設定は内蔵ビューワ選択時のみ有効です。設定 ▸ 表示 でビューワを「内蔵ビューワ」に切り替えてください。")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                }
+                Group {
+                    ForEach(ViewerActionSection.allCases, id: \.self) { section in
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(section.title).font(.headline)
+                            ForEach(section.actions, id: \.self) { action in
+                                row(for: action)
+                            }
                         }
                     }
+                    Text("Esc は常にキャンセル / 閉じるに使われるため固定です。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Divider()
+                    Button("すべて既定に戻す") {
+                        bindings.resetAll()
+                        conflictMessage.removeAll()
+                        persist()
+                    }
                 }
-                Text("Esc は常にキャンセル / 閉じるに使われるため固定です。")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider()
-                Button("すべて既定に戻す") {
-                    bindings.resetAll()
-                    conflictMessage.removeAll()
-                    persist()
-                }
+                .disabled(!enabled)
+                .opacity(enabled ? 1 : 0.4)
             }
             .padding(16)
         }
-        .frame(maxHeight: .infinity)   // ウィンドウ高（tab3 固定値）いっぱいに伸ばす
+        .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder
