@@ -379,7 +379,7 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
         if tab == 3 {
             // 「キー」タブは内部 ScrollView が長大なため documentView 計測を使わず固定高にする
             // (auto 計測だと window が content 全高に伸び、上部に巨大な余白が出る)。「表示」タブと同程度の縦。
-            baseHeight = 600
+            baseHeight = 760
         } else {
             let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
             baseHeight = documentHeight ?? contentView.fittingSize.height

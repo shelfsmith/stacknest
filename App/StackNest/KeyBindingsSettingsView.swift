@@ -29,7 +29,7 @@ struct KeyBindingsSettingsView: View {
             }
             .padding(16)
         }
-        .frame(height: 600)
+        .frame(maxHeight: .infinity)   // ウィンドウ高（tab3 固定値）いっぱいに伸ばす
     }
 
     @ViewBuilder
