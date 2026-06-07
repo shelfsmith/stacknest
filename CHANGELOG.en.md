@@ -36,7 +36,7 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 ## Before 0.8.0 (phase-based, untagged)
 
 Development history prior to tagged releases, by phase (**newest first**). Detailed specs live in the planning repo; the README "Roadmap" is the summary.
-(Foundational phases 2.1–2.5 core are recorded at month granularity only, so dates are shown as "2026-05".)
+(Early-phase dates are based on the planning repo's final smoke / decision-log completion records. Only 2.2 has no completion record and is shown at month granularity, "2026-05".)
 
 ### Phase 2.6g — 2026-06-04 — Keychain-free biometric lock
 - armedHash approach removes Keychain access from the unlock path (fixes the repeated prompt; no plaintext stored).
@@ -76,19 +76,19 @@ Development history prior to tagged releases, by phase (**newest first**). Detai
 ### Phase 2.5e — 2026-05-27 — Per-extension external helpers
 - Per-extension helper mapping / separate slideshow & zip helpers / pass folder to external helper.
 
-### Phase 2.5 (core) — 2026-05 — Multi-library & file operations
+### Phase 2.5 (core) — 2026-05-24 — Multi-library & file operations
 - Multiple libraries at arbitrary locations (Cmd+O, recents list, macOS tabs), per-library password lock + Touch ID, image-folder books (no zip), file move / rename (bidirectional tokens, preview), filename-parser fix, series + volume split (migration v10), cover editing (D&D + page pick from zip), delete safety (Undo), detail-pane Tab navigation.
 
-### Phase 2.4 — 2026-05 — Editing & filters
+### Phase 2.4 — 2026-05-09 — Editing & filters
 - Detail-pane editing (tag dropdowns, memo, bookType), three toolbar filters (unseen / rating / bookType), facet filter columns (browse), FTS5 (trigram) full-text search, stamp view, tag "→" jump.
 
-### Phase 2.3 — 2026-05 — Browser core
+### Phase 2.3 — 2026-05-07 — Browser core
 - Sidebar (library / favorites / recent), manual shelves, detail pane (display), incremental search, list view, rating / unseen / bookType (menu + shortcuts), drag-and-drop to favorites.
 
 ### Phase 2.2 — 2026-05 — Display basics
 - Grid / icon view, thumbnail generation, archive reading (zip/cbz/cbr/7z), external viewer selection.
 
-### Phase 2.1 — 2026-05 — Compatible importer (the initial foundation)
+### Phase 2.1 — 2026-05-02 — Compatible importer (the initial foundation)
 - A CLI importer that parses Stackroom's library XML into SQLite (GRDB). Established the data model (title / author / genre / keywords / relation / memo / rating / unseen / page count / cover / bookType).
 
 [0.9.0]: https://github.com/shelfsmith/stacknest/releases/tag/v0.9.0
