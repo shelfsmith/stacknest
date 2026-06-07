@@ -24,6 +24,28 @@ struct DatabaseBackupTests {
         #expect(try db.integrityCheck() == ["ok"])
     }
 
+    @Test func quickCheckReturnsFalseOnCorruptDBWithoutThrowing() throws {
+        // 破損ページに対し PRAGMA quick_check は SQLITE_CORRUPT を送出するが、
+        // quickCheck() はそれを捕捉して false を返す（生エラーを伝播させない）。
+        let dir = try tempDir()
+        let url = dir.appendingPathComponent("library.sqlite")
+        let db = try Database.openFile(at: url, mode: .createOrReplace)
+        try db.migrate()
+        // 本を 1 冊入れて 2 ページ目以降にデータを作る。
+        for i in 0..<200 {
+            try db.setLibrarySetting(key: "k\(i)", value: String(repeating: "x", count: 64))
+        }
+        db.close()
+        // ヘッダ(先頭100B)は保ったまま、2 ページ目先頭の btree を破壊する。
+        let handle = try FileHandle(forUpdating: url)
+        try handle.seek(toOffset: 4096)
+        try handle.write(contentsOf: Data(repeating: 0, count: 512))
+        try handle.close()
+
+        let reopened = try Database.openExisting(at: url)
+        #expect(try reopened.quickCheck() == false)
+    }
+
     @Test func backupProducesOpenableCopyWithSameRows() throws {
         let dir = try tempDir()
         let srcURL = dir.appendingPathComponent("library.sqlite")

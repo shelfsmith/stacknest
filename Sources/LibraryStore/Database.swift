@@ -249,8 +249,15 @@ public final class Database: @unchecked Sendable {
     /// single result row is exactly "ok".
     public func quickCheck() throws -> Bool {
         guard let q = queue else { return false }
-        return try q.read { db in
-            try String.fetchAll(db, sql: "PRAGMA quick_check") == ["ok"]
+        do {
+            return try q.read { db in
+                try String.fetchAll(db, sql: "PRAGMA quick_check") == ["ok"]
+            }
+        } catch {
+            // 破損 (SQLITE_CORRUPT 等) は PRAGMA 実行時にエラーとして送出される。
+            // 健全性チェックの目的上、検証に失敗したら「異常」とみなして false を返し、
+            // 生エラーを伝播させない（呼び出し側がバックアップ復元を提案できるようにする）。
+            return false
         }
     }
 

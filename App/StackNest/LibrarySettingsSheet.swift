@@ -319,11 +319,13 @@ struct LibrarySettingsSheet: View {
     private func performIntegrityCheck() {
         guard let db = appState?.database else { return }
         let rows = (try? db.integrityCheck()) ?? ["(エラー)"]
+        let healthy = rows == ["ok"]
         let alert = NSAlert()
-        alert.messageText = rows == ["ok"]
+        alert.messageText = healthy
             ? "問題は見つかりませんでした"
             : "整合性の問題が見つかりました"
-        alert.informativeText = rows.prefix(20).joined(separator: "\n")
+        // 正常時は SQLite の "ok" 行をそのまま見せない（メッセージで十分）。
+        alert.informativeText = healthy ? "" : rows.prefix(20).joined(separator: "\n")
         alert.runModal()
     }
 
