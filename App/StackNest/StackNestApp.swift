@@ -494,9 +494,13 @@ struct LibraryWindowContainer: View {
                 self.unlocked = true
             }
         } catch {
-            self.error = error
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
             OpenLibraryRegistry.shared.unregister(bundleURL)
+            if case LibraryOpenError.cancelledByUser = error {
+                dismiss()   // ユーザーが破損ダイアログで「閉じる/やめる」を選んだ。静かに閉じる。
+            } else {
+                self.error = error
+            }
         }
     }
 

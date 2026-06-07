@@ -231,7 +231,7 @@ final class AppState {
                         try attemptRecover()   // 成功時は open まで進めて return、失敗時は throw
                         return
                     case .dismiss:
-                        throw LibraryOpenError.corrupt(bundle.url)
+                        throw LibraryOpenError.cancelledByUser
                     }
                 }
                 self.lastChangeCounter = BackupManager.changeCounter(of: bundle.databaseURL)
@@ -286,13 +286,25 @@ final class AppState {
         }
 
         let recovered = (try? DatabaseRecovery.recover(from: input, to: out)) ?? false
-        guard recovered else { failAndCleanup(); throw LibraryOpenError.corrupt(bundle.url) }
+        guard recovered else { failAndCleanup(); throw LibraryOpenError.cancelledByUser }
 
-        // 救出結果を検証。
+        // 救出結果を検証。本の件数も probe が開いている間に読む。
         let probe = try? Database.openExisting(at: out)
         let probeOk = (try? (probe?.quickCheck() ?? false)) ?? false
+        let recoveredBooks = (try? (probe?.fetchBookCount() ?? 0)) ?? 0
         probe?.close()
-        guard probeOk else { failAndCleanup(); throw LibraryOpenError.corrupt(bundle.url) }
+        guard probeOk else { failAndCleanup(); throw LibraryOpenError.cancelledByUser }
+
+        if recoveredBooks == 0 {
+            // 救出はできたが本が 0 件。空で置き換えるかをユーザーに確認する。
+            switch Self.presentRecoverEmptyAlert() {
+            case .keep:
+                try? fm.removeItem(at: out)   // 採用しない。live は不変。
+                throw LibraryOpenError.cancelledByUser
+            case .replace:
+                break   // 空でも置き換えて続行
+            }
+        }
 
         // 差し替え: 現本体を退避（削除しない）→ stale sidecar 除去 → 救出 DB を本体名へ。
         let pre = bundle.url.appendingPathComponent("library.prerecover-\(ts).sqlite")
@@ -308,6 +320,13 @@ final class AppState {
         self.lastChangeCounter = BackupManager.changeCounter(of: live)
         try db.migrate()
         try finishOpening(db: db)
+
+        if recoveredBooks > 0 {
+            let a = NSAlert()
+            a.messageText = String(localized: "修復が完了しました")
+            a.informativeText = String(localized: "本 \(recoveredBooks) 件を復元しました。復元できなかったデータがある場合があります。元のファイルは library.prerecover-* に残っています。")
+            a.runModal()
+        }
     }
 
     /// バンドル内の最新 `library.corrupt-*.sqlite` を返す（無ければ nil）。
@@ -318,6 +337,17 @@ final class AppState {
             .filter { $0.lastPathComponent.hasPrefix("library.corrupt-") && $0.pathExtension == "sqlite" }
             .sorted { $0.lastPathComponent > $1.lastPathComponent }
             .first
+    }
+
+    enum RecoverEmptyChoice { case replace, keep }
+
+    static func presentRecoverEmptyAlert() -> RecoverEmptyChoice {
+        let a = NSAlert()
+        a.messageText = String(localized: "本のデータを復元できませんでした")
+        a.informativeText = String(localized: "救出を試みましたが、本のデータは 0 件でした（破損箇所に本の情報が含まれていた可能性があります）。空のライブラリで置き換えますか？ 元の破損ファイルは library.prerecover-* / library.corrupt-* に残ります。")
+        a.addButton(withTitle: String(localized: "やめる"))            // first = default
+        a.addButton(withTitle: String(localized: "空で置き換える"))
+        return a.runModal() == .alertFirstButtonReturn ? .keep : .replace
     }
 
     static func presentRecoverFailedAlert(bundleURL: URL) {
