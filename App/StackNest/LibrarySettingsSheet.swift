@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
+import AppKit  // for NSAlert / NSWorkspace (backup section)
 import AppCore
 import LibraryStore
 import StackroomFormat  // for BookRecord
@@ -75,6 +76,9 @@ struct LibrarySettingsSheet: View {
                 ScrollView { metadataSection().padding(16) }
                     .tabItem { Label("メタデータ", systemImage: "wand.and.stars") }
                     .tag(3)
+                ScrollView { backupSection().padding(16) }
+                    .tabItem { Label("バックアップ", systemImage: "externaldrive.badge.timemachine") }
+                    .tag(4)
             }
             .padding(.horizontal, 12)
 
@@ -268,6 +272,64 @@ struct LibrarySettingsSheet: View {
         } message: {
             Text(recomputeResultMessage)
         }
+    }
+
+    // MARK: - Phase 2.8 B22: バックアップ セクション
+
+    @ViewBuilder
+    private func backupSection() -> some View {
+        GroupBox("バックアップ") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("編集後にバックアップを保存", isOn: Binding(
+                    get: { settings.backupEnabled },
+                    set: { settings.backupEnabled = $0 }))
+
+                Stepper(value: Binding(
+                    get: { settings.backupGenerations },
+                    set: { settings.backupGenerations = $0 }), in: 1...20) {
+                    Text("保持する世代数: \(settings.backupGenerations)")
+                }
+                .disabled(!settings.backupEnabled)
+
+                Divider()
+
+                HStack {
+                    Button("今すぐバックアップ") { performManualBackup() }
+                        .disabled(appState?.database == nil || bundleURL == nil)
+                    Button("整合性をチェック") { performIntegrityCheck() }
+                        .disabled(appState?.database == nil)
+                    Button("バックアップフォルダを表示") { openBackupsFolder() }
+                        .disabled(bundleURL == nil)
+                }
+
+                Text("有効にすると、ウィンドウを閉じる際に変更があればバックアップを保存し、世代数を超えた古いものを削除します。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+        }
+    }
+
+    private func performManualBackup() {
+        guard let db = appState?.database, let url = bundleURL else { return }
+        try? BackupManager.makeBackup(from: db, bundleURL: url, timestamp: AppState.backupTimestamp())
+        try? BackupManager.prune(in: BackupManager.backupsDir(for: url), keep: settings.backupGenerations)
+    }
+
+    private func performIntegrityCheck() {
+        guard let db = appState?.database else { return }
+        let rows = (try? db.integrityCheck()) ?? ["(エラー)"]
+        let alert = NSAlert()
+        alert.messageText = rows == ["ok"]
+            ? "問題は見つかりませんでした"
+            : "整合性の問題が見つかりました"
+        alert.informativeText = rows.prefix(20).joined(separator: "\n")
+        alert.runModal()
+    }
+
+    private func openBackupsFolder() {
+        guard let url = bundleURL else { return }
+        NSWorkspace.shared.open(BackupManager.backupsDir(for: url))
     }
 
     // MARK: - B6: プリセット操作ヘルパー
