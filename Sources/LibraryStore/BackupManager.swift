@@ -51,4 +51,30 @@ public enum BackupManager {
             try? FileManager.default.removeItem(at: url)
         }
     }
+
+    /// 最新世代から復元する。破損本体は削除せず `library.corrupt-<timestamp>.sqlite` に退避し、
+    /// stale な sidecar（-journal / -wal / -shm）を除去してから最新バックアップを本体名にコピーする。
+    /// バックアップが 1 つも無ければ何もせず false を返す（本体は触らない）。
+    @discardableResult
+    public static func restoreLatest(bundleURL: URL, databaseFileName: String, timestamp: String) throws -> Bool {
+        let fm = FileManager.default
+        let dir = backupsDir(for: bundleURL)
+        guard let latest = list(in: dir).first else { return false }
+
+        let live = bundleURL.appendingPathComponent(databaseFileName)
+        // 破損本体を退避（拡張子の前に .corrupt-<ts> を挿入）。
+        if fm.fileExists(atPath: live.path) {
+            let base = (databaseFileName as NSString).deletingPathExtension   // "library"
+            let ext = (databaseFileName as NSString).pathExtension            // "sqlite"
+            let corrupt = bundleURL.appendingPathComponent("\(base).corrupt-\(timestamp).\(ext)")
+            try fm.moveItem(at: live, to: corrupt)
+        }
+        // stale sidecars を除去（退避した本体には付随させない）。
+        for sidecar in ["\(databaseFileName)-journal", "\(databaseFileName)-wal", "\(databaseFileName)-shm"] {
+            let s = bundleURL.appendingPathComponent(sidecar)
+            if fm.fileExists(atPath: s.path) { try? fm.removeItem(at: s) }
+        }
+        try fm.copyItem(at: latest, to: live)
+        return true
+    }
 }

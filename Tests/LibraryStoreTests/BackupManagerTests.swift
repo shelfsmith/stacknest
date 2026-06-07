@@ -85,4 +85,40 @@ struct BackupManagerTests {
         #expect(FileManager.default.fileExists(atPath: backupsDir.appendingPathComponent("README.txt").path))
         #expect(BackupManager.list(in: backupsDir).isEmpty)
     }
+
+    @Test func restoreLatestMovesCorruptAsideAndRestores() throws {
+        let dir = try tempDir()
+        let bundle = dir.appendingPathComponent("foo.stacknest")
+        let backupsDir = BackupManager.backupsDir(for: bundle)
+        try FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
+        // live (corrupt) library + a sidecar journal
+        let live = bundle.appendingPathComponent("library.sqlite")
+        try Data("CORRUPT".utf8).write(to: live)
+        try Data("J".utf8).write(to: bundle.appendingPathComponent("library.sqlite-journal"))
+        // one backup
+        try Data("GOODBACKUP".utf8).write(to: backupsDir.appendingPathComponent("library-20260605-000000.sqlite"))
+
+        let restored = try BackupManager.restoreLatest(
+            bundleURL: bundle, databaseFileName: "library.sqlite", timestamp: "20260607-120000")
+        #expect(restored == true)
+        // live now equals backup contents
+        #expect(try String(contentsOf: live, encoding: .utf8) == "GOODBACKUP")
+        // corrupt file preserved under a corrupt-<ts> name
+        let corrupt = bundle.appendingPathComponent("library.corrupt-20260607-120000.sqlite")
+        #expect(try String(contentsOf: corrupt, encoding: .utf8) == "CORRUPT")
+        // stale sidecar removed
+        #expect(!FileManager.default.fileExists(atPath: bundle.appendingPathComponent("library.sqlite-journal").path))
+    }
+
+    @Test func restoreLatestReturnsFalseWhenNoBackups() throws {
+        let dir = try tempDir()
+        let bundle = dir.appendingPathComponent("foo.stacknest")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        try Data("CORRUPT".utf8).write(to: bundle.appendingPathComponent("library.sqlite"))
+        let restored = try BackupManager.restoreLatest(
+            bundleURL: bundle, databaseFileName: "library.sqlite", timestamp: "20260607-120000")
+        #expect(restored == false)
+        // live untouched
+        #expect(try String(contentsOf: bundle.appendingPathComponent("library.sqlite"), encoding: .utf8) == "CORRUPT")
+    }
 }
