@@ -36,7 +36,7 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 ## Before 0.8.0 (phase-based, untagged)
 
 Development history prior to tagged releases, by phase (**newest first**). Detailed specs live in the planning repo; the README "Roadmap" is the summary.
-(Early-phase dates are based on the planning repo's final smoke / decision-log completion records. Only 2.2 has no completion record and is shown at month granularity, "2026-05".)
+(Early-phase dates are based on the planning repo's final smoke / decision logs. 2.2 has no standalone completion record; its 2026-05-03 to 05-07 range is inferred from the related spec through the next phase's smoke.)
 
 ### Phase 2.6g — 2026-06-04 — Keychain-free biometric lock
 - armedHash approach removes Keychain access from the unlock path (fixes the repeated prompt; no plaintext stored).
@@ -85,7 +85,7 @@ Development history prior to tagged releases, by phase (**newest first**). Detai
 ### Phase 2.3 — 2026-05-07 — Browser core
 - Sidebar (library / favorites / recent), manual shelves, detail pane (display), incremental search, list view, rating / unseen / bookType (menu + shortcuts), drag-and-drop to favorites.
 
-### Phase 2.2 — 2026-05 — Display basics
+### Phase 2.2 — 2026-05-03 to 05-07 — Display basics
 - Grid / icon view, thumbnail generation, archive reading (zip/cbz/cbr/7z), external viewer selection.
 
 ### Phase 2.1 — 2026-05-02 — Compatible importer (the initial foundation)
