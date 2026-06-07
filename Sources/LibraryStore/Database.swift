@@ -243,6 +243,35 @@ public final class Database: @unchecked Sendable {
         try q.write { try Migration.apply(to: $0) }
     }
 
+    // MARK: - Integrity & Backup (Phase 2.8 B22)
+
+    /// `PRAGMA quick_check` — lightweight integrity probe. Returns true iff the
+    /// single result row is exactly "ok".
+    public func quickCheck() throws -> Bool {
+        guard let q = queue else { return false }
+        return try q.read { db in
+            try String.fetchAll(db, sql: "PRAGMA quick_check") == ["ok"]
+        }
+    }
+
+    /// `PRAGMA integrity_check` — full scan. Returns the result rows
+    /// (`["ok"]` when healthy, otherwise one row per problem found).
+    public func integrityCheck() throws -> [String] {
+        guard let q = queue else { return [] }
+        return try q.read { db in
+            try String.fetchAll(db, sql: "PRAGMA integrity_check")
+        }
+    }
+
+    /// SQLite Online Backup API による一貫スナップショット。WAL/journal を伴わない
+    /// 単体で開ける独立 .sqlite を `url` に書き出す。既存ファイルは上書きしない前提
+    /// （呼び出し側が一意な世代名を渡す）。
+    public func backup(to url: URL) throws {
+        guard let q = queue else { return }
+        let dest = try DatabaseQueue(path: url.path)
+        try q.backup(to: dest)
+    }
+
     public func insertBook(_ book: BookRecord) throws {
         guard let q = queue else { return }
         try q.write { db in
