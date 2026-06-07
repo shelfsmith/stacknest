@@ -1,5 +1,7 @@
 # Changelog
 
+**日本語** | [English](#changelog-english)
+
 本ファイルは StackNest の主な変更を記録します。形式は [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に準じ、バージョンは [Semantic Versioning](https://semver.org/lang/ja/) に従います。
 リリースは ad-hoc 署名の Universal ビルド（Apple 公証なし）で、[Releases](https://github.com/shelfsmith/stacknest/releases) から配布します（個人利用前提・現在は prerelease）。
 各フェーズの詳細は計画リポジトリのロードマップを参照（本リポジトリの README「ロードマップ」が要約）。
@@ -34,6 +36,48 @@
 ---
 
 0.8.0 より前（2.1〜2.6 系）の経緯は README「ロードマップ」を参照してください（互換インポータ・グリッド／リスト・検索・編集・マルチライブラリ・ファイル CRUD・内蔵ビューワ・初回ウィザード・各種ロック等）。
+
+---
+
+<a id="changelog-english"></a>
+# Changelog (English)
+
+[日本語](#changelog) | **English**
+
+This file records notable changes to StackNest. It follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
+Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed from [Releases](https://github.com/shelfsmith/stacknest/releases) (personal-use; currently prerelease).
+For per-phase detail see the planning repo's roadmap (the README "Roadmap" is the summary).
+
+## [0.9.0] - 2026-06-07 — Library safety & DB repair (Phase 2.8 / 2.9)
+
+### Added
+- **DB preventive safety (B22)**: On closing any session that made edits, a generational backup is taken automatically into `Backups/` inside the bundle (SQLite Online Backup API; view-only/no-edit sessions are skipped). The number of generations to keep is per-library configurable from 1–20 (default 5).
+- **Integrity check (B22)**: On opening a library, `PRAGMA quick_check` runs; if corruption is detected it offers "Restore from the latest healthy backup?". Settings gain manual integrity-check / back-up-now / reveal-backups-folder buttons.
+- **In-app DB repair `.recover` (B23)**: When restoring from a backup isn't possible, "Try repair with .recover" runs the system `sqlite3 .recover` to salvage what it can. It reports how many books were recovered and, if healthy, swaps it in and opens (the corrupt originals are kept as `library.corrupt-*` / `library.prerecover-*`).
+- **Relink missing files (A19)**: Re-link books whose underlying file/folder moved. Right-click "Reassign file…" (immediate) and the menu "Detect broken links…" (per-item list + folder-wide remap).
+- **Recovery guide**: Added `docs/recovery-guide.md` (manual `sqlite3 .recover` steps and an explanation of the retained files).
+
+### Fixed
+- **NFC normalization**: Fixed a bug where series/titles derived from macOS filenames (NFD) were treated as different strings from typed/imported ones (NFC), splitting browse facets and missing filter matches. Text is now NFC-normalized on write, and existing data is backfilled by migration v16.
+
+### Notes
+- Ad-hoc-signed Universal (arm64 + x86_64, macOS 15+), prerelease.
+
+## [0.8.0] - 2026-06-06 — Polish & performance (Phase 2.7)
+
+### Added
+- **Duplicate detection (A20 / B11)**: Detect same-content books in different directories by SHA-256 byte match (plus series+volume match). Resolution sheet (remove catalog entry only / also move file to Trash / ignore group).
+- **Label customization (A22 / A23)**: Rename content fields and bookType display names per library, reflected consistently everywhere (column headers, sort, detail, filters, stamps, browse, smart shelves).
+- **Viewer key-rebinding UI**: Freely reassign every viewer action key in the Settings "Keys" tab (conflicts rejected; help auto-generated).
+- **Multiple naming-format presets (B6)**: Save several naming formats and pick one at rename time.
+- **Distribution**: Started releasing ad-hoc-signed Universal builds via CI (GitHub Actions) — the first tagged release.
+
+### Changed
+- **Sort performance optimization (B9)**: DSU + ICU sort key (`ucol_getSortKey`) speeds up sorting for large libraries (notably improves perceived startup at a realistic 5,000-item scale).
+
+---
+
+For history before 0.8.0 (the 2.1–2.6 line), see the README "Roadmap" (compatible importer, grid/list, search, editing, multi-library, file CRUD, built-in viewer, first-run wizard, locks, etc.).
 
 [0.9.0]: https://github.com/shelfsmith/stacknest/releases/tag/v0.9.0
 [0.8.0]: https://github.com/shelfsmith/stacknest/releases/tag/v0.8.0
