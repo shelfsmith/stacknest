@@ -152,14 +152,23 @@ final class AppState {
         }
     }
 
-    static func presentRestoreFailedAlert(bundleURL: URL) {
+    enum RestoreFailedChoice { case tryRecover, dismiss }
+
+    static func presentRestoreFailedAlert(bundleURL: URL) -> RestoreFailedChoice {
         let a = NSAlert()
         a.messageText = String(localized: "バックアップから復元できませんでした")
-        a.informativeText = String(localized: "利用可能なバックアップが無いか、復元後も問題が残っています。復旧手順書（recovery-guide）を参照してください。")
+        a.informativeText = String(localized: "利用可能なバックアップが無いか、復元後も問題が残っています。`.recover` で可能な範囲のデータ救出を試せます（完全性は保証されません）。")
+        a.addButton(withTitle: String(localized: ".recover で修復を試す"))
         a.addButton(withTitle: String(localized: "バックアップフォルダを表示"))
         a.addButton(withTitle: String(localized: "閉じる"))
-        if a.runModal() == .alertFirstButtonReturn {
+        switch a.runModal() {
+        case .alertFirstButtonReturn:
+            return .tryRecover
+        case .alertSecondButtonReturn:
             NSWorkspace.shared.open(BackupManager.backupsDir(for: bundleURL))
+            return .dismiss
+        default:
+            return .dismiss
         }
     }
 
@@ -217,8 +226,13 @@ final class AppState {
                 let reopenedOk = restored && ((try? reopened.quickCheck()) ?? false)
                 if !reopenedOk {
                     reopened.close()
-                    Self.presentRestoreFailedAlert(bundleURL: bundle.url)
-                    throw LibraryOpenError.corrupt(bundle.url)
+                    switch Self.presentRestoreFailedAlert(bundleURL: bundle.url) {
+                    case .tryRecover:
+                        try attemptRecover()   // 成功時は open まで進めて return、失敗時は throw
+                        return
+                    case .dismiss:
+                        throw LibraryOpenError.corrupt(bundle.url)
+                    }
                 }
                 self.lastChangeCounter = BackupManager.changeCounter(of: bundle.databaseURL)
                 try reopened.migrate()
@@ -254,6 +268,67 @@ final class AppState {
         // B22: セッションガードをリセットし、終了時バックアップ用に自身を登録する。
         self.didBackupThisSession = false
         Self.activeInstances.add(self)
+    }
+
+    /// B23: `.recover` による最終手段の修復。入力＝最新の壊れた本体（library.corrupt-* 優先、
+    /// 無ければ library.sqlite）→ 救出 DB を生成・検証 → 正常なら現本体を library.prerecover-* に
+    /// 退避して差し替え → migrate → 開く。失敗時は live を変更せず案内のみ。
+    func attemptRecover() throws {
+        let fm = FileManager.default
+        let ts = Self.backupTimestamp()
+        let live = bundle.databaseURL
+        let input = Self.latestCorruptFile(in: bundle.url) ?? live
+        let out = bundle.url.appendingPathComponent("library.recovered-\(ts).sqlite")
+
+        func failAndCleanup() {
+            if fm.fileExists(atPath: out.path) { try? fm.removeItem(at: out) }
+            Self.presentRecoverFailedAlert(bundleURL: bundle.url)
+        }
+
+        let recovered = (try? DatabaseRecovery.recover(from: input, to: out)) ?? false
+        guard recovered else { failAndCleanup(); throw LibraryOpenError.corrupt(bundle.url) }
+
+        // 救出結果を検証。
+        let probe = try? Database.openExisting(at: out)
+        let probeOk = (try? (probe?.quickCheck() ?? false)) ?? false
+        probe?.close()
+        guard probeOk else { failAndCleanup(); throw LibraryOpenError.corrupt(bundle.url) }
+
+        // 差し替え: 現本体を退避（削除しない）→ stale sidecar 除去 → 救出 DB を本体名へ。
+        let pre = bundle.url.appendingPathComponent("library.prerecover-\(ts).sqlite")
+        if fm.fileExists(atPath: live.path) { try fm.moveItem(at: live, to: pre) }
+        for sc in ["\(live.lastPathComponent)-wal", "\(live.lastPathComponent)-shm", "\(live.lastPathComponent)-journal"] {
+            let s = bundle.url.appendingPathComponent(sc)
+            if fm.fileExists(atPath: s.path) { try fm.removeItem(at: s) }
+        }
+        try fm.moveItem(at: out, to: live)
+
+        // 開く。
+        let db = try Database.openExisting(at: live)
+        self.lastChangeCounter = BackupManager.changeCounter(of: live)
+        try db.migrate()
+        try finishOpening(db: db)
+    }
+
+    /// バンドル内の最新 `library.corrupt-*.sqlite` を返す（無ければ nil）。
+    static func latestCorruptFile(in bundleURL: URL) -> URL? {
+        let items = (try? FileManager.default.contentsOfDirectory(
+            at: bundleURL, includingPropertiesForKeys: nil)) ?? []
+        return items
+            .filter { $0.lastPathComponent.hasPrefix("library.corrupt-") && $0.pathExtension == "sqlite" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            .first
+    }
+
+    static func presentRecoverFailedAlert(bundleURL: URL) {
+        let a = NSAlert()
+        a.messageText = String(localized: "修復できませんでした")
+        a.informativeText = String(localized: "`.recover` でも有効なデータベースを救出できませんでした。復旧手順書（recovery-guide）を参照してください。元のファイルは変更していません。")
+        a.addButton(withTitle: String(localized: "バックアップフォルダを表示"))
+        a.addButton(withTitle: String(localized: "閉じる"))
+        if a.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(BackupManager.backupsDir(for: bundleURL))
+        }
     }
 
     func closeBundle() {
