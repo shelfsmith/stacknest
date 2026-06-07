@@ -69,9 +69,19 @@ struct RelinkSheet: View {
             }
             HStack { Spacer(); Button("閉じる") { scanTask?.cancel(); dismiss() } }
         }
-        .padding(20).frame(width: 600, height: 520)
+        .padding(20)
+        // idle / scanning / 結果0件 は内容サイズ（コンパクト）。結果一覧があるときだけ縦に広げる。
+        .frame(
+            minWidth: 560,
+            idealWidth: 600,
+            minHeight: hasResults ? 420 : nil,
+            idealHeight: hasResults ? 520 : nil,
+            alignment: .topLeading
+        )
         .onDisappear { scanTask?.cancel() }
     }
+
+    private var hasResults: Bool { phase == .done && !groups.isEmpty }
 
     private func startScan() {
         phase = .scanning; scanned = 0; groups = []
