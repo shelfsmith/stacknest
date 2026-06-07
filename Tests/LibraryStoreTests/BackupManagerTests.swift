@@ -33,4 +33,56 @@ struct BackupManagerTests {
         let dir = try tempDir()
         #expect(BackupManager.changeCounter(of: dir.appendingPathComponent("nope.sqlite")) == nil)
     }
+
+    @Test func backupsDirIsBundleSubdir() {
+        let bundle = URL(fileURLWithPath: "/tmp/foo.stacknest")
+        #expect(BackupManager.backupsDir(for: bundle).lastPathComponent == "Backups")
+        #expect(BackupManager.backupsDir(for: bundle).deletingLastPathComponent().path == bundle.path)
+    }
+
+    @Test func makeBackupCreatesDirAndFile() throws {
+        let dir = try tempDir()
+        let bundle = dir.appendingPathComponent("foo.stacknest")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let db = try Database.openFile(at: bundle.appendingPathComponent("library.sqlite"), mode: .createOrReplace)
+        try db.migrate()
+
+        let out = try BackupManager.makeBackup(from: db, bundleURL: bundle, timestamp: "20260607-101530")
+        #expect(out.lastPathComponent == "library-20260607-101530.sqlite")
+        #expect(FileManager.default.fileExists(atPath: out.path))
+        #expect(BackupManager.list(in: BackupManager.backupsDir(for: bundle)).count == 1)
+    }
+
+    @Test func listIsNewestFirstAndPruneKeepsNewest() throws {
+        let dir = try tempDir()
+        let backupsDir = dir.appendingPathComponent("Backups")
+        try FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
+        // 名前順 = 時系列順。古い→新しい。
+        for ts in ["20260601-000000", "20260602-000000", "20260603-000000", "20260604-000000"] {
+            let f = backupsDir.appendingPathComponent("library-\(ts).sqlite")
+            try Data("x".utf8).write(to: f)
+        }
+        let listed = BackupManager.list(in: backupsDir)
+        #expect(listed.count == 4)
+        #expect(listed.first!.lastPathComponent == "library-20260604-000000.sqlite") // newest first
+
+        try BackupManager.prune(in: backupsDir, keep: 2)
+        let after = BackupManager.list(in: backupsDir)
+        #expect(after.count == 2)
+        #expect(after.map { $0.lastPathComponent } == [
+            "library-20260604-000000.sqlite",
+            "library-20260603-000000.sqlite",
+        ])
+    }
+
+    @Test func pruneIgnoresNonBackupFiles() throws {
+        let dir = try tempDir()
+        let backupsDir = dir.appendingPathComponent("Backups")
+        try FileManager.default.createDirectory(at: backupsDir, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: backupsDir.appendingPathComponent("library-20260601-000000.sqlite"))
+        try Data("x".utf8).write(to: backupsDir.appendingPathComponent("README.txt"))
+        try BackupManager.prune(in: backupsDir, keep: 0)
+        #expect(FileManager.default.fileExists(atPath: backupsDir.appendingPathComponent("README.txt").path))
+        #expect(BackupManager.list(in: backupsDir).isEmpty)
+    }
 }
