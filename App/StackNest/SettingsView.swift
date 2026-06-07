@@ -375,10 +375,14 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
         // **scroll content の真サイズ** (= 全項目を表示しきる高さ)。これを使わないと、
         // fittingSize は ScrollView viewport size (現 window 高さ依存) を返し、循環参照で
         // max が現高さに張り付いて全項目を表示できなかった (smoke v12 で観測)。
-        // 「キー」タブも他タブ同様 documentView 全高に追従（ScrollView は maxHeight:.infinity で充填）。
-        // これで全行が収まる高さに window が伸び、スクロール不要になる（画面より高い場合のみ内部スクロール）。
+        // 通常タブは documentView 全高に追従。
+        // 「キー」タブは全 ViewerAction（約30行）で全高にすると縦に長すぎるため、上限を設けて
+        // 内部スクロール併用にする（ScrollView は maxHeight:.infinity で window を充填）。
         let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
-        let baseHeight = documentHeight ?? contentView.fittingSize.height
+        var baseHeight = documentHeight ?? contentView.fittingSize.height
+        if tab == 3 {
+            baseHeight = min(baseHeight, 720)   // キー タブの最大コンテンツ高（窓 ≈ 720+padding、以前「良い」とされた高さ帯）。超過分はスクロール。
+        }
         guard baseHeight > 0 else { return }
 
         // アクティブタブの fitted 高さ。tab bar 分も含めた全項目を表示しきる高さ。
