@@ -7,6 +7,7 @@ public enum BackupManager {
     /// SQLite ファイルヘッダの file change counter（offset 24、4 バイト big-endian）を読む。
     /// journal_mode=delete ではトランザクションコミットごとに増加するため、
     /// 「前回から編集があったか」の安価な判定に使える。ファイルが無ければ nil。
+    /// 注意: WAL モードでは checkpoint 時しか更新されないため、WAL 有効化時は要見直し。
     public static func changeCounter(of sqliteURL: URL) -> UInt32? {
         guard let handle = try? FileHandle(forReadingFrom: sqliteURL) else { return nil }
         defer { try? handle.close() }
@@ -45,10 +46,11 @@ public enum BackupManager {
 
     /// 新しい `keep` 個を残し、それより古い世代を削除する。`library-*.sqlite` 以外は触らない。
     public static func prune(in backupsDir: URL, keep: Int) throws {
+        guard keep >= 0 else { return }
         let all = list(in: backupsDir)
         guard all.count > keep else { return }
         for url in all[keep...] {
-            try? FileManager.default.removeItem(at: url)
+            try FileManager.default.removeItem(at: url)
         }
     }
 
@@ -72,7 +74,7 @@ public enum BackupManager {
         // stale sidecars を除去（退避した本体には付随させない）。
         for sidecar in ["\(databaseFileName)-journal", "\(databaseFileName)-wal", "\(databaseFileName)-shm"] {
             let s = bundleURL.appendingPathComponent(sidecar)
-            if fm.fileExists(atPath: s.path) { try? fm.removeItem(at: s) }
+            if fm.fileExists(atPath: s.path) { try fm.removeItem(at: s) }
         }
         try fm.copyItem(at: latest, to: live)
         return true
