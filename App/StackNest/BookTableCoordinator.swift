@@ -573,6 +573,13 @@ extension BookTableCoordinator: NSMenuDelegate {
         viewerItem.representedObject = book
         menu.addItem(viewerItem)
 
+        // B24: ファイル名をコピー (単一選択時のみ・拡張子なし)。有効化は validateMenuItem で制御。
+        let copyNameItem = NSMenuItem(title: String(localized: "ファイル名をコピー"),
+                                      action: #selector(copyFileNameAction(_:)), keyEquivalent: "")
+        copyNameItem.target = self
+        copyNameItem.representedObject = book
+        menu.addItem(copyNameItem)
+
         menu.addItem(.separator())
 
         // ファイル名を変更…
@@ -803,6 +810,25 @@ extension BookTableCoordinator: NSMenuDelegate {
     @objc private func openInViewerAction(_ sender: NSMenuItem) {
         guard let book = sender.representedObject as? BookRow else { return }
         appState.openBooks([book])
+    }
+
+    /// B24: 対象本の拡張子なしファイル名をクリップボードへコピー。
+    @objc private func copyFileNameAction(_ sender: NSMenuItem) {
+        guard let book = sender.representedObject as? BookRow, let path = book.path else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(FileNameUtil.withoutExtension(path: path), forType: .string)
+    }
+
+    /// 「ファイル名をコピー」は単一選択かつ path 非 nil のときのみ有効。
+    /// 他項目は従来どおり（target+action があれば有効）。
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(copyFileNameAction(_:)) {
+            guard let table = tableView, table.selectedRowIndexes.count == 1,
+                  let book = menuItem.representedObject as? BookRow else { return false }
+            return book.path != nil
+        }
+        return true
     }
 
     @objc private func renameSelectedAction(_ sender: NSMenuItem) {

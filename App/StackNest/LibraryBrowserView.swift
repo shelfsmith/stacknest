@@ -646,6 +646,14 @@ struct LibraryBrowserView: View {
             appState.openBooks([book])
         }
         .disabled(!enabled)
+        // B24: 単一選択時のみ。拡張子なしファイル名をクリップボードへ。
+        Button("ファイル名をコピー") {
+            guard let path = book.path else { return }
+            let pb = NSPasteboard.general
+            pb.clearContents()
+            pb.setString(FileNameUtil.withoutExtension(path: path), forType: .string)
+        }
+        .disabled(!enabled || book.path == nil || appState.selectedBookIDs.count > 1)
         Divider()
         // Task 6: context menu の keyboardShortcut 表記削除。
         // ショートカット動作は main menu (FileCommands) の定義で維持する。
