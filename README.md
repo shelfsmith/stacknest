@@ -76,7 +76,7 @@ ad-hoc 署名アプリは Gatekeeper にブロックされるため、**初回�
   xattr -dr com.apple.quarantine /Applications/StackNest.app
   ```
 
-> ⚠️ ad-hoc 署名は「正規の開発元」を保証しません。信頼できる入手元（本リポジトリの Releases）からのみ導入してください。本プロジェクトは個人利用前提のため Apple Developer 公証は行いません（ad-hoc 署名配布で確定）。自分でビルドする場合は下記「ビルド」を参照してください。
+> ⚠️ ad-hoc 署名は「正規の開発元」を保証しません。信頼できる入手元（本リポジトリの Releases）からのみ導入してください。本プロジェクトは Apple Developer 公証を行いません（ad-hoc 署名配布で確定）。自分でビルドする場合は下記「ビルド」を参照してください。
 
 ## リポジトリ構成
 
@@ -223,9 +223,9 @@ sqlite3 /path/to/MyLibrary.stacknest/library.sqlite \
 
 凡例: ✅ 完了 / 🔄 進行中 / ⏳ 予定 / 🔭 将来構想
 
-> Phase 3（安定版リリース儀式）は個人利用・再配布しない方針に伴い解体し、アイコン / ブランディング等の達成項目を各 Phase へ吸収しました。
+> Phase 3（安定版リリース儀式）は本プロジェクトの方針に合わないため解体し、アイコン / ブランディング等の達成項目を各 Phase へ吸収しました。
 
-リリースごとの変更点は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+リリースごとの変更点は [CHANGELOG.md](CHANGELOG.md)（[English](CHANGELOG.en.md)）を参照してください。
 
 ## ライセンス
 

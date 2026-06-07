@@ -82,7 +82,7 @@ Because ad-hoc-signed apps are blocked by Gatekeeper, open it **once** with eith
   xattr -dr com.apple.quarantine /Applications/StackNest.app
   ```
 
-> ⚠️ Ad-hoc signing does not vouch for a verified developer. Install only from a source you trust (this repo's Releases). As this is a personal-use project, it is not Apple-notarized and notarization is not planned (ad-hoc signing is the chosen distribution method). To build it yourself, see "Build" below.
+> ⚠️ Ad-hoc signing does not vouch for a verified developer. Install only from a source you trust (this repo's Releases). This project is not Apple-notarized and notarization is not planned (ad-hoc signing is the chosen distribution method). To build it yourself, see "Build" below.
 
 ## Repository structure
 
@@ -216,9 +216,9 @@ Development proceeds in incremental phases. Summary:
 
 Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
 
-> Phase 3 (the stable-release ceremony) was dismantled in favor of a personal-use, non-redistribution policy; its completed items (icon / branding, etc.) were absorbed into earlier phases.
+> Phase 3 (the stable-release ceremony) was dismantled as it did not fit this project's direction; its completed items (icon / branding, etc.) were absorbed into earlier phases.
 
-See [CHANGELOG.md](CHANGELOG.md) for per-release changes.
+See [CHANGELOG.en.md](CHANGELOG.en.md) ([日本語](CHANGELOG.md)) for per-release changes.
 
 ## License
 
