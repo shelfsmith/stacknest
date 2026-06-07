@@ -304,6 +304,13 @@ final class AppState {
             case .replace:
                 break   // 空でも置き換えて続行
             }
+        } else {
+            // 件数を提示してから開く（差し替え前に出す。finishOpening 後だとウィンドウ遷移で
+            // モーダルが surface しないため）。
+            let a = NSAlert()
+            a.messageText = String(localized: "修復が完了しました")
+            a.informativeText = String(localized: "本 \(recoveredBooks) 件を復元しました。復元できなかったデータがある場合があります。元のファイルは library.prerecover-* に残っています。")
+            a.runModal()
         }
 
         // 差し替え: 現本体を退避（削除しない）→ stale sidecar 除去 → 救出 DB を本体名へ。
@@ -320,13 +327,6 @@ final class AppState {
         self.lastChangeCounter = BackupManager.changeCounter(of: live)
         try db.migrate()
         try finishOpening(db: db)
-
-        if recoveredBooks > 0 {
-            let a = NSAlert()
-            a.messageText = String(localized: "修復が完了しました")
-            a.informativeText = String(localized: "本 \(recoveredBooks) 件を復元しました。復元できなかったデータがある場合があります。元のファイルは library.prerecover-* に残っています。")
-            a.runModal()
-        }
     }
 
     /// バンドル内の最新 `library.corrupt-*.sqlite` を返す（無ければ nil）。
