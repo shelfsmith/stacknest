@@ -9,10 +9,21 @@ public enum LibraryOpenError: LocalizedError, Equatable, Sendable {
     /// library cannot be opened.
     case readOnly(URL)
 
+    /// The library database failed an integrity check and could not be restored
+    /// from a backup (no usable backup, or the restored copy was still corrupt).
+    case corrupt(URL)
+
+    /// The user cancelled the open operation (e.g. dismissed the corruption alert).
+    case cancelledByUser
+
     public var errorDescription: String? {
         switch self {
         case .readOnly:
             return "このライブラリは読み取り専用のため開けません。Finder の「ロック」を解除するか、書き込み可能な場所にコピーしてからお試しください。"
+        case .corrupt:
+            return "データベースが破損しています。"
+        case .cancelledByUser:
+            return "操作はキャンセルされました。"
         }
     }
 }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import AppKit
 import SwiftUI
 import LibraryStore
 import StackroomFormat
@@ -94,6 +95,13 @@ final class AppState {
     /// Browser pane distinct-value lists to re-fetch immediately.
     var booksDataVersion: Int = 0
 
+    // MARK: - Phase 2.8 B22: DB preventive safety
+
+    /// B22: 開いた時点の file change counter。閉じる時にこれと比較して編集有無を判定する。
+    private var lastChangeCounter: UInt32?
+    /// B22: 同一セッションで二重にバックアップしないためのガード。
+    private var didBackupThisSession = false
+
     // MARK: - Phase 2.6a FX2: live sidebar badges
 
     /// シェルフの内容（条件・所属本）が変わるたびに bump する counter。
@@ -116,6 +124,42 @@ final class AppState {
         self.bundle = LibraryBundle(url: bundleURL)
     }
 
+    // MARK: - Phase 2.8 B22: backup helpers / corruption alerts
+
+    enum CorruptionChoice { case restore, openAnyway, cancel }
+
+    static func backupTimestamp() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f.string(from: Date())
+    }
+
+    static func presentCorruptionAlert() -> CorruptionChoice {
+        let a = NSAlert()
+        a.messageText = String(localized: "データベースに問題が見つかりました")
+        a.informativeText = String(localized: "最新の正常なバックアップから復元しますか？")
+        a.addButton(withTitle: String(localized: "復元する"))
+        a.addButton(withTitle: String(localized: "そのまま開く"))
+        a.addButton(withTitle: String(localized: "キャンセル"))
+        switch a.runModal() {
+        case .alertFirstButtonReturn: return .restore
+        case .alertSecondButtonReturn: return .openAnyway
+        default: return .cancel
+        }
+    }
+
+    static func presentRestoreFailedAlert(bundleURL: URL) {
+        let a = NSAlert()
+        a.messageText = String(localized: "バックアップから復元できませんでした")
+        a.informativeText = String(localized: "利用可能なバックアップが無いか、復元後も問題が残っています。復旧手順書（recovery-guide）を参照してください。")
+        a.addButton(withTitle: String(localized: "バックアップフォルダを表示"))
+        a.addButton(withTitle: String(localized: "閉じる"))
+        if a.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.open(BackupManager.backupsDir(for: bundleURL))
+        }
+    }
+
     /// Opens the bundle: validates structure, opens DB, runs migrations,
     /// loads initial state. Throws if bundle is corrupt.
     func openBundle() throws {
@@ -132,7 +176,43 @@ final class AppState {
             throw LibraryOpenError.readOnly(bundle.url)
         }
         let db = try Database.openExisting(at: bundle.databaseURL)
-        try db.migrate()  // ensures v8 applied
+        // Phase 2.8 B22: 開く時の整合性チェック。破損していたらバックアップ復元を提案する
+        // （ここではバックアップは取らない。世代取得は閉じる時に編集ありのときのみ）。
+        if try !db.quickCheck() {
+            switch Self.presentCorruptionAlert() {
+            case .restore:
+                db.close()
+                let ts = Self.backupTimestamp()
+                let restored = (try? BackupManager.restoreLatest(
+                    bundleURL: bundle.url,
+                    databaseFileName: bundle.databaseURL.lastPathComponent,
+                    timestamp: ts)) ?? false
+                let reopened = try Database.openExisting(at: bundle.databaseURL)
+                let reopenedOk = restored && ((try? reopened.quickCheck()) ?? false)
+                if !reopenedOk {
+                    reopened.close()
+                    Self.presentRestoreFailedAlert(bundleURL: bundle.url)
+                    throw LibraryOpenError.corrupt(bundle.url)
+                }
+                self.lastChangeCounter = BackupManager.changeCounter(of: bundle.databaseURL)
+                try reopened.migrate()
+                try finishOpening(db: reopened)
+                return
+            case .openAnyway:
+                break   // fall through to migrate (self-responsibility)
+            case .cancel:
+                db.close()
+                throw LibraryOpenError.cancelledByUser
+            }
+        }
+        self.lastChangeCounter = BackupManager.changeCounter(of: bundle.databaseURL)
+        try db.migrate()  // ensures latest schema
+        try finishOpening(db: db)
+    }
+
+    /// migrate 済みの DB を受け取り、state をロードして UI を初期化する。
+    /// 通常オープンと B22 復元後オープンの両方から呼ぶ。
+    private func finishOpening(db: Database) throws {
         self.favoritesShelfID = try db.ensureFavoritesShelf()
         self.database = db
         self.librarySettings = try LibrarySettings(database: db)
