@@ -16,7 +16,8 @@ struct RelinkSheet: View {
     @State private var scanTask: Task<Void, Never>?
 
     enum Phase { case idle, scanning, done }
-    struct BrokenGroup: Identifiable { let id = UUID(); let directory: String; var books: [(id: Int, path: String)] }
+    struct BrokenBook: Identifiable { let id: Int; let title: String; let path: String }
+    struct BrokenGroup: Identifiable { let id = UUID(); let directory: String; var books: [BrokenBook] }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -36,14 +37,28 @@ struct RelinkSheet: View {
                 } else {
                     Text("リンク切れ \(groups.reduce(0){$0+$1.books.count}) 件 / \(groups.count) フォルダ").font(.callout)
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 14) {
                             ForEach(groups) { g in
-                                HStack {
-                                    Text(g.directory).font(.system(size: 12, design: .monospaced))
-                                        .lineLimit(1).truncationMode(.middle)
-                                    Spacer()
-                                    Text("\(g.books.count) 件").font(.caption).foregroundStyle(.secondary)
-                                    Button("フォルダを再指定…") { remapFolder(g) }
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(g.directory).font(.system(size: 11, design: .monospaced))
+                                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                        Spacer()
+                                        Text("\(g.books.count) 件").font(.caption).foregroundStyle(.secondary)
+                                        if g.books.count > 1 {
+                                            Button("フォルダごと再指定…") { remapFolder(g) }.controlSize(.small)
+                                        }
+                                    }
+                                    ForEach(g.books) { b in
+                                        HStack {
+                                            Text(b.title).lineLimit(1)
+                                            Text((b.path as NSString).lastPathComponent)
+                                                .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                            Spacer()
+                                            Button("再指定…") { relinkOne(b) }.controlSize(.small)
+                                        }
+                                        .padding(.leading, 12)
+                                    }
                                 }
                                 Divider()
                             }
@@ -54,7 +69,7 @@ struct RelinkSheet: View {
             }
             HStack { Spacer(); Button("閉じる") { scanTask?.cancel(); dismiss() } }
         }
-        .padding(20).frame(width: 560, height: 480)
+        .padding(20).frame(width: 600, height: 520)
         .onDisappear { scanTask?.cancel() }
     }
 
@@ -63,21 +78,37 @@ struct RelinkSheet: View {
         scanTask = Task {
             let books = (try? database.fetchAllBooks()) ?? []
             await MainActor.run { total = books.count }
-            var broken: [(id: Int, path: String)] = []
+            var broken: [BrokenBook] = []
             for b in books {
                 if Task.isCancelled { break }
                 if let p = b.path, !FileManager.default.fileExists(atPath: p) {
-                    broken.append((id: b.id, path: p))
+                    broken.append(BrokenBook(id: b.id, title: b.title, path: p))
                 }
                 await MainActor.run { scanned += 1 }
             }
             if Task.isCancelled { return }
             let grouped = LinkRemap.groupByParentDirectory(broken.map(\.path))
-            let result = grouped.map { gr in
+            let result: [BrokenGroup] = grouped.map { gr in
                 BrokenGroup(directory: gr.directory,
                             books: gr.paths.compactMap { path in broken.first { $0.path == path } })
             }
             await MainActor.run { groups = result; phase = .done }
+        }
+    }
+
+    private func relinkOne(_ b: BrokenBook) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true; panel.canChooseDirectories = false; panel.allowsMultipleSelection = false
+        panel.message = String(localized: "「\(b.title)」 にリンクするファイルを選択してください。")
+        panel.directoryURL = URL(fileURLWithPath: b.path).deletingLastPathComponent()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try database.relinkBook(id: b.id, newPath: url.path(percentEncoded: false))
+            onApplied()
+            startScan()
+        } catch {
+            let a = NSAlert(); a.messageText = String(localized: "再リンクに失敗しました")
+            a.informativeText = error.localizedDescription; a.runModal()
         }
     }
 
@@ -96,8 +127,7 @@ struct RelinkSheet: View {
         do {
             try database.applyRelinks(apply)
             let skipped = pairsAll.count - apply.count
-            onApplied()
-            startScan()
+            onApplied(); startScan()
             if skipped > 0 {
                 let a = NSAlert()
                 a.messageText = String(localized: "\(apply.count) 件を再リンク、\(skipped) 件は新しい場所に見つからずスキップしました。")
