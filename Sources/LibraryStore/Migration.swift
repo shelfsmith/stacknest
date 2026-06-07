@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import Foundation
 import GRDB
 
 enum Migration {
@@ -53,6 +54,9 @@ enum Migration {
 
         // v15 — duplicate detection columns (Phase 2.7 A20/B11), idempotent.
         try migrateV15AddDuplicateColumnsIfNeeded(db: db)
+
+        // v16 — normalize existing book text columns to NFC (one-time, flag-gated).
+        try migrateV16NormalizeTextToNFCIfNeeded(db: db)
     }
 
     /// Adds `thumbnails_directory_path TEXT` to import_meta if it's not already present.
@@ -239,5 +243,47 @@ enum Migration {
         if !names.contains("content_hash") { try db.execute(sql: Tables.migrateV15AddContentHash) }
         if !names.contains("file_size")    { try db.execute(sql: Tables.migrateV15AddFileSize) }
         if !names.contains("file_mtime")   { try db.execute(sql: Tables.migrateV15AddFileMtime) }
+    }
+
+    // MARK: - v16: NFC normalization backfill
+
+    private static let nfcNormalizedFlagKey = "nfc_normalized_v1"
+
+    /// Normalizes all book text columns to NFC — flag-gated so it runs only once per library.
+    /// FTS is kept in sync automatically by the AFTER UPDATE ON book trigger (book_au, v7).
+    private static func migrateV16NormalizeTextToNFCIfNeeded(db: GRDB.Database) throws {
+        // 既に適用済みならスキップ（library_settings のフラグで一度だけ）。
+        let done = try String.fetchOne(db, sql: "SELECT value FROM library_settings WHERE key = ?", arguments: [nfcNormalizedFlagKey])
+        if done == "1" { return }
+        try normalizeAllBookTextToNFC(db: db)
+        try db.execute(sql: "INSERT OR REPLACE INTO library_settings (key, value) VALUES (?, '1')", arguments: [nfcNormalizedFlagKey])
+    }
+
+    /// 既存 book 行のテキスト列を NFC へ正規化（変化した行のみ UPDATE）。テスト可能な純 DB 操作。
+    /// NOTE: Swift の String == は正準等価で比較するため NFD == NFC が true になる。
+    /// 変更が必要かどうかは UTF-8 バイト列で判定する。
+    static func normalizeAllBookTextToNFC(db: GRDB.Database) throws {
+        let cols = ["title", "author", "genre", "neta", "keyword_a", "keyword_b", "keyword_c", "memo", "series"]
+        let rows = try Row.fetchAll(db, sql: "SELECT id, \(cols.joined(separator: ", ")) FROM book")
+        for row in rows {
+            let id: Int = row["id"]
+            var sets: [String] = []
+            var args: [DatabaseValueConvertible?] = []
+            for c in cols {
+                let v: String? = row[c]
+                if let v {
+                    let normalized = v.precomposedStringWithCanonicalMapping
+                    // Use UTF-8 byte comparison because Swift String == treats NFD == NFC.
+                    if Array(v.utf8) != Array(normalized.utf8) {
+                        sets.append("\(c) = ?")
+                        args.append(normalized)
+                    }
+                }
+            }
+            if !sets.isEmpty {
+                args.append(id)
+                try db.execute(sql: "UPDATE book SET \(sets.joined(separator: ", ")) WHERE id = ?", arguments: StatementArguments(args))
+            }
+        }
     }
 }

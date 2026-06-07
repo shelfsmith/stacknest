@@ -250,10 +250,10 @@ public final class Database: @unchecked Sendable {
                 sql: Tables.insertBookSQL,
                 arguments: [
                     book.id,
-                    book.title,
-                    book.author,
-                    book.genre,
-                    book.path,
+                    TextNormalize.nfcValue(book.title),
+                    TextNormalize.nfcValue(book.author),
+                    TextNormalize.nfcValue(book.genre),
+                    book.path,                       // path: do NOT normalize (filesystem ref)
                     book.dateAdded.timeIntervalSince1970,
                     book.playDate?.timeIntervalSince1970,
                     book.bookType,
@@ -261,14 +261,14 @@ public final class Database: @unchecked Sendable {
                     book.pages,
                     book.myRate,
                     book.unseen ? 1 : 0,
-                    book.keywordA,
-                    book.keywordB,
-                    book.keywordC,
-                    book.neta,
-                    nil as String?,  // memo
-                    book.series,
+                    TextNormalize.nfcValue(book.keywordA),
+                    TextNormalize.nfcValue(book.keywordB),
+                    TextNormalize.nfcValue(book.keywordC),
+                    TextNormalize.nfcValue(book.neta),
+                    nil as String?,                  // memo
+                    TextNormalize.nfcValue(book.series),
                     book.volume,
-                    book.coverImageName,
+                    book.coverImageName,             // coverImageName: do NOT normalize (FS ref)
                 ]
             )
         }
@@ -286,10 +286,10 @@ public final class Database: @unchecked Sendable {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
-                    book.title,
-                    book.author,
-                    book.genre,
-                    book.path,
+                    TextNormalize.nfcValue(book.title),
+                    TextNormalize.nfcValue(book.author),
+                    TextNormalize.nfcValue(book.genre),
+                    book.path,                       // path: do NOT normalize (filesystem ref)
                     book.dateAdded.timeIntervalSince1970,
                     book.playDate?.timeIntervalSince1970,
                     book.bookType,
@@ -297,14 +297,14 @@ public final class Database: @unchecked Sendable {
                     book.pages,
                     book.myRate,
                     book.unseen ? 1 : 0,
-                    book.keywordA,
-                    book.keywordB,
-                    book.keywordC,
-                    book.neta,
-                    nil as String?,  // memo
-                    book.series,
+                    TextNormalize.nfcValue(book.keywordA),
+                    TextNormalize.nfcValue(book.keywordB),
+                    TextNormalize.nfcValue(book.keywordC),
+                    TextNormalize.nfcValue(book.neta),
+                    nil as String?,                  // memo
+                    TextNormalize.nfcValue(book.series),
                     book.volume,
-                    book.coverImageName,
+                    book.coverImageName,             // coverImageName: do NOT normalize (FS ref)
                 ]
             )
             return Int(db.lastInsertedRowID)
@@ -620,7 +620,7 @@ public final class Database: @unchecked Sendable {
         guard let q = queue else { return false }
         return try q.write { db in
             let current = try String.fetchOne(db, sql: "SELECT \(column) FROM book WHERE id = ?", arguments: [id])
-            let (updated, didAdd) = MultiValueParser.append(to: current, value: value)
+            let (updated, didAdd) = MultiValueParser.append(to: current, value: TextNormalize.nfc(value))
             if didAdd {
                 try db.execute(sql: "UPDATE book SET \(column) = ? WHERE id = ?", arguments: [updated, id])
             }
@@ -684,7 +684,7 @@ public final class Database: @unchecked Sendable {
         try q.write { db in
             try db.execute(
                 sql: "UPDATE book SET title = ? WHERE id = ?",
-                arguments: [newTitle, id]
+                arguments: [TextNormalize.nfc(newTitle), id]
             )
         }
     }
@@ -1566,16 +1566,23 @@ public final class Database: @unchecked Sendable {
             try db.execute(
                 sql: Tables.insertBookSQL,
                 arguments: [
-                    row.id, row.title, row.author, row.genre, row.path,
+                    row.id,
+                    TextNormalize.nfcValue(row.title),
+                    TextNormalize.nfcValue(row.author),
+                    TextNormalize.nfcValue(row.genre),
+                    row.path,                        // path: do NOT normalize (filesystem ref)
                     row.dateAdded.timeIntervalSince1970,
                     row.playDate?.timeIntervalSince1970,
                     row.bookType, row.fileType, row.pages, row.rating,
                     row.unseen ? 1 : 0,
-                    row.keywordA, row.keywordB, row.keywordC, row.neta,
-                    row.memo,
-                    row.series,
+                    TextNormalize.nfcValue(row.keywordA),
+                    TextNormalize.nfcValue(row.keywordB),
+                    TextNormalize.nfcValue(row.keywordC),
+                    TextNormalize.nfcValue(row.neta),
+                    TextNormalize.nfcValue(row.memo),
+                    TextNormalize.nfcValue(row.series),
                     row.volume,
-                    row.coverImageName,
+                    row.coverImageName,              // coverImageName: do NOT normalize (FS ref)
                 ]
             )
         }
@@ -1631,25 +1638,25 @@ public final class Database: @unchecked Sendable {
             if trimmed.isEmpty {
                 throw BookPatchError.emptyTitle
             }
-            trimmedTitle = trimmed
+            trimmedTitle = TextNormalize.nfc(trimmed)
         } else {
             trimmedTitle = nil
         }
         return PatchBindings(
             trimmedTitle: trimmedTitle,
-            author: Self.normalizeMultiValue(patch.author),
-            keywordA: Self.normalizeMultiValue(patch.keywordA),
-            keywordB: Self.normalizeMultiValue(patch.keywordB),
-            keywordC: Self.normalizeMultiValue(patch.keywordC),
-            genre: Self.normalizeMultiValue(patch.genre),
-            neta: Self.normalizeMultiValue(patch.neta),
-            memo: patch.memo,
+            author: Self.normalizeMultiValue(patch.author).map { TextNormalize.nfc($0) },
+            keywordA: Self.normalizeMultiValue(patch.keywordA).map { TextNormalize.nfc($0) },
+            keywordB: Self.normalizeMultiValue(patch.keywordB).map { TextNormalize.nfc($0) },
+            keywordC: Self.normalizeMultiValue(patch.keywordC).map { TextNormalize.nfc($0) },
+            genre: Self.normalizeMultiValue(patch.genre).map { TextNormalize.nfc($0) },
+            neta: Self.normalizeMultiValue(patch.neta).map { TextNormalize.nfc($0) },
+            memo: TextNormalize.nfc(patch.memo),
             clampedRating: patch.rating.map { max(0, min(5, $0)) },
             unseenInt: patch.unseen.map { $0 ? 1 : 0 },
             clampedType: patch.bookType.map { max(0, min(5, $0)) },
-            series: patch.series,
+            series: TextNormalize.nfc(patch.series),
             volume: patch.volume,
-            coverImageName: patch.coverImageName,
+            coverImageName: patch.coverImageName,   // coverImageName: do NOT normalize (FS ref)
             clearSeries: patch.clearSeries,
             clearVolume: patch.clearVolume,
             clearCoverImageName: patch.clearCoverImageName,
@@ -1820,6 +1827,22 @@ public final class Database: @unchecked Sendable {
     public func read<T>(_ block: (GRDB.Database) throws -> T) throws -> T {
         guard let q = queue else { throw ImportError.databaseNotOpen }
         return try q.read(block)
+    }
+
+    /// Executes raw SQL in a write transaction (test use only — bypasses NFC normalization).
+    func rawExecuteForTest(_ sql: String, _ args: [DatabaseValueConvertible?] = []) throws {
+        guard let q = queue else { throw ImportError.databaseNotOpen }
+        try q.write { db in
+            try db.execute(sql: sql, arguments: StatementArguments(args))
+        }
+    }
+
+    /// Runs the NFC backfill migration on all existing book rows (test hook).
+    func runNFCBackfillForTest() throws {
+        guard let q = queue else { throw ImportError.databaseNotOpen }
+        try q.write { db in
+            try Migration.normalizeAllBookTextToNFC(db: db)
+        }
     }
 
     // MARK: - Phase 2.6b-2: per-book viewer state
