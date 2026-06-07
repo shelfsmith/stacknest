@@ -197,7 +197,8 @@ sqlite3 /path/to/MyLibrary.stacknest/library.sqlite \
 
 - 有効/無効と保持世代数（1〜20、既定 5）はライブラリ設定の「バックアップ」タブで変更できます。
 - ライブラリを開くときに整合性チェック (`PRAGMA quick_check`) を行い、破損を検知すると「最新の正常なバックアップから復元しますか？」と案内します。
-- 自動復元で直らない場合や手動で古い世代へ戻したい場合は、[DB 復旧ガイド](docs/recovery-guide.md) を参照してください（`sqlite3 .recover` 手順を含む）。
+- バックアップからの復元ができない場合は、続けて**「.recover で修復を試す」**（アプリ内）を選べます。システムの `sqlite3 .recover` で可能な範囲のデータを救出し、復元できた本の件数を提示してから開きます（壊れた本体は `library.prerecover-*` / `library.corrupt-*` として残します）。
+- それでも直らない場合や手動で古い世代へ戻したい場合は、[DB 復旧ガイド](docs/recovery-guide.md) を参照してください（手動 `sqlite3 .recover` 手順を含む）。
 
 ## ロードマップ
 
