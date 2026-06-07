@@ -209,12 +209,16 @@ Development proceeds in incremental phases. Summary:
 | **2.6b** | **Built-in viewer core MVP** (full-screen, fit / zoom / pan, paging; PDF / archive / folder / single image) | ✅ Done |
 | **2.6b-2** | **Built-in viewer extensions** (two-page spread, per-book page direction, slideshow auto-advance, resume reading, end-of-book next / loop, open-in-full-screen, HEIC / HEIF / TIFF / AVIF support) | ✅ Done |
 | **2.6c** | **First-run wizard** (built-in vs external viewer choice, built-in viewer initial settings, first library creation, re-show from Settings) | ✅ Done |
-| 2.7 | Polish & performance (duplicate detection, label customization, sort optimization, viewer key-rebinding UI ✅ / naming-format presets and others in progress) | 🔄 In progress |
+| 2.7 | Polish & performance (duplicate detection, field / bookType label customization, sort optimization, viewer key-rebinding UI, multiple naming-format presets) | ✅ Done |
+| **2.8** | **Library safety** (relink missing files, DB auto-backup + integrity check, NFC normalization fix) | ✅ Done |
+| **2.9** | **DB repair** (in-app `.recover` to salvage data from a corrupt DB, with recovered-count prompt) | ✅ Done |
 | 4.0 | Server / client (remote viewing, screen-size-aware image delivery) | 🔭 Future |
 
 Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
 
 > Phase 3 (the stable-release ceremony) was dismantled in favor of a personal-use, non-redistribution policy; its completed items (icon / branding, etc.) were absorbed into earlier phases.
+
+See [CHANGELOG.md](CHANGELOG.md) for per-release changes.
 
 ## License
 
