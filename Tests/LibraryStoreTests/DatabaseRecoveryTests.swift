@@ -14,6 +14,7 @@ struct DatabaseRecoveryTests {
 
     @Test func recoverRebuildsOpenableDBFromCorruptSource() throws {
         let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let src = dir.appendingPathComponent("library.sqlite")
         let db = try Database.openFile(at: src, mode: .createOrReplace)
         try db.migrate()
@@ -35,10 +36,18 @@ struct DatabaseRecoveryTests {
         let r = try Database.openExisting(at: out)
         #expect(try r.quickCheck() == true)
         #expect(try r.fetchBookColumnNames().contains("title"))
+
+        // .recover の本来の目的＝データ行の救出を検証する（best-effort なので全件ではなく一定数）。
+        var survivors = 0
+        for i in 0..<300 {
+            if let v = try? r.getLibrarySetting(key: "k\(i)"), v != nil { survivors += 1 }
+        }
+        #expect(survivors > 50)
     }
 
     @Test func recoverReturnsFalseWhenSourceMissing() throws {
         let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
         let out = dir.appendingPathComponent("out.sqlite")
         #expect(try DatabaseRecovery.recover(
             from: dir.appendingPathComponent("nope.sqlite"), to: out) == false)

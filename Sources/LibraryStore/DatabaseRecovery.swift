@@ -15,7 +15,7 @@ public enum DatabaseRecovery {
         guard fm.fileExists(atPath: brokenURL.path) else { return false }
         guard fm.isExecutableFile(atPath: sqlite3Path) else { return false }
         // 既存 out は消す（sqlite3 は追記し得るため、まっさらに作る）。
-        if fm.fileExists(atPath: outURL.path) { try? fm.removeItem(at: outURL) }
+        if fm.fileExists(atPath: outURL.path) { try fm.removeItem(at: outURL) }
 
         let pipe = Pipe()
 
