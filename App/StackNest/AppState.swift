@@ -102,6 +102,9 @@ final class AppState {
     /// B22: 同一セッションで二重にバックアップしないためのガード。
     private var didBackupThisSession = false
 
+    /// B22: 終了時バックアップのため、開いている AppState を弱参照で追跡する。
+    @MainActor static let activeInstances = NSHashTable<AppState>.weakObjects()
+
     // MARK: - Phase 2.6a FX2: live sidebar badges
 
     /// シェルフの内容（条件・所属本）が変わるたびに bump する counter。
@@ -157,6 +160,29 @@ final class AppState {
         a.addButton(withTitle: String(localized: "閉じる"))
         if a.runModal() == .alertFirstButtonReturn {
             NSWorkspace.shared.open(BackupManager.backupsDir(for: bundleURL))
+        }
+    }
+
+    /// B22: 閉じる時のバックアップ。このセッションで編集があり（change counter 増加）、
+    /// quick_check が正常なときだけ 1 世代取得して prune する。閲覧のみ・無編集はスキップ。
+    /// 同一セッションで一度だけ実行（terminate と closeBundle の二重呼びをガード）。
+    func backupOnCloseIfNeeded() {
+        guard !didBackupThisSession else { return }
+        guard let db = database, let settings = librarySettings else { return }
+        guard settings.backupEnabled else { return }
+        let current = BackupManager.changeCounter(of: bundle.databaseURL)
+        // 編集なし（counter 不変）ならスキップ。counter 取得失敗時は安全側で取得する。
+        if let before = lastChangeCounter, let now = current, before == now { return }
+        guard (try? db.quickCheck()) == true else {
+            Self.logger.error("B22: skip backup-on-close (quick_check not ok)")
+            return
+        }
+        do {
+            try BackupManager.makeBackup(from: db, bundleURL: bundle.url, timestamp: Self.backupTimestamp())
+            try BackupManager.prune(in: BackupManager.backupsDir(for: bundle.url), keep: settings.backupGenerations)
+            didBackupThisSession = true
+        } catch {
+            Self.logger.error("B22: backup-on-close failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -225,9 +251,13 @@ final class AppState {
         self.selectedBookIDs = []
         self.selectedBook = nil
         try refreshDisplayedBooks()
+        // B22: セッションガードをリセットし、終了時バックアップ用に自身を登録する。
+        self.didBackupThisSession = false
+        Self.activeInstances.add(self)
     }
 
     func closeBundle() {
+        backupOnCloseIfNeeded()
         database?.close()
         database = nil
         thumbnailLoader = nil
@@ -239,6 +269,7 @@ final class AppState {
         selectedBook = nil
         selectedSidebarItem = .library
         librarySettings = nil
+        Self.activeInstances.remove(self)
     }
 
     /// Re-fetches displayedBooks based on current selectedSidebarItem, routing through searchBooks.

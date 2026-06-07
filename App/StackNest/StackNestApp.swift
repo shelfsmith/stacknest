@@ -865,6 +865,11 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // B22: Cmd-Q では LibraryWindowContainer.onDisappear が確実に発火しないため、
+        // 終了時にも開いている各 AppState のバックアップを走らせる（didBackupThisSession で二重実行防止）。
+        for state in AppState.activeInstances.allObjects {
+            state.backupOnCloseIfNeeded()
+        }
         LibraryOpenLockManager.shared.releaseAll()
     }
 }
