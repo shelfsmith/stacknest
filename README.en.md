@@ -82,7 +82,7 @@ Because ad-hoc-signed apps are blocked by Gatekeeper, open it **once** with eith
   xattr -dr com.apple.quarantine /Applications/StackNest.app
   ```
 
-> ⚠️ Ad-hoc signing does not vouch for a verified developer. Install only from a source you trust (this repo's Releases). Apple notarization is under consideration for the future. To build it yourself, see "Build" below.
+> ⚠️ Ad-hoc signing does not vouch for a verified developer. Install only from a source you trust (this repo's Releases). As this is a personal-use project, it is not Apple-notarized and notarization is not planned (ad-hoc signing is the chosen distribution method). To build it yourself, see "Build" below.
 
 ## Repository structure
 

@@ -76,7 +76,7 @@ ad-hoc 署名アプリは Gatekeeper にブロックされるため、**初回�
   xattr -dr com.apple.quarantine /Applications/StackNest.app
   ```
 
-> ⚠️ ad-hoc 署名は「正規の開発元」を保証しません。信頼できる入手元（本リポジトリの Releases）からのみ導入してください。Apple Developer 公証は将来検討中です。自分でビルドする場合は下記「ビルド」を参照してください。
+> ⚠️ ad-hoc 署名は「正規の開発元」を保証しません。信頼できる入手元（本リポジトリの Releases）からのみ導入してください。本プロジェクトは個人利用前提のため Apple Developer 公証は行いません（ad-hoc 署名配布で確定）。自分でビルドする場合は下記「ビルド」を参照してください。
 
 ## リポジトリ構成
 
