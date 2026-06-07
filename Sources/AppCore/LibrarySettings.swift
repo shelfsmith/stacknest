@@ -139,6 +139,14 @@ public final class LibrarySettings {
     public var sortMode: SortMode {
         didSet { persistSortMode() }
     }
+    /// 編集後にバックアップを保存するか（per-library）。既定 ON。
+    public var backupEnabled: Bool {
+        didSet { persistBackupEnabled() }
+    }
+    /// 保持する世代数（per-library）。既定 5、UI で 1–20。
+    public var backupGenerations: Int {
+        didSet { persistBackupGenerations() }
+    }
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettings")
     private static let columnsKey = "listViewColumns"
@@ -164,9 +172,13 @@ public final class LibrarySettings {
     private static let gridItemSizeKey = "grid_item_size"
     private static let recentDaysKey = "recent_days"
     private static let sortModeKey = "sort_mode"
+    private static let backupEnabledKey = "backup_enabled"
+    private static let backupGenerationsKey = "backup_generations"
     private static let defaultGridItemSize: Double = 160
     private static let defaultRecentDays: Int = 14
     private static let defaultSortMode: SortMode = .column
+    private static let defaultBackupEnabled = true
+    private static let defaultBackupGenerations = 5
     private static let defaultFilenameFormat = "(@genre) [@keywordB] [@author] @title"
     private static let defaultTopPaneMode = "browse"
     private static let defaultColumns: Set<BookColumn> = Set(BookColumn.allCases.filter { $0.defaultEnabled })
@@ -332,6 +344,18 @@ public final class LibrarySettings {
             self.sortMode = decoded
         } else {
             self.sortMode = Self.defaultSortMode
+        }
+        // Load backup options. Defaults: enabled, 5 generations.
+        if let str = try database.getLibrarySetting(key: Self.backupEnabledKey) {
+            self.backupEnabled = (str == "true")
+        } else {
+            self.backupEnabled = Self.defaultBackupEnabled
+        }
+        if let str = try database.getLibrarySetting(key: Self.backupGenerationsKey),
+           let v = Int(str) {
+            self.backupGenerations = v
+        } else {
+            self.backupGenerations = Self.defaultBackupGenerations
         }
         // init 内の代入では didSet が発火しないため、移行で新規生成した場合は明示的に永続する。
         if didSeedPresets {
@@ -607,6 +631,22 @@ public final class LibrarySettings {
             try database.setLibrarySetting(key: Self.sortModeKey, value: sortMode.rawValue)
         } catch {
             Self.logger.error("Failed to persist sortMode: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistBackupEnabled() {
+        do {
+            try database.setLibrarySetting(key: Self.backupEnabledKey, value: backupEnabled ? "true" : "false")
+        } catch {
+            Self.logger.error("Failed to persist backupEnabled: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistBackupGenerations() {
+        do {
+            try database.setLibrarySetting(key: Self.backupGenerationsKey, value: String(backupGenerations))
+        } catch {
+            Self.logger.error("Failed to persist backupGenerations: \(error.localizedDescription, privacy: .public)")
         }
     }
 }
