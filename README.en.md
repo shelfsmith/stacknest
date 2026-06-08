@@ -9,7 +9,9 @@ original [Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) library
 
 > ⚠️ **Compatibility note:** StackNest only **imports** Stackroom library XML (a one-way read). StackNest's own library format (`.stacknest`) is independent and is **not interoperable with Stackroom** (you cannot open or write it back in Stackroom). StackNest is also a **catalog**: a `.stacknest` holds metadata and cover thumbnails, while the actual image/book files stay outside the library (StackNest references their paths).
 
-> **Status:** Pre-alpha (Phase 2.7 in progress — duplicate detection, field / bookType label customization, large-scale sort optimization, and a viewer key-rebinding UI are implemented. Plus the first-run wizard, built-in viewer extensions [two-page spread, per-book page direction, slideshow, resume reading, full-screen, HEIC/AVIF], library CRUD / lock / stamp pane / multi-value filtering / full-text search / smart shelves / keyboard navigation).
+> **Status:** Active development. Stackroom-compatible import plus browse / edit / search / built-in viewer / multi-library / lock / duplicate detection / label customization / DB preventive safety & repair (through Phase 2.9) all work. Remote viewing via server / client (Phase 4) is a future plan.
+
+![StackNest main window](docs/images/main-ui.png)
 
 ## What is this
 
@@ -74,13 +76,21 @@ re-implemented from observation.
 
 Releases are distributed as **ad-hoc-signed Universal builds produced by CI** (not Apple-notarized). Download `StackNest.app` (zip) from [Releases](https://github.com/shelfsmith/stacknest/releases) and move it to `/Applications` (or anywhere).
 
-Because ad-hoc-signed apps are blocked by Gatekeeper, open it **once** with either of the following (subsequent launches are normal double-clicks):
+Because ad-hoc-signed apps are blocked by Gatekeeper, a one-time approval is needed (subsequent launches are normal double-clicks).
 
-- **Option A (recommended)**: in Finder, **right-click `StackNest.app` → Open**, then click "Open" again in the warning dialog.
-- **Option B (Terminal)**: remove the quarantine attribute, then launch:
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/StackNest.app
-  ```
+> **Important (macOS 15 Sequoia and later):** macOS 15 **removed** the "right-click → Open" Gatekeeper bypass. Unsigned / ad-hoc-signed apps must be **explicitly allowed from System Settings** after being blocked once.
+
+**Option A (recommended, GUI; verified on macOS 15 / 26)**
+1. Put `StackNest.app` in `/Applications` and double-click it (a "cannot be opened" dialog appears — click Done).
+2. Open **System Settings → Privacy & Security**, scroll to the "Security" section, and click **"Open Anyway"** next to the "StackNest was blocked…" message.
+3. Authenticate (Touch ID or your login password) when prompted, then click **"Open Anyway"** again in the confirmation dialog.
+
+**Option B (Terminal)** — remove the quarantine attribute, then launch (no System Settings step needed):
+```bash
+xattr -dr com.apple.quarantine /Applications/StackNest.app
+```
+
+> On macOS 14 and earlier, "right-click → Open" still works; on macOS 15 and later use Option A (allow from System Settings) or Option B.
 
 > ⚠️ Ad-hoc signing does not vouch for a verified developer. Install only from a source you trust (this repo's Releases). This project is not Apple-notarized and notarization is not planned (ad-hoc signing is the chosen distribution method). To build it yourself, see "Build" below.
 

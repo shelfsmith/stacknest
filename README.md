@@ -9,7 +9,9 @@ Swift ネイティブ、Apple Silicon 対応の画像ライブラリ（カタロ
 
 > ⚠️ **互換性についての注記:** StackNest が対応するのは Stackroom ライブラリ XML の**インポート（一方向の読み込み）だけ**です。StackNest 自身のライブラリ形式（`.stacknest`）は独自で、**Stackroom と相互互換ではありません**（Stackroom で開いたり書き戻したりはできません）。また StackNest は**カタログ**ソフトで、`.stacknest` はメタデータと表紙サムネの目録です。画像・本の実体ファイルはライブラリの外（元の場所）に置かれ、StackNest はそのパスを参照します。
 
-> **Status:** プレアルファ（Phase 2.7 進行中 — 重複検出・フィールド / bookType ラベルカスタマイズ・大規模ソート最適化・ビューワキー再割当 UI を実装済。加えて初回起動ウィザード・内蔵ビューワ拡張〔見開き・本ごとページ方向・スライドショー・続きから読む・全画面・HEIC/AVIF〕・ライブラリ CRUD / ロック / スタンプ / マルチ値フィルタ / 全文検索 / スマートシェルフ / キーボードナビ）
+> **Status:** アクティブ開発中。Stackroom 互換インポート＋ブラウズ／編集／検索／内蔵ビューワ／マルチライブラリ／ロック／重複検出／ラベルカスタマイズ／DB 予防保全・修復（Phase 2.9 まで完了）が動作。サーバー / クライアントによるリモート閲覧（Phase 4）は将来構想です。
+
+![StackNest のメイン画面](docs/images/main-ui.png)
 
 ## これは何か
 
@@ -68,13 +70,22 @@ aroma 氏（原作者）は 2019 年頃、5ch 新・Mac 板のスレッド（[eg
 
 リリース版は **CI で ad-hoc 署名された Universal ビルド**を配布します（Apple Developer 公証なし）。GitHub の [Releases](https://github.com/shelfsmith/stacknest/releases) から `StackNest.app`（zip）をダウンロードし、`/Applications` などへ展開してください。
 
-ad-hoc 署名アプリは Gatekeeper にブロックされるため、**初回のみ**次のいずれかで開きます（2 回目以降は通常どおりダブルクリックで起動）：
+ad-hoc 署名アプリは Gatekeeper にブロックされるため、**初回のみ**許可操作が必要です（2 回目以降は通常どおりダブルクリックで起動）。
 
-- **方法 A（推奨）**: Finder で `StackNest.app` を **右クリック →「開く」** → 警告ダイアログでもう一度「開く」。
-- **方法 B（ターミナル）**: quarantine 属性を除去してから起動：
-  ```bash
-  xattr -dr com.apple.quarantine /Applications/StackNest.app
-  ```
+> **重要（macOS 15 Sequoia 以降）:** macOS 15 以降は「右クリック →『開く』」での Gatekeeper 回避が**廃止**されました。未署名／ad-hoc 署名アプリは、いったんブロックされたあとに**システム設定から明示的に許可**する必要があります。
+
+**方法 A（推奨・GUI / macOS 15・26 で確認）**
+1. `StackNest.app` を `/Applications` に置き、ダブルクリックする（「開けません」ダイアログが出るので「完了」）。
+2. **システム設定 → プライバシーとセキュリティ** を開き、下部の「セキュリティ」セクションに表示される
+   「"StackNest" は…ブロックされました」の右の **「このまま開く」** をクリック。
+3. 認証（Touch ID またはログインパスワード）を求められたら入力し、確認ダイアログで再度 **「このまま開く」**。
+
+**方法 B（ターミナル）** — quarantine 属性を除去してから起動（システム設定の操作が不要）：
+```bash
+xattr -dr com.apple.quarantine /Applications/StackNest.app
+```
+
+> macOS 14 以前では「右クリック →『開く』」でも開けますが、macOS 15 以降では上記の方法 A（システム設定からの許可）または方法 B を使ってください。
 
 > ⚠️ ad-hoc 署名は「正規の開発元」を保証しません。信頼できる入手元（本リポジトリの Releases）からのみ導入してください。本プロジェクトは Apple Developer 公証を行いません（ad-hoc 署名配布で確定）。自分でビルドする場合は下記「ビルド」を参照してください。
 

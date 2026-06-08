@@ -7,6 +7,15 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.10.0] - 2026-06-08 — Copy file name & release hardening (B24)
+
+### Added
+- **Right-click "Copy file name" (B24)**: Added to the grid/list right-click menu. Copies the extensionless file name to the clipboard (enabled for single selection only; grayed out for multi-selection / path-less items).
+
+### Changed
+- Releases are now published as full releases (no longer prerelease).
+- Updated install instructions for **macOS 15 Sequoia and later Gatekeeper behavior** ("right-click → Open" was removed → allow via System Settings "Security" → "Open Anyway", or strip quarantine with `xattr`).
+
 ## [0.9.0] - 2026-06-07 — Library safety & DB repair (Phase 2.8 / 2.9)
 
 ### Added
@@ -91,5 +100,6 @@ Development history prior to tagged releases, by phase (**newest first**). Detai
 ### Phase 2.1 — 2026-05-02 — Compatible importer (the initial foundation)
 - A CLI importer that parses Stackroom's library XML into SQLite (GRDB). Established the data model (title / author / genre / keywords / relation / memo / rating / unseen / page count / cover / bookType).
 
+[0.10.0]: https://github.com/shelfsmith/stacknest/releases/tag/v0.10.0
 [0.9.0]: https://github.com/shelfsmith/stacknest/releases/tag/v0.9.0
 [0.8.0]: https://github.com/shelfsmith/stacknest/releases/tag/v0.8.0

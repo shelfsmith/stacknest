@@ -79,14 +79,16 @@ jobs:
           gh release create "$TAG" \
             "StackNest-${TAG}.zip" \
             --title "StackNest $TAG" \
-            --prerelease \
             --notes "$(cat <<'EOF'
           ad-hoc 署名（Apple 公証なし）の Universal ビルド（arm64 + x86_64・macOS 15+）。
 
           ## インストール
-          ダウンロードした `StackNest.app` を `/Applications` などへ展開し、初回のみ次のいずれかで開いてください（2 回目以降は通常起動）:
-          - Finder で `StackNest.app` を **右クリック →「開く」** → 警告でもう一度「開く」
-          - またはターミナルで `xattr -dr com.apple.quarantine /Applications/StackNest.app`
+          ダウンロードした `StackNest.app` を `/Applications` などへ展開し、**初回のみ**許可操作が必要です（2 回目以降は通常起動）。
+
+          **macOS 15 Sequoia 以降は「右クリック →『開く』」での回避が廃止されています。** 次のいずれかで開いてください:
+
+          - **システム設定から許可**: アプリをダブルクリック →「開けません」→ **システム設定 → プライバシーとセキュリティ** の「セキュリティ」セクションで **「このまま開く」** → 認証（Touch ID / パスワード）→ 再度「このまま開く」。
+          - **ターミナル**: `xattr -dr com.apple.quarantine /Applications/StackNest.app` を実行してからダブルクリック。
 
           ⚠ 未公証のため Gatekeeper の警告が出ます。信頼できる入手元からのみ導入してください。
           EOF
