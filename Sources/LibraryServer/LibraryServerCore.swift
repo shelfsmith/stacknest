@@ -31,6 +31,8 @@ public struct ServerCapabilities: Codable, Sendable {
 public struct LibraryServerCore: Sendable {
     public let config: LibraryServerConfig
     let dataSource: any LibraryServerDataSource
+    /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
+    let tokenStore = LibraryTokenStore()
 
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
@@ -47,12 +49,36 @@ public struct LibraryServerCore: Sendable {
         let api = router.group("api/v1")
             .add(middleware: BearerAuthMiddleware(token: config.token))
         let dataSource = self.dataSource
+        let tokenStore = self.tokenStore
+        let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
         api.get("libraries") { _, _ in
             let libs = await dataSource.servedLibraries()
             return libs.map {
                 LibraryDTO(id: $0.uuid, name: $0.name, locked: $0.isLocked,
                            bookCount: (try? $0.db.fetchBookCount()) ?? 0)
             }
+        }
+        // ロック庫の解錠: パスワード照合に成功したら短命ライブラリトークンを発行。
+        // 注意: Body/Reply はファイルスコープに置く（クロージャ内ローカル型を戻り値にすると
+        // swiftc の ASTMangler が無限再帰でクラッシュするため）。
+        api.post("libraries/:lib/unlock") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = await dataSource.servedLibraries().first(where: { $0.uuid == uuid }) else {
+                throw HTTPError(.notFound)
+            }
+            let body = try await request.decode(as: UnlockRequestBody.self, context: context)
+            guard lib.verifyPassword(body.password) else { throw HTTPError(.forbidden) }
+            return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
+        }
+        // books 一覧（仮実装: 空配列 — 本実装は Task 5）。ロック庫は X-Library-Token 必須。
+        api.get("libraries/:lib/books") { request, context in
+            let uuid = try context.parameters.require("lib")
+            let libraryToken = request.headers[.init("X-Library-Token")!]
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken) else {
+                throw HTTPError(.notFound)
+            }
+            _ = lib
+            return [BookListItemDTO]()   // Task 5 で本実装
         }
         return Application(
             router: router,
@@ -69,5 +95,19 @@ public struct LibraryDTO: Codable, Sendable {
     public let bookCount: Int
 }
 
+/// unlock リクエストボディ。
+struct UnlockRequestBody: Decodable {
+    let password: String
+}
+
+/// unlock 成功レスポンス（短命ライブラリトークン）。
+struct UnlockReply: ResponseEncodable {
+    let libraryToken: String
+}
+
+/// 一覧 1 件分の仮 DTO（Task 5 で本定義に差し替え）。
+public struct BookListItemDTO: Codable, Sendable {}
+
 extension ServerCapabilities: ResponseEncodable {}
 extension LibraryDTO: ResponseEncodable {}
+extension BookListItemDTO: ResponseEncodable {}
