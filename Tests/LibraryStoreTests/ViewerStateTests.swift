@@ -239,6 +239,28 @@ struct ViewerStateTests {
         db.close()
     }
 
+    /// updateLastPage は last_page / updated_at のみ更新し、spread_enabled /
+    /// cover_offset の既存値を壊さない。行が無い本には既定値で INSERT する。
+    @Test("updateLastPage preserves viewer flags and inserts when missing")
+    func updateLastPagePreservesViewerFlags() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let b = try insertBook(db, title: "A", series: nil, volume: nil)
+        let b2 = try insertBook(db, title: "B", series: nil, volume: nil)
+        try db.saveViewerState(bookID: b, spreadEnabled: true, coverOffset: false, lastPage: 3)
+        try db.updateLastPage(bookID: b, lastPage: 7)
+        let s = try db.loadViewerState(bookID: b)
+        #expect(s.lastPage == 7)
+        #expect(s.spreadEnabled == true)    // 保持
+        #expect(s.coverOffset == false)     // 保持
+        // 未存在の本にも INSERT できる
+        try db.updateLastPage(bookID: b2, lastPage: 1)
+        #expect(try db.loadViewerState(bookID: b2).lastPage == 1)
+        // updated_at も刻印される（fetchAllViewerStates 経由で確認）
+        #expect(try db.fetchAllViewerStates()[b2]?.updatedAt != nil)
+        db.close()
+    }
+
     @Test("prevVolumeInSeries normal + first volume nil")
     func prevVolume() throws {
         let db = try Database.openInMemory()

@@ -1972,6 +1972,26 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// last_page / updated_at のみ更新する（Phase 4.1a: リモート progress 書き込み用）。
+    /// spread_enabled / cover_offset の既存値は保持し、行が無い本にはテーブルの
+    /// DEFAULT 値（Tables.swift v13）で INSERT する。
+    public func updateLastPage(bookID: Int, lastPage: Int) throws {
+        guard let q = queue else { return }
+        let stamp = String(Date().timeIntervalSince1970)
+        try q.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO book_viewer_state (book_id, last_page, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(book_id) DO UPDATE SET
+                    last_page  = excluded.last_page,
+                    updated_at = excluded.updated_at
+                """,
+                arguments: [bookID, lastPage, stamp]
+            )
+        }
+    }
+
     /// Sets or clears a per-page layout override. `mode == nil` deletes the row
     /// (= back to auto). Otherwise upserts the raw mode int (0 = forcePair, 1 = forceSolo).
     public func setPageOverride(bookID: Int, page: Int, mode: Int?) throws {

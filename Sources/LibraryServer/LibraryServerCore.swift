@@ -156,6 +156,14 @@ public struct LibraryServerCore: Sendable {
                 }
             }
         }
+        // 閲覧進行状況の書き込み（last_page のみ更新・viewer フラグ保持）。
+        api.post("libraries/:lib/books/:id/progress") { request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: ProgressRequestBody.self, context: context)
+            guard body.page >= 0 else { throw HTTPError(.badRequest) }
+            try lib.db.updateLastPage(bookID: row.id, lastPage: body.page)
+            return HTTPResponse.Status.ok
+        }
         return Application(
             router: router,
             configuration: .init(address: .hostname(config.host, port: config.port))
@@ -174,6 +182,11 @@ public struct LibraryDTO: Codable, Sendable {
 /// unlock リクエストボディ。
 struct UnlockRequestBody: Decodable {
     let password: String
+}
+
+/// progress 書き込みリクエストボディ（ファイルスコープ — swiftc ASTMangler 対策）。
+struct ProgressRequestBody: Decodable {
+    let page: Int
 }
 
 /// unlock 成功レスポンス（短命ライブラリトークン）。
