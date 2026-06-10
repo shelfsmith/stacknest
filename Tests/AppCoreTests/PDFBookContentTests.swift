@@ -128,4 +128,38 @@ struct PDFBookContentCGTests {
         #expect(dataA.prefix(2) == Data([0xFF, 0xD8]))
         #expect(dataB.prefix(2) == Data([0xFF, 0xD8]))
     }
+
+    /// smoke 2026-06-10 ⑥: PDF だけが入った zip を内蔵ビューワ経路（ArchiveBookContent）で
+    /// 表示できる — 画像エントリ 0 のとき zip 内 PDF への fallback が機能する。
+    @Test func archiveBookContentFallsBackToEmbeddedPDF() async throws {
+        guard let url = Bundle.module.url(
+            forResource: "pdf-only", withExtension: "zip", subdirectory: "PDFFixtures"
+        ) else {
+            Issue.record("fixture pdf-only.zip missing"); return
+        }
+        let content = ArchiveBookContent(url: url)
+        let count = try await content.pageCount
+        #expect(count == 5)
+        let data = try await content.imageData(at: 2)
+        #expect(data.prefix(2) == Data([0xFF, 0xD8]))
+        // 範囲外は従来どおり pageOutOfRange
+        await #expect(throws: BookContentError.pageOutOfRange(5)) {
+            _ = try await content.imageData(at: 5)
+        }
+    }
+
+    /// 再入レース回帰防止: 初回アクセスを並行 2 本で叩いても両方正しい値を返す。
+    @Test func archivePDFFallbackSurvivesConcurrentFirstAccess() async throws {
+        guard let url = Bundle.module.url(
+            forResource: "pdf-only", withExtension: "zip", subdirectory: "PDFFixtures"
+        ) else {
+            Issue.record("fixture pdf-only.zip missing"); return
+        }
+        let content = ArchiveBookContent(url: url)
+        async let a = content.pageCount
+        async let b = content.pageCount
+        let (countA, countB) = try await (a, b)
+        #expect(countA == 5)
+        #expect(countB == 5)
+    }
 }

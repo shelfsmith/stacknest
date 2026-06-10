@@ -52,12 +52,25 @@ public enum BookContentFactory {
 }
 
 /// zip/cbz/cbr/7z を libarchive 経由で逐次デコード。
+/// 画像エントリが 0 件の場合は zip 内 PDF への fallback を試みる
+/// （取込側 BookAddCoordinator の PDF fallback と同等の挙動・smoke 2026-06-10 ⑥）。
+/// PDF は一時ファイルに展開して `PDFBookContent` でレンダリングし、
+/// 一時ファイルは deinit で削除する。actor のため PDFDocument アクセスは直列化される。
 public actor ArchiveBookContent: BookContent {
     private let url: URL
     private let extractor = LibarchiveCoverExtractor()
     private var entryNames: [String]?
+    private var pdfFallback: PDFBookContent?
+    private var pdfFallbackResolved = false
+    private var pdfTempURL: URL?
 
     public init(url: URL) { self.url = url }
+
+    deinit {
+        if let tmp = pdfTempURL {
+            try? FileManager.default.removeItem(at: tmp)
+        }
+    }
 
     private func loadEntries() async throws -> [String] {
         if let names = entryNames { return names }
@@ -66,16 +79,61 @@ public actor ArchiveBookContent: BookContent {
         return names
     }
 
+    private var pdfDataTask: Task<Data?, Error>?
+
+    /// 画像エントリ 0 件のときのみ、zip 内 PDF を一時ファイルへ展開して開く。
+    /// actor 再入対策: 抽出は共有 Task に集約し、コミット（resolved/temp/fallback の確定）は
+    /// await 後の同期区間で行う（先にコミットした caller が居れば従う）。
+    private func resolvePDFFallback() async throws -> PDFBookContent? {
+        if pdfFallbackResolved { return pdfFallback }
+        if pdfDataTask == nil {
+            pdfDataTask = Task { [extractor, url] in
+                try await extractor.extractFirstPDFData(in: url)
+            }
+        }
+        let data = try await pdfDataTask!.value
+        if pdfFallbackResolved { return pdfFallback }   // 再入した別 caller が先にコミット済み
+        pdfFallbackResolved = true
+        guard let data else { return nil }
+        // 以降 suspension なし＝actor 上アトミック
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("\(UUID().uuidString).pdf")
+        do {
+            try data.write(to: tmp, options: .atomic)
+        } catch {
+            try? FileManager.default.removeItem(at: tmp)
+            throw error
+        }
+        guard let pdf = PDFBookContent(url: tmp) else {
+            try? FileManager.default.removeItem(at: tmp)
+            return nil
+        }
+        pdfTempURL = tmp
+        pdfFallback = pdf
+        return pdf
+    }
+
     public var pageCount: Int {
-        get async throws { try await loadEntries().count }
+        get async throws {
+            let names = try await loadEntries()
+            if !names.isEmpty { return names.count }
+            return try await resolvePDFFallback()?.pageCount ?? 0
+        }
     }
 
     public func imageData(at page: Int) async throws -> Data {
         let names = try await loadEntries()
-        guard page >= 0, page < names.count else {
+        if !names.isEmpty {
+            guard page >= 0, page < names.count else {
+                throw BookContentError.pageOutOfRange(page)
+            }
+            return try await extractor.imageData(in: url, entryName: names[page])
+        }
+        guard let pdf = try await resolvePDFFallback(),
+              let data = pdf.pageImageData(at: page, maxPixelSize: 3200) else {
             throw BookContentError.pageOutOfRange(page)
         }
-        return try await extractor.imageData(in: url, entryName: names[page])
+        return data
     }
 }
 
@@ -137,7 +195,9 @@ public actor PDFPageContent: BookContent {
     }
 
     public func imageData(at page: Int) async throws -> Data {
-        guard let data = pdf.pageImageData(at: page, maxPixelSize: 1600) else {
+        // Retina 実効解像度の維持（旧 lockFocus 実装は backing scale 2x で実質 3200px を
+        // 出力しており、1600 だと HiDPI 表示で従来よりソフトになる — smoke 2026-06-10 ②）
+        guard let data = pdf.pageImageData(at: page, maxPixelSize: 3200) else {
             throw BookContentError.pageOutOfRange(page)
         }
         return data
