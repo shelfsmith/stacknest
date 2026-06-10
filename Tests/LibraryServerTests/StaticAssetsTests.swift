@@ -33,6 +33,16 @@ struct StaticAssetsTests {
         }
     }
 
+    /// books ブラウズの ES module（books.js）も認証なしで配信される。
+    @Test func booksJSIsServedWithoutAuth() async throws {
+        try await makeApp().test(.router) { client in
+            try await client.execute(uri: "/books.js", method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(String(buffer: response.body).contains("renderBooks"))
+            }
+        }
+    }
+
     /// 静的配信を足しても API の認証は維持される（回帰）。
     @Test func apiStillRequiresAuth() async throws {
         try await makeApp().test(.router) { client in

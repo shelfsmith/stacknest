@@ -6,6 +6,7 @@ import {
     api, apiJSON, hasDeviceToken, saveDeviceToken, clearDeviceToken,
     listLibraries, unlockLibrary, UnauthorizedError, NetworkError,
 } from "./api.js";
+import { renderBooks } from "./books.js";
 
 const appEl = () => document.getElementById("app");
 const backBtn = () => document.getElementById("back-btn");
@@ -93,7 +94,7 @@ async function route() {
     try {
         switch (r.name) {
             case "pair": return renderPair();
-            case "lib": return await renderLibraryPlaceholder(r.uuid);
+            case "lib": return await renderLib(r.uuid, r.query);
             case "libraries":
             default: return await renderLibraries();
         }
@@ -170,19 +171,19 @@ async function renderLibraries() {
     render("ライブラリ", list);
 }
 
-// ---- ライブラリ内（books は Task 7・今は準備中 + ロック庫の unlock フロー） ----
+// ---- ライブラリ内（books ブラウズ + ロック庫の unlock フロー） ----------------
 
-async function renderLibraryPlaceholder(uuid) {
-    // ロック庫は books 取得が 403 になる。到達性確認も兼ねて軽く叩く。
+/// books 画面へ渡す DOM/描画ヘルパ束。
+const booksDeps = { el, render, toast, route, appEl };
+
+async function renderLib(uuid, query) {
+    // ロック庫はトークン未保持だと books 取得が 403 になる。先に軽く叩いて判定する。
     const res = await api(`/libraries/${encodeURIComponent(uuid)}/books?per=1`, { libraryUUID: uuid });
     if (res.status === 403) {
         return promptUnlock(uuid);
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const wrap = el("div", { class: "placeholder" }, [
-        el("p", { text: "本の一覧は次のフェーズで対応します（準備中）。" }),
-    ]);
-    render("ライブラリ", wrap, { showBack: true });
+    return renderBooks(uuid, query, booksDeps);
 }
 
 /// ロック庫のパスワード入力モーダル → unlock。
