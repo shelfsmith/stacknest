@@ -23,6 +23,16 @@ struct StaticAssetsTests {
         }
     }
 
+    /// Web クライアントの app.js も認証なしで配信される（ES module の読み込み）。
+    @Test func appJSIsServedWithoutAuth() async throws {
+        try await makeApp().test(.router) { client in
+            try await client.execute(uri: "/app.js", method: .get) { response in
+                #expect(response.status == .ok)
+                #expect(String(buffer: response.body).contains("StackNest"))
+            }
+        }
+    }
+
     /// 静的配信を足しても API の認証は維持される（回帰）。
     @Test func apiStillRequiresAuth() async throws {
         try await makeApp().test(.router) { client in

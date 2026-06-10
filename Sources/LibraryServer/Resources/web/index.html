@@ -1,3 +1,23 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><title>StackNest</title></head>
-<body><p>StackNest Web — 4.1b Task 6 で実装</p></body></html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <!-- iPhone ホーム画面追加時のフルスクリーン表示用 -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="StackNest">
+  <title>StackNest</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="app-bar">
+    <button id="back-btn" class="icon-btn" type="button" hidden aria-label="戻る">‹</button>
+    <h1 id="app-title">StackNest</h1>
+  </header>
+  <main id="app" class="app-main" aria-live="polite"></main>
+  <div id="toast-host" class="toast-host" aria-live="assertive"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

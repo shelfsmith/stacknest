@@ -1,0 +1,240 @@
+/* SPDX-License-Identifier: MIT */
+/* StackNest Web — iPhone Safari ファースト。ダーク対応・タップ領域 44px 以上。 */
+
+:root {
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #e9e9ee;
+  --text: #1c1c1e;
+  --text-dim: #6c6c70;
+  --accent: #0a84ff;
+  --danger: #ff3b30;
+  --border: #d1d1d6;
+  --bar-h: 48px;
+  --tap: 44px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: #2c2c2e;
+    --text: #ffffff;
+    --text-dim: #8e8e93;
+    --accent: #0a84ff;
+    --danger: #ff453a;
+    --border: #38383a;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- アプリバー（固定ヘッダ・ノッチ安全領域対応） ---- */
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(var(--bar-h) + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 12px 0;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-bar h1 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icon-btn {
+  min-width: var(--tap);
+  min-height: var(--tap);
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 28px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.app-main {
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* ---- 空状態 / プレースホルダ ---- */
+.empty, .placeholder {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 48px 24px;
+  line-height: 1.6;
+}
+
+/* ---- ボタン ---- */
+.btn-primary, .btn-secondary {
+  min-height: var(--tap);
+  padding: 0 20px;
+  border-radius: 10px;
+  border: none;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-secondary { background: var(--surface-2); color: var(--text); }
+
+/* ---- ペアリングフォーム ---- */
+.pair-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 420px;
+  margin: 24px auto;
+}
+
+.pair-lead { font-size: 17px; margin: 0; }
+.pair-hint { font-size: 14px; color: var(--text-dim); margin: 0; }
+
+.pair-input {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 14px;
+  font-size: 17px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.pair-input:focus { outline: 2px solid var(--accent); outline-offset: 0; }
+
+/* ---- カードリスト（ライブラリ一覧） ---- */
+.card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.card:active { background: var(--surface-2); }
+
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.card-sub { font-size: 14px; color: var(--text-dim); }
+.lock { font-size: 15px; }
+
+/* ---- モーダル（ロック庫の unlock） ---- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.modal {
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: var(--surface);
+  border-radius: 16px;
+}
+
+.modal-title { font-size: 18px; margin: 0; }
+.modal-lead { font-size: 14px; color: var(--text-dim); margin: 0; }
+.modal-error { font-size: 14px; color: var(--danger); margin: 0; }
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* ---- トースト ---- */
+.toast-host {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 200;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  padding: 0 16px;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: 480px;
+  padding: 12px 16px;
+  background: var(--surface-2);
+  color: var(--text);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+}
+
+.toast-msg { font-size: 15px; }
+
+.toast-action {
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
