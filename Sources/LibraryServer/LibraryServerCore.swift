@@ -30,14 +30,29 @@ public struct ServerCapabilities: Codable, Sendable {
 /// AppKit / ImageIO / PDFKit を import しないこと（Linux 移植規律・spec §3.2）。
 public struct LibraryServerCore: Sendable {
     public let config: LibraryServerConfig
-    public init(config: LibraryServerConfig) {
+    let dataSource: any LibraryServerDataSource
+
+    public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
+        self.dataSource = dataSource
     }
 
     public func buildApplication() -> some ApplicationProtocol {
         let router = Router()
+        // /server/info は認証不要（ペアリング前の到達性確認用）。
         router.get("/api/v1/server/info") { _, _ in
             ServerCapabilities.inApp
+        }
+        // それ以外の API は Bearer トークン認証配下。
+        let api = router.group("api/v1")
+            .add(middleware: BearerAuthMiddleware(token: config.token))
+        let dataSource = self.dataSource
+        api.get("libraries") { _, _ in
+            let libs = await dataSource.servedLibraries()
+            return libs.map {
+                LibraryDTO(id: $0.uuid, name: $0.name, locked: $0.isLocked,
+                           bookCount: (try? $0.db.fetchBookCount()) ?? 0)
+            }
         }
         return Application(
             router: router,
@@ -46,4 +61,13 @@ public struct LibraryServerCore: Sendable {
     }
 }
 
+/// /libraries の一覧 1 件分（spec §3.3）。
+public struct LibraryDTO: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let locked: Bool
+    public let bookCount: Int
+}
+
 extension ServerCapabilities: ResponseEncodable {}
+extension LibraryDTO: ResponseEncodable {}
