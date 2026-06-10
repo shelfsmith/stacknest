@@ -117,4 +117,30 @@ struct BooksEndpointTests {
             }
         }
     }
+
+    /// hasCover は Thumbnails/<id>/thumbnail.jpg の存在を反映する（実規約）。
+    /// 自動表紙の本は coverImageName == nil のまま thumbnail.jpg を持つため、
+    /// coverImageName での判定は不正（手動表紙のみ true になってしまう）。
+    @Test func hasCoverReflectsThumbnailFileExistence() async throws {
+        let fixture = try TestLibraryFixture(name: "HC", bookCount: 2)   // 両方 coverImageName nil
+        defer { fixture.cleanup() }
+        try fixture.addCover(bookID: 1)   // 自動表紙相当: ファイルのみ配置・DB は触らない
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books?per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                let book1 = try #require(page.items.first { $0.id == 1 })
+                let book2 = try #require(page.items.first { $0.id == 2 })
+                #expect(book1.hasCover == true)
+                #expect(book2.hasCover == false)
+            }
+        }
+    }
 }

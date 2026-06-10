@@ -56,9 +56,25 @@ struct BooksQuery {
     let page: Int      // 1-based
     let per: Int       // clamp 1...200
 
+    /// 表紙を持つ本の id 集合。
+    /// 実規約では表紙は `Thumbnails/<bookID>/thumbnail.jpg`（ファイル名固定）で、
+    /// `coverImageName` は手動表紙のアーカイブ内エントリ名 — ディスクファイル名ではない
+    /// （自動表紙の本は coverImageName == nil のまま thumbnail.jpg を持つ）。
+    /// 冊数分の stat（5,000 冊で 5,000 syscall）を避けるため、Thumbnails/ 直下を
+    /// 1 回 listing してサブディレクトリ名（= bookID）の集合を作り照合する。
+    /// サブディレクトリは表紙書き込み時（CoverRefresher 等）に作られるため
+    /// 「ディレクトリ存在 ≒ 表紙存在」を実用十分な近似として扱う。
+    static func coverBookIDs(bundleURL: URL) -> Set<Int> {
+        let thumbnailsDir = bundleURL.appendingPathComponent("Thumbnails")
+        guard let names = try? FileManager.default.contentsOfDirectory(
+            atPath: thumbnailsDir.path) else { return [] }
+        return Set(names.compactMap(Int.init))
+    }
+
     func run(on lib: ServedLibrary) throws -> BookPageDTO {
         let rows = try lib.db.fetchAllBooks()
         let progress = try lib.db.fetchAllViewerStates()
+        let coverIDs = Self.coverBookIDs(bundleURL: lib.bundleURL)
         var items = rows.map { row in
             BookListItemDTO(
                 id: row.id, title: row.title, author: row.author,
@@ -68,7 +84,7 @@ struct BooksQuery {
                 lastPage: progress[row.id]?.lastPage,
                 lastReadAt: progress[row.id]?.updatedAt,
                 dateAdded: row.dateAdded,
-                hasCover: row.coverImageName != nil
+                hasCover: coverIDs.contains(row.id)
             )
         }
         if let q, !q.isEmpty {
