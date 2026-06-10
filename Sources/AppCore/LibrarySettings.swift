@@ -147,6 +147,10 @@ public final class LibrarySettings {
     public var backupGenerations: Int {
         didSet { persistBackupGenerations() }
     }
+    /// このライブラリをアプリ内蔵サーバ経由でリモート共有するか（per-library）。既定 OFF（明示オプトイン）。
+    public var remoteSharingEnabled: Bool {
+        didSet { persistRemoteSharingEnabled() }
+    }
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettings")
     private static let columnsKey = "listViewColumns"
@@ -174,11 +178,13 @@ public final class LibrarySettings {
     private static let sortModeKey = "sort_mode"
     private static let backupEnabledKey = "backup_enabled"
     private static let backupGenerationsKey = "backup_generations"
+    private static let remoteSharingEnabledKey = "remote_sharing_enabled"
     private static let defaultGridItemSize: Double = 160
     private static let defaultRecentDays: Int = 14
     private static let defaultSortMode: SortMode = .column
     private static let defaultBackupEnabled = true
     private static let defaultBackupGenerations = 5
+    private static let defaultRemoteSharingEnabled = false
     private static let defaultFilenameFormat = "(@genre) [@keywordB] [@author] @title"
     private static let defaultTopPaneMode = "browse"
     private static let defaultColumns: Set<BookColumn> = Set(BookColumn.allCases.filter { $0.defaultEnabled })
@@ -356,6 +362,12 @@ public final class LibrarySettings {
             self.backupGenerations = v
         } else {
             self.backupGenerations = Self.defaultBackupGenerations
+        }
+        // Load remote sharing opt-in. Default: off.
+        if let str = try database.getLibrarySetting(key: Self.remoteSharingEnabledKey) {
+            self.remoteSharingEnabled = (str == "true")
+        } else {
+            self.remoteSharingEnabled = Self.defaultRemoteSharingEnabled
         }
         // init 内の代入では didSet が発火しないため、移行で新規生成した場合は明示的に永続する。
         if didSeedPresets {
@@ -647,6 +659,14 @@ public final class LibrarySettings {
             try database.setLibrarySetting(key: Self.backupGenerationsKey, value: String(backupGenerations))
         } catch {
             Self.logger.error("Failed to persist backupGenerations: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistRemoteSharingEnabled() {
+        do {
+            try database.setLibrarySetting(key: Self.remoteSharingEnabledKey, value: remoteSharingEnabled ? "true" : "false")
+        } catch {
+            Self.logger.error("Failed to persist remoteSharingEnabled: \(error.localizedDescription, privacy: .public)")
         }
     }
 }
