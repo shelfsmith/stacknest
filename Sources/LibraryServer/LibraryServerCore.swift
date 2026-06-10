@@ -58,6 +58,8 @@ public struct LibraryServerCore: Sendable {
     let dataSource: any LibraryServerDataSource
     /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
     let tokenStore = LibraryTokenStore()
+    /// 本ごとの BookContent ハンドルキャッシュ（アーカイブ再オープン排除・spec §3.3）。
+    let contentCache = BookContentCache(ttlSeconds: 300)
 
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
@@ -131,6 +133,28 @@ public struct LibraryServerCore: Sendable {
                 format: formatString(BookCategory.classify(path: row.path ?? "")),
                 etag: bookETag(for: row)
             )
+        }
+        // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。
+        // 範囲外 → 404 / 範囲内の描画失敗 → 500（BookContentError.renderFailed 分離・4.1a）。
+        let contentCache = self.contentCache
+        api.get("libraries/:lib/books/:id/pages/:n") { request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let n = try context.parameters.require("n", as: Int.self)
+            let content = try await contentCache.content(for: row, libraryUUID: lib.uuid)
+            do {
+                let data = try await content.imageData(at: n)
+                return cacheableImageResponse(
+                    data: data,
+                    etag: bookETag(for: row) + "-p\(n)",
+                    request: request
+                )
+            } catch let e as BookContentError {
+                switch e {
+                case .pageOutOfRange: throw HTTPError(.notFound)
+                case .renderFailed: throw HTTPError(.internalServerError)
+                default: throw HTTPError(.notFound)
+                }
+            }
         }
         return Application(
             router: router,

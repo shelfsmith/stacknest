@@ -14,6 +14,8 @@ public enum BookContentError: Error, Sendable, Equatable {
     case invalidPath(String)
     case unsupported(BookCategory)
     case pageOutOfRange(Int)
+    /// 範囲内ページの描画失敗（範囲外は pageOutOfRange）。HTTP 写像では 500 相当（4.1a）。
+    case renderFailed(Int)
     case pdfUnopenable(String)
 }
 
@@ -129,9 +131,15 @@ public actor ArchiveBookContent: BookContent {
             }
             return try await extractor.imageData(in: url, entryName: names[page])
         }
-        guard let pdf = try await resolvePDFFallback(),
-              let data = pdf.pageImageData(at: page, maxPixelSize: 3200) else {
+        // PDF fallback 経路: 範囲チェックを先に行い、範囲内の描画失敗は renderFailed に分離（4.1a）
+        guard let pdf = try await resolvePDFFallback() else {
             throw BookContentError.pageOutOfRange(page)
+        }
+        guard page >= 0, page < pdf.pageCount else {
+            throw BookContentError.pageOutOfRange(page)
+        }
+        guard let data = pdf.pageImageData(at: page, maxPixelSize: 3200) else {
+            throw BookContentError.renderFailed(page)
         }
         return data
     }
@@ -195,10 +203,15 @@ public actor PDFPageContent: BookContent {
     }
 
     public func imageData(at page: Int) async throws -> Data {
+        // 範囲チェックを先に行い、範囲内の描画失敗は renderFailed に分離（4.1a・HTTP 404/500 写像）
+        let count = pdf.pageCount
+        guard page >= 0, page < count else {
+            throw BookContentError.pageOutOfRange(page)
+        }
         // Retina 実効解像度の維持（旧 lockFocus 実装は backing scale 2x で実質 3200px を
         // 出力しており、1600 だと HiDPI 表示で従来よりソフトになる — smoke 2026-06-10 ②）
         guard let data = pdf.pageImageData(at: page, maxPixelSize: 3200) else {
-            throw BookContentError.pageOutOfRange(page)
+            throw BookContentError.renderFailed(page)
         }
         return data
     }

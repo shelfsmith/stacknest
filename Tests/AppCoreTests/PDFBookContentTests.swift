@@ -148,6 +148,23 @@ struct PDFBookContentCGTests {
         }
     }
 
+    /// 範囲外は pageOutOfRange、範囲内の描画失敗は renderFailed に分離されている（4.1a）。
+    @Test func outOfRangeAndRenderFailureAreDistinct() async throws {
+        guard let url = fixtureURL("5pages") else {
+            Issue.record("fixture 5pages.pdf missing"); return
+        }
+        let pdf = try #require(PDFBookContent(url: url))
+        let content = PDFPageContent(pdf: pdf)
+        await #expect(throws: BookContentError.pageOutOfRange(99)) {
+            _ = try await content.imageData(at: 99)
+        }
+        // renderFailed ケースが存在し pageOutOfRange と区別されること（HTTP 404/500 写像の前提）
+        #expect(BookContentError.renderFailed(99) != BookContentError.pageOutOfRange(99))
+        // 範囲内の正常ページは成功（renderFailed の正常系は描画失敗を人工的に作れないため、
+        // 「範囲チェックが先に行われ pageOutOfRange は範囲外専用になった」ことをもって分離を検証）
+        _ = try await content.imageData(at: 0)
+    }
+
     /// 再入レース回帰防止: 初回アクセスを並行 2 本で叩いても両方正しい値を返す。
     @Test func archivePDFFallbackSurvivesConcurrentFirstAccess() async throws {
         guard let url = Bundle.module.url(
