@@ -874,6 +874,8 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         for state in AppState.activeInstances.allObjects {
             state.backupOnCloseIfNeeded()
         }
+        // 4.1b: 内蔵リモート共有サーバを graceful に停止する。
+        ServerController.shared.stop()
         LibraryOpenLockManager.shared.releaseAll()
     }
 }

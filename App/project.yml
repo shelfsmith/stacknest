@@ -99,6 +99,8 @@ targets:
         product: ArchiveAdapter
       - package: StackNest
         product: AppCore
+      - package: StackNest
+        product: LibraryServer
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.shelfsmith.stacknest
