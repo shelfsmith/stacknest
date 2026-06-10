@@ -111,4 +111,21 @@ struct PDFBookContentCGTests {
         let data = content.pageImageData(at: 0, maxPixelSize: 1)
         #expect(data != nil)
     }
+
+    /// PDFPageContent (actor) — 並行 imageData 呼び出しが両方成功する（actor 直列化の保証）。
+    /// MainActor を経由しないこと自体は型システム（actor 隔離）が保証する。
+    @Test func pdfPageContentServesConcurrentRequests() async throws {
+        guard let url = fixtureURL("5pages") else {
+            Issue.record("fixture 5pages.pdf missing"); return
+        }
+        let pdf = try #require(PDFBookContent(url: url))
+        let content = PDFPageContent(pdf: pdf)
+        let count = try await content.pageCount
+        #expect(count == 5)
+        async let a = content.imageData(at: 0)
+        async let b = content.imageData(at: 4)
+        let (dataA, dataB) = try await (a, b)
+        #expect(dataA.prefix(2) == Data([0xFF, 0xD8]))
+        #expect(dataB.prefix(2) == Data([0xFF, 0xD8]))
+    }
 }

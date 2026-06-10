@@ -122,26 +122,24 @@ public struct SingleImageBookContent: BookContent {
 }
 
 /// PDF（PDFBookContent を任意ページ画像化）。
-/// PDFKit (`PDFDocument`/`PDFPage.draw`) と `NSImage.lockFocus` は main thread 専用のため、
-/// pageCount / imageData とも MainActor 上で実行する。`@unchecked Sendable` は、唯一の格納
-/// プロパティ `pdf` が非 Sendable な PDFBookContent であることに対する明示的なエスケープ —
-/// レンダリングを MainActor.run に閉じ込めることで実質的なスレッド安全性を担保する。
-public struct PDFPageContent: BookContent, @unchecked Sendable {
+/// Phase 4.0: `PDFBookContent` の描画が CG 化され main thread 非依存になったため、
+/// MainActor 閉じ込めを廃止し actor に変更。非 Sendable な `PDFDocument` への
+/// アクセスは actor executor が直列化する（@unchecked Sendable も不要になった）。
+/// GUI スレッドを塞がないため、内蔵ビューワと 4.1a LibraryServer の双方から安全に呼べる。
+/// 注意: 表示中の `PDFView` と同一の `PDFDocument` インスタンスを共有しないこと
+/// （PDFKit はドキュメント単位で非スレッドセーフ。本 actor は自前で開いた document 専用）。
+public actor PDFPageContent: BookContent {
     private let pdf: PDFBookContent
     public init(pdf: PDFBookContent) { self.pdf = pdf }
 
     public var pageCount: Int {
-        get async throws {
-            await MainActor.run { pdf.pageCount }
-        }
+        get async throws { pdf.pageCount }
     }
 
     public func imageData(at page: Int) async throws -> Data {
-        try await MainActor.run {
-            guard let data = pdf.pageImageData(at: page, maxPixelSize: 1600) else {
-                throw BookContentError.pageOutOfRange(page)
-            }
-            return data
+        guard let data = pdf.pageImageData(at: page, maxPixelSize: 1600) else {
+            throw BookContentError.pageOutOfRange(page)
         }
+        return data
     }
 }

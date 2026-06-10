@@ -11,9 +11,8 @@ import UniformTypeIdentifiers
 /// Phase 4.0: 描画を `NSImage.lockFocus` から `CGBitmapContext` + ImageIO に置換し
 /// AppKit 依存を除去。これによりレンダリングは main thread 非依存になった。
 /// ただし `PDFDocument` は Sendable ではなく並行アクセス安全でもないため、
-/// **同一インスタンスへのアクセスは直列化が必要**（BookContent 経路は現状
-/// `PDFPageContent` が `MainActor.run` で直列化している。Phase 4.0 後続タスクで
-/// actor 化し、main 非依存の直列化に移行予定。同期利用の C5 BookAddCoordinator /
+/// **同一インスタンスへのアクセスは直列化が必要**（BookContent 経路は actor
+/// `PDFPageContent` が直列化を担保する。同期利用の C5 BookAddCoordinator /
 /// CoverRegenerationTask は従来どおり MainActor 上の局所利用）。
 public struct PDFBookContent {
     public let url: URL
