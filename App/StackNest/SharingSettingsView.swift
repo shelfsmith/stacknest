@@ -1,0 +1,218 @@
+// SPDX-License-Identifier: MIT
+import SwiftUI
+import AppCore
+import LibraryServer
+
+/// 設定「共有」タブ。アプリ内蔵 LibraryServer の起動/停止・ポート・トークン+QR・
+/// per-library オプトイン（remoteSharingEnabled）を操作する。
+///
+/// ServerController.shared は @Observable @MainActor なので、`@State` で保持すれば
+/// isRunning / lastError の変化を SwiftUI が追跡して再描画する。
+struct SharingSettingsView: View {
+    /// @Observable な singleton を観察する。直接 .shared を読むだけでは observation が
+    /// 成立しないため、@State に保持して view の dependency に載せる。
+    @State private var server = ServerController.shared
+
+    /// ポート編集用のローカル文字列。稼働中は disabled。コミットは onSubmit / Toggle ON 時。
+    @State private var portInput: String = String(ServerPreferences.port())
+
+    /// トークン再生成の確認ダイアログ。
+    @State private var showRegenerateConfirm = false
+
+    var body: some View {
+        Form {
+            serverSection
+            if server.isRunning {
+                connectionSection
+            }
+            tokenSection
+            librariesSection
+        }
+        .formStyle(.grouped)
+    }
+
+    // MARK: - サーバセクション
+
+    @ViewBuilder
+    private var serverSection: some View {
+        Section("サーバ") {
+            Toggle("リモート共有サーバを稼働", isOn: Binding(
+                get: { server.isRunning },
+                set: { wantRunning in
+                    if wantRunning {
+                        commitPortIfPossible()
+                        server.start()
+                    } else {
+                        server.stop()
+                    }
+                }
+            ))
+
+            HStack(spacing: 8) {
+                if server.isRunning {
+                    Circle()
+                        .fill(.green)
+                        .frame(width: 8, height: 8)
+                    Text("ポート \(server.port) で配信中")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Circle()
+                        .fill(.secondary)
+                        .frame(width: 8, height: 8)
+                    Text("停止中")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if let err = server.lastError {
+                Text(err)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            HStack(spacing: 8) {
+                Text("ポート")
+                Spacer()
+                TextField("", text: $portInput)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 80)
+                    .disabled(server.isRunning)
+                    .onChange(of: portInput) { _, newValue in
+                        // 数字以外を弾く + 5 桁（最大 65535）に制限
+                        let cleaned = String(newValue.filter(\.isNumber).prefix(5))
+                        if cleaned != newValue { portInput = cleaned }
+                    }
+                    .onSubmit { commitPortIfPossible() }
+            }
+            if server.isRunning {
+                Text("ポートは停止中に変更できます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// ポート入力を検証して永続化する（停止中のみ・1...65535）。
+    private func commitPortIfPossible() {
+        guard !server.isRunning else { return }
+        if let v = Int(portInput), (1...65535).contains(v) {
+            ServerPreferences.setPort(v)
+        }
+        // 無効入力は現値に戻す
+        portInput = String(ServerPreferences.port())
+    }
+
+    // MARK: - 接続セクション（稼働中のみ）
+
+    @ViewBuilder
+    private var connectionSection: some View {
+        let addresses = NetworkInterfaces.ipv4Addresses()
+        Section("接続") {
+            if addresses.isEmpty {
+                Text("ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale の接続を確認してください。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(addresses, id: \.ip) { addr in
+                    HStack(spacing: 8) {
+                        Text("http://\(addr.ip):\(server.port)/")
+                            .monospaced()
+                            .textSelection(.enabled)
+                        Spacer()
+                        Text(addr.interface)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let primary = addresses.first {
+                    VStack(spacing: 8) {
+                        QRCodeView(
+                            content: PairingInfo.url(host: primary.ip, port: server.port, token: server.token),
+                            size: 160
+                        )
+                        Text("iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    // MARK: - トークンセクション
+
+    @ViewBuilder
+    private var tokenSection: some View {
+        Section("アクセストークン") {
+            Text(server.token)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .lineLimit(2)
+                .truncationMode(.middle)
+
+            Button("再生成…") {
+                showRegenerateConfirm = true
+            }
+            .confirmationDialog(
+                "トークンを再生成しますか？",
+                isPresented: $showRegenerateConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("再生成", role: .destructive) {
+                    server.regenerateToken()
+                }
+                Button("キャンセル", role: .cancel) {}
+            } message: {
+                Text("既存のペアリング端末は再ペアリングが必要になります。")
+            }
+        }
+    }
+
+    // MARK: - 配信ライブラリセクション
+
+    @ViewBuilder
+    private var librariesSection: some View {
+        Section("配信ライブラリ") {
+            let instances = AppState.activeInstances.allObjects
+            if instances.isEmpty {
+                Text("ライブラリを開くとここに表示されます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(instances, id: \.bundleURL) { state in
+                    if let settings = state.librarySettings {
+                        librarySharingRow(state: state, settings: settings)
+                    }
+                }
+            }
+        }
+    }
+
+    /// 1 ライブラリ分の共有 Toggle 行。
+    /// LibrarySettings は @Observable な class なので Binding(get:set:) で remoteSharingEnabled
+    /// を読み書きすると didSet で DB 永続化（Task 3）＋ SwiftUI 再描画が同時に成立する。
+    /// 稼働中サーバは dataSource を毎リクエスト呼ぶ設計（4.1a）のため、次のリクエストから反映される。
+    @ViewBuilder
+    private func librarySharingRow(state: AppState, settings: LibrarySettings) -> some View {
+        Toggle(isOn: Binding(
+            get: { settings.remoteSharingEnabled },
+            set: { settings.remoteSharingEnabled = $0 }
+        )) {
+            HStack(spacing: 6) {
+                Text(state.bundleURL.deletingPathExtension().lastPathComponent)
+                if settings.lockPasswordHash != nil {
+                    Image(systemName: "lock.fill")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("ロック庫")
+                }
+            }
+        }
+    }
+}

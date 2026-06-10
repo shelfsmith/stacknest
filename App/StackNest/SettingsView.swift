@@ -185,6 +185,13 @@ struct SettingsView: View {
                     Label("キー", systemImage: "keyboard")
                 }
                 .tag(3)
+
+            // MARK: - Tab 5: 共有（リモート共有サーバ・ポート・トークン+QR・per-library オプトイン）
+            SharingSettingsView()
+                .tabItem {
+                    Label("共有", systemImage: "antenna.radiowaves.left.and.right")
+                }
+                .tag(4)
         }
         // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。
         // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
