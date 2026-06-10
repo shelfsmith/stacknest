@@ -1918,6 +1918,38 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// 全 book の閲覧進行状況（last_page / updated_at）の一括取得結果 1 件分
+    /// （Phase 4.1a: LibraryServer の books 一覧 DTO 用）。
+    public struct ViewerProgress: Sendable, Equatable {
+        public let lastPage: Int
+        public let updatedAt: Date?
+        public init(lastPage: Int, updatedAt: Date?) {
+            self.lastPage = lastPage
+            self.updatedAt = updatedAt
+        }
+    }
+
+    /// 全 book の閲覧状態（last_page / updated_at）を一括取得する。
+    /// 行が存在する本だけが結果に含まれる。`updated_at` は epoch 秒の TEXT
+    /// （`saveViewerState` の刻印形式）を Date に復号し、不正値は nil。
+    public func fetchAllViewerStates() throws -> [Int: ViewerProgress] {
+        guard let q = queue else { return [:] }
+        return try q.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT book_id, last_page, updated_at FROM book_viewer_state"
+            )
+            var out: [Int: ViewerProgress] = [:]
+            for row in rows {
+                let updated: Date? = (row["updated_at"] as String?)
+                    .flatMap { Double($0) }
+                    .map { Date(timeIntervalSince1970: $0) }
+                out[row["book_id"]] = ViewerProgress(lastPage: row["last_page"], updatedAt: updated)
+            }
+            return out
+        }
+    }
+
     /// Upserts the per-book viewer flags + reading position. Does not touch overrides.
     /// `updated_at` is stamped as the epoch seconds string (matches how the rest of
     /// the codebase stores time as REAL epoch; here stored as TEXT per schema).

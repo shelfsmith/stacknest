@@ -26,6 +26,29 @@ public struct ServerCapabilities: Codable, Sendable {
     )
 }
 
+/// LibraryServer 共通の RequestContext。JSON の Date を ISO8601 に固定する
+/// （Hummingbird 2.25 の既定も ISO8601 だが、upstream の既定変更に依存しないよう明示。
+/// テスト側デコーダも .iso8601 で一致させること — plan 設計ノート）。
+public struct LibraryRequestContext: RequestContext {
+    public var coreContext: CoreRequestContextStorage
+
+    public init(source: Source) {
+        self.coreContext = .init(source: source)
+    }
+
+    public var requestDecoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    public var responseEncoder: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }
+}
+
 /// HTTP サーバ本体。Router 構築と Application 生成を担う。
 /// AppKit / ImageIO / PDFKit を import しないこと（Linux 移植規律・spec §3.2）。
 public struct LibraryServerCore: Sendable {
@@ -40,7 +63,7 @@ public struct LibraryServerCore: Sendable {
     }
 
     public func buildApplication() -> some ApplicationProtocol {
-        let router = Router()
+        let router = Router(context: LibraryRequestContext.self)
         // /server/info は認証不要（ペアリング前の到達性確認用）。
         router.get("/api/v1/server/info") { _, _ in
             ServerCapabilities.inApp
@@ -70,15 +93,23 @@ public struct LibraryServerCore: Sendable {
             guard lib.verifyPassword(body.password) else { throw HTTPError(.forbidden) }
             return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
         }
-        // books 一覧（仮実装: 空配列 — 本実装は Task 5）。ロック庫は X-Library-Token 必須。
+        // books 一覧（ページング・検索・ソート・進行状況）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books") { request, context in
             let uuid = try context.parameters.require("lib")
             let libraryToken = request.headers[.init("X-Library-Token")!]
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken) else {
                 throw HTTPError(.notFound)
             }
-            _ = lib
-            return [BookListItemDTO]()   // Task 5 で本実装
+            let qp = request.uri.queryParameters
+            let sortRaw = qp.get("sort") ?? "title"
+            guard let sort = BookSortKey(rawValue: sortRaw) else { throw HTTPError(.badRequest) }
+            let query = BooksQuery(
+                q: qp.get("q"),
+                sort: sort,
+                page: max(1, qp.get("page", as: Int.self) ?? 1),
+                per: min(200, max(1, qp.get("per", as: Int.self) ?? 100))
+            )
+            return try query.run(on: lib)
         }
         return Application(
             router: router,
@@ -105,9 +136,6 @@ struct UnlockReply: ResponseEncodable {
     let libraryToken: String
 }
 
-/// 一覧 1 件分の仮 DTO（Task 5 で本定義に差し替え）。
-public struct BookListItemDTO: Codable, Sendable {}
-
 extension ServerCapabilities: ResponseEncodable {}
 extension LibraryDTO: ResponseEncodable {}
-extension BookListItemDTO: ResponseEncodable {}
+extension BookPageDTO: ResponseEncodable {}

@@ -222,6 +222,23 @@ struct ViewerStateTests {
         db.close()
     }
 
+    // MARK: - Phase 4.1a: bulk viewer-state fetch for the library server
+
+    /// fetchAllViewerStates が保存済みの本だけを last_page / updated_at 付きで返すことを確認する。
+    @Test("fetchAllViewerStates returns last pages and updatedAt only for persisted books")
+    func fetchAllViewerStatesReturnsLastPagesAndUpdatedAt() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let book1ID = try insertBook(db, title: "A", series: nil, volume: nil)
+        let book2ID = try insertBook(db, title: "B", series: nil, volume: nil)
+        try db.saveViewerState(bookID: book1ID, spreadEnabled: false, coverOffset: true, lastPage: 5)
+        let states = try db.fetchAllViewerStates()
+        #expect(states[book1ID]?.lastPage == 5)
+        #expect(states[book1ID]?.updatedAt != nil)
+        #expect(states[book2ID] == nil)
+        db.close()
+    }
+
     @Test("prevVolumeInSeries normal + first volume nil")
     func prevVolume() throws {
         let db = try Database.openInMemory()
