@@ -64,7 +64,8 @@ let package = Package(
                 "AppCore",
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
-            path: "Sources/LibraryServer"
+            path: "Sources/LibraryServer",
+            resources: [.copy("Resources/web")]
         ),
         .executableTarget(
             name: "StackroomImportCLI",

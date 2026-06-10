@@ -183,6 +183,16 @@ public struct LibraryServerCore: Sendable {
             return Response(
                 status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
+        // 静的 Web クライアント配信（認証不要 — ペアリング前にアプリ本体を読み込むため）。
+        // FileMiddleware はルート未一致（.notFound）時のフォールバックとして働く: ルータ直登録
+        // すると buildResponder() 時に NotFoundResponder をラップするため、/api/v1 配下の
+        // 既存ルートは各自の stack（BearerAuthMiddleware 等）で処理され FileMiddleware に到達しない
+        // （= API 認証はそのまま維持）。/ や /app.js のような未一致パスのみ静的ファイルを返す。
+        // ★ルート登録規約: /api/v1 配下の新ルートは必ず `api` group（BearerAuthMiddleware 配下）に
+        //   登録すること。router 直登録は無警告の認証バイパスになる（4.1a 最終レビュー指摘(3)）。
+        if let webRoot = Bundle.module.url(forResource: "web", withExtension: nil)?.path {
+            router.add(middleware: FileMiddleware(webRoot, searchForIndexHtml: true))
+        }
         return Application(
             router: router,
             configuration: .init(address: .hostname(config.host, port: config.port))
