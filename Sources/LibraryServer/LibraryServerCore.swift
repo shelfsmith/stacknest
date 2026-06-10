@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import AppCore
+import LibraryStore
 import Hummingbird
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
@@ -110,6 +112,25 @@ public struct LibraryServerCore: Sendable {
                 per: min(200, max(1, qp.get("per", as: Int.self) ?? 100))
             )
             return try query.run(on: lib)
+        }
+        // 表紙画像（ETag + immutable キャッシュ・If-None-Match で 304）。
+        api.get("libraries/:lib/books/:id/cover") { request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let url = coverURL(bundleURL: lib.bundleURL, bookID: row.id)
+            guard let data = try? Data(contentsOf: url) else { throw HTTPError(.notFound) }
+            return cacheableImageResponse(data: data, etag: bookETag(for: row), request: request)
+        }
+        // 本のマニフェスト（ページ数・方向・形式・ETag）。
+        api.get("libraries/:lib/books/:id/manifest") { request, context in
+            let (_, row) = try await resolver.resolveBook(request, context)
+            let content = try BookContentFactory.make(for: row)
+            let pageCount = try await content.pageCount
+            return ManifestDTO(
+                pageCount: pageCount,
+                direction: row.pageDirection.map(directionString),
+                format: formatString(BookCategory.classify(path: row.path ?? "")),
+                etag: bookETag(for: row)
+            )
         }
         return Application(
             router: router,

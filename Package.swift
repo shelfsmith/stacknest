@@ -114,7 +114,8 @@ let package = Package(
                 "AppCore",
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
-            path: "Tests/LibraryServerTests"
+            path: "Tests/LibraryServerTests",
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "StackroomImportCLITests",
