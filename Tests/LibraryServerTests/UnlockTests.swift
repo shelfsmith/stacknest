@@ -76,6 +76,15 @@ struct UnlockTests {
         }
     }
 
+    /// ライブラリトークンは TTL（テストでは短縮注入）で失効する。
+    @Test func libraryTokenExpiresAfterTTL() async throws {
+        let store = LibraryTokenStore(ttl: .milliseconds(50))
+        let t = await store.issueToken(for: "lib1")
+        #expect(await store.isValid(t, for: "lib1"))
+        try await Task.sleep(for: .milliseconds(120))
+        #expect(!(await store.isValid(t, for: "lib1")))
+    }
+
     /// 非ロック庫はライブラリトークン不要。
     @Test func unlockedLibraryNeedsNoLibraryToken() async throws {
         let fixture = try TestLibraryFixture(name: "Open", bookCount: 1)

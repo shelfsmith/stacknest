@@ -94,6 +94,31 @@ struct ContentEndpointTests {
         }
     }
 
+    /// cover の ETag は thumbnail.jpg 自身の mtime+size 由来（原本ではなく表紙の変化を追跡）。
+    /// 単一 app.test ブロック内で 2 リクエストを実行する（既存 coverReturnsJPEG... と同様 —
+    /// 別ブロックに分けると #expect が var をキャプチャして SendableClosureCaptures エラーになる）。
+    @Test func coverETagTracksThumbnailFile() async throws {
+        let (fixture, app, uuid, bookID) = try makeContentApp()
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            var etag1 = ""
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in etag1 = response.headers[.eTag] ?? "" }
+            // 表紙を書き換え（サイズ変更で mtime+size が変わる）
+            try fixture.rewriteCover(bookID: bookID)
+            let previousETag = etag1
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.headers[.eTag] != nil)
+                #expect(response.headers[.eTag] != previousETag)
+            }
+        }
+    }
+
     /// ロック庫は X-Library-Token なしでは cover も 403（LibraryResolver ゲート共用の確認）。
     @Test func lockedLibraryCoverRequiresLibraryToken() async throws {
         let fixture = try TestLibraryFixture(name: "LK", bookCount: 0, locked: true, password: "pw")

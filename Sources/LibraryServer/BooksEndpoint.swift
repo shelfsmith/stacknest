@@ -17,6 +17,9 @@ public struct BookListItemDTO: Codable, Sendable {
     public let lastReadAt: Date?
     public let dateAdded: Date
     public let hasCover: Bool
+    /// 表紙差し替えを Web の `?v=` で追跡するためのバージョン文字列（thumbnail.jpg の mtime+size 由来）。
+    /// 表紙なしの本は nil。stat コスト抑制のためページスライス後の本のみ算出する（run 参照）。
+    public let coverVersion: String?
 }
 
 /// books 一覧のページングレスポンス（spec §3.3）。
@@ -74,6 +77,9 @@ struct BooksQuery {
     func run(on lib: ServedLibrary) throws -> BookPageDTO {
         let rows = try lib.db.fetchAllBooks()
         let progress = try lib.db.fetchAllViewerStates()
+        // hasCover は Thumbnails/ 1 回 listing の安価な近似（全件可）。
+        // coverVersion は thumbnail.jpg 個別 stat が必要なため、全件 stat（5,000 回）を避け
+        // フィルタ/ソート/スライス後の本（per ≤ 200）に限定して算出する（plan Task 1(b)）。
         let coverIDs = Self.coverBookIDs(bundleURL: lib.bundleURL)
         var items = rows.map { row in
             BookListItemDTO(
@@ -84,7 +90,8 @@ struct BooksQuery {
                 lastPage: progress[row.id]?.lastPage,
                 lastReadAt: progress[row.id]?.updatedAt,
                 dateAdded: row.dateAdded,
-                hasCover: coverIDs.contains(row.id)
+                hasCover: coverIDs.contains(row.id),
+                coverVersion: nil   // スライス後に表紙ありの本のみ埋める
             )
         }
         if let q, !q.isEmpty {
@@ -99,6 +106,27 @@ struct BooksQuery {
         let total = items.count
         let start = (page - 1) * per
         let slice = start < total ? Array(items[start..<min(start + per, total)]) : []
-        return BookPageDTO(items: slice, total: total, page: page, perPage: per)
+        // スライス分だけ表紙ファイルを stat して coverVersion を付与（引用符は除いた素の文字列）。
+        let withVersion = slice.map { item -> BookListItemDTO in
+            guard item.hasCover else { return item }
+            let url = coverURL(bundleURL: lib.bundleURL, bookID: item.id)
+            let version = thumbnailETag(url: url, bookID: item.id)?
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            return item.withCoverVersion(version)
+        }
+        return BookPageDTO(items: withVersion, total: total, page: page, perPage: per)
+    }
+}
+
+extension BookListItemDTO {
+    /// coverVersion だけ差し替えたコピーを返す（全 let のため再構築）。
+    func withCoverVersion(_ version: String?) -> BookListItemDTO {
+        BookListItemDTO(
+            id: id, title: title, author: author,
+            series: series, volume: volume,
+            rating: rating, unseen: unseen, bookType: bookType,
+            pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
+            dateAdded: dateAdded, hasCover: hasCover, coverVersion: version
+        )
     }
 }

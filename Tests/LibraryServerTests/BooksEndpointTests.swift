@@ -29,6 +29,7 @@ struct BooksEndpointTests {
             let id: Int; let title: String; let series: String?
             let volume: Double?; let rating: Int; let unseen: Bool
             let pages: Int?; let lastPage: Int?; let hasCover: Bool
+            let coverVersion: String?
             let dateAdded: Date
         }
         let items: [Item]; let total: Int; let page: Int; let perPage: Int
@@ -140,6 +141,30 @@ struct BooksEndpointTests {
                 let book2 = try #require(page.items.first { $0.id == 2 })
                 #expect(book1.hasCover == true)
                 #expect(book2.hasCover == false)
+            }
+        }
+    }
+
+    /// 表紙ありの本は coverVersion 非 nil・表紙なしは nil（Web の ?v= 用）。
+    @Test func coverVersionExposedForBooksWithCover() async throws {
+        let fixture = try TestLibraryFixture(name: "CV", bookCount: 2)   // 両方 coverImageName nil
+        defer { fixture.cleanup() }
+        try fixture.addCover(bookID: 1)   // 自動表紙相当: ファイルのみ配置・DB は触らない
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books?per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                let book1 = try #require(page.items.first { $0.id == 1 })
+                let book2 = try #require(page.items.first { $0.id == 2 })
+                #expect(book1.coverVersion != nil)
+                #expect(book2.coverVersion == nil)
             }
         }
     }

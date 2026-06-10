@@ -91,6 +91,23 @@ struct TestLibraryFixture {
         try Data(bytes).write(to: dir.appendingPathComponent("thumbnail.jpg"))
     }
 
+    /// 既存の thumbnail.jpg をサイズの異なるバイト列で上書きする（mtime+size 由来 ETag の変化検証用）。
+    /// addCover の最小 JPEG に末尾バイトを足してサイズを変える（内容妥当性はテスト対象外）。
+    func rewriteCover(bookID: Int) throws {
+        let file = bundleURL
+            .appendingPathComponent("Thumbnails/\(bookID)")
+            .appendingPathComponent("thumbnail.jpg")
+        var bytes: [UInt8] = [0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x43, 0x00]
+        bytes += [UInt8](repeating: 0x10, count: 64)
+        bytes += [0xFF, 0xC0, 0x00, 0x0B, 0x08, 0x00, 0x01, 0x00, 0x01, 0x01, 0x01, 0x11, 0x00]
+        bytes += [0xFF, 0xC4, 0x00, 0x1F, 0x00]
+        bytes += [UInt8](repeating: 0x00, count: 16)
+        bytes += [0x0A]
+        bytes += [0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0xD9]
+        bytes += [UInt8](repeating: 0x00, count: 32)   // サイズを変えるための追加バイト
+        try Data(bytes).write(to: file)
+    }
+
     func cleanup() {
         try? FileManager.default.removeItem(at: bundleURL)
     }

@@ -4,17 +4,25 @@ import HTTPTypes
 import Hummingbird
 
 /// ロック庫の短命ライブラリトークン管理（メモリのみ・サーバ再起動で失効 — spec §4）。
+/// 加えて TTL（既定 24h・アクセスで延長しない単純期限 — 引き継ぎ(2)）で失効する。
 actor LibraryTokenStore {
-    private var tokens: [String: Set<String>] = [:]   // libraryUUID -> 有効トークン集合
+    private struct Entry { let libraryUUID: String; let expiresAt: ContinuousClock.Instant }
+    private var tokens: [String: Entry] = [:]   // token -> entry
+    private let ttl: Duration
+    private let clock = ContinuousClock()
+
+    init(ttl: Duration = .seconds(60 * 60 * 24)) { self.ttl = ttl }
 
     func issueToken(for libraryUUID: String) -> String {
+        tokens = tokens.filter { $0.value.expiresAt > clock.now }   // 期限切れ掃除
         let token = UUID().uuidString + "-" + UUID().uuidString
-        tokens[libraryUUID, default: []].insert(token)
+        tokens[token] = Entry(libraryUUID: libraryUUID, expiresAt: clock.now + ttl)
         return token
     }
 
     func isValid(_ token: String, for libraryUUID: String) -> Bool {
-        tokens[libraryUUID]?.contains(token) ?? false
+        guard let e = tokens[token], e.libraryUUID == libraryUUID else { return false }
+        return e.expiresAt > clock.now
     }
 }
 

@@ -13,6 +13,16 @@ func bookETag(for row: BookRow) -> String {
     return "\"\(row.id)-\(Int(mtime))-\(size)\""
 }
 
+/// 表紙ファイル自身の mtime+size 由来 ETag（表紙差し替えを追跡 — 4.1a 最終レビュー引き継ぎ(1)）。
+/// 原本 mtime ベースの bookETag では「原本据え置きで表紙だけ再生成」を検知できないため、
+/// thumbnail.jpg 自身の属性を見る。属性取得失敗（表紙なし等）は nil を返し呼び出し側で fallback。
+func thumbnailETag(url: URL, bookID: Int) -> String? {
+    guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+          let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970,
+          let size = attrs[.size] as? Int64 else { return nil }
+    return "\"c\(bookID)-\(Int(mtime))-\(size)\""
+}
+
 /// 表紙ファイル URL の解決。
 /// 実規約（CoverRefresher / ThumbnailLoader / LibraryBundle）はファイル名固定:
 ///   <bundle>/Thumbnails/<bookID>/thumbnail.jpg
