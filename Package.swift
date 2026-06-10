@@ -109,6 +109,9 @@ let package = Package(
             name: "LibraryServerTests",
             dependencies: [
                 "LibraryServer",
+                "LibraryStore",
+                "StackroomFormat",
+                "AppCore",
                 .product(name: "HummingbirdTesting", package: "hummingbird"),
             ],
             path: "Tests/LibraryServerTests"
