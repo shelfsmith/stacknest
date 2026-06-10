@@ -12,11 +12,13 @@ let package = Package(
         .library(name: "ImageCache", targets: ["ImageCache"]),
         .library(name: "ArchiveAdapter", targets: ["ArchiveAdapter"]),
         .library(name: "AppCore", targets: ["AppCore"]),
+        .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
+        .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -54,6 +56,15 @@ let package = Package(
             name: "AppCore",
             dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive"],
             path: "Sources/AppCore"
+        ),
+        .target(
+            name: "LibraryServer",
+            dependencies: [
+                "LibraryStore",
+                "AppCore",
+                .product(name: "Hummingbird", package: "hummingbird"),
+            ],
+            path: "Sources/LibraryServer"
         ),
         .executableTarget(
             name: "StackroomImportCLI",
@@ -93,6 +104,14 @@ let package = Package(
             dependencies: ["AppCore", "LibraryStore", "StackroomFormat"],
             path: "Tests/AppCoreTests",
             resources: [.copy("PDFFixtures")]
+        ),
+        .testTarget(
+            name: "LibraryServerTests",
+            dependencies: [
+                "LibraryServer",
+                .product(name: "HummingbirdTesting", package: "hummingbird"),
+            ],
+            path: "Tests/LibraryServerTests"
         ),
         .testTarget(
             name: "StackroomImportCLITests",
