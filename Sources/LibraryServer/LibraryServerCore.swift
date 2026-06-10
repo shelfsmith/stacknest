@@ -164,6 +164,19 @@ public struct LibraryServerCore: Sendable {
             try lib.db.updateLastPage(bookID: row.id, lastPage: body.page)
             return HTTPResponse.Status.ok
         }
+        // 原本ファイルの一括ダウンロード（4.2 オフライン機能の土台・ストリーミングは YAGNI）。
+        api.get("libraries/:lib/books/:id/file") { request, context in
+            let (_, row) = try await resolver.resolveBook(request, context)
+            guard let path = row.path, FileManager.default.fileExists(atPath: path) else {
+                throw HTTPError(.notFound)
+            }
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            var headers = HTTPFields()
+            headers[.contentType] = "application/octet-stream"
+            headers[.eTag] = bookETag(for: row)
+            return Response(
+                status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
+        }
         return Application(
             router: router,
             configuration: .init(address: .hostname(config.host, port: config.port))
