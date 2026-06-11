@@ -373,9 +373,7 @@ function openDetail(uuid, book, deps) {
     window.addEventListener("hashchange", onHashChange);
     overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
 
-    // 詳細はフルサイズ表紙を要求する（サーバは現状 maxw を無視しフルサイズをパススルー）。
-    // grid 側（maxw=320）は変更しない。?v=<coverVersion> はキャッシュ整合のため維持。
-    const url = coverURL(uuid, book, 1200);
+    const url = coverURL(uuid, book, 320);
     const coverEl = url
         ? el("img", { class: "detail-cover", src: url, alt: book.title || "", decoding: "async" })
         : el("div", { class: "detail-cover detail-cover-empty" },

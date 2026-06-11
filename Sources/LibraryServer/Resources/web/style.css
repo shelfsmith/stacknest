@@ -521,26 +521,20 @@ body {
 
 .detail-header {
   display: flex;
-  flex-direction: column;
   gap: 14px;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .detail-cover {
-  /* 詳細はフルサイズ表紙を大きく表示する（アスペクト維持・はみ出さない）。 */
-  max-width: 70vw;
-  max-height: 60vh;
-  width: auto;
-  height: auto;
-  object-fit: contain;
+  width: 96px;
+  flex-shrink: 0;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
   border-radius: 8px;
   background: var(--surface-2);
 }
 
 .detail-cover-empty {
-  width: 60vw;
-  max-width: 320px;
-  aspect-ratio: 3 / 4;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -549,9 +543,8 @@ body {
 }
 
 .detail-headinfo {
-  width: 100%;
+  flex: 1;
   min-width: 0;
-  text-align: center;
 }
 
 .detail-title { font-size: 18px; margin: 0 0 4px; }
