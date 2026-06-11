@@ -26,6 +26,9 @@ struct SharingSettingsView: View {
     /// トークン再生成の確認ダイアログ。
     @State private var showRegenerateConfirm = false
 
+    /// QR に使う接続先 NIC（interface 名）。nil のとき addresses.first を使う。
+    @State private var selectedInterface: String?
+
     var body: some View {
         Form {
             serverSection
@@ -117,7 +120,8 @@ struct SharingSettingsView: View {
 
     @ViewBuilder
     private var connectionSection: some View {
-        let addresses = NetworkInterfaces.ipv4Addresses()
+        // IPv4 + IPv6 を en0 優先・IPv4→IPv6 順で取得する。
+        let addresses = NetworkInterfaces.addresses()
         Section("接続") {
             if addresses.isEmpty {
                 Text("ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale の接続を確認してください。")
@@ -128,7 +132,8 @@ struct SharingSettingsView: View {
                     HStack(spacing: 8) {
                         // A4: verbatim で桁区切りを止める（LocalizedStringKey 補間だと
                         // port が "8,724" のように桁区切りされる）。
-                        Text(verbatim: "http://\(addr.ip):\(server.port)/")
+                        // IPv6 は displayHost が [...] で囲む。
+                        Text(verbatim: "http://\(addr.displayHost):\(server.port)/")
                             .monospaced()
                             .textSelection(.enabled)
                         Spacer()
@@ -138,10 +143,23 @@ struct SharingSettingsView: View {
                     }
                 }
 
-                if let primary = addresses.first {
+                // アドレスが 2 件以上あるとき、QR に使う NIC を選択できる Picker を表示する。
+                if addresses.count >= 2 {
+                    Picker("接続先", selection: $selectedInterface) {
+                        ForEach(addresses, id: \.ip) { addr in
+                            Text("\(addr.interface) — \(addr.displayHost)")
+                                .tag(Optional(addr.interface))
+                        }
+                    }
+                }
+
+                // 選択 interface に一致する先頭アドレス、無ければ addresses.first を使う。
+                let chosen = addresses.first(where: { $0.interface == selectedInterface }) ?? addresses.first
+                if let chosen {
                     VStack(spacing: 8) {
+                        // PairingInfo.url に生 IP を渡す（PairingInfo 側が IPv6 を [...] で囲む）。
                         QRCodeView(
-                            content: PairingInfo.url(host: primary.ip, port: server.port, token: server.token),
+                            content: PairingInfo.url(host: chosen.ip, port: server.port, token: server.token),
                             size: 160
                         )
                         Text("iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。")
@@ -153,6 +171,13 @@ struct SharingSettingsView: View {
                     .padding(.vertical, 4)
                 }
             }
+        }
+        .onAppear {
+            // 保存済みの NIC 選択を復元する。
+            selectedInterface = ServerPreferences.preferredInterface()
+        }
+        .onChange(of: selectedInterface) { _, newValue in
+            ServerPreferences.setPreferredInterface(newValue)
         }
     }
 
