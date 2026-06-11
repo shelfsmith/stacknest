@@ -15,6 +15,12 @@ final class ServerController {
     private(set) var lastError: String?
     private var serverTask: Task<Void, Never>?
 
+    /// ライフサイクル世代カウンタ。stop() / restart() のたびにインクリメントする。
+    /// restart() は await 中に手動 stop（共有トグル OFF）や別 restart が割り込むと、
+    /// resume 後の start() が「OFF にしたのに復活」を引き起こすため、開始時の世代を記録し、
+    /// await 後に最新世代と一致するときだけ start() する。
+    private var lifecycleGeneration = 0
+
     var port: Int { ServerPreferences.port() }
     var token: String { ServerPreferences.token() }
 
@@ -38,6 +44,7 @@ final class ServerController {
     }
 
     func stop() {
+        lifecycleGeneration &+= 1   // 進行中の restart を陳腐化させる
         serverTask?.cancel()   // ServiceLifecycle の graceful shutdown が走る
         serverTask = nil
         isRunning = false
@@ -46,7 +53,27 @@ final class ServerController {
     func regenerateToken() {
         ServerPreferences.regenerateToken()
         // 稼働中なら新トークンを反映するため再起動
-        if isRunning { stop(); start() }
+        if isRunning { restart() }
+    }
+
+    /// 稼働中の再起動。旧 serverTask の graceful shutdown（runService の return = ポート解放）
+    /// を待ってから start() する。stop(); start() を即時に呼ぶと、旧サーバがポートを解放する前に
+    /// 同ポートへ再 bind して IOError になっていた（4.1b smoke A5）。
+    private func restart() {
+        let old = serverTask
+        lifecycleGeneration &+= 1
+        let gen = lifecycleGeneration   // この restart の世代を記録
+        serverTask?.cancel()
+        serverTask = nil
+        isRunning = false
+        Task {   // ServerController は @MainActor なので MainActor を継承する
+            // runService() が完全に return = ポート解放完了まで待ってから再起動する。
+            _ = await old?.value
+            // await 中に手動 stop / 別 restart が割り込んでいたら世代が進んでいる。
+            // その場合は再起動を覆さないよう start() をスキップする。
+            guard gen == lifecycleGeneration else { return }
+            start()
+        }
     }
 }
 
