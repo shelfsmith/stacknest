@@ -149,13 +149,24 @@ export async function renderBooks(uuid, query, deps) {
     setSort(sort);
     setOrder(order);
 
-    const data = await apiJSON(
-        `/libraries/${encodeURIComponent(uuid)}/books`
-        + `?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`
-        + `&order=${encodeURIComponent(order)}`
-        + `&page=${page}&per=${per}`,
-        { libraryUUID: uuid },
-    );
+    let data;
+    try {
+        data = await apiJSON(
+            `/libraries/${encodeURIComponent(uuid)}/books`
+            + `?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`
+            + `&order=${encodeURIComponent(order)}`
+            + `&page=${page}&per=${per}`,
+            { libraryUUID: uuid },
+        );
+    } catch (e) {
+        // 404 = 閲覧中に Mac 側でこのライブラリの配信が OFF にされた。
+        // （ページャ/検索/ソート操作の再取得でも起こりうる）一覧へフォールバックする。
+        if (e && e.status === 404 && typeof deps.onLibraryUnshared === "function") {
+            deps.onLibraryUnshared();
+            return;
+        }
+        throw e;
+    }
     const items = Array.isArray(data.items) ? data.items : [];
     const total = data.total ?? 0;
     const perPage = data.perPage ?? per;

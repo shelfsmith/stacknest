@@ -174,7 +174,8 @@ async function renderLibraries() {
 // ---- ライブラリ内（books ブラウズ + ロック庫の unlock フロー） ----------------
 
 /// books 画面へ渡す DOM/描画ヘルパ束。
-const booksDeps = { el, render, toast, route, appEl };
+/// onLibraryUnshared: books 取得が 404（配信停止）になったときのフォールバック。
+const booksDeps = { el, render, toast, route, appEl, onLibraryUnshared: handleLibraryUnshared };
 
 async function renderLib(uuid, query) {
     // ロック庫はトークン未保持だと books 取得が 403 になる。先に軽く叩いて判定する。
@@ -182,8 +183,19 @@ async function renderLib(uuid, query) {
     if (res.status === 403) {
         return promptUnlock(uuid);
     }
+    // 404 = このライブラリの配信が（閲覧中に）OFF にされた。一覧へフォールバックする。
+    if (res.status === 404) {
+        return handleLibraryUnshared();
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return renderBooks(uuid, query, booksDeps);
+}
+
+/// 閲覧中のライブラリが配信停止されたとき（books 取得 404）の共通フォールバック。
+/// トーストで通知し、ライブラリ一覧（配信中のみ表示）へ戻す。
+function handleLibraryUnshared() {
+    toast("このライブラリの共有が停止されました");
+    location.hash = "#/libraries";
 }
 
 /// ロック庫のパスワード入力モーダル → unlock。
