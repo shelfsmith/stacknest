@@ -439,11 +439,13 @@ struct LibraryWindowContainer: View {
                         }
                         // 4.1b: リモート共有サーバ稼働中インジケータ。
                         // ServerController.shared は @Observable なので isRunning の変化で再描画される。
-                        ToolbarItem(placement: .primaryAction) {
+                        // A8: ウィンドウ左上（StackNest 表記の右）に置くため .navigation に移動。
+                        // A4: \(Int) の桁区切りを止めるため String(port) を補間する。
+                        ToolbarItem(placement: .navigation) {
                             if ServerController.shared.isRunning {
                                 Image(systemName: "antenna.radiowaves.left.and.right")
                                     .foregroundStyle(.green)
-                                    .help("リモート共有サーバ稼働中（ポート \(ServerController.shared.port)）")
+                                    .help("リモート共有サーバ稼働中（ポート \(String(ServerController.shared.port))）")
                             }
                         }
                     }
