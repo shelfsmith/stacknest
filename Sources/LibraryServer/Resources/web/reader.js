@@ -1,0 +1,421 @@
+// SPDX-License-Identifier: MIT
+// StackNest Web — リーダー画面（タップ/スワイプ/キーボードナビ、見開き、progress 書き戻し）。
+// Task R4。
+
+import { fetchManifest, fetchPageBlob, postProgress, UnauthorizedError, NetworkError } from "./api.js";
+import { deleteBook } from "./idb.js";
+import { PrefetchEngine } from "./prefetch.js";
+import { readerPrefs } from "./prefs.js";
+
+// ---- 純関数（export） ---------------------------------------------------------
+
+/// 見開き or 単頁表示において、cur 位置で表示する apiIndex の配列を返す。
+/// 単頁: [apiIndex]。見開き: 次頁が存在すれば [apiIndex, apiIndex+1]、なければ [apiIndex]。
+export function pagesForView(apiIndex, spread, direction, pageCount) {
+    if (!spread) return [apiIndex];
+    const second = apiIndex + 1;
+    return second < pageCount ? [apiIndex, second] : [apiIndex];
+}
+
+/// ナビゲーション移動後の apiIndex を返す。
+/// dir: +1(次) / -1(前)。見開き時はデルタが 2 になる。
+export function step(apiIndex, dir, spread, pageCount) {
+    const delta = (spread ? 2 : 1) * dir;
+    return Math.max(0, Math.min(pageCount - 1, apiIndex + delta));
+}
+
+// ---- メイン export -----------------------------------------------------------
+
+/// リーダー画面を描画する。
+/// deps: { el, render, toast, appEl, onLibraryUnshared }
+/// query: parseRoute() の query（p=uiPage を含む）
+export async function renderReader(uuid, bookId, query, deps) {
+    const { el, toast, appEl, onLibraryUnshared } = deps;
+    const maxw = 1600;
+    const book = `${uuid}|${bookId}`;
+
+    // 1. manifest 取得
+    let manifest;
+    try {
+        manifest = await fetchManifest(uuid, bookId);
+    } catch (e) {
+        if (e instanceof UnauthorizedError) return; // api.js が #/pair へ遷移済み
+        if (e instanceof NetworkError) {
+            toast("サーバに接続できません");
+            location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+            return;
+        }
+        if (e && e.status === 404) {
+            toast("配信が停止されました");
+            typeof onLibraryUnshared === "function" && onLibraryUnshared();
+            return;
+        }
+        if (e && e.status === 403) {
+            toast("このライブラリはロックされています");
+            location.hash = "#/libraries";
+            return;
+        }
+        toast(e.message || "読み込みに失敗しました");
+        location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+        return;
+    }
+
+    const { pageCount, direction, format } = manifest;
+
+    // 2. resume: p は uiPage（1始まり）→ apiIndex（0始まり）に変換
+    const startUi = Math.max(1, Math.min(pageCount, Number(query.p) || 1));
+    let cur = startUi - 1; // apiIndex
+
+    // 3. PrefetchEngine 構築
+    const prefs = readerPrefs();
+    const engine = new PrefetchEngine({
+        uuid, bookId, pageCount, maxw, book,
+        tier3Enabled: prefs.tier3Enabled,
+        cacheLimitBytes: prefs.cacheLimitBytes,
+        fetchPageBlob,
+    });
+
+    // 4. 見開き状態
+    let spread = false;
+
+    // 5. objectURL 小 LRU（最大 12 エントリ）
+    const urlCache = new Map(); // key: "apiIndex" -> objectURL
+    const URL_CACHE_MAX = 12;
+
+    function evictURLCache() {
+        if (urlCache.size <= URL_CACHE_MAX) return;
+        // Map の挿入順から最古を削除
+        const firstKey = urlCache.keys().next().value;
+        const oldURL = urlCache.get(firstKey);
+        URL.revokeObjectURL(oldURL);
+        urlCache.delete(firstKey);
+    }
+
+    async function blobToURL(apiIndex) {
+        const k = String(apiIndex);
+        if (urlCache.has(k)) return urlCache.get(k);
+        const blob = await engine.requestPage(apiIndex);
+        const url = URL.createObjectURL(blob);
+        urlCache.set(k, url);
+        evictURLCache();
+        return url;
+    }
+
+    function revokeAllURLs() {
+        for (const u of urlCache.values()) URL.revokeObjectURL(u);
+        urlCache.clear();
+    }
+
+    // 6. progress debounce
+    let progressTimer = null;
+
+    function scheduleProgress(apiIndex) {
+        clearTimeout(progressTimer);
+        progressTimer = setTimeout(() => flushProgress(apiIndex), 800);
+    }
+
+    async function flushProgress(apiIndex) {
+        clearTimeout(progressTimer);
+        try {
+            await postProgress(uuid, bookId, apiIndex);
+        } catch (e) {
+            if (e && e.status === 404) {
+                typeof onLibraryUnshared === "function" && onLibraryUnshared();
+            }
+            // その他エラーは握り潰す（progress は best-effort）
+        }
+    }
+
+    // 7. DOM 構築
+    const stageEl = el("div", { class: "reader-stage" });
+
+    const backBtn = el("button", {
+        class: "reader-back", type: "button", text: "‹",
+        "aria-label": "戻る",
+        onClick: () => goBack(),
+    });
+    const titleSpan = el("span", { class: "reader-title" });
+    const gearBtn = el("button", {
+        class: "reader-gear", type: "button", text: "⚙",
+        "aria-label": "設定",
+        onClick: () => openReaderSettings(),
+    });
+    const topChrome = el("div", { class: "reader-chrome top" }, [backBtn, titleSpan, gearBtn]);
+
+    const spreadToggleBtn = el("button", {
+        class: "reader-spread-toggle", type: "button",
+        text: spread ? "見開き ON" : "見開き OFF",
+        "aria-label": spread ? "見開きを解除" : "見開きモードにする",
+        onClick: () => {
+            spread = !spread;
+            spreadToggleBtn.textContent = spread ? "見開き ON" : "見開き OFF";
+            spreadToggleBtn.setAttribute("aria-label", spread ? "見開きを解除" : "見開きモードにする");
+            show(cur);
+        },
+    });
+    const sliderEl = el("input", {
+        class: "reader-slider",
+        type: "range",
+        min: "1",
+        max: String(pageCount),
+        value: String(cur + 1),
+    });
+    const counterEl = el("span", { class: "reader-counter", text: `${cur + 1} / ${pageCount}` });
+    const bottomChrome = el("div", { class: "reader-chrome bottom" }, [
+        spreadToggleBtn, sliderEl, counterEl,
+    ]);
+
+    // タップゾーン（透明操作領域）
+    const tapLeft = el("div", { class: "tapzone left", onClick: () => go(physicalToDir("left", direction)) });
+    const tapCenter = el("div", { class: "tapzone center", onClick: () => toggleChrome() });
+    const tapRight = el("div", { class: "tapzone right", onClick: () => go(physicalToDir("right", direction)) });
+
+    // タップゾーンを stage に追加
+    stageEl.append(tapLeft, tapCenter, tapRight);
+
+    const readerEl = el("div", { class: "reader" }, [stageEl, topChrome, bottomChrome]);
+
+    // appEl に直接 append（render() は使わない）
+    appEl().append(readerEl);
+
+    // 8. chrome トグル
+    let chromeVisible = true;
+    function toggleChrome() {
+        chromeVisible = !chromeVisible;
+        if (chromeVisible) {
+            topChrome.classList.remove("hidden");
+            bottomChrome.classList.remove("hidden");
+        } else {
+            topChrome.classList.add("hidden");
+            bottomChrome.classList.add("hidden");
+        }
+    }
+
+    // 9. 物理方向 → 送り方向の写像
+    function physicalToDir(physical, dir) {
+        const rtl = dir === "rtl";
+        if (physical === "right") return rtl ? -1 : +1;
+        return rtl ? +1 : -1;
+    }
+
+    // 10. ナビゲーション
+    function go(dir) {
+        show(step(cur, dir, spread, pageCount));
+    }
+
+    // 11. 描画トークン（非同期描画の連打ガード）
+    let renderToken = 0;
+
+    async function show(apiIndex) {
+        const my = ++renderToken;
+        cur = Math.max(0, Math.min(pageCount - 1, apiIndex));
+
+        // UI 即時更新（スライダー・カウンタ）
+        const uiPage = cur + 1;
+        sliderEl.value = String(uiPage);
+        counterEl.textContent = `${uiPage} / ${pageCount}`;
+        titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
+
+        // 描画する apiIndex 配列
+        const indices = pagesForView(cur, spread, direction, pageCount);
+
+        // 各ページの objectURL を取得
+        let urls;
+        try {
+            urls = await Promise.all(indices.map((i) => blobToURL(i)));
+        } catch (e) {
+            if (my !== renderToken) return; // 古い描画は捨てる
+            if (e && (e.status === 404 || e.status === 403)) {
+                toast("配信が停止されました");
+                typeof onLibraryUnshared === "function" && onLibraryUnshared();
+            } else if (e && e.name === "AbortError") {
+                return; // 中断は正常系
+            } else {
+                toast("ページを読み込めませんでした");
+                location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+                teardown();
+            }
+            return;
+        }
+
+        if (my !== renderToken) return; // 古い描画を捨てる
+
+        // stage の既存コンテンツを除去して再構築（タップゾーンは keep）
+        // タップゾーンは stage 末尾に残しておき、img/spread を前に挿入する
+        // → 既存 img 系要素を削除してから新しく挿入する
+        const toRemove = [];
+        for (const child of stageEl.children) {
+            const cls = child.className || "";
+            if (!cls.includes("tapzone")) toRemove.push(child);
+        }
+        for (const n of toRemove) stageEl.removeChild(n);
+
+        // img 生成
+        const imgs = urls.map((url, idx) => {
+            const img = el("img", {
+                class: "reader-page",
+                src: url,
+                alt: `ページ ${indices[idx] + 1}`,
+                draggable: "false",
+            });
+            return img;
+        });
+
+        if (spread && imgs.length === 2) {
+            // 見開き: rtl は右に小さい apiIndex（右綴じ）
+            const spreadWrap = el("div", { class: "reader-spread" });
+            if (direction === "rtl") {
+                // 右に小さい apiIndex = imgs[0] が右、imgs[1] が左
+                spreadWrap.append(imgs[1], imgs[0]);
+            } else {
+                spreadWrap.append(imgs[0], imgs[1]);
+            }
+            stageEl.insertBefore(spreadWrap, tapLeft);
+        } else {
+            stageEl.insertBefore(imgs[0], tapLeft);
+        }
+
+        // 先読みエンジンに現在ページを通知
+        engine.setCurrentPage(cur);
+
+        // progress を debounce 送信
+        scheduleProgress(cur);
+    }
+
+    // 12. スライダー操作
+    sliderEl.addEventListener("input", () => {
+        show(Number(sliderEl.value) - 1);
+    });
+
+    // 13. スワイプ（タッチ）
+    let touchStartX = null;
+    let touchStartY = null;
+    stageEl.addEventListener("touchstart", (e) => {
+        if (e.touches.length === 1) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        }
+    }, { passive: true });
+    stageEl.addEventListener("touchend", (e) => {
+        if (touchStartX === null) return;
+        const dx = e.changedTouches[0].clientX - touchStartX;
+        const dy = e.changedTouches[0].clientY - touchStartY;
+        touchStartX = null;
+        touchStartY = null;
+        // 縦方向が支配的なら無視
+        if (Math.abs(dy) > Math.abs(dx)) return;
+        if (Math.abs(dx) < 40) return;
+        // 左スワイプ（指が左へ）→ physicalToDir("right", direction)
+        // 右スワイプ（指が右へ）→ physicalToDir("left", direction)
+        if (dx < 0) {
+            go(physicalToDir("right", direction));
+        } else {
+            go(physicalToDir("left", direction));
+        }
+    }, { passive: true });
+
+    // 14. キーボードナビゲーション（document レベル）
+    function onKeyDown(e) {
+        switch (e.key) {
+            case "ArrowRight":
+                e.preventDefault();
+                go(physicalToDir("right", direction));
+                break;
+            case "ArrowLeft":
+                e.preventDefault();
+                go(physicalToDir("left", direction));
+                break;
+            case " ":
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    go(-1);
+                } else {
+                    e.preventDefault();
+                    go(+1);
+                }
+                break;
+            case "PageDown":
+                e.preventDefault();
+                go(+1);
+                break;
+            case "PageUp":
+                e.preventDefault();
+                go(-1);
+                break;
+            case "Home":
+                e.preventDefault();
+                show(0);
+                break;
+            case "End":
+                e.preventDefault();
+                show(pageCount - 1);
+                break;
+            case "Escape":
+                e.preventDefault();
+                goBack();
+                break;
+            default:
+                break;
+        }
+    }
+    document.addEventListener("keydown", onKeyDown);
+
+    // 15. visibilitychange / pagehide で progress flush
+    function onVisibilityChange() {
+        if (document.hidden) flushProgress(cur);
+    }
+    function onPageHide() {
+        flushProgress(cur);
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+
+    // 16. teardown
+    function teardown() {
+        engine.stop();
+        revokeAllURLs();
+        document.removeEventListener("keydown", onKeyDown);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
+        window.removeEventListener("pagehide", onPageHide);
+        window.removeEventListener("hashchange", onHashChange);
+        flushProgress(cur);
+        if (prefs.clearCacheOnExit) {
+            deleteBook(book).catch(() => {});
+        }
+        readerEl.remove();
+    }
+
+    // 17. hashchange 監視（リーダー離脱検出）
+    const readerHashPattern = new RegExp(
+        `^#/lib/${escapeRegExp(encodeURIComponent(uuid))}/read/${escapeRegExp(String(bookId))}`
+    );
+    function onHashChange() {
+        if (!readerHashPattern.test(location.hash)) {
+            teardown();
+        }
+    }
+    window.addEventListener("hashchange", onHashChange);
+
+    // 18. 戻る導線
+    function goBack() {
+        flushProgress(cur).finally(() => {
+            teardown();
+            location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+        });
+    }
+
+    // 19. 設定シート（R6 プレースホルダ）
+    function openReaderSettings() {
+        // R6 で中身を実装する
+        toast("設定");
+    }
+
+    // 20. 初期描画
+    await show(cur);
+}
+
+// ---- ユーティリティ ----------------------------------------------------------
+
+function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
