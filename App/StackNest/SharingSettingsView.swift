@@ -144,8 +144,12 @@ struct SharingSettingsView: View {
                 }
 
                 // アドレスが 2 件以上あるとき、QR に使う IP を選択できる Picker を表示する。
+                // nil のとき先頭にフォールバックして表示する（@State は書き換えない）。
                 if addresses.count >= 2 {
-                    Picker("接続先", selection: $selectedHostIP) {
+                    Picker("接続先", selection: Binding(
+                        get: { selectedHostIP ?? addresses.first?.ip },
+                        set: { selectedHostIP = $0 }
+                    )) {
                         ForEach(addresses, id: \.ip) { addr in
                             Text("\(addr.interface) — \(addr.displayHost)")
                                 .tag(Optional(addr.ip))
@@ -162,6 +166,10 @@ struct SharingSettingsView: View {
                             content: PairingInfo.url(host: chosen.ip, port: server.port, token: server.token),
                             size: 160
                         )
+                        Text("接続先: \(chosen.interface) — \(chosen.displayHost)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
                         Text("iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
