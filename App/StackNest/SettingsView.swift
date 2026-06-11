@@ -27,6 +27,12 @@ struct SettingsView: View {
     /// DEFAULT-OPEN = 一般 tab (tag=0)。
     @State private var settingsTab = 0
 
+    /// 共有タブの動的コンテンツ高さ追従用（自由記載 smoke NG）。
+    /// サーバ ON で接続/QR セクションが増減しても SettingsWindowFixedSize が再計測しないと
+    /// window 高さが追従しないため、@Observable な ServerController を観察し、isRunning を
+    /// SettingsWindowFixedSize の trigger に絡めて updateNSView を再発火させる。
+    @State private var server = ServerController.shared
+
     /// 各 row の左端ラベル幅 (px)。caption の indent もこの値+spacing で揃える。
     /// 「指定ライブラリ」(7文字) 等の最長ラベルを 1 行に収める想定で 110pt。
     private let labelColumnWidth: CGFloat = 110
@@ -196,8 +202,14 @@ struct SettingsView: View {
         // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。
         // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
         // tab: settingsTab を渡すことで、タブ切替時に updateNSView が再発火する。
+        // contentRevision: 共有タブで server.isRunning が変化すると値が変わり、
+        //   接続/QR セクションの増減に合わせて updateNSView が再発火 → 高さが追従する（自由記載）。
         .frame(width: 600)
-        .background(SettingsWindowFixedSize(tabBarPadding: 32, tab: settingsTab))
+        .background(SettingsWindowFixedSize(
+            tabBarPadding: 32,
+            tab: settingsTab,
+            contentRevision: settingsTab == 4 ? (server.isRunning ? 1 : 0) : 0
+        ))
     }
 
     // MARK: - Row builders
@@ -344,11 +356,15 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
     /// アクティブタブの高さへ追従できる (この struct が値を読まなくても、
     /// stored property の変化が再描画トリガになる)。
     let tab: Int
+    /// タブ内コンテンツの動的増減を表す版数。値が変わると updateNSView が再発火し、
+    /// 同一タブ内でセクションが増減した場合（共有タブのサーバ ON/OFF）でも高さが追従する。
+    let contentRevision: Int
 
-    init(tabBarPadding: CGFloat = 0, tab: Int = 0) {
+    init(tabBarPadding: CGFloat = 0, tab: Int = 0, contentRevision: Int = 0) {
         self.tabBarPadding = tabBarPadding
         self.heightPadding = 48 + tabBarPadding
         self.tab = tab
+        self.contentRevision = contentRevision
     }
 
     func makeCoordinator() -> ResizeDelegate {
@@ -363,6 +379,12 @@ private struct SettingsWindowFixedSize: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         DispatchQueue.main.async { apply(to: nsView.window, delegate: context.coordinator) }
+        // 共有タブのサーバ ON/OFF など同一タブ内の動的増減では、updateNSView 発火時点で
+        // Form のレイアウトパス（セクション追加）がまだ終わっておらず documentView.frame.height が
+        // 旧値のことがある。1 runloop 後にもう一度計測して確実に追従させる。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            apply(to: nsView.window, delegate: context.coordinator)
+        }
     }
 
     private func apply(to window: NSWindow?, delegate: ResizeDelegate) {
