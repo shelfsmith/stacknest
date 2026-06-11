@@ -13,6 +13,13 @@ struct SharingSettingsView: View {
     /// 成立しないため、@State に保持して view の dependency に載せる。
     @State private var server = ServerController.shared
 
+    /// 開いているライブラリのレジストリを @State で観察する（4.1b smoke F2）。
+    /// body で `registry.allObjects` を読むことで、ライブラリ開閉によるメンバー増減で
+    /// このタブが確実に再描画される（旧 NSHashTable 直読みでは再描画されず、配信対象が
+    /// 更新されなかった上、閉じたライブラリの dangling 参照でタブ body がクラッシュして
+    /// 共有タブ自体が view tree から消えていた）。
+    @State private var registry = AppState.activeInstances
+
     /// ポート編集用のローカル文字列。稼働中は disabled。コミットは onSubmit / Toggle ON 時。
     @State private var portInput: String = String(ServerPreferences.port())
 
@@ -53,7 +60,9 @@ struct SharingSettingsView: View {
                     Circle()
                         .fill(.green)
                         .frame(width: 8, height: 8)
-                    Text("ポート \(server.port) で配信中")
+                    // A4: \(Int) を LocalizedStringKey で補間すると桁区切り（"8,724"）に
+                    // なるため、String(port) を補間して桁区切りを止める。
+                    Text("ポート \(String(server.port)) で配信中")
                         .foregroundStyle(.secondary)
                 } else {
                     Circle()
@@ -117,7 +126,9 @@ struct SharingSettingsView: View {
             } else {
                 ForEach(addresses, id: \.ip) { addr in
                     HStack(spacing: 8) {
-                        Text("http://\(addr.ip):\(server.port)/")
+                        // A4: verbatim で桁区切りを止める（LocalizedStringKey 補間だと
+                        // port が "8,724" のように桁区切りされる）。
+                        Text(verbatim: "http://\(addr.ip):\(server.port)/")
                             .monospaced()
                             .textSelection(.enabled)
                         Spacer()
@@ -179,7 +190,10 @@ struct SharingSettingsView: View {
     @ViewBuilder
     private var librariesSection: some View {
         Section("配信ライブラリ") {
-            let instances = AppState.activeInstances.allObjects
+            // registry.allObjects を read することで version dependency に載り、
+            // ライブラリ開閉で再描画される。librarySettings が nil（開封中/閉鎖直後）の
+            // インスタンスは guard で skip し、dangling Binding を作らない。
+            let instances = registry.allObjects.filter { $0.librarySettings != nil }
             if instances.isEmpty {
                 Text("ライブラリを開くとここに表示されます。")
                     .font(.caption)

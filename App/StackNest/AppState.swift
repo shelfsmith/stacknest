@@ -102,8 +102,10 @@ final class AppState {
     /// B22: 同一セッションで二重にバックアップしないためのガード。
     private var didBackupThisSession = false
 
-    /// B22: 終了時バックアップのため、開いている AppState を弱参照で追跡する。
-    @MainActor static let activeInstances = NSHashTable<AppState>.weakObjects()
+    /// B22: 終了時バックアップ・4.1b 配信対象列挙のため、開いている AppState を
+    /// 弱参照で追跡する @Observable レジストリ。メンバー増減で SwiftUI 再描画が走る
+    /// （NSHashTable 直持ちでは @Observable 非対応のため再描画されなかった: 4.1b smoke F2）。
+    @MainActor static let activeInstances = AppStateRegistry()
 
     // MARK: - Phase 2.6a FX2: live sidebar badges
 
