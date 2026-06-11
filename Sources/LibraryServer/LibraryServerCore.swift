@@ -10,10 +10,14 @@ public struct LibraryServerConfig: Sendable {
     public var port: Int
     /// デバイス認証用の共有トークン（QR でクライアントに渡す）。
     public var token: String
-    public init(host: String = "0.0.0.0", port: Int, token: String) {
+    /// 画像縮小器（既定は縮小しない Passthrough）。App は ImageIOTranscoder を注入する。
+    public var transcoder: any ImageTranscoding
+    public init(host: String = "::", port: Int, token: String,
+                transcoder: any ImageTranscoding = PassthroughTranscoder()) {
         self.host = host
         self.port = port
         self.token = token
+        self.transcoder = transcoder
     }
 }
 
@@ -69,8 +73,11 @@ public struct LibraryServerCore: Sendable {
     public func buildApplication() -> some ApplicationProtocol {
         let router = Router(context: LibraryRequestContext.self)
         // /server/info は認証不要（ペアリング前の到達性確認用）。
+        let transcodes = !(config.transcoder is PassthroughTranscoder)
         router.get("/api/v1/server/info") { _, _ in
-            ServerCapabilities.inApp
+            var caps = ServerCapabilities.inApp
+            caps.transcode = transcodes
+            return caps
         }
         // それ以外の API は Bearer トークン認証配下。
         let api = router.group("api/v1")
