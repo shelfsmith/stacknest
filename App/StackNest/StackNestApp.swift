@@ -550,7 +550,9 @@ private struct SharingIndicatorButton: View {
                 : "antenna.radiowaves.left.and.right.slash")
                 .foregroundStyle(on ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
         }
-        .buttonStyle(.plain)
+        // 修正⑥: 他のツールバーボタン（FilterToolbarButton 等）と同じ円形背景にする。
+        // それらは .buttonStyle を指定せず既定のツールバーボタンスタイルを使っているので、
+        // ここも .buttonStyle(.plain) を外して既定（円形背景付き）に揃える。
         .help(on
             ? "このライブラリを配信中（クリックで停止）"
             : "このライブラリは非配信（クリックで配信）")
