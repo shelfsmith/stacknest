@@ -45,7 +45,8 @@ public enum NetworkInterfaces {
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             guard getnameinfo(ifa.ifa_addr!, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
                               nil, 0, NI_NUMERICHOST) == 0 else { continue }
-            result.append(Address(interface: name, ip: String(cString: host), family: .ipv4))
+            let ip = host.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
+            result.append(Address(interface: name, ip: ip, family: .ipv4))
         }
         return result.sorted { rank($0.interface) < rank($1.interface) }
     }
@@ -63,7 +64,7 @@ public enum NetworkInterfaces {
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             guard getnameinfo(ifa.ifa_addr!, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
                               nil, 0, NI_NUMERICHOST) == 0 else { continue }
-            let ip = String(cString: host)
+            let ip = host.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
             // link-local アドレス(fe80::)を除外
             guard !ip.lowercased().hasPrefix("fe80") else { continue }
             result.append(Address(interface: name, ip: ip, family: .ipv6))
