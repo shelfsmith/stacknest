@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: MIT
+// IndexedDB バイトキャッシュ。圧縮済みページバイト列を Blob で保存する。
+// HTTPS 限定の Cache Storage API は使わず IndexedDB（HTTP でも動く）。将来 HTTPS 化で差し替え可能な薄い層。
+const DB_NAME = "stacknest";
+const STORE = "pages";
+let dbPromise = null;
+
+function openDB() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE)) {
+                const os = db.createObjectStore(STORE, { keyPath: "key" });
+                os.createIndex("byAtime", "atime");
+                os.createIndex("byBook", "book");
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+    return dbPromise;
+}
+function tx(db, mode) { return db.transaction(STORE, mode).objectStore(STORE); }
+function reqP(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+
+export function cacheKey(uuid, bookId, apiIndex, maxw) {
+    return `${uuid}|${bookId}|${apiIndex}|${maxw ?? "full"}`;
+}
+export async function getPage(key) {
+    try {
+        const db = await openDB();
+        const rec = await reqP(tx(db, "readonly").get(key));
+        if (!rec) return null;
+        try { const w = tx(db, "readwrite"); rec.atime = Date.now(); w.put(rec); } catch {}
+        return rec.blob;
+    } catch { return null; }
+}
+export async function putPage(key, book, blob) {
+    try {
+        const db = await openDB();
+        await reqP(tx(db, "readwrite").put({ key, book, blob, bytes: blob.size, atime: Date.now() }));
+    } catch {}
+}
+export async function totalBytes() {
+    try {
+        const db = await openDB();
+        let sum = 0;
+        await new Promise((res) => {
+            const cur = tx(db, "readonly").openCursor();
+            cur.onsuccess = () => { const c = cur.result; if (!c) return res(); sum += (c.value.bytes || 0); c.continue(); };
+            cur.onerror = () => res();
+        });
+        return sum;
+    } catch { return 0; }
+}
+export async function evictToLimit(limitBytes, protectedKeys = new Set()) {
+    try {
+        const db = await openDB();
+        let total = await totalBytes();
+        if (total <= limitBytes) return;
+        await new Promise((res) => {
+            const store = tx(db, "readwrite");
+            const cur = store.index("byAtime").openCursor();
+            cur.onsuccess = () => {
+                const c = cur.result;
+                if (!c || total <= limitBytes) return res();
+                const rec = c.value;
+                if (!protectedKeys.has(rec.key)) { total -= (rec.bytes || 0); c.delete(); }
+                c.continue();
+            };
+            cur.onerror = () => res();
+        });
+    } catch {}
+}
+export async function deleteBook(book) {
+    try {
+        const db = await openDB();
+        await new Promise((res) => {
+            const cur = tx(db, "readwrite").index("byBook").openCursor(IDBKeyRange.only(book));
+            cur.onsuccess = () => { const c = cur.result; if (!c) return res(); c.delete(); c.continue(); };
+            cur.onerror = () => res();
+        });
+    } catch {}
+}
+export async function clearAll() {
+    try { const db = await openDB(); await reqP(tx(db, "readwrite").clear()); } catch {}
+}
