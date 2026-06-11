@@ -26,6 +26,15 @@ actor LibraryTokenStore {
     }
 }
 
+/// ロック庫のライブラリトークンをリクエストから取り出す。
+/// `X-Library-Token` ヘッダを優先し、無ければ `?lt=<libraryToken>` クエリを fallback とする。
+/// セキュリティ注記: トークンが URL/サーバログに残るが、`<img>`/`<video>` がカスタムヘッダを
+/// 送れないための妥協。短命・メモリのみ・再生成可能なので許容する（ヘッダ優先・クエリは fallback）。
+func libraryToken(from request: Request) -> String? {
+    if let header = request.headers[.init("X-Library-Token")!] { return header }
+    return request.uri.queryParameters.get("lt")
+}
+
 /// ライブラリ解決 + ロックゲートの共通ヘルパ。
 struct LibraryResolver: Sendable {
     let dataSource: any LibraryServerDataSource

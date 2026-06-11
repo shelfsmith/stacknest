@@ -44,6 +44,73 @@ struct ContentEndpointTests {
         }
     }
 
+    /// `<img src>` 経路: 表紙が `?token=` クエリだけ（ヘッダ無し）で 200 を返す。
+    @Test func coverServedViaTokenQueryWithoutHeader() async throws {
+        let (fixture, app, uuid, bookID) = try makeContentApp()
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover?token=tk", method: .get
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(Data(buffer: response.body).prefix(2) == Data([0xFF, 0xD8]))
+            }
+        }
+    }
+
+    /// 誤った `?token=` クエリ（ヘッダ無し）は 401。
+    @Test func coverRejectsWrongTokenQuery() async throws {
+        let (fixture, app, uuid, bookID) = try makeContentApp()
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover?token=wrong", method: .get
+            ) { response in
+                #expect(response.status == .unauthorized)
+            }
+        }
+    }
+
+    /// ロック庫の表紙: `?token=&lt=` クエリだけで 200、`lt` 無しでは 403。
+    @Test func lockedCoverServedViaTokenAndLtQuery() async throws {
+        let fixture = try TestLibraryFixture(
+            name: "LC", bookCount: 0, locked: true, password: "pw123")
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "pdf-only")
+        try fixture.addCover(bookID: bookID)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            // lt 無し（token のみ）→ 403（ロック庫）
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/cover?token=tk", method: .get
+            ) { response in
+                #expect(response.status == .forbidden)
+            }
+            // unlock してライブラリトークン取得
+            var libraryToken = ""
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/unlock", method: .post,
+                headers: [.authorization: "Bearer tk"],
+                body: .init(string: #"{"password":"pw123"}"#)
+            ) { response in
+                struct R: Decodable { let libraryToken: String }
+                libraryToken = try JSONDecoder().decode(
+                    R.self, from: Data(buffer: response.body)).libraryToken
+            }
+            // token + lt クエリのみ（ヘッダ無し）→ 200
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/cover"
+                    + "?token=tk&lt=\(libraryToken)", method: .get
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+    }
+
     @Test func coverMissingIs404() async throws {
         let fixture = try TestLibraryFixture(name: "NC", bookCount: 1)   // Thumbnails 未配置の本
         defer { fixture.cleanup() }

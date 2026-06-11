@@ -43,6 +43,40 @@ struct AuthTests {
         }
     }
 
+    /// `<img>` はカスタムヘッダを送れないため、`?token=` クエリを fallback として受理する。
+    @Test func acceptsTokenAsQueryFallback() async throws {
+        try await makeApp().test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries?token=secret-token", method: .get
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+    }
+
+    /// 誤った `?token=` クエリは 401。
+    @Test func rejectsWrongTokenQuery() async throws {
+        try await makeApp().test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries?token=wrong", method: .get
+            ) { response in
+                #expect(response.status == .unauthorized)
+            }
+        }
+    }
+
+    /// ヘッダ優先: 正しいヘッダがあれば誤った `?token=` クエリでも 200。
+    @Test func headerTakesPrecedenceOverQuery() async throws {
+        try await makeApp().test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries?token=wrong", method: .get,
+                headers: [.authorization: "Bearer secret-token"]
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+    }
+
     /// /server/info は認証不要（ペアリング前の到達性確認用）。
     @Test func serverInfoIsPublic() async throws {
         try await makeApp().test(.router) { client in

@@ -89,7 +89,7 @@ extension LibraryResolver {
     ) async throws -> (ServedLibrary, BookRow) {
         let uuid = try context.parameters.require("lib")
         guard let lib = try await resolve(
-            uuid: uuid, libraryToken: request.headers[.init("X-Library-Token")!]
+            uuid: uuid, libraryToken: libraryToken(from: request)
         ) else { throw HTTPError(.notFound) }
         let id = try context.parameters.require("id", as: Int.self)
         guard let row = try lib.db.fetchBook(id: id) else { throw HTTPError(.notFound) }
