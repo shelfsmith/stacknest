@@ -12,14 +12,19 @@ public struct LibraryServerConfig: Sendable {
     public var token: String
     /// 画像縮小器（既定は縮小しない Passthrough）。App は ImageIOTranscoder を注入する。
     public var transcoder: any ImageTranscoding
+    /// 本ごと pageDirection が未設定のときの既定方向（アプリ起動時にスナップショット）。
+    /// manifest エンドポイントが null を返さずに実効方向を返すために使う（4.1c）。
+    public var defaultPageDirection: PageDirection
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
-                transcoder: any ImageTranscoding = PassthroughTranscoder()) {
+                transcoder: any ImageTranscoding = PassthroughTranscoder(),
+                defaultPageDirection: PageDirection = .rightToLeft) {
         self.host = host
         self.port = port
         self.token = token
         self.transcoder = transcoder
+        self.defaultPageDirection = defaultPageDirection
     }
 }
 
@@ -150,13 +155,15 @@ public struct LibraryServerCore: Sendable {
             return cacheableImageResponse(data: data, etag: etag, request: request)
         }
         // 本のマニフェスト（ページ数・方向・形式・ETag）。
-        api.get("libraries/:lib/books/:id/manifest") { request, context in
+        // direction は実効方向（本ごと override があればその値、なければ config.defaultPageDirection）を
+        // 常に返す。null を返さないことで Web リーダーがアプリ設定と同じ既定方向で開く（4.1c）。
+        api.get("libraries/:lib/books/:id/manifest") { [config] request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
             let content = try BookContentFactory.make(for: row)
             let pageCount = try await content.pageCount
             return ManifestDTO(
                 pageCount: pageCount,
-                direction: row.pageDirection.map(directionString),
+                direction: directionString(row.pageDirection ?? config.defaultPageDirection),
                 format: formatString(BookCategory.classify(path: row.path ?? "")),
                 etag: bookETag(for: row)
             )

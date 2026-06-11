@@ -36,9 +36,11 @@ func coverURL(bundleURL: URL, bookID: Int) -> URL {
 }
 
 /// manifest レスポンス（spec §3.3）。
+/// direction は常に "rtl" か "ltr" の具体値を返す（null は返さない）。
+/// 本ごと override が未設定のときは config.defaultPageDirection（アプリ設定）にフォールバックする（4.1c）。
 struct ManifestDTO: Codable, Sendable, ResponseEncodable {
     let pageCount: Int
-    let direction: String?    // "rtl" | "ltr" | nil（クライアント既定に委ねる）
+    let direction: String     // "rtl" | "ltr"
     let format: String        // archive / image / folder / video / text
     let etag: String
 }

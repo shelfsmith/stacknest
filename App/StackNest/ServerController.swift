@@ -31,7 +31,8 @@ final class ServerController {
             host: "::",                      // dual-stack（IPv4/IPv6 両対応）
             port: ServerPreferences.port(),
             token: ServerPreferences.token(),
-            transcoder: ImageIOTranscoder()
+            transcoder: ImageIOTranscoder(),
+            defaultPageDirection: ViewerSettings.shared.pageDirection   // サーバ起動時スナップショット（4.1c）
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         let app = core.buildApplication()

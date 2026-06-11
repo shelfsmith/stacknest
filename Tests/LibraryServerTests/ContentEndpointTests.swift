@@ -148,6 +148,51 @@ struct ContentEndpointTests {
         }
     }
 
+    /// pageDirection 未設定の本では config.defaultPageDirection が manifest.direction に反映される（4.1c）。
+    /// .leftToRight 注入 → "ltr"、.rightToLeft 注入 → "rtl" を検証する。
+    @Test func manifestUsesInjectedDefaultDirectionWhenBookHasNone() async throws {
+        // pageDirection 未設定の本（addRealBook は BookRecord.pageDirection=nil で insert）
+        let fixtureLtr = try TestLibraryFixture(name: "DirLtr", bookCount: 0)
+        defer { fixtureLtr.cleanup() }
+        let bookIDLtr = try fixtureLtr.addRealBook(zipFixtureNamed: "pdf-only")
+        let libLtr = fixtureLtr.servedLibrary()
+        let appLtr = LibraryServerCore(
+            config: .init(port: 0, token: "tk", defaultPageDirection: .leftToRight),
+            dataSource: StaticLibraryDataSource(libraries: [libLtr])
+        ).buildApplication()
+        try await appLtr.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(libLtr.uuid)/books/\(bookIDLtr)/manifest", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                struct M: Decodable { let direction: String }
+                let m = try JSONDecoder().decode(M.self, from: Data(buffer: response.body))
+                #expect(m.direction == "ltr")  // defaultPageDirection: .leftToRight が反映される
+            }
+        }
+
+        let fixtureRtl = try TestLibraryFixture(name: "DirRtl", bookCount: 0)
+        defer { fixtureRtl.cleanup() }
+        let bookIDRtl = try fixtureRtl.addRealBook(zipFixtureNamed: "pdf-only")
+        let libRtl = fixtureRtl.servedLibrary()
+        let appRtl = LibraryServerCore(
+            config: .init(port: 0, token: "tk", defaultPageDirection: .rightToLeft),
+            dataSource: StaticLibraryDataSource(libraries: [libRtl])
+        ).buildApplication()
+        try await appRtl.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(libRtl.uuid)/books/\(bookIDRtl)/manifest", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                struct M: Decodable { let direction: String }
+                let m = try JSONDecoder().decode(M.self, from: Data(buffer: response.body))
+                #expect(m.direction == "rtl")  // defaultPageDirection: .rightToLeft が反映される
+            }
+        }
+    }
+
     /// 存在しない book id は 404（resolveBook の写像確認）。
     @Test func manifestUnknownBookIs404() async throws {
         let (fixture, app, uuid, _) = try makeContentApp()
