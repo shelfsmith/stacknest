@@ -27,7 +27,12 @@ final class ServerController {
     func start() {
         guard !isRunning else { return }
         lastError = nil
-        let config = LibraryServerConfig(port: ServerPreferences.port(), token: ServerPreferences.token())
+        let config = LibraryServerConfig(
+            host: "::",                      // dual-stack（IPv4/IPv6 両対応）
+            port: ServerPreferences.port(),
+            token: ServerPreferences.token(),
+            transcoder: ImageIOTranscoder()
+        )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         let app = core.buildApplication()
         isRunning = true
