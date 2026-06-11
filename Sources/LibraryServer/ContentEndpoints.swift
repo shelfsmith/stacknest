@@ -69,6 +69,16 @@ func sniffImageContentType(_ data: Data) -> String {
     return "application/octet-stream"
 }
 
+/// maxw 指定時は ETag に幅を織り込み、原寸版と別キャッシュキーにする。
+/// base は引用符で囲まれた弱 ETag（例 "abc"）。閉じ引用符の手前に -w<n> を差し込む。
+func maxwETag(_ base: String, maxw: Int?) -> String {
+    guard let maxw, maxw > 0 else { return base }
+    if base.hasSuffix("\"") {
+        return String(base.dropLast()) + "-w\(maxw)\""
+    }
+    return base + "-w\(maxw)"
+}
+
 /// ETag/immutable 付き画像レスポンス。If-None-Match 一致なら 304。
 func cacheableImageResponse(data: Data, etag: String, request: Request) -> Response {
     if request.headers[.ifNoneMatch] == etag {

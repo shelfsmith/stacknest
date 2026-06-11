@@ -3,6 +3,7 @@ import Testing
 import Foundation
 import Hummingbird
 import HummingbirdTesting
+import AppCore
 @testable import LibraryServer
 
 @Suite("Cover & manifest endpoints")
@@ -203,6 +204,40 @@ struct ContentEndpointTests {
                 headers: [.authorization: "Bearer tk"]
             ) { response in
                 #expect(response.status == .forbidden)
+            }
+        }
+    }
+
+    /// ?maxw= を渡すと縮小されたバイトが返り、ETag に幅が織り込まれて原寸版と別キャッシュキーになる。
+    @Test func pagesHonorMaxwWithDistinctETag() async throws {
+        let fixture = try TestLibraryFixture(name: "MW", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "pdf-only")
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk", transcoder: ImageIOTranscoder()),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            var fullETag = ""
+            var fullBytes = 0
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/2", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { r in
+                #expect(r.status == .ok)
+                fullETag = r.headers[.eTag] ?? ""
+                fullBytes = Data(buffer: r.body).count
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/2?maxw=32", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { r in
+                #expect(r.status == .ok)
+                let etag = r.headers[.eTag] ?? ""
+                #expect(etag.contains("w32"))
+                #expect(etag != fullETag)
+                #expect(Data(buffer: r.body).count < fullBytes)
             }
         }
     }

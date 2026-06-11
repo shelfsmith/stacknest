@@ -135,14 +135,16 @@ public struct LibraryServerCore: Sendable {
         // 表紙画像（ETag + immutable キャッシュ・If-None-Match で 304）。
         // ETag は表紙ファイル自身の mtime+size 由来（表紙差し替えを追跡 — 引き継ぎ(1)）。
         // 304 判定は Data(contentsOf:) の前に行う（一致時はバイト読込を省く — 4.1a Minor 解消）。
-        api.get("libraries/:lib/books/:id/cover") { request, context in
+        // ?maxw= が指定された場合は ETag に幅を織り込み、縮小バイトを返す（4.1c）。
+        api.get("libraries/:lib/books/:id/cover") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let url = coverURL(bundleURL: lib.bundleURL, bookID: row.id)
-            let etag = thumbnailETag(url: url, bookID: row.id) ?? bookETag(for: row)
-            if request.headers[.ifNoneMatch] == etag {
-                return Response(status: .notModified)
-            }
-            guard let data = try? Data(contentsOf: url) else { throw HTTPError(.notFound) }
+            let baseETag = thumbnailETag(url: url, bookID: row.id) ?? bookETag(for: row)
+            let maxw = request.uri.queryParameters.get("maxw", as: Int.self)
+            let etag = maxwETag(baseETag, maxw: maxw)
+            if request.headers[.ifNoneMatch] == etag { return Response(status: .notModified) }
+            guard var data = try? Data(contentsOf: url) else { throw HTTPError(.notFound) }
+            if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
             return cacheableImageResponse(data: data, etag: etag, request: request)
         }
         // 本のマニフェスト（ページ数・方向・形式・ETag）。
@@ -159,18 +161,19 @@ public struct LibraryServerCore: Sendable {
         }
         // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。
         // 範囲外 → 404 / 範囲内の描画失敗 → 500（BookContentError.renderFailed 分離・4.1a）。
+        // ?maxw= が指定された場合は ETag に幅を織り込み、縮小バイトを返す（4.1c）。
         let contentCache = self.contentCache
-        api.get("libraries/:lib/books/:id/pages/:n") { request, context in
+        api.get("libraries/:lib/books/:id/pages/:n") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let n = try context.parameters.require("n", as: Int.self)
             let content = try await contentCache.content(for: row, libraryUUID: lib.uuid)
+            let maxw = request.uri.queryParameters.get("maxw", as: Int.self)
+            let etag = maxwETag(bookETag(for: row) + "-p\(n)", maxw: maxw)
+            if request.headers[.ifNoneMatch] == etag { return Response(status: .notModified) }
             do {
-                let data = try await content.imageData(at: n)
-                return cacheableImageResponse(
-                    data: data,
-                    etag: bookETag(for: row) + "-p\(n)",
-                    request: request
-                )
+                var data = try await content.imageData(at: n)
+                if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
+                return cacheableImageResponse(data: data, etag: etag, request: request)
             } catch let e as BookContentError {
                 switch e {
                 case .pageOutOfRange: throw HTTPError(.notFound)
