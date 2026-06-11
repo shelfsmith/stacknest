@@ -2,12 +2,13 @@
 // StackNest Web — books ブラウズ（list/grid・ページ切替・検索・ソート・表紙・詳細モーダル）。
 // 状態は URL（#/lib/<uuid>?page=&q=&sort=）に反映し、表示モード/per/sort は localStorage に記憶する。
 
-import { api, apiJSON } from "./api.js";
+import { api, apiJSON, deviceToken, libToken } from "./api.js";
 
 // ---- localStorage キー（端末ごとの表示設定） --------------------------------
 const VIEW_KEY = "stacknest.books.view";   // "list" | "grid"
 const PER_KEY = "stacknest.books.per";     // 50 | 100 | 200
 const SORT_KEY = "stacknest.books.sort";   // title | series | dateAdded | lastRead
+const ORDER_KEY = "stacknest.books.order"; // asc | desc
 
 const SORT_OPTIONS = [
     { value: "title", label: "タイトル" },
@@ -17,6 +18,9 @@ const SORT_OPTIONS = [
 ];
 const SORT_VALUES = new Set(SORT_OPTIONS.map((o) => o.value));
 const PER_OPTIONS = [50, 100, 200];
+const ORDER_VALUES = new Set(["asc", "desc"]);
+// ソートキーごとの自然な既定方向（サーバの BookSortKey.defaultOrder と一致させる）。
+const DEFAULT_ORDER = { title: "asc", series: "asc", dateAdded: "desc", lastRead: "desc" };
 
 function getView() {
     const v = localStorage.getItem(VIEW_KEY);
@@ -35,6 +39,12 @@ function getSort() {
     return SORT_VALUES.has(s) ? s : "title";
 }
 function setSort(s) { if (SORT_VALUES.has(s)) localStorage.setItem(SORT_KEY, s); }
+
+function getOrder(sort) {
+    const o = localStorage.getItem(ORDER_KEY);
+    return ORDER_VALUES.has(o) ? o : (DEFAULT_ORDER[sort] || "asc");
+}
+function setOrder(o) { if (ORDER_VALUES.has(o)) localStorage.setItem(ORDER_KEY, o); }
 
 // ---- 1 件分のメタ表示用ヘルパ -----------------------------------------------
 
@@ -60,11 +70,17 @@ function progressLabel(book) {
 }
 
 /// 表紙 URL。coverVersion が無ければ null（プレースホルダ表示）。
+/// `<img>` はカスタムヘッダを送れないため、認証は `?token=` クエリで渡す
+/// （ロック庫はライブラリトークンも `?lt=` で付与）。token は再生成可能・LAN 用。
 function coverURL(uuid, book, maxw = 320) {
     if (!book.coverVersion) return null;
     // ?v= が immutable キャッシュのキー。乱数は付けない（同じ v は再取得されない）。
-    return `/api/v1/libraries/${encodeURIComponent(uuid)}/books/${book.id}/cover`
-        + `?maxw=${maxw}&v=${encodeURIComponent(book.coverVersion)}`;
+    let url = `/api/v1/libraries/${encodeURIComponent(uuid)}/books/${book.id}/cover`
+        + `?maxw=${maxw}&v=${encodeURIComponent(book.coverVersion)}`
+        + `&token=${encodeURIComponent(deviceToken() || "")}`;
+    const lt = libToken(uuid);
+    if (lt) url += `&lt=${encodeURIComponent(lt)}`;
+    return url;
 }
 
 // ---- books 画面本体 ---------------------------------------------------------
@@ -79,14 +95,17 @@ export async function renderBooks(uuid, query, deps) {
     const page = Math.max(1, parseInt(query.page || "1", 10) || 1);
     const q = query.q || "";
     const sort = SORT_VALUES.has(query.sort) ? query.sort : getSort();
+    const order = ORDER_VALUES.has(query.order) ? query.order : getOrder(sort);
     const per = getPer();
     const view = getView();
-    // sort は記憶に同期（URL で来た sort を次回既定にする）。
+    // sort/order は記憶に同期（URL で来た値を次回既定にする）。
     setSort(sort);
+    setOrder(order);
 
     const data = await apiJSON(
         `/libraries/${encodeURIComponent(uuid)}/books`
         + `?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`
+        + `&order=${encodeURIComponent(order)}`
         + `&page=${page}&per=${per}`,
         { libraryUUID: uuid },
     );
@@ -97,7 +116,7 @@ export async function renderBooks(uuid, query, deps) {
 
     // URL が範囲外ページを指していたら最終ページへ寄せる（リロード耐性）。
     if (page > totalPages && total > 0) {
-        navigate(uuid, { page: totalPages, q, sort });
+        navigate(uuid, { page: totalPages, q, sort, order });
         return;
     }
 
@@ -114,7 +133,7 @@ export async function renderBooks(uuid, query, deps) {
     search.addEventListener("input", () => {
         if (searchTimer) clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
-            navigate(uuid, { page: 1, q: search.value, sort });
+            navigate(uuid, { page: 1, q: search.value, sort, order });
         }, 300);
     });
 
@@ -124,14 +143,30 @@ export async function renderBooks(uuid, query, deps) {
     sortSelect.addEventListener("change", () => {
         const s = sortSelect.value;
         setSort(s);
-        navigate(uuid, { page: 1, q, sort: s });
+        // キー変更時はそのキーの自然な既定方向に戻す（記憶も更新）。
+        const o = DEFAULT_ORDER[s] || "asc";
+        setOrder(o);
+        navigate(uuid, { page: 1, q, sort: s, order: o });
+    });
+
+    // 昇順/降順トグル。現在方向を表示し、押すと反転する。
+    const orderBtn = el("button", {
+        type: "button", class: "books-ordertoggle",
+        "aria-label": order === "asc" ? "降順に切替" : "昇順に切替",
+        title: order === "asc" ? "昇順（押すと降順）" : "降順（押すと昇順）",
+        text: order === "asc" ? "↑ 昇順" : "↓ 降順",
+    });
+    orderBtn.addEventListener("click", () => {
+        const o = order === "asc" ? "desc" : "asc";
+        setOrder(o);
+        navigate(uuid, { page: 1, q, sort, order: o });
     });
 
     const viewBtn = el("button", {
         type: "button", class: "books-viewtoggle",
         "aria-label": view === "grid" ? "リスト表示に切替" : "グリッド表示に切替",
         title: view === "grid" ? "リスト表示" : "グリッド表示",
-        text: view === "grid" ? "☰" : "▦",
+        text: view === "grid" ? "☰" : "◫",
     });
     viewBtn.addEventListener("click", () => {
         setView(view === "grid" ? "list" : "grid");
@@ -141,11 +176,11 @@ export async function renderBooks(uuid, query, deps) {
 
     root.append(el("div", { class: "books-toolbar" }, [
         search,
-        el("div", { class: "books-toolbar-row" }, [sortSelect, viewBtn]),
+        el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewBtn]),
     ]));
 
     // --- 件数 + ページャ（上） ---
-    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, deps }));
+    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps }));
 
     // --- 本体（list / grid） ---
     if (items.length === 0) {
@@ -159,7 +194,7 @@ export async function renderBooks(uuid, query, deps) {
 
     // --- ページャ（下） ---
     if (items.length > 0) {
-        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, deps }));
+        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps }));
     }
 
     render("ライブラリ", root, { showBack: true });
@@ -242,17 +277,17 @@ function gridView(uuid, items, deps) {
 
 // ---- ページャ ---------------------------------------------------------------
 
-function pager(uuid, { page, totalPages, total, perPage, q, sort, deps }) {
+function pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps }) {
     const { el } = deps;
     const prev = el("button", {
         type: "button", class: "pager-btn", text: "‹ 前",
         disabled: page <= 1,
-        onClick: () => navigate(uuid, { page: page - 1, q, sort }),
+        onClick: () => navigate(uuid, { page: page - 1, q, sort, order }),
     });
     const next = el("button", {
         type: "button", class: "pager-btn", text: "次 ›",
         disabled: page >= totalPages,
-        onClick: () => navigate(uuid, { page: page + 1, q, sort }),
+        onClick: () => navigate(uuid, { page: page + 1, q, sort, order }),
     });
 
     const perSelect = el("select", { class: "pager-per", "aria-label": "1ページの件数" },
@@ -261,7 +296,10 @@ function pager(uuid, { page, totalPages, total, perPage, q, sort, deps }) {
     perSelect.addEventListener("change", () => {
         const n = parseInt(perSelect.value, 10);
         setPer(n);
-        navigate(uuid, { page: 1, q, sort });
+        // per は URL に載らない（localStorage 記憶）。navigate でハッシュが変わらない場合
+        // （既に page=1 等）hashchange が起きず再描画されないため、明示的に route() で再評価する。
+        navigate(uuid, { page: 1, q, sort, order });
+        deps.route();
     });
 
     return el("div", { class: "pager" }, [
@@ -352,18 +390,23 @@ function formatDate(s) {
 //     sort=series に切替える近似で代替する（contains 検索なので部分一致を含みうる）。
 function seriesDrilldown(uuid, series, deps) {
     setSort("series");
-    navigate(uuid, { page: 1, q: series || "", sort: "series" });
+    setOrder("asc");
+    navigate(uuid, { page: 1, q: series || "", sort: "series", order: "asc" });
 }
 
 // ---- URL 遷移（状態を hash に反映） ------------------------------------------
 
 /// books 画面の状態を hash に書き込んで遷移する。
-/// 空の q は URL に載せない（短く保つ）。
-export function buildBooksHash(uuid, { page = 1, q = "", sort = "title" } = {}) {
+/// 空の q・既定値（sort=title / order=sort の自然既定）は URL に載せない（短く保つ）。
+export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order } = {}) {
     const params = [];
     if (page && page !== 1) params.push(`page=${page}`);
     if (q) params.push(`q=${encodeURIComponent(q)}`);
     if (sort && sort !== "title") params.push(`sort=${encodeURIComponent(sort)}`);
+    // order はそのキーの自然既定と異なるときだけ URL に載せる。
+    if (order && order !== (DEFAULT_ORDER[sort] || "asc")) {
+        params.push(`order=${encodeURIComponent(order)}`);
+    }
     const qs = params.length ? `?${params.join("&")}` : "";
     return `#/lib/${encodeURIComponent(uuid)}${qs}`;
 }

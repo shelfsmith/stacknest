@@ -30,11 +30,26 @@ public struct BookPageDTO: Codable, Sendable {
     public let perPage: Int
 }
 
+/// ソート方向（不正値は 400 — 設計ノートのエラー写像）。
+enum SortOrder: String {
+    case asc, desc
+}
+
 /// ソートキー（不正値は 400 — 設計ノートのエラー写像）。
+/// `sort` は常に昇順（asc）で並べ、降順は呼び出し側で reverse する（order と直交させる）。
 enum BookSortKey: String {
     case title, series, dateAdded, lastRead
 
-    func sort(_ books: [BookListItemDTO]) -> [BookListItemDTO] {
+    /// 明示 order が無いときの自然な既定方向（title/series=asc、dateAdded/lastRead=desc）。
+    var defaultOrder: SortOrder {
+        switch self {
+        case .title, .series: return .asc
+        case .dateAdded, .lastRead: return .desc
+        }
+    }
+
+    /// キーごとの昇順ソート。降順は run 側で reversed() する。
+    func sortedAscending(_ books: [BookListItemDTO]) -> [BookListItemDTO] {
         switch self {
         case .title:
             return books.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
@@ -45,9 +60,9 @@ enum BookSortKey: String {
                 return ($0.volume ?? 0) < ($1.volume ?? 0)
             }
         case .dateAdded:
-            return books.sorted { $0.dateAdded > $1.dateAdded }
+            return books.sorted { $0.dateAdded < $1.dateAdded }
         case .lastRead:
-            return books.sorted { ($0.lastReadAt ?? .distantPast) > ($1.lastReadAt ?? .distantPast) }
+            return books.sorted { ($0.lastReadAt ?? .distantPast) < ($1.lastReadAt ?? .distantPast) }
         }
     }
 }
@@ -56,6 +71,7 @@ enum BookSortKey: String {
 struct BooksQuery {
     let q: String?
     let sort: BookSortKey
+    let order: SortOrder
     let page: Int      // 1-based
     let per: Int       // clamp 1...200
 
@@ -102,7 +118,8 @@ struct BooksQuery {
                     || ($0.author?.lowercased().contains(needle) ?? false)
             }
         }
-        items = sort.sort(items)
+        items = sort.sortedAscending(items)
+        if order == .desc { items.reverse() }
         let total = items.count
         let start = (page - 1) * per
         let slice = start < total ? Array(items[start..<min(start + per, total)]) : []

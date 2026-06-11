@@ -100,16 +100,26 @@ public struct LibraryServerCore: Sendable {
         // books 一覧（ページング・検索・ソート・進行状況）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books") { request, context in
             let uuid = try context.parameters.require("lib")
-            let libraryToken = request.headers[.init("X-Library-Token")!]
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken) else {
+            guard let lib = try await resolver.resolve(
+                uuid: uuid, libraryToken: libraryToken(from: request)
+            ) else {
                 throw HTTPError(.notFound)
             }
             let qp = request.uri.queryParameters
             let sortRaw = qp.get("sort") ?? "title"
             guard let sort = BookSortKey(rawValue: sortRaw) else { throw HTTPError(.badRequest) }
+            // order は明示時のみ尊重。不正値（asc/desc 以外）は 400。
+            let order: SortOrder
+            if let orderRaw = qp.get("order") {
+                guard let o = SortOrder(rawValue: orderRaw) else { throw HTTPError(.badRequest) }
+                order = o
+            } else {
+                order = sort.defaultOrder
+            }
             let query = BooksQuery(
                 q: qp.get("q"),
                 sort: sort,
+                order: order,
                 page: max(1, qp.get("page", as: Int.self) ?? 1),
                 per: min(200, max(1, qp.get("per", as: Int.self) ?? 100))
             )

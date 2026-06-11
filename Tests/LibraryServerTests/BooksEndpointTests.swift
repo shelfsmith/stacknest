@@ -82,6 +82,45 @@ struct BooksEndpointTests {
         }
     }
 
+    /// order=asc と order=desc で並びが反転する（明示 order がソート既定方向より優先）。
+    @Test func orderAscAndDescReverseEachOther() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 5)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            var ascIDs: [Int] = []
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?sort=series&order=asc&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                ascIDs = page.items.map { $0.id }
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?sort=series&order=desc&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                #expect(page.items.map { $0.id } == ascIDs.reversed())
+            }
+        }
+    }
+
+    /// 不正な order 値は 400。
+    @Test func invalidOrderIs400() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 1)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?order=sideways", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .badRequest)
+            }
+        }
+    }
+
     @Test func invalidSortKeyIs400() async throws {
         let (fixture, app, uuid) = try makeApp(bookCount: 1)
         defer { fixture.cleanup() }

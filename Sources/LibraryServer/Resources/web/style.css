@@ -289,12 +289,27 @@ body {
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  font-size: 20px;
+  font-size: 24px;
   line-height: 1;
   cursor: pointer;
 }
 
 .books-viewtoggle:active { background: var(--surface-2); }
+
+.books-ordertoggle {
+  min-height: var(--tap);
+  padding: 0 12px;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.books-ordertoggle:active { background: var(--surface-2); }
 
 /* ---- ページャ ---- */
 .pager {
