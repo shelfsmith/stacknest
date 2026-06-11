@@ -283,18 +283,28 @@ body {
 }
 
 .books-viewtoggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: var(--tap);
   min-height: var(--tap);
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--surface);
   color: var(--text);
-  font-size: 24px;
   line-height: 1;
   cursor: pointer;
 }
 
 .books-viewtoggle:active { background: var(--surface-2); }
+
+/* ツールバーのインライン SVG アイコン（grid/list 切替）。色は currentColor で追従。 */
+.tb-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+  color: var(--accent);
+}
 
 .books-ordertoggle {
   min-height: var(--tap);
@@ -511,20 +521,26 @@ body {
 
 .detail-header {
   display: flex;
+  flex-direction: column;
   gap: 14px;
-  align-items: flex-start;
+  align-items: center;
 }
 
 .detail-cover {
-  width: 96px;
-  flex-shrink: 0;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
+  /* 詳細はフルサイズ表紙を大きく表示する（アスペクト維持・はみ出さない）。 */
+  max-width: 70vw;
+  max-height: 60vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
   border-radius: 8px;
   background: var(--surface-2);
 }
 
 .detail-cover-empty {
+  width: 60vw;
+  max-width: 320px;
+  aspect-ratio: 3 / 4;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -533,8 +549,9 @@ body {
 }
 
 .detail-headinfo {
-  flex: 1;
+  width: 100%;
   min-width: 0;
+  text-align: center;
 }
 
 .detail-title { font-size: 18px; margin: 0 0 4px; }

@@ -72,6 +72,53 @@ function progressLabel(book) {
 /// 表紙 URL。coverVersion が無ければ null（プレースホルダ表示）。
 /// `<img>` はカスタムヘッダを送れないため、認証は `?token=` クエリで渡す
 /// （ロック庫はライブラリトークンも `?lt=` で付与）。token は再生成可能・LAN 用。
+// ---- SVG 生成ヘルパ（el は HTML 名前空間専用なので SVG 用に分ける） ----------
+// XSS 回避のため innerHTML は使わず、SVG 要素も DOM API（createElementNS）で組む。
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/// SVG 要素を生成する。attrs は属性、children は SVG 子要素配列。
+function svgEl(tag, attrs = {}, children = []) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) {
+        if (v === false || v === null || v === undefined) continue;
+        node.setAttribute(k, String(v));
+    }
+    for (const c of [].concat(children)) {
+        if (c === null || c === undefined || c === false) continue;
+        node.append(c);
+    }
+    return node;
+}
+
+/// grid アイコン（SF Symbols `square.grid.2x2` 相当）: 2×2 の角丸四角 4 個。
+function gridIconSVG() {
+    const r = (x, y) => svgEl("rect", {
+        x, y, width: 7, height: 7, rx: 1.6, ry: 1.6,
+        fill: "none", stroke: "currentColor", "stroke-width": 1.6,
+    });
+    return svgEl("svg", {
+        class: "tb-icon", viewBox: "0 0 20 20",
+        "aria-hidden": "true", focusable: "false",
+    }, [r(2, 2), r(11, 2), r(2, 11), r(11, 11)]);
+}
+
+/// list アイコン（SF Symbols `list.bullet` 相当）: 行頭の点 + 横線 3 行。
+function listIconSVG() {
+    const kids = [];
+    const ys = [4, 10, 16];
+    for (const y of ys) {
+        kids.push(svgEl("circle", { cx: 3.5, cy: y, r: 1.4, fill: "currentColor" }));
+        kids.push(svgEl("line", {
+            x1: 7.5, y1: y, x2: 18, y2: y,
+            stroke: "currentColor", "stroke-width": 1.6, "stroke-linecap": "round",
+        }));
+    }
+    return svgEl("svg", {
+        class: "tb-icon", viewBox: "0 0 20 20",
+        "aria-hidden": "true", focusable: "false",
+    }, kids);
+}
+
 function coverURL(uuid, book, maxw = 320) {
     if (!book.coverVersion) return null;
     // ?v= が immutable キャッシュのキー。乱数は付けない（同じ v は再取得されない）。
@@ -166,8 +213,10 @@ export async function renderBooks(uuid, query, deps) {
         type: "button", class: "books-viewtoggle",
         "aria-label": view === "grid" ? "リスト表示に切替" : "グリッド表示に切替",
         title: view === "grid" ? "リスト表示" : "グリッド表示",
-        text: view === "grid" ? "☰" : "◫",
-    });
+    }, [
+        // ボタンは「切替先のモード」のアイコンを表示する（grid 表示中→list アイコン）。
+        view === "grid" ? listIconSVG() : gridIconSVG(),
+    ]);
     viewBtn.addEventListener("click", () => {
         setView(view === "grid" ? "list" : "grid");
         // 同じ URL で再描画（hashchange は起きないので明示的に再評価）。
@@ -324,7 +373,9 @@ function openDetail(uuid, book, deps) {
     window.addEventListener("hashchange", onHashChange);
     overlay.addEventListener("click", (ev) => { if (ev.target === overlay) close(); });
 
-    const url = coverURL(uuid, book, 320);
+    // 詳細はフルサイズ表紙を要求する（サーバは現状 maxw を無視しフルサイズをパススルー）。
+    // grid 側（maxw=320）は変更しない。?v=<coverVersion> はキャッシュ整合のため維持。
+    const url = coverURL(uuid, book, 1200);
     const coverEl = url
         ? el("img", { class: "detail-cover", src: url, alt: book.title || "", decoding: "async" })
         : el("div", { class: "detail-cover detail-cover-empty" },
