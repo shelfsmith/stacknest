@@ -7,6 +7,9 @@ import { deleteBook, clearAll } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
 
+// 同時に存在するリーダーは 1 つ。再マウント前に前インスタンスを確実に teardown する。
+let activeReaderTeardown = null;
+
 // ---- 純関数（export） ---------------------------------------------------------
 
 /// 見開き or 単頁表示において、cur 位置で表示する apiIndex の配列を返す。
@@ -33,6 +36,9 @@ export async function renderReader(uuid, bookId, query, deps) {
     const { el, toast, appEl, onLibraryUnshared } = deps;
     const maxw = 1600;
     const book = `${uuid}|${bookId}`;
+
+    // 前インスタンスが残っていれば掃除（多重マウント防止）
+    if (activeReaderTeardown) { try { activeReaderTeardown(); } catch {} activeReaderTeardown = null; }
 
     // 1. manifest 取得
     let manifest;
@@ -176,7 +182,10 @@ export async function renderReader(uuid, bookId, query, deps) {
     const readerEl = el("div", { class: "reader" }, [stageEl, topChrome, bottomChrome]);
 
     // appEl に直接 append（render() は使わない）
-    appEl().append(readerEl);
+    // #app の旧画面 DOM をクリアしてからマウント（toast-host は #app 外なので消えない）
+    const main = appEl();
+    while (main.firstChild) main.removeChild(main.firstChild);
+    main.append(readerEl);
 
     // 8. chrome トグル
     let chromeVisible = true;
@@ -370,19 +379,23 @@ export async function renderReader(uuid, bookId, query, deps) {
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
 
-    // 16. teardown
+    // 16. teardown（冪等。torn ガードで本体は 1 回だけ実行）
+    let torn = false;
     function teardown() {
+        if (torn) return;
+        torn = true;
         engine.stop();
         revokeAllURLs();
         document.removeEventListener("keydown", onKeyDown);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         window.removeEventListener("pagehide", onPageHide);
         window.removeEventListener("hashchange", onHashChange);
-        flushProgress(cur);
+        flushProgress(cur);          // 単一の flush ポイント（I2）
         if (prefs.clearCacheOnExit) {
             deleteBook(book).catch(() => {});
         }
         readerEl.remove();
+        if (activeReaderTeardown === teardown) activeReaderTeardown = null;
     }
 
     // 17. hashchange 監視（リーダー離脱検出）
@@ -395,13 +408,13 @@ export async function renderReader(uuid, bookId, query, deps) {
         }
     }
     window.addEventListener("hashchange", onHashChange);
+    // このインスタンスを current として登録（次の renderReader 冒頭で旧インスタンスを掃除）
+    activeReaderTeardown = teardown;
 
-    // 18. 戻る導線
+    // 18. 戻る導線（flush は teardown 内の 1 回に集約、goBack での二重送信を排除）
     function goBack() {
-        flushProgress(cur).finally(() => {
-            teardown();
-            location.hash = `#/lib/${encodeURIComponent(uuid)}`;
-        });
+        teardown();   // teardown 内で flushProgress(cur) を実行
+        location.hash = `#/lib/${encodeURIComponent(uuid)}`;
     }
 
     // 19. 設定シート（R6）
