@@ -71,6 +71,36 @@ export async function serverInfo() {
 /// ライブラリ一覧。
 export function listLibraries() { return apiJSON("/libraries"); }
 
+/// 本の manifest（pageCount / direction("rtl"|"ltr"|null) / format / etag）。
+export function fetchManifest(uuid, bookId) {
+    return apiJSON(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/manifest`, { libraryUUID: uuid });
+}
+
+/// ページ画像を Blob で取得（apiIndex は 0 始まり・maxw 省略時は原寸）。
+/// AbortError は素通し（中断は正常系）。それ以外の !ok は status 付き Error。
+export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal) {
+    const q = (maxw && maxw > 0) ? `?maxw=${maxw}` : "";
+    let res;
+    try {
+        res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/pages/${apiIndex}${q}`,
+            { libraryUUID: uuid, signal });
+    } catch (e) {
+        if (e && e.name === "AbortError") throw e;   // 中断は素通し
+        throw e;
+    }
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+    return res.blob();
+}
+
+/// 進行状況の書き込み（apiIndex は 0 始まり）。!ok は status 付き Error。
+export async function postProgress(uuid, bookId, apiIndex) {
+    const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/progress`,
+        { libraryUUID: uuid, method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page: apiIndex }) });
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+}
+
 /// ロック庫の解錠。成功で libraryToken を sessionStorage に保存する。
 /// 認証失敗（パスワード違い）は false を返す。
 export async function unlockLibrary(uuid, password) {
