@@ -3,9 +3,9 @@
 // Task R4。
 
 import { fetchManifest, fetchPageBlob, postProgress, UnauthorizedError, NetworkError } from "./api.js";
-import { deleteBook } from "./idb.js";
+import { deleteBook, clearAll } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
-import { readerPrefs } from "./prefs.js";
+import { readerPrefs, setReaderPref } from "./prefs.js";
 
 // ---- 純関数（export） ---------------------------------------------------------
 
@@ -404,10 +404,106 @@ export async function renderReader(uuid, bookId, query, deps) {
         });
     }
 
-    // 19. 設定シート（R6 プレースホルダ）
+    // 19. 設定シート（R6）
     function openReaderSettings() {
-        // R6 で中身を実装する
-        toast("設定");
+        // 既存のオーバーレイが残っていれば除去
+        const existing = readerEl.querySelector(".reader-settings-overlay");
+        if (existing) { existing.remove(); return; }
+
+        function closeSheet() {
+            overlay.remove();
+        }
+
+        // ---- 設定行ヘルパ ----
+        function settingRow(label, control) {
+            return el("div", { class: "reader-settings-row" }, [
+                el("span", { class: "reader-settings-label", text: label }),
+                control,
+            ]);
+        }
+
+        // 1. フル先読み（Tier3）トグル
+        const tier3Check = el("input", {
+            type: "checkbox",
+            id: "rs-tier3",
+            checked: readerPrefs().tier3Enabled ? true : false,
+            onChange: (e) => {
+                const v = e.target.checked;
+                setReaderPref("tier3Enabled", v);
+                engine.ctx.tier3Enabled = v;
+                engine.setCurrentPage(cur);
+            },
+        });
+        const tier3Label = el("label", { for: "rs-tier3", text: "フル先読み（Tier3）" });
+        const tier3Row = settingRow("", el("div", { class: "reader-settings-toggle-wrap" }, [tier3Check, tier3Label]));
+
+        // 2. キャッシュ上限プリセット
+        const cacheLimits = [
+            { label: "300 MB", bytes: 300 * 1024 * 1024 },
+            { label: "600 MB", bytes: 600 * 1024 * 1024 },
+            { label: "1 GB",   bytes: 1 * 1024 * 1024 * 1024 },
+            { label: "2 GB",   bytes: 2 * 1024 * 1024 * 1024 },
+        ];
+        const currentLimit = readerPrefs().cacheLimitBytes;
+        const cacheSelect = el("select", {
+            class: "reader-settings-select",
+            onChange: (e) => {
+                const bytes = Number(e.target.value);
+                setReaderPref("cacheLimitBytes", bytes);
+                engine.ctx.cacheLimitBytes = bytes;
+            },
+        }, cacheLimits.map(({ label, bytes }) =>
+            el("option", { value: String(bytes), text: label, selected: bytes === currentLimit ? true : false })
+        ));
+        const cacheLimitRow = settingRow("キャッシュ上限", cacheSelect);
+
+        // 3. 終了時にキャッシュを消す
+        const clearExitCheck = el("input", {
+            type: "checkbox",
+            id: "rs-clear-exit",
+            checked: readerPrefs().clearCacheOnExit ? true : false,
+            onChange: (e) => {
+                setReaderPref("clearCacheOnExit", e.target.checked);
+            },
+        });
+        const clearExitLabel = el("label", { for: "rs-clear-exit", text: "終了時にキャッシュを消す" });
+        const clearExitRow = settingRow("", el("div", { class: "reader-settings-toggle-wrap" }, [clearExitCheck, clearExitLabel]));
+
+        // 4. 今すぐキャッシュを消去
+        const clearNowBtn = el("button", {
+            class: "btn-secondary reader-settings-btn",
+            type: "button",
+            text: "今すぐキャッシュを消去",
+            onClick: async () => {
+                await clearAll();
+                toast("キャッシュを消去しました");
+            },
+        });
+
+        // 5. 閉じるボタン
+        const closeBtn = el("button", {
+            class: "btn-primary reader-settings-btn",
+            type: "button",
+            text: "閉じる",
+            onClick: () => closeSheet(),
+        });
+
+        const sheet = el("div", { class: "reader-settings" }, [
+            el("h2", { class: "reader-settings-title", text: "リーダー設定" }),
+            tier3Row,
+            cacheLimitRow,
+            clearExitRow,
+            clearNowBtn,
+            closeBtn,
+        ]);
+
+        const overlay = el("div", { class: "reader-settings-overlay" }, [sheet]);
+        // 背景タップで閉じる
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) closeSheet();
+        });
+
+        readerEl.append(overlay);
     }
 
     // 20. 初期描画
