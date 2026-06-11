@@ -43,7 +43,7 @@ public enum NetworkInterfaces {
             let name = String(cString: ifa.ifa_name)
             guard name != "lo0" else { continue }
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            guard getnameinfo(ifa.ifa_addr!, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
+            guard getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
                               nil, 0, NI_NUMERICHOST) == 0 else { continue }
             let ip = host.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
             result.append(Address(interface: name, ip: ip, family: .ipv4))
@@ -62,7 +62,7 @@ public enum NetworkInterfaces {
             let name = String(cString: ifa.ifa_name)
             guard name != "lo0" else { continue }
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-            guard getnameinfo(ifa.ifa_addr!, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
+            guard getnameinfo(sa, socklen_t(sa.pointee.sa_len), &host, socklen_t(host.count),
                               nil, 0, NI_NUMERICHOST) == 0 else { continue }
             let ip = host.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
             // link-local アドレス(fe80::)を除外

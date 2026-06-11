@@ -12,7 +12,9 @@ public struct LibraryServerConfig: Sendable {
     public var token: String
     /// 画像縮小器（既定は縮小しない Passthrough）。App は ImageIOTranscoder を注入する。
     public var transcoder: any ImageTranscoding
-    public init(host: String = "::", port: Int, token: String,
+    // dual-stack 化は呼び出し側が host: "::" を明示注入する
+    // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
+    public init(host: String = "0.0.0.0", port: Int, token: String,
                 transcoder: any ImageTranscoding = PassthroughTranscoder()) {
         self.host = host
         self.port = port
@@ -73,7 +75,7 @@ public struct LibraryServerCore: Sendable {
     public func buildApplication() -> some ApplicationProtocol {
         let router = Router(context: LibraryRequestContext.self)
         // /server/info は認証不要（ペアリング前の到達性確認用）。
-        let transcodes = !(config.transcoder is PassthroughTranscoder)
+        let transcodes = config.transcoder.supportsScaling
         router.get("/api/v1/server/info") { _, _ in
             var caps = ServerCapabilities.inApp
             caps.transcode = transcodes

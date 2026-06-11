@@ -24,16 +24,16 @@ public enum ServerPreferences {
         return regenerateToken(defaults: defaults)
     }
 
-    public static let preferredInterfaceKey = "server_preferred_interface"
+    public static let preferredHostIPKey = "server_preferred_host_ip"
 
-    /// QR に載せる接続先 NIC（interface 名）。未設定は nil（=列挙の先頭を使う）。
-    public static func preferredInterface(defaults: UserDefaults = .standard) -> String? {
-        let v = defaults.string(forKey: preferredInterfaceKey)
+    /// QR に載せる接続先 IP アドレス。未設定は nil（=列挙の先頭を使う）。
+    public static func preferredHostIP(defaults: UserDefaults = .standard) -> String? {
+        let v = defaults.string(forKey: preferredHostIPKey)
         return (v?.isEmpty == false) ? v : nil
     }
-    public static func setPreferredInterface(_ name: String?, defaults: UserDefaults = .standard) {
-        if let name, !name.isEmpty { defaults.set(name, forKey: preferredInterfaceKey) }
-        else { defaults.removeObject(forKey: preferredInterfaceKey) }
+    public static func setPreferredHostIP(_ ip: String?, defaults: UserDefaults = .standard) {
+        if let ip, !ip.isEmpty { defaults.set(ip, forKey: preferredHostIPKey) }
+        else { defaults.removeObject(forKey: preferredHostIPKey) }
     }
 
     @discardableResult

@@ -3,19 +3,19 @@ import Testing
 import Foundation
 @testable import AppCore
 
-@Suite("ServerPreferences preferredInterface")
-struct ServerPreferencesInterfaceTests {
+@Suite("ServerPreferences preferredHostIP")
+struct ServerPreferencesHostIPTests {
     private func freshDefaults() -> UserDefaults {
-        UserDefaults(suiteName: "test.prefIface.\(UUID().uuidString)")!
+        UserDefaults(suiteName: "test.prefHostIP.\(UUID().uuidString)")!
     }
     @Test func defaultsToNil() {
-        #expect(ServerPreferences.preferredInterface(defaults: freshDefaults()) == nil)
+        #expect(ServerPreferences.preferredHostIP(defaults: freshDefaults()) == nil)
     }
     @Test func roundTrips() {
         let d = freshDefaults()
-        ServerPreferences.setPreferredInterface("en0", defaults: d)
-        #expect(ServerPreferences.preferredInterface(defaults: d) == "en0")
-        ServerPreferences.setPreferredInterface(nil, defaults: d)
-        #expect(ServerPreferences.preferredInterface(defaults: d) == nil)
+        ServerPreferences.setPreferredHostIP("192.168.1.5", defaults: d)
+        #expect(ServerPreferences.preferredHostIP(defaults: d) == "192.168.1.5")
+        ServerPreferences.setPreferredHostIP(nil, defaults: d)
+        #expect(ServerPreferences.preferredHostIP(defaults: d) == nil)
     }
 }

@@ -26,8 +26,8 @@ struct SharingSettingsView: View {
     /// トークン再生成の確認ダイアログ。
     @State private var showRegenerateConfirm = false
 
-    /// QR に使う接続先 NIC（interface 名）。nil のとき addresses.first を使う。
-    @State private var selectedInterface: String?
+    /// QR に使う接続先 IP アドレス。nil のとき addresses.first を使う。
+    @State private var selectedHostIP: String?
 
     var body: some View {
         Form {
@@ -143,18 +143,18 @@ struct SharingSettingsView: View {
                     }
                 }
 
-                // アドレスが 2 件以上あるとき、QR に使う NIC を選択できる Picker を表示する。
+                // アドレスが 2 件以上あるとき、QR に使う IP を選択できる Picker を表示する。
                 if addresses.count >= 2 {
-                    Picker("接続先", selection: $selectedInterface) {
+                    Picker("接続先", selection: $selectedHostIP) {
                         ForEach(addresses, id: \.ip) { addr in
                             Text("\(addr.interface) — \(addr.displayHost)")
-                                .tag(Optional(addr.interface))
+                                .tag(Optional(addr.ip))
                         }
                     }
                 }
 
-                // 選択 interface に一致する先頭アドレス、無ければ addresses.first を使う。
-                let chosen = addresses.first(where: { $0.interface == selectedInterface }) ?? addresses.first
+                // 選択 IP に一致するアドレス、無ければ addresses.first を使う。
+                let chosen = addresses.first(where: { $0.ip == selectedHostIP }) ?? addresses.first
                 if let chosen {
                     VStack(spacing: 8) {
                         // PairingInfo.url に生 IP を渡す（PairingInfo 側が IPv6 を [...] で囲む）。
@@ -173,11 +173,11 @@ struct SharingSettingsView: View {
             }
         }
         .onAppear {
-            // 保存済みの NIC 選択を復元する。
-            selectedInterface = ServerPreferences.preferredInterface()
+            // 保存済みの IP 選択を復元する。
+            selectedHostIP = ServerPreferences.preferredHostIP()
         }
-        .onChange(of: selectedInterface) { _, newValue in
-            ServerPreferences.setPreferredInterface(newValue)
+        .onChange(of: selectedHostIP) { _, newValue in
+            ServerPreferences.setPreferredHostIP(newValue)
         }
     }
 

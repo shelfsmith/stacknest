@@ -3,6 +3,8 @@ import Foundation
 import LibraryStore
 import StackroomFormat
 import AppCore
+import ImageIO
+import UniformTypeIdentifiers
 @testable import LibraryServer
 
 /// 一時ライブラリバンドル + 任意冊数のダミー本を生成するテストヘルパ。
@@ -89,6 +91,29 @@ struct TestLibraryFixture {
         bytes += [0x0A]
         bytes += [0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0xD9]
         try Data(bytes).write(to: dir.appendingPathComponent("thumbnail.jpg"))
+    }
+
+    /// 200x200 の JPEG を表紙として配置する（maxw 縮小テスト用: 1x1 では縮小が起きないため）。
+    func addLargeCover(bookID: Int, width: Int = 200, height: Int = 200) throws {
+        let dir = bundleURL.appendingPathComponent("Thumbnails/\(bookID)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        // CoreGraphics で width x height の solid グレー画像を生成し JPEG に変換する。
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        ctx.setFillColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let cgImage = ctx.makeImage() else { throw CocoaError(.fileWriteUnknown) }
+        let dest = NSMutableData()
+        guard let imgDest = CGImageDestinationCreateWithData(
+            dest, UTType.jpeg.identifier as CFString, 1, nil
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(imgDest, cgImage, nil)
+        guard CGImageDestinationFinalize(imgDest) else { throw CocoaError(.fileWriteUnknown) }
+        try (dest as Data).write(to: dir.appendingPathComponent("thumbnail.jpg"))
     }
 
     /// 既存の thumbnail.jpg をサイズの異なるバイト列で上書きする（mtime+size 由来 ETag の変化検証用）。

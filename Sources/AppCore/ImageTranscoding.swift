@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 /// 画像バイト列の縮小・再圧縮の抽象（4.1c）。
 /// LibraryServer はこの protocol 経由で注入を受ける（ImageIO 直接 import を避ける）。
 public protocol ImageTranscoding: Sendable {
+    /// 実際に縮小を行う実装なら true（capability /server/info の transcode 申告に使う）。
+    var supportsScaling: Bool { get }
     /// 画像を最大幅 `maxWidth` px に縮小して返す。
     /// 縮小不要（元幅 ≤ maxWidth）・非画像・失敗時は元データをそのまま返す（決して throw しない）。
     func scaled(_ data: Data, maxWidth: Int) -> Data
@@ -14,6 +16,7 @@ public protocol ImageTranscoding: Sendable {
 /// 縮小しない既定実装（Docker v1・テスト用）。
 public struct PassthroughTranscoder: ImageTranscoding {
     public init() {}
+    public var supportsScaling: Bool { false }
     public func scaled(_ data: Data, maxWidth: Int) -> Data { data }
 }
 
@@ -21,6 +24,7 @@ public struct PassthroughTranscoder: ImageTranscoding {
 public struct ImageIOTranscoder: ImageTranscoding {
     public var quality: Double
     public init(quality: Double = 0.82) { self.quality = quality }
+    public var supportsScaling: Bool { true }
 
     public func scaled(_ data: Data, maxWidth: Int) -> Data {
         guard maxWidth > 0,
