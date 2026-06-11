@@ -7,6 +7,7 @@ import {
     listLibraries, unlockLibrary, UnauthorizedError, NetworkError,
 } from "./api.js";
 import { renderBooks } from "./books.js";
+import { renderReader } from "./reader.js";
 
 const appEl = () => document.getElementById("app");
 const backBtn = () => document.getElementById("back-btn");
@@ -77,6 +78,9 @@ function parseRoute() {
             if (k) query[decodeURIComponent(k)] = decodeURIComponent(v);
         }
     }
+    if (segments[0] === "lib" && segments[1] && segments[2] === "read" && segments[3]) {
+        return { name: "read", uuid: decodeURIComponent(segments[1]), bookId: Number(segments[3]), query };
+    }
     if (segments[0] === "lib" && segments[1]) {
         return { name: "lib", uuid: decodeURIComponent(segments[1]), query };
     }
@@ -94,6 +98,7 @@ async function route() {
     try {
         switch (r.name) {
             case "pair": return renderPair();
+            case "read": return await renderReader(r.uuid, r.bookId, r.query, readerDeps);
             case "lib": return await renderLib(r.uuid, r.query);
             case "libraries":
             default: return await renderLibraries();
@@ -176,6 +181,9 @@ async function renderLibraries() {
 /// books 画面へ渡す DOM/描画ヘルパ束。
 /// onLibraryUnshared: books 取得が 404（配信停止）になったときのフォールバック。
 const booksDeps = { el, render, toast, route, appEl, onLibraryUnshared: handleLibraryUnshared };
+
+/// reader 画面へ渡す DOM/描画ヘルパ束（booksDeps と同型）。
+const readerDeps = { el, render, toast, appEl, onLibraryUnshared: handleLibraryUnshared };
 
 async function renderLib(uuid, query) {
     // ロック庫はトークン未保持だと books 取得が 403 になる。先に軽く叩いて判定する。

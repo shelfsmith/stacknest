@@ -415,6 +415,18 @@ function openDetail(uuid, book, deps) {
     if (book.dateAdded) addRow("追加日", formatDate(book.dateAdded));
     if (book.lastReadAt) addRow("最終読書", formatDate(book.lastReadAt));
 
+    const lastUi = (book.lastPage != null && book.lastPage > 0) ? book.lastPage + 1 : null;
+    const openAt = (ui) => {
+        close();
+        location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}`;
+    };
+    const readerActions = lastUi
+        ? [ el("button", { type: "button", class: "btn-primary", text: "続きから読む", onClick: () => openAt(lastUi) }),
+            el("button", { type: "button", class: "btn-secondary", text: "最初から", onClick: () => openAt(1) }),
+            el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }) ]
+        : [ el("button", { type: "button", class: "btn-primary", text: "開く", onClick: () => openAt(1) }),
+            el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }) ];
+
     const modal = el("div", { class: "modal detail-modal", role: "dialog", "aria-label": "本の詳細" }, [
         el("div", { class: "detail-header" }, [
             coverEl,
@@ -424,10 +436,7 @@ function openDetail(uuid, book, deps) {
             ]),
         ]),
         rows.length ? el("div", { class: "detail-rows" }, rows) : null,
-        el("p", { class: "detail-note", text: "リーダー（本を開く機能）は次のフェーズで対応します。" }),
-        el("div", { class: "modal-actions" }, [
-            el("button", { type: "button", class: "btn-primary", text: "閉じる", onClick: close }),
-        ]),
+        el("div", { class: "modal-actions" }, readerActions),
     ]);
     overlay.append(modal);
     // #app 配下に置く（modal-overlay は position:fixed なのでビューポート基準のまま）。
