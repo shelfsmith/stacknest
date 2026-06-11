@@ -784,3 +784,18 @@ body {
   width: 100%;
   text-align: center;
 }
+
+/* ---- 読み込み中インジケータ（stage 中央、chrome より上・設定シートより下） ---- */
+.reader-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: .95rem;
+  z-index: 4;
+  pointer-events: none;
+}
+
+.reader-loading.hidden { display: none; }

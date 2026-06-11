@@ -66,7 +66,9 @@ export async function renderReader(uuid, bookId, query, deps) {
         return;
     }
 
-    const { pageCount, direction, format } = manifest;
+    const { pageCount, format } = manifest;
+    const dirKey = `stacknest.reader.dir.${uuid}.${bookId}`;
+    let direction = localStorage.getItem(dirKey) || manifest.direction || "ltr";
 
     // 2. resume: p は uiPage（1始まり）→ apiIndex（0始まり）に変換
     const startUi = Math.max(1, Math.min(pageCount, Number(query.p) || 1));
@@ -134,6 +136,7 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 7. DOM 構築
     const stageEl = el("div", { class: "reader-stage" });
+    const loadingEl = el("div", { class: "reader-loading hidden" }, ["読み込み中…"]);
 
     const backBtn = el("button", {
         class: "reader-back", type: "button", text: "‹",
@@ -176,8 +179,8 @@ export async function renderReader(uuid, bookId, query, deps) {
     const tapCenter = el("div", { class: "tapzone center", onClick: () => toggleChrome() });
     const tapRight = el("div", { class: "tapzone right", onClick: () => go(physicalToDir("right", direction)) });
 
-    // タップゾーンを stage に追加
-    stageEl.append(tapLeft, tapCenter, tapRight);
+    // タップゾーンと読み込みインジケータを stage に追加
+    stageEl.append(tapLeft, tapCenter, tapRight, loadingEl);
 
     const readerEl = el("div", { class: "reader" }, [stageEl, topChrome, bottomChrome]);
 
@@ -228,11 +231,15 @@ export async function renderReader(uuid, bookId, query, deps) {
         // 描画する apiIndex 配列
         const indices = pagesForView(cur, spread, direction, pageCount);
 
+        // 読み込み中インジケータを表示
+        if (my === renderToken) loadingEl.classList.remove("hidden");
+
         // 各ページの objectURL を取得
         let urls;
         try {
             urls = await Promise.all(indices.map((i) => blobToURL(i)));
         } catch (e) {
+            if (my === renderToken) loadingEl.classList.add("hidden");
             if (my !== renderToken) return; // 古い描画は捨てる
             if (e && (e.status === 404 || e.status === 403)) {
                 toast("配信が停止されました");
@@ -249,23 +256,33 @@ export async function renderReader(uuid, bookId, query, deps) {
 
         if (my !== renderToken) return; // 古い描画を捨てる
 
-        // stage の既存コンテンツを除去して再構築（タップゾーンは keep）
-        // タップゾーンは stage 末尾に残しておき、img/spread を前に挿入する
-        // → 既存 img 系要素を削除してから新しく挿入する
+        // 読み込み完了 → インジケータを隠す
+        loadingEl.classList.add("hidden");
+
+        // stage の既存コンテンツを除去して再構築（タップゾーン・loading は keep）
+        // タップゾーンと loadingEl は残し、img/spread を前に挿入する
         const toRemove = [];
         for (const child of stageEl.children) {
             const cls = child.className || "";
-            if (!cls.includes("tapzone")) toRemove.push(child);
+            if (!cls.includes("tapzone") && !cls.includes("reader-loading")) toRemove.push(child);
         }
         for (const n of toRemove) stageEl.removeChild(n);
 
-        // img 生成
+        // img 生成（onerror で 1 回リトライ）
         const imgs = urls.map((url, idx) => {
             const img = el("img", {
                 class: "reader-page",
                 src: url,
                 alt: `ページ ${indices[idx] + 1}`,
                 draggable: "false",
+            });
+            img.addEventListener("error", () => {
+                if (img.dataset.retried) return;
+                img.dataset.retried = "1";
+                const k = String(indices[idx]);
+                const old = urlCache.get(k);
+                if (old) { URL.revokeObjectURL(old); urlCache.delete(k); }
+                blobToURL(indices[idx]).then((u) => { img.src = u; }).catch(() => {});
             });
             return img;
         });
@@ -482,7 +499,24 @@ export async function renderReader(uuid, bookId, query, deps) {
         const clearExitLabel = el("label", { for: "rs-clear-exit", text: "終了時にキャッシュを消す" });
         const clearExitRow = settingRow("", el("div", { class: "reader-settings-toggle-wrap" }, [clearExitCheck, clearExitLabel]));
 
-        // 4. 今すぐキャッシュを消去
+        // 4. 読み方向（本ごとに localStorage 永続化）
+        const dirOptions = [
+            { label: "左開き（ltr・左→右）", value: "ltr" },
+            { label: "右開き（rtl・右→左 / 漫画）", value: "rtl" },
+        ];
+        const dirSelect = el("select", {
+            class: "reader-settings-select",
+            onChange: (e) => {
+                direction = e.target.value;
+                localStorage.setItem(dirKey, direction);
+                show(cur);
+            },
+        }, dirOptions.map(({ label, value }) =>
+            el("option", { value, text: label, selected: value === direction ? true : false })
+        ));
+        const dirRow = settingRow("読み方向", dirSelect);
+
+        // 5. 今すぐキャッシュを消去
         const clearNowBtn = el("button", {
             class: "btn-secondary reader-settings-btn",
             type: "button",
@@ -493,7 +527,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             },
         });
 
-        // 5. 閉じるボタン
+        // 6. 閉じるボタン
         const closeBtn = el("button", {
             class: "btn-primary reader-settings-btn",
             type: "button",
@@ -506,6 +540,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             tier3Row,
             cacheLimitRow,
             clearExitRow,
+            dirRow,
             clearNowBtn,
             closeBtn,
         ]);
