@@ -437,15 +437,15 @@ struct LibraryWindowContainer: View {
                                 .help("上ペイン切替 (⌥⌘B)")
                             }
                         }
-                        // 4.1b: リモート共有サーバ稼働中インジケータ。
-                        // ServerController.shared は @Observable なので isRunning の変化で再描画される。
-                        // A8: ウィンドウ左上（StackNest 表記の右）に置くため .navigation に移動。
-                        // A4: \(Int) の桁区切りを止めるため String(port) を補間する。
-                        ToolbarItem(placement: .navigation) {
-                            if ServerController.shared.isRunning {
-                                Image(systemName: "antenna.radiowaves.left.and.right")
-                                    .foregroundStyle(.green)
-                                    .help("リモート共有サーバ稼働中（ポート \(String(ServerController.shared.port))）")
+                        // 4.1b / smoke v2 修正⑨: このウィンドウのライブラリ配信状態インジケータ。
+                        // ServerController.shared / LibrarySettings は @Observable なので
+                        // isRunning・remoteSharingEnabled の変化で再描画される。
+                        // - サーバ未起動 → 非表示（現状維持）
+                        // - サーバ起動中 → アンテナ。ON=緑 / OFF=灰斜線。クリックでトグル。
+                        // A8: ウィンドウ左上（StackNest 表記の右）に置くため .navigation に配置。
+                        if ServerController.shared.isRunning, let settings = appState.librarySettings {
+                            ToolbarItem(placement: .navigation) {
+                                SharingIndicatorButton(settings: settings)
                             }
                         }
                     }
@@ -528,6 +528,32 @@ struct LibraryWindowContainer: View {
         alert.addButton(withTitle: "開かない")                 // default (return .alertFirstButtonReturn)
         alert.addButton(withTitle: "強制的に開く（危険）")
         return alert.runModal() == .alertSecondButtonReturn
+    }
+}
+
+// MARK: - SharingIndicatorButton
+
+/// smoke v2 修正⑨: サーバ起動中に表示するツールバーの配信状態インジケータ。
+/// このウィンドウのライブラリ `remoteSharingEnabled` を反映し、クリックでトグルする。
+/// LibrarySettings は @Observable なので toggle で即 UI 反映 + didSet で DB 永続。
+/// （サーバ自体は既に起動中なのでサーバ操作は不要。）
+private struct SharingIndicatorButton: View {
+    @Bindable var settings: LibrarySettings
+
+    var body: some View {
+        let on = settings.remoteSharingEnabled
+        Button {
+            settings.remoteSharingEnabled.toggle()
+        } label: {
+            Image(systemName: on
+                ? "antenna.radiowaves.left.and.right"
+                : "antenna.radiowaves.left.and.right.slash")
+                .foregroundStyle(on ? AnyShapeStyle(.green) : AnyShapeStyle(.secondary))
+        }
+        .buttonStyle(.plain)
+        .help(on
+            ? "このライブラリを配信中（クリックで停止）"
+            : "このライブラリは非配信（クリックで配信）")
     }
 }
 
