@@ -24,6 +24,18 @@ public enum ServerPreferences {
         return regenerateToken(defaults: defaults)
     }
 
+    public static let preferredInterfaceKey = "server_preferred_interface"
+
+    /// QR に載せる接続先 NIC（interface 名）。未設定は nil（=列挙の先頭を使う）。
+    public static func preferredInterface(defaults: UserDefaults = .standard) -> String? {
+        let v = defaults.string(forKey: preferredInterfaceKey)
+        return (v?.isEmpty == false) ? v : nil
+    }
+    public static func setPreferredInterface(_ name: String?, defaults: UserDefaults = .standard) {
+        if let name, !name.isEmpty { defaults.set(name, forKey: preferredInterfaceKey) }
+        else { defaults.removeObject(forKey: preferredInterfaceKey) }
+    }
+
     @discardableResult
     public static func regenerateToken(defaults: UserDefaults = .standard) -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
