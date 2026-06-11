@@ -267,7 +267,9 @@ function consumePairingToken() {
 
 function init() {
     backBtn().addEventListener("click", () => {
-        if (history.length > 1) history.back();
+        const r = parseRoute();
+        if (r.name === "read") location.hash = `#/lib/${encodeURIComponent(r.uuid)}`;
+        else if (r.name === "lib") location.hash = "#/libraries";
         else location.hash = "#/libraries";
     });
     window.addEventListener("hashchange", route);
