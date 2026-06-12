@@ -447,15 +447,11 @@ struct DetailPaneView: View {
                     .disabled(!isSingleSelection || !canEdit)
                     Button("自動に戻す") {
                         Task {
-                            do {
-                                try await onSetCover(nil, book.id)
-                            } catch {
-                                return
-                            }
                             // Phase 2.5g+h+i fixup v1: 表紙データを自動に戻すと同時に crop_rect も NULL に。
-                            // 旧挙動は cover_image_name のみ NULL にして crop_rect が残り、自動表紙に
-                            // 古い crop が貼り付くという smoke NG を解消する。
-                            // cover write が失敗した場合は上の catch で return し、ここには到達しない。
+                            // cover write の成否に関わらず crop_rect は必ずクリアする（元の挙動）。
+                            // CoverPickerSheet 経由とは異なり、こちらは try? で cover write を swallow し
+                            // 常に onClearCrop まで到達する。
+                            try? await onSetCover(nil, book.id)
                             onClearCrop(book.id)
                         }
                     }
