@@ -46,7 +46,7 @@ struct BooksQuery {
     let sort: BookSortKey
     let order: SortOrder
     let page: Int      // 1-based
-    let per: Int       // clamp 1...200
+    let per: Int       // clamp 1...500
 
     /// 表紙を持つ本の id 集合。
     /// 実規約では表紙は `Thumbnails/<bookID>/thumbnail.jpg`（ファイル名固定）で、

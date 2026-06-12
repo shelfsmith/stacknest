@@ -41,6 +41,9 @@ final class RemoteLibraryState {
     /// infinite スクロールの多重 loadMore を防ぐガード。
     private var isLoadingMore = false
 
+    /// reload()/load() のたびにインクリメントし、in-flight な loadMore を無効化するカウンタ。
+    private var loadGeneration = 0
+
     /// infinite モードの 1 チャンク件数（paged の per とは独立した固定値）。
     private let infiniteChunkSize = 100
 
@@ -97,6 +100,7 @@ final class RemoteLibraryState {
 
     /// paged のページ送り。現在の page を per サイズで取得し books を置換する。
     func load() async {
+        loadGeneration += 1
         do {
             let result = try await fetchChunk(page: page, size: per)
             books = result.items
@@ -111,6 +115,7 @@ final class RemoteLibraryState {
 
     /// 先頭から読み直す（query/sort/ascending/mode/per 変更時）。books を置換する。
     func reload() async {
+        loadGeneration += 1
         page = 1
         books = []
         do {
@@ -133,9 +138,11 @@ final class RemoteLibraryState {
         else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
+        let gen = loadGeneration
         do {
             let nextPage = page + 1
             let result = try await fetchChunk(page: nextPage, size: infiniteChunkSize)
+            guard gen == loadGeneration else { return }
             page = nextPage
             books.append(contentsOf: result.items)
             total = result.total
