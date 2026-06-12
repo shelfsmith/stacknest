@@ -3,7 +3,6 @@ import Foundation
 import AppCore
 import LibraryStore
 import Hummingbird
-import os
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -197,12 +196,16 @@ public struct LibraryServerCore: Sendable {
                 }
             }
         }
-        // 閲覧進行状況の書き込み（last_page のみ更新・viewer フラグ保持）。
-        api.post("libraries/:lib/books/:id/progress") { request, context in
+        // 閲覧進行状況の書き込み（last_page）＋ mark-as-read（Mac ビューワとパリティ: unseen=false /
+        // play_date=now）。本を mutate するので最後に onBookChanged を発火し Mac UI / 将来のクライアントへ
+        // 即時反映させる（4.2a）。viewer フラグ（spread/coverOffset）は触らない。
+        api.post("libraries/:lib/books/:id/progress") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: ProgressRequestBody.self, context: context)
             guard body.page >= 0 else { throw HTTPError(.badRequest) }
             try lib.db.updateLastPage(bookID: row.id, lastPage: body.page)
+            try lib.db.markAsRead(bookID: row.id, at: Date())
+            config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
         // ページ方向の書き戻し（Web リーダーでの変更を本ごと DB に反映・4.1c F2b）。
@@ -217,8 +220,6 @@ public struct LibraryServerCore: Sendable {
             default: throw HTTPError(.badRequest)
             }
             try lib.db.updatePageDirection(bookID: row.id, direction: dir)
-            Logger(subsystem: "app.shelfsmith.stacknest", category: "ReaderDirDebug")
-                .debug("[/direction] wrote dir=\(body.direction ?? "nil", privacy: .public) uuid=\(lib.uuid, privacy: .public) book=\(row.id, privacy: .public) cbSet=\(config.onBookChanged != nil, privacy: .public)")
             config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
@@ -242,6 +243,8 @@ public struct LibraryServerCore: Sendable {
         // （= API 認証はそのまま維持）。/ や /app.js のような未一致パスのみ静的ファイルを返す。
         // ★ルート登録規約: /api/v1 配下の新ルートは必ず `api` group（BearerAuthMiddleware 配下）に
         //   登録すること。router 直登録は無警告の認証バイパスになる（4.1a 最終レビュー指摘(3)）。
+        // ★book を mutate する API は DB 書き込み成功後に config.onBookChanged?(lib.uuid, row.id) を
+        //   呼ぶこと（リモート変更を Mac UI / 将来のクライアントへ即時反映するため・4.2a）。
         if let webRoot = Bundle.module.url(forResource: "web", withExtension: nil)?.path {
             router.add(middleware: FileMiddleware(webRoot, searchForIndexHtml: true))
         }
