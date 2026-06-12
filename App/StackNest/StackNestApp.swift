@@ -122,6 +122,16 @@ struct StackNestApp: App {
         .defaultLaunchBehavior(.suppressed)
         .commandsRemoved()
         .restorationBehavior(.disabled)
+
+        // Phase 4.2b-1 fixup v1: サーバに接続ウィンドウ — File メニュー / Title から openWindow(id:"connect")。
+        // タイトルウィンドウを開かずに接続フローを完結する（A1）。
+        Window("サーバに接続", id: "connect") {
+            RemoteConnectFlowView()
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .commandsRemoved()
+        .restorationBehavior(.disabled)
     }
 
     @Environment(\.openWindow) private var openWindow
@@ -592,7 +602,7 @@ struct FileCommands: Commands {
             .keyboardShortcut("n", modifiers: [.command, .shift])
 
             Button("サーバに接続…") {
-                NotificationCenter.default.post(name: .connectToServer, object: nil)
+                openWindow(id: "connect")
             }
 
             Button("ライブラリを開く…") {
@@ -948,8 +958,6 @@ extension Notification.Name {
     static let openDuplicateScan = Notification.Name("stacknest.openDuplicateScan")
     /// Phase 2.8: リンク切れ検出シートを開く（File menu の「リンク切れを検出…」から post）。
     static let detectBrokenLinks = Notification.Name("stacknest.detectBrokenLinks")
-    /// Phase 4.2b-1: サーバ接続シートを開く（File menu / Title から post）。Title window が受信して表示する。
-    static let connectToServer = Notification.Name("stacknest.connectToServer")
 }
 
 // MARK: - UTType Extension

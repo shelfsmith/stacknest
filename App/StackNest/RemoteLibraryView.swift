@@ -9,6 +9,9 @@ import SwiftUI
 struct RemoteLibraryView: View {
     @Bindable var state: RemoteLibraryState
 
+    /// D1: 一覧/グリッドに focus を与えて .onKeyPress(.return) を確実に発火させる。
+    @FocusState private var listFocused: Bool
+
     var body: some View {
         Group {
             if state.locked && state.libraryToken == nil {
@@ -138,13 +141,21 @@ struct RemoteLibraryView: View {
             .onTapGesture(count: 2) { state.openViewer(book: book) }
             .tag(book.id)
         }
-        .onKeyPress(.return) {
-            if let id = state.selection, let book = state.books.first(where: { $0.id == id }) {
-                state.openViewer(book: book)
-                return .handled
-            }
-            return .ignored
+        // D1: List 自体を focusable にして Return を捕捉する。検索フィールドに focus が
+        // ある間は onSubmit（検索）が優先されるため、競合しない。
+        .focusable()
+        .focused($listFocused)
+        .onKeyPress(.return) { openSelected() }
+        .task { listFocused = true }
+    }
+
+    /// D1: 選択中の本を開く。一覧/グリッド共通。
+    private func openSelected() -> KeyPress.Result {
+        if let id = state.selection, let book = state.books.first(where: { $0.id == id }) {
+            state.openViewer(book: book)
+            return .handled
         }
+        return .ignored
     }
 
     // MARK: - Grid mode
@@ -162,6 +173,11 @@ struct RemoteLibraryView: View {
             }
             .padding(16)
         }
+        // D1: グリッドでも Return で選択中の本を開く。
+        .focusable()
+        .focused($listFocused)
+        .onKeyPress(.return) { openSelected() }
+        .task { listFocused = true }
     }
 
     // MARK: - Pager
