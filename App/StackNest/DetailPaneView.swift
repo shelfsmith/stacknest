@@ -6,8 +6,18 @@ import AppCore
 import ImageCache
 
 struct DetailPaneView: View {
-    @Bindable var appState: AppState
+    let books: [BookRow]                    // was appState.displayedSelectedBooks
+    let librarySettings: LibrarySettings?   // was appState.librarySettings
+    let bundleURL: URL                      // was appState.bundleURL
     let loader: ThumbnailLoader?
+    let canEdit: Bool                       // local = true
+    let onApplyPatch: (Int, BookPatch) -> Void          // was applyPatch(bookID:patch:undoManager:)
+    let onApplyPatchMulti: ([Int], BookPatch) -> Void   // was applyPatch(bookIDs:patch:undoManager:)
+    let onSetCover: (String?, Int) async -> Void        // was setCoverImageName(_:for:undoManager:)
+    let onClearCrop: (Int) -> Void                      // was updateBookCoverCropRect(id:json:nil)+refresh
+    let onSetCrop: (Int, String) -> Void                // was updateBookCoverCropRect(id:json:<json>)+refresh
+    let onJump: (DetailField, String) -> Void           // was jumpToFilterOrSearch(field:value:)
+    let onError: (AppError) -> Void                     // was appState.error = <AppError>
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
     /// @State and resets to the original (non-empty) title.
@@ -27,13 +37,12 @@ struct DetailPaneView: View {
     /// onChange が発火しない race が Hackintosh で頻発 (2026-05-25 確認)。nil リセットを
     /// 撤去し、代わりに nonce 更新で「変化があった」ことを SwiftUI に伝える。
     @State private var requestedFieldNonce: Int = 0
-    @Environment(\.undoManager) private var undoManager
     /// 表紙選択 sheet の表示フラグ (Task 8)
     @State private var showCoverPicker = false
 
     var body: some View {
         Group {
-            if appState.displayedSelectedBooks.isEmpty {
+            if books.isEmpty {
                 ContentUnavailableView(
                     "書籍が選択されていません",
                     systemImage: "book",
@@ -67,7 +76,7 @@ struct DetailPaneView: View {
         // books that were selected when this body was last rendered — and
         // writes to the correct records even if the user has already clicked
         // a different book.
-        let snapshotBooks = appState.displayedSelectedBooks
+        let snapshotBooks = books
         let snapshotIsMulti = snapshotBooks.count > 1
         let snapshotSingleID: Int? = snapshotBooks.count == 1 ? snapshotBooks.first?.id : nil
         let snapshotIDs: [Int] = snapshotBooks.map(\.id)
@@ -113,7 +122,7 @@ struct DetailPaneView: View {
                     Spacer()
                     BookTypePicker(
                         state: intState(\BookRow.bookType),
-                        settings: appState.librarySettings
+                        settings: librarySettings
                     ) { newValue in
                         applyIntCaptured(newValue, patchKeyPath: \BookPatch.bookType,
                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
@@ -146,7 +155,7 @@ struct DetailPaneView: View {
             // Tag fields — closures capture snapshot vars so teardown commits
             // go to the correct books.
             // Content fields use settings-resolved labels so custom names are reflected in real time.
-            let ls = appState.librarySettings
+            let ls = librarySettings
             tagFieldCaptured(tag: "author",   label: "作者",         keyPath: \BookRow.author,    patchKeyPath: \BookPatch.author,    fieldID: .author,   snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
             tagFieldCaptured(tag: "keywordA", label: ls?.label(for: .keywordA) ?? "キーワード A", keyPath: \BookRow.keywordA,  patchKeyPath: \BookPatch.keywordA,  fieldID: .keywordA, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
             tagFieldCaptured(tag: "keywordB", label: ls?.label(for: .keywordB) ?? "キーワード B", keyPath: \BookRow.keywordB,  patchKeyPath: \BookPatch.keywordB,  fieldID: .keywordB, snapshotIsMulti: snapshotIsMulti, snapshotSingleID: snapshotSingleID, snapshotIDs: snapshotIDs, fingerprint: fingerprint)
@@ -232,8 +241,8 @@ struct DetailPaneView: View {
         let state = stringState(keyPath)
         // Single-select のみ jump ボタンを表示 (multi-select では絞り込み対象が曖昧なため非表示)
         // BrowseField に対応する field → Browser pane filter を上書き、対応なし → searchQuery fallback
-        let jumpHandler: ((String) -> Void)? = snapshotIsMulti ? nil : { [fieldID] jumpTag in
-            appState.jumpToFilterOrSearch(field: fieldID, value: jumpTag)
+        let jumpHandler: ((String) -> Void)? = (snapshotIsMulti || !canEdit) ? nil : { [fieldID] jumpTag in
+            onJump(fieldID, jumpTag)
         }
         EditableTextField(
             label: LocalizedStringKey(label),
@@ -259,7 +268,7 @@ struct DetailPaneView: View {
                                       snapshotSingleID: Int?,
                                       snapshotIDs: [Int],
                                       fingerprint: [Int]) -> some View {
-        let values = appState.displayedSelectedBooks.map { $0.volume }
+        let values = books.map { $0.volume }
         let state: MixedValueState<Double?> = MixedValueState.from(values)
         VolumeEditorField(
             state: state,
@@ -286,14 +295,13 @@ struct DetailPaneView: View {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     // Reset error first so alert re-presents even if previous error was .titleRequired
-                    appState.error = nil
                     DispatchQueue.main.async {
-                        appState.error = .titleRequired
+                        onError(.titleRequired)
                     }
                     titleResetTrigger &+= 1
                     return
                 }
-                appState.applyPatch(bookID: capturedID, patch: BookPatch(title: trimmed), undoManager: undoManager)
+                onApplyPatch(capturedID, BookPatch(title: trimmed))
             },
             fieldID: .title,
             requestedField: requestedField,
@@ -325,13 +333,9 @@ struct DetailPaneView: View {
             patch = p
         }
         if isMulti {
-            do {
-                try appState.applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
-            } catch {
-                appState.error = .unexpected(error)
-            }
+            onApplyPatchMulti(ids, patch)
         } else if let id = singleID {
-            appState.applyPatch(bookID: id, patch: patch, undoManager: undoManager)
+            onApplyPatch(id, patch)
         }
     }
 
@@ -345,13 +349,9 @@ struct DetailPaneView: View {
         var patch = BookPatch()
         patch[keyPath: patchKeyPath] = value
         if isMulti {
-            do {
-                try appState.applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
-            } catch {
-                appState.error = .unexpected(error)
-            }
+            onApplyPatchMulti(ids, patch)
         } else if let id = singleID {
-            appState.applyPatch(bookID: id, patch: patch, undoManager: undoManager)
+            onApplyPatch(id, patch)
         }
     }
 
@@ -365,13 +365,9 @@ struct DetailPaneView: View {
         var patch = BookPatch()
         patch[keyPath: patchKeyPath] = value
         if isMulti {
-            do {
-                try appState.applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
-            } catch {
-                appState.error = .unexpected(error)
-            }
+            onApplyPatchMulti(ids, patch)
         } else if let id = singleID {
-            appState.applyPatch(bookID: id, patch: patch, undoManager: undoManager)
+            onApplyPatch(id, patch)
         }
     }
 
@@ -389,13 +385,9 @@ struct DetailPaneView: View {
             patch = BookPatch(clearPageDirection: true)
         }
         if isMulti {
-            do {
-                try appState.applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
-            } catch {
-                appState.error = .unexpected(error)
-            }
+            onApplyPatchMulti(ids, patch)
         } else if let id = singleID {
-            appState.applyPatch(bookID: id, patch: patch, undoManager: undoManager)
+            onApplyPatch(id, patch)
         }
     }
 
@@ -417,13 +409,9 @@ struct DetailPaneView: View {
             patch = p
         }
         if isMulti {
-            do {
-                try appState.applyPatch(bookIDs: ids, patch: patch, undoManager: undoManager)
-            } catch {
-                appState.error = .unexpected(error)
-            }
+            onApplyPatchMulti(ids, patch)
         } else if let id = singleID {
-            appState.applyPatch(bookID: id, patch: patch, undoManager: undoManager)
+            onApplyPatch(id, patch)
         }
     }
 
@@ -433,7 +421,7 @@ struct DetailPaneView: View {
     @ViewBuilder
     private var multiSelectHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("\(appState.displayedSelectedBooks.count) 件選択中")
+            Text("\(books.count) 件選択中")
                 .font(.headline)
             Text("変更は選択中の全件に適用されます")
                 .font(.caption)
@@ -448,7 +436,7 @@ struct DetailPaneView: View {
         onUnseenCommit: @escaping (Bool) -> Void
     ) -> some View {
         // 単一選択かどうかを判定 (複数選択時は context menu 全項目 disabled)
-        let isSingleSelection = appState.displayedSelectedBooks.count == 1
+        let isSingleSelection = books.count == 1
         VStack(alignment: .center, spacing: 8) {
             CoverImageView(book: book, loader: loader)
                 .frame(maxWidth: 240, maxHeight: 340)
@@ -456,36 +444,32 @@ struct DetailPaneView: View {
                     Button("表紙を選択…") {
                         showCoverPicker = true
                     }
-                    .disabled(!isSingleSelection)
+                    .disabled(!isSingleSelection || !canEdit)
                     Button("自動に戻す") {
                         Task {
-                            try? await appState.setCoverImageName(nil, for: book.id, undoManager: undoManager)
+                            await onSetCover(nil, book.id)
                             // Phase 2.5g+h+i fixup v1: 表紙データを自動に戻すと同時に crop_rect も NULL に。
                             // 旧挙動は cover_image_name のみ NULL にして crop_rect が残り、自動表紙に
                             // 古い crop が貼り付くという smoke NG を解消する。
-                            try? appState.database?.updateBookCoverCropRect(id: book.id, json: nil)
-                            try? appState.refreshDisplayedBooks()
+                            onClearCrop(book.id)
                         }
                     }
                     // 既に自動 (coverImageName == nil) かつ crop_rect も nil の場合は完全に no-op のため disabled
-                    .disabled(!isSingleSelection || (book.coverImageName == nil && book.coverCropRect == nil))
+                    .disabled(!isSingleSelection || !canEdit || (book.coverImageName == nil && book.coverCropRect == nil))
                 }
                 .sheet(isPresented: $showCoverPicker) {
-                    CoverPickerSheet(book: book, bundleURL: appState.bundleURL) { entry, cropRect in
+                    CoverPickerSheet(book: book, bundleURL: bundleURL) { entry, cropRect in
                         Task {
-                            // Phase 2.5h A18-ext: cover_image_name 書き込みと crop rect 書き込みの
-                            // atomic 性を担保する。前者が throw した場合に後者を実行すると
-                            // (古い) cover_image_name に対して (新しい) crop が紐付き DB が不整合になる。
-                            // setCoverImageName 失敗時は早期 return (失敗ログは setCoverImageName 内で記録済み)。
-                            do {
-                                try await appState.setCoverImageName(entry, for: book.id, undoManager: undoManager)
-                            } catch {
-                                return
+                            // Phase 2.5h A18-ext: cover_image_name 書き込みと crop rect 書き込み。
+                            // (元の atomic guard は setCoverImageName の throw 検知に依存していたが、
+                            //  注入された onSetCover は非 throwing のため、コンテナ側で失敗をハンドルする。)
+                            await onSetCover(entry, book.id)
+                            // cropRect == nil (=全体) のときは crop を NULL に戻す (onClearCrop)。
+                            if let cropRect {
+                                onSetCrop(book.id, BookRow.encodeCoverCropRect(cropRect))
+                            } else {
+                                onClearCrop(book.id)
                             }
-                            // cropRect == nil (=全体) のときは DB を NULL にして既存挙動へ戻す。
-                            let cropJSON = cropRect.map { BookRow.encodeCoverCropRect($0) }
-                            try? appState.database?.updateBookCoverCropRect(id: book.id, json: cropJSON)
-                            try? appState.refreshDisplayedBooks()
                         }
                     }
                 }
@@ -547,12 +531,12 @@ struct DetailPaneView: View {
     /// field back to SQL NULL through the editor — they can only replace its content.
     /// Documented limitation; resolution tracked as a follow-up in Tables.swift.
     private func stringState(_ kp: KeyPath<BookRow, String?>) -> MixedValueState<String> {
-        let values = appState.displayedSelectedBooks.map { $0[keyPath: kp] ?? "" }
+        let values = books.map { $0[keyPath: kp] ?? "" }
         return MixedValueState.from(values)
     }
 
     private func intState(_ kp: KeyPath<BookRow, Int>) -> MixedValueState<Int> {
-        MixedValueState.from(appState.displayedSelectedBooks.map { $0[keyPath: kp] })
+        MixedValueState.from(books.map { $0[keyPath: kp] })
     }
 
     private func fileFormatLabel(_ book: BookRow) -> String {
