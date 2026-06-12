@@ -64,11 +64,17 @@ struct BooksQuery {
     }
 
     func run(on lib: ServedLibrary) throws -> BookPageDTO {
-        let rows = try lib.db.fetchAllBooks()
+        // q 指定時はローカルと同じ FTS5(searchBooks) で絞り込み集合を得る。空時は全件高速パス。
+        let rows: [BookRow]
+        if let q, !q.isEmpty {
+            rows = try lib.db.searchBooks(query: q, sidebarScope: .library)
+        } else {
+            rows = try lib.db.fetchAllBooks()
+        }
         let progress = try lib.db.fetchAllViewerStates()
         // hasCover は Thumbnails/ 1 回 listing の安価な近似（全件可）。
         // coverVersion は thumbnail.jpg 個別 stat が必要なため、全件 stat（5,000 回）を避け
-        // フィルタ/ソート/スライス後の本（per ≤ 200）に限定して算出する（plan Task 1(b)）。
+        // フィルタ/ソート/スライス後の本（per ≤ 500）に限定して算出する（plan Task 1(b)）。
         let coverIDs = Self.coverBookIDs(bundleURL: lib.bundleURL)
         var items = rows.map { row in
             BookListItemDTO(
@@ -82,14 +88,6 @@ struct BooksQuery {
                 hasCover: coverIDs.contains(row.id),
                 coverVersion: nil   // スライス後に表紙ありの本のみ埋める
             )
-        }
-        if let q, !q.isEmpty {
-            let needle = q.precomposedStringWithCanonicalMapping.lowercased()
-            items = items.filter {
-                $0.title.lowercased().contains(needle)
-                    || ($0.series?.lowercased().contains(needle) ?? false)
-                    || ($0.author?.lowercased().contains(needle) ?? false)
-            }
         }
         items = sort.sortedAscending(items)
         if order == .desc { items.reverse() }

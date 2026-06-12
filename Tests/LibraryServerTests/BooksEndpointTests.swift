@@ -3,6 +3,8 @@ import Testing
 import Foundation
 import Hummingbird
 import HummingbirdTesting
+import LibraryServerAPI
+import StackroomFormat
 @testable import LibraryServer
 
 @Suite("Books endpoint")
@@ -180,6 +182,45 @@ struct BooksEndpointTests {
                 let book2 = try #require(page.items.first { $0.id == 2 })
                 #expect(book1.hasCover == true)
                 #expect(book2.hasCover == false)
+            }
+        }
+    }
+
+    /// per は 500 までクランプ（4.2b-1b-1: 200→500 緩和）。
+    @Test func perClampsAt500() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 3)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?per=501", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(BookPageDTO.self, from: Data(buffer: response.body))
+                #expect(page.perPage == 500)
+            }
+        }
+    }
+
+    /// q 検索はキーワード列にもヒットする（FTS=searchBooks 経由・旧 contains は title/series/author のみ）。
+    @Test func searchMatchesKeywordViaFTS() async throws {
+        let fixture = try TestLibraryFixture(name: "FTS", bookCount: 2)
+        defer { fixture.cleanup() }
+        try fixture.db.insertBook(BookRecord(
+            id: 0, title: "Plain", dateAdded: Date(), keywordA: "Zephyrkw"))
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books?q=Zephyrkw&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(BookPageDTO.self, from: Data(buffer: response.body))
+                #expect(page.items.contains { $0.title == "Plain" })
             }
         }
     }

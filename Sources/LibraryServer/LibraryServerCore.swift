@@ -130,7 +130,7 @@ public struct LibraryServerCore: Sendable {
                 sort: sort,
                 order: order,
                 page: max(1, qp.get("page", as: Int.self) ?? 1),
-                per: min(200, max(1, qp.get("per", as: Int.self) ?? 100))
+                per: min(500, max(1, qp.get("per", as: Int.self) ?? 100))
             )
             return try query.run(on: lib)
         }
