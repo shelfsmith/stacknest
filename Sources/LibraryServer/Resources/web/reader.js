@@ -86,32 +86,34 @@ export async function renderReader(uuid, bookId, query, deps) {
     // 4. 見開き状態
     let spread = false;
 
-    // 5. objectURL 小 LRU（最大 12 エントリ）
-    const urlCache = new Map(); // key: "apiIndex" -> objectURL
-    const URL_CACHE_MAX = 12;
+    // 5. エフェメラル objectURL（表示中ビュー分のみ保持）
+    // LRU は廃止。IndexedDB が本来のキャッシュ。
+    let displayedURLs = [];   // 現在 DOM にある objectURL（次の差替で revoke）
 
-    function evictURLCache() {
-        if (urlCache.size <= URL_CACHE_MAX) return;
-        // Map の挿入順から最古を削除
-        const firstKey = urlCache.keys().next().value;
-        const oldURL = urlCache.get(firstKey);
-        URL.revokeObjectURL(oldURL);
-        urlCache.delete(firstKey);
+    function revokeDisplayed() {
+        for (const u of displayedURLs) URL.revokeObjectURL(u);
+        displayedURLs = [];
     }
 
-    async function blobToURL(apiIndex) {
-        const k = String(apiIndex);
-        if (urlCache.has(k)) return urlCache.get(k);
-        const blob = await engine.requestPage(apiIndex);
-        const url = URL.createObjectURL(blob);
-        urlCache.set(k, url);
-        evictURLCache();
-        return url;
-    }
-
-    function revokeAllURLs() {
-        for (const u of urlCache.values()) URL.revokeObjectURL(u);
-        urlCache.clear();
+    // デコード済み <img> を作る。失敗時はキャッシュを捨てて 1 回再取得。
+    // 404/403/AbortError 等は requestPage が throw → 呼び出し側(show)で処理。
+    async function makeDecodedImg(apiIndex) {
+        let lastErr;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const blob = await engine.requestPage(apiIndex, attempt > 0); // attempt>0 で bypass 再取得
+            const url = URL.createObjectURL(blob);
+            const img = el("img", { class: "reader-page", alt: `ページ ${apiIndex + 1}`, draggable: "false" });
+            img.src = url;
+            try {
+                if (img.decode) { await img.decode(); }   // デコード可能になるまで待つ（壊れていれば reject）
+                return { img, url };
+            } catch (e) {
+                URL.revokeObjectURL(url);
+                lastErr = e;
+                // 次ループで bypass 再取得
+            }
+        }
+        throw lastErr || new Error("decode failed");
     }
 
     // 6. progress debounce
@@ -234,10 +236,10 @@ export async function renderReader(uuid, bookId, query, deps) {
         // 読み込み中インジケータを表示
         if (my === renderToken) loadingEl.classList.remove("hidden");
 
-        // 各ページの objectURL を取得
-        let urls;
+        // デコード済み <img> を取得（失敗時は bypass 再取得を含む）
+        let made;
         try {
-            urls = await Promise.all(indices.map((i) => blobToURL(i)));
+            made = await Promise.all(indices.map((i) => makeDecodedImg(i)));
         } catch (e) {
             if (my === renderToken) loadingEl.classList.add("hidden");
             if (my !== renderToken) return; // 古い描画は捨てる
@@ -254,13 +256,13 @@ export async function renderReader(uuid, bookId, query, deps) {
             return;
         }
 
-        if (my !== renderToken) return; // 古い描画を捨てる
+        // 古い描画になっていたら作った URL を破棄
+        if (my !== renderToken) { for (const m of made) URL.revokeObjectURL(m.url); return; }
 
         // 読み込み完了 → インジケータを隠す
         loadingEl.classList.add("hidden");
 
         // stage の既存コンテンツを除去して再構築（タップゾーン・loading は keep）
-        // タップゾーンと loadingEl は残し、img/spread を前に挿入する
         const toRemove = [];
         for (const child of stageEl.children) {
             const cls = child.className || "";
@@ -268,24 +270,10 @@ export async function renderReader(uuid, bookId, query, deps) {
         }
         for (const n of toRemove) stageEl.removeChild(n);
 
-        // img 生成（onerror で 1 回リトライ）
-        const imgs = urls.map((url, idx) => {
-            const img = el("img", {
-                class: "reader-page",
-                src: url,
-                alt: `ページ ${indices[idx] + 1}`,
-                draggable: "false",
-            });
-            img.addEventListener("error", () => {
-                if (img.dataset.retried) return;
-                img.dataset.retried = "1";
-                const k = String(indices[idx]);
-                const old = urlCache.get(k);
-                if (old) { URL.revokeObjectURL(old); urlCache.delete(k); }
-                blobToURL(indices[idx]).then((u) => { img.src = u; }).catch(() => {});
-            });
-            return img;
-        });
+        // 前ビューの URL を revoke し、今回分を保持
+        revokeDisplayed();
+        displayedURLs = made.map((m) => m.url);
+        const imgs = made.map((m) => m.img);
 
         if (spread && imgs.length === 2) {
             // 見開き: rtl は右に小さい apiIndex（右綴じ）
@@ -402,7 +390,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         if (torn) return;
         torn = true;
         engine.stop();
-        revokeAllURLs();
+        revokeDisplayed();
         document.removeEventListener("keydown", onKeyDown);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         window.removeEventListener("pagehide", onPageHide);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-import { cacheKey, getPage, putPage, evictToLimit } from "./idb.js";
+import { cacheKey, getPage, putPage, evictToLimit, deletePage } from "./idb.js";
 
 const CONCURRENCY = 3;
 
@@ -28,17 +28,20 @@ export class PrefetchEngine {
         this._pump();
     }
 
-    async requestPage(apiIndex) {
+    async requestPage(apiIndex, bypass = false) {
         const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw);
-        const cached = await getPage(key);
-        if (cached) return cached;
+        if (bypass) {
+            await deletePage(key);
+        } else {
+            const cached = await getPage(key);
+            if (cached) return cached;
+        }
         try {
             return await this._fetch(apiIndex, 0);
         } catch (e) {
             // tier3 abort の巻き添えになった場合は 1 回だけリトライ
             if (e && e.name === "AbortError" && !this.stopped) {
-                const again = await getPage(key);
-                if (again) return again;
+                if (!bypass) { const again = await getPage(key); if (again) return again; }
                 return this._fetch(apiIndex, 0); // inFlight は finally で削除済み
             }
             throw e;

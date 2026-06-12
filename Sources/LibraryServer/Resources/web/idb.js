@@ -87,3 +87,6 @@ export async function deleteBook(book) {
 export async function clearAll() {
     try { const db = await openDB(); await reqP(tx(db, "readwrite").clear()); } catch {}
 }
+export async function deletePage(key) {
+    try { const db = await openDB(); await reqP(tx(db, "readwrite").delete(key)); } catch {}
+}
