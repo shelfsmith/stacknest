@@ -32,7 +32,14 @@ final class ServerController {
             port: ServerPreferences.port(),
             token: ServerPreferences.token(),
             transcoder: ImageIOTranscoder(),
-            defaultPageDirection: ViewerSettings.shared.pageDirection   // サーバ起動時スナップショット（4.1c）
+            defaultPageDirection: ViewerSettings.shared.pageDirection,   // サーバ起動時スナップショット（4.1c）
+            onBookChanged: { uuid, bookID in
+                Task { @MainActor in
+                    for state in AppState.activeInstances.allObjects where state.librarySettings?.libraryUUID == uuid {
+                        state.handleExternalBookChange(bookID: bookID)
+                    }
+                }
+            }
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         let app = core.buildApplication()

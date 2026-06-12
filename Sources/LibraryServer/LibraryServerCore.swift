@@ -15,16 +15,21 @@ public struct LibraryServerConfig: Sendable {
     /// 本ごと pageDirection が未設定のときの既定方向（アプリ起動時にスナップショット）。
     /// manifest エンドポイントが null を返さずに実効方向を返すために使う（4.1c）。
     public var defaultPageDirection: PageDirection
+    /// 本のメタデータをサーバ経由で変更したとき App に通知する（libraryUUID, bookID）。
+    /// App は該当ライブラリのインメモリ本モデルを DB から更新して GUI（詳細ペイン等）へ反映する。
+    public var onBookChanged: (@Sendable (String, Int) -> Void)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
                 transcoder: any ImageTranscoding = PassthroughTranscoder(),
-                defaultPageDirection: PageDirection = .rightToLeft) {
+                defaultPageDirection: PageDirection = .rightToLeft,
+                onBookChanged: (@Sendable (String, Int) -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
         self.transcoder = transcoder
         self.defaultPageDirection = defaultPageDirection
+        self.onBookChanged = onBookChanged
     }
 }
 
@@ -200,7 +205,7 @@ public struct LibraryServerCore: Sendable {
             return HTTPResponse.Status.ok
         }
         // ページ方向の書き戻し（Web リーダーでの変更を本ごと DB に反映・4.1c F2b）。
-        api.post("libraries/:lib/books/:id/direction") { request, context in
+        api.post("libraries/:lib/books/:id/direction") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: DirectionRequestBody.self, context: context)
             let dir: PageDirection?
@@ -211,6 +216,7 @@ public struct LibraryServerCore: Sendable {
             default: throw HTTPError(.badRequest)
             }
             try lib.db.updatePageDirection(bookID: row.id, direction: dir)
+            config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
         // 原本ファイルの一括ダウンロード（4.2 オフライン機能の土台・ストリーミングは YAGNI）。

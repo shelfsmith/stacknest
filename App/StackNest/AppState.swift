@@ -1281,6 +1281,20 @@ final class AppState {
         try perform(cmd, undoManager: undoManager)
         return patches.count
     }
+
+    // MARK: - Phase 4.1c: external book change handler
+
+    /// サーバ（Web リーダー等）経由で本のメタデータが変わったときに呼ばれる。
+    /// DB から最新の displayedBooks を再取得し、詳細ペイン等の GUI に即時反映する。
+    /// refreshDisplayedBooks() が displayedSelectedBooks（詳細ペインのソース）も再構築するため、
+    /// PageDirectionPicker を含む全フィールドが更新される。
+    /// selectedBook はインデックス走査ではなく DB から直接再取得して確実に最新値を反映する。
+    func handleExternalBookChange(bookID: Int) {
+        try? refreshDisplayedBooks()
+        if let db = database, selectedBook?.id == bookID, let fresh = try? db.fetchBook(id: bookID) {
+            selectedBook = fresh
+        }
+    }
 }
 
 // MARK: - Phase 2.5c spec b Task 10: chip jump helper
