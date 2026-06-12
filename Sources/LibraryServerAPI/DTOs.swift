@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: MIT
+import Foundation
+
+// ─────────────────────────────────────────────────────────────
+// 共有 wire 型（Foundation のみ依存・Hummingbird/LibraryStore/AppCore 不使用）
+// サーバ側（LibraryServer）とクライアント側（将来の App）が共通でこのモジュールを import する。
+// ─────────────────────────────────────────────────────────────
+
+/// books 一覧 1 件分の DTO（spec §3.3）。日付はサーバ共通エンコーダで ISO8601。
+public struct BookListItemDTO: Codable, Sendable {
+    public let id: Int
+    public let title: String
+    public let author: String?
+    public let series: String?
+    public let volume: Double?
+    public let rating: Int
+    public let unseen: Bool
+    public let bookType: Int
+    public let pages: Int?
+    public let lastPage: Int?
+    public let lastReadAt: Date?
+    public let dateAdded: Date
+    public let hasCover: Bool
+    /// 表紙差し替えを Web の `?v=` で追跡するためのバージョン文字列（thumbnail.jpg の mtime+size 由来）。
+    /// 表紙なしの本は nil。stat コスト抑制のためページスライス後の本のみ算出する（run 参照）。
+    public let coverVersion: String?
+
+    public init(
+        id: Int,
+        title: String,
+        author: String?,
+        series: String?,
+        volume: Double?,
+        rating: Int,
+        unseen: Bool,
+        bookType: Int,
+        pages: Int?,
+        lastPage: Int?,
+        lastReadAt: Date?,
+        dateAdded: Date,
+        hasCover: Bool,
+        coverVersion: String?
+    ) {
+        self.id = id
+        self.title = title
+        self.author = author
+        self.series = series
+        self.volume = volume
+        self.rating = rating
+        self.unseen = unseen
+        self.bookType = bookType
+        self.pages = pages
+        self.lastPage = lastPage
+        self.lastReadAt = lastReadAt
+        self.dateAdded = dateAdded
+        self.hasCover = hasCover
+        self.coverVersion = coverVersion
+    }
+}
+
+extension BookListItemDTO {
+    /// coverVersion だけ差し替えたコピーを返す（全 let のため再構築）。
+    public func withCoverVersion(_ version: String?) -> BookListItemDTO {
+        BookListItemDTO(
+            id: id, title: title, author: author,
+            series: series, volume: volume,
+            rating: rating, unseen: unseen, bookType: bookType,
+            pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
+            dateAdded: dateAdded, hasCover: hasCover, coverVersion: version
+        )
+    }
+}
+
+/// books 一覧のページングレスポンス（spec §3.3）。
+public struct BookPageDTO: Codable, Sendable {
+    public let items: [BookListItemDTO]
+    public let total: Int
+    public let page: Int
+    public let perPage: Int
+
+    public init(items: [BookListItemDTO], total: Int, page: Int, perPage: Int) {
+        self.items = items
+        self.total = total
+        self.page = page
+        self.perPage = perPage
+    }
+}
+
+/// /libraries の一覧 1 件分（spec §3.3）。
+public struct LibraryDTO: Codable, Sendable {
+    public let id: String
+    public let name: String
+    public let locked: Bool
+    public let bookCount: Int
+
+    public init(id: String, name: String, locked: Bool, bookCount: Int) {
+        self.id = id
+        self.name = name
+        self.locked = locked
+        self.bookCount = bookCount
+    }
+}
+
+/// サーバの capability（spec §3.3 /server/info）。Docker 版は fileOps=false 等で差別化。
+public struct ServerCapabilities: Codable, Sendable {
+    public var version: String
+    public var fileOps: Bool
+    public var transcode: Bool
+    public var formats: [String]
+
+    public init(version: String, fileOps: Bool, transcode: Bool, formats: [String]) {
+        self.version = version
+        self.fileOps = fileOps
+        self.transcode = transcode
+        self.formats = formats
+    }
+
+    public static let inApp = ServerCapabilities(
+        version: "1", fileOps: true, transcode: false,
+        formats: ["zip", "rar", "7z", "folder", "image", "pdf"]
+    )
+}
+
+/// manifest レスポンス（spec §3.3）。
+/// direction は常に "rtl" か "ltr" の具体値を返す（null は返さない）。
+public struct ManifestDTO: Codable, Sendable {
+    public let pageCount: Int
+    public let direction: String     // "rtl" | "ltr"
+    public let format: String        // archive / image / folder / video / text
+    public let etag: String
+
+    public init(pageCount: Int, direction: String, format: String, etag: String) {
+        self.pageCount = pageCount
+        self.direction = direction
+        self.format = format
+        self.etag = etag
+    }
+}
+
+/// unlock 成功レスポンス（短命ライブラリトークン）。
+public struct UnlockReply: Codable, Sendable {
+    public let libraryToken: String
+
+    public init(libraryToken: String) {
+        self.libraryToken = libraryToken
+    }
+}

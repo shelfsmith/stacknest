@@ -12,6 +12,7 @@ let package = Package(
         .library(name: "ImageCache", targets: ["ImageCache"]),
         .library(name: "ArchiveAdapter", targets: ["ArchiveAdapter"]),
         .library(name: "AppCore", targets: ["AppCore"]),
+        .library(name: "LibraryServerAPI", targets: ["LibraryServerAPI"]),
         .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
     ],
@@ -57,9 +58,12 @@ let package = Package(
             dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive"],
             path: "Sources/AppCore"
         ),
+        .target(name: "LibraryServerAPI", path: "Sources/LibraryServerAPI"),
+        .testTarget(name: "LibraryServerAPITests", dependencies: ["LibraryServerAPI"], path: "Tests/LibraryServerAPITests"),
         .target(
             name: "LibraryServer",
             dependencies: [
+                "LibraryServerAPI",
                 "LibraryStore",
                 "AppCore",
                 .product(name: "Hummingbird", package: "hummingbird"),

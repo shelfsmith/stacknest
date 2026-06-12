@@ -3,6 +3,7 @@ import Foundation
 import AppCore
 import LibraryStore
 import Hummingbird
+import LibraryServerAPI
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -31,17 +32,6 @@ public struct LibraryServerConfig: Sendable {
         self.defaultPageDirection = defaultPageDirection
         self.onBookChanged = onBookChanged
     }
-}
-
-/// サーバの capability（spec §3.3 /server/info）。Docker 版は fileOps=false 等で差別化。
-public struct ServerCapabilities: Codable, Sendable {
-    public var version: String
-    public var fileOps: Bool
-    public var transcode: Bool
-    public var formats: [String]
-    public static let inApp = ServerCapabilities(
-        version: "1", fileOps: true, transcode: false, formats: ["zip", "rar", "7z", "folder", "image", "pdf"]
-    )
 }
 
 /// LibraryServer 共通の RequestContext。JSON の Date を ISO8601 に固定する
@@ -255,14 +245,6 @@ public struct LibraryServerCore: Sendable {
     }
 }
 
-/// /libraries の一覧 1 件分（spec §3.3）。
-public struct LibraryDTO: Codable, Sendable {
-    public let id: String
-    public let name: String
-    public let locked: Bool
-    public let bookCount: Int
-}
-
 /// unlock リクエストボディ。
 struct UnlockRequestBody: Decodable {
     let password: String
@@ -278,11 +260,3 @@ struct DirectionRequestBody: Decodable {
     let direction: String?
 }
 
-/// unlock 成功レスポンス（短命ライブラリトークン）。
-struct UnlockReply: ResponseEncodable {
-    let libraryToken: String
-}
-
-extension ServerCapabilities: ResponseEncodable {}
-extension LibraryDTO: ResponseEncodable {}
-extension BookPageDTO: ResponseEncodable {}

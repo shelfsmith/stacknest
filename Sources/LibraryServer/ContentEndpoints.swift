@@ -4,6 +4,7 @@ import HTTPTypes
 import LibraryStore
 import AppCore
 import Hummingbird
+import LibraryServerAPI
 
 /// 本の原本ファイルの mtime+size から弱 ETag を作る（spec §3.3）。
 /// fileMtime/fileSize は contentHash 計算時に記録される列で、未計算の本では 0 にフォールバックする。
@@ -33,16 +34,6 @@ func coverURL(bundleURL: URL, bookID: Int) -> URL {
         .appendingPathComponent("Thumbnails")
         .appendingPathComponent("\(bookID)")
         .appendingPathComponent("thumbnail.jpg")
-}
-
-/// manifest レスポンス（spec §3.3）。
-/// direction は常に "rtl" か "ltr" の具体値を返す（null は返さない）。
-/// 本ごと override が未設定のときは config.defaultPageDirection（アプリ設定）にフォールバックする（4.1c）。
-struct ManifestDTO: Codable, Sendable, ResponseEncodable {
-    let pageCount: Int
-    let direction: String     // "rtl" | "ltr"
-    let format: String        // archive / image / folder / video / text
-    let etag: String
 }
 
 /// PageDirection → Web クライアント向け安定文字列（enum 改名に脆い String(describing:) は使わない）。

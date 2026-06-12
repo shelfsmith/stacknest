@@ -1,34 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryStore
-
-/// books 一覧 1 件分の DTO（spec §3.3）。日付はサーバ共通エンコーダで ISO8601。
-public struct BookListItemDTO: Codable, Sendable {
-    public let id: Int
-    public let title: String
-    public let author: String?
-    public let series: String?
-    public let volume: Double?
-    public let rating: Int
-    public let unseen: Bool
-    public let bookType: Int
-    public let pages: Int?
-    public let lastPage: Int?
-    public let lastReadAt: Date?
-    public let dateAdded: Date
-    public let hasCover: Bool
-    /// 表紙差し替えを Web の `?v=` で追跡するためのバージョン文字列（thumbnail.jpg の mtime+size 由来）。
-    /// 表紙なしの本は nil。stat コスト抑制のためページスライス後の本のみ算出する（run 参照）。
-    public let coverVersion: String?
-}
-
-/// books 一覧のページングレスポンス（spec §3.3）。
-public struct BookPageDTO: Codable, Sendable {
-    public let items: [BookListItemDTO]
-    public let total: Int
-    public let page: Int
-    public let perPage: Int
-}
+import LibraryServerAPI
 
 /// ソート方向（不正値は 400 — 設計ノートのエラー写像）。
 enum SortOrder: String {
@@ -135,15 +108,3 @@ struct BooksQuery {
     }
 }
 
-extension BookListItemDTO {
-    /// coverVersion だけ差し替えたコピーを返す（全 let のため再構築）。
-    func withCoverVersion(_ version: String?) -> BookListItemDTO {
-        BookListItemDTO(
-            id: id, title: title, author: author,
-            series: series, volume: volume,
-            rating: rating, unseen: unseen, bookType: bookType,
-            pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
-            dateAdded: dateAdded, hasCover: hasCover, coverVersion: version
-        )
-    }
-}

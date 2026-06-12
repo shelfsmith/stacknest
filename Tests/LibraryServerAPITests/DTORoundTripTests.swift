@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: MIT
+import Testing
+import Foundation
+@testable import LibraryServerAPI
+
+@Suite("DTO JSON round-trip（共有 wire 契約）")
+struct DTORoundTripTests {
+    private func enc() -> JSONEncoder { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; return e }
+    private func dec() -> JSONDecoder { let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601; return d }
+
+    @Test func bookPageRoundTrip() throws {
+        let item = BookListItemDTO(
+            id: 7, title: "T", author: "A", series: "S", volume: 2,
+            rating: 3, unseen: true, bookType: 0, pages: 20, lastPage: 5,
+            lastReadAt: Date(timeIntervalSince1970: 1_000_000), dateAdded: Date(timeIntervalSince1970: 0),
+            hasCover: true, coverVersion: "v1")
+        let page = BookPageDTO(items: [item], total: 1, page: 1, perPage: 100)
+        let back = try dec().decode(BookPageDTO.self, from: enc().encode(page))
+        #expect(back.total == 1)
+        #expect(back.items.first?.id == 7)
+        #expect(back.items.first?.lastPage == 5)
+        #expect(back.items.first?.coverVersion == "v1")
+    }
+
+    @Test func manifestRoundTrip() throws {
+        let m = ManifestDTO(pageCount: 12, direction: "rtl", format: "archive", etag: "e1")
+        let back = try dec().decode(ManifestDTO.self, from: enc().encode(m))
+        #expect(back.pageCount == 12)
+        #expect(back.direction == "rtl")
+    }
+
+    @Test func libraryAndCapsRoundTrip() throws {
+        let lib = LibraryDTO(id: "u", name: "N", locked: true, bookCount: 9)
+        #expect(try dec().decode(LibraryDTO.self, from: enc().encode(lib)).locked == true)
+        let caps = ServerCapabilities.inApp
+        #expect(try dec().decode(ServerCapabilities.self, from: enc().encode(caps)).version == "1")
+        let reply = UnlockReply(libraryToken: "tok")
+        #expect(try dec().decode(UnlockReply.self, from: enc().encode(reply)).libraryToken == "tok")
+    }
+}
