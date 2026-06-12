@@ -735,8 +735,16 @@ final class AppState {
             openInExternalViewer([book])
             return
         }
-        // Phase 2.6b-2 D3: per-book page direction を解決。本固有の設定が nil なら global 設定を使う。
-        let resolvedDir = book.pageDirection ?? viewerSettings.pageDirection
+        // Phase 2.6b-2 D3 / 4.1c: per-book page direction を解決。
+        // Web リーダー（POST /direction）等で DB の page_direction が更新されている場合があるため、
+        // インメモリの book ではなく DB から最新値を読む。失敗時はインメモリ値にフォールバック。
+        let resolvedDir: PageDirection
+        if let db = database {
+            let fresh = try? db.fetchBook(id: book.id)
+            resolvedDir = (fresh ?? book).pageDirection ?? viewerSettings.pageDirection
+        } else {
+            resolvedDir = book.pageDirection ?? viewerSettings.pageDirection
+        }
         let options = ViewerOptions(pageDirection: resolvedDir, endOfBookBehavior: viewerSettings.endOfBookBehavior)
         Task { @MainActor in
             let pageCount: Int
