@@ -682,7 +682,8 @@ body {
   flex-shrink: 0;
 }
 
-.reader-spread-toggle {
+.reader-spread-toggle,
+.reader-step-one {
   background: transparent;
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.4);
@@ -693,6 +694,7 @@ body {
   flex-shrink: 0;
   line-height: 1.4;
 }
+.reader-step-one[hidden] { display: none; }
 
 /* ---- タイトル（上クロム中央） ---- */
 .reader-title {
