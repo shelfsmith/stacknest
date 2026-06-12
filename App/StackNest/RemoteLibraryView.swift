@@ -167,7 +167,7 @@ struct RemoteLibraryView: View {
             Text("件")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Stepper("", value: stepperBinding, in: 20...500, step: 10)
+            Stepper("", value: stepperBinding, in: 20...500, step: 1)
                 .labelsHidden()
         }
     }
