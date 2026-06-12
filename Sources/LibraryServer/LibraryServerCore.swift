@@ -199,6 +199,20 @@ public struct LibraryServerCore: Sendable {
             try lib.db.updateLastPage(bookID: row.id, lastPage: body.page)
             return HTTPResponse.Status.ok
         }
+        // ページ方向の書き戻し（Web リーダーでの変更を本ごと DB に反映・4.1c F2b）。
+        api.post("libraries/:lib/books/:id/direction") { request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: DirectionRequestBody.self, context: context)
+            let dir: PageDirection?
+            switch body.direction {
+            case "rtl": dir = .rightToLeft
+            case "ltr": dir = .leftToRight
+            case nil, "": dir = nil
+            default: throw HTTPError(.badRequest)
+            }
+            try lib.db.updatePageDirection(bookID: row.id, direction: dir)
+            return HTTPResponse.Status.ok
+        }
         // 原本ファイルの一括ダウンロード（4.2 オフライン機能の土台・ストリーミングは YAGNI）。
         api.get("libraries/:lib/books/:id/file") { request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
@@ -245,6 +259,11 @@ struct UnlockRequestBody: Decodable {
 /// progress 書き込みリクエストボディ（ファイルスコープ — swiftc ASTMangler 対策）。
 struct ProgressRequestBody: Decodable {
     let page: Int
+}
+
+/// 方向書き込みボディ（swiftc ASTMangler 対策でファイルスコープ）。
+struct DirectionRequestBody: Decodable {
+    let direction: String?
 }
 
 /// unlock 成功レスポンス（短命ライブラリトークン）。

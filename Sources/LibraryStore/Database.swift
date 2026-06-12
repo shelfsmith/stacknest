@@ -1992,6 +1992,17 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// 本のページ方向を更新する（Web リーダーからの書き戻し用）。nil で「未設定（既定に従う）」に戻す。
+    public func updatePageDirection(bookID: Int, direction: PageDirection?) throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            try db.execute(
+                sql: "UPDATE book SET page_direction = ? WHERE id = ?",
+                arguments: [direction?.rawValue, bookID]
+            )
+        }
+    }
+
     /// Sets or clears a per-page layout override. `mode == nil` deletes the row
     /// (= back to auto). Otherwise upserts the raw mode int (0 = forcePair, 1 = forceSolo).
     public func setPageOverride(bookID: Int, page: Int, mode: Int?) throws {
