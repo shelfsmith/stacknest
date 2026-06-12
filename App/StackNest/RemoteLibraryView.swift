@@ -12,6 +12,9 @@ struct RemoteLibraryView: View {
     /// D1: 一覧/グリッドに focus を与えて .onKeyPress(.return) を確実に発火させる。
     @FocusState private var listFocused: Bool
 
+    /// Task 3: paged per の TextField 入力（数字のみ・commit 時に clamp）。
+    @State private var perInput = ""
+
     var body: some View {
         Group {
             if state.locked && state.libraryToken == nil {
@@ -63,10 +66,19 @@ struct RemoteLibraryView: View {
             } else {
                 listView
             }
-            Divider()
-            pager
+            // Task 3: paged のみページャ表示。infinite では非表示。
+            if state.scrollMode == .paged {
+                Divider()
+                pager
+            }
         }
-        .task { await state.load() }
+        .task { await state.reload() }
+        .onAppear { perInput = String(state.per) }
+        .onChange(of: state.per) { _, newValue in
+            // setPer 経由などで per が変わったら TextField を同期。
+            let synced = String(newValue)
+            if perInput != synced { perInput = synced }
+        }
     }
 
     private var toolbar: some View {
@@ -74,10 +86,7 @@ struct RemoteLibraryView: View {
             TextField("検索", text: $state.query)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 240)
-                .onSubmit {
-                    state.page = 1
-                    Task { await state.load() }
-                }
+                .onSubmit { Task { await state.reload() } }
 
             Picker("並び替え", selection: $state.sortKey) {
                 Text("タイトル").tag("title")
@@ -87,18 +96,29 @@ struct RemoteLibraryView: View {
             }
             .frame(width: 150)
             .onChange(of: state.sortKey) { _, _ in
-                state.page = 1
-                Task { await state.load() }
+                Task { await state.reload() }
             }
 
             Button {
                 state.ascending.toggle()
-                state.page = 1
-                Task { await state.load() }
+                Task { await state.reload() }
             } label: {
                 Image(systemName: state.ascending ? "arrow.up" : "arrow.down")
             }
             .help(state.ascending ? "昇順" : "降順")
+
+            // Task 3: 表示モード（ページ表示 / 無限スクロール）。
+            Picker("", selection: modeBinding) {
+                Text("ページ表示").tag(RemoteScrollMode.paged)
+                Text("無限スクロール").tag(RemoteScrollMode.infinite)
+            }
+            .frame(width: 160)
+            .help("表示モード")
+
+            // Task 3: paged のみ per 件数コントロール（Stepper + TextField）。
+            if state.scrollMode == .paged {
+                perControl
+            }
 
             Spacer()
 
@@ -110,6 +130,56 @@ struct RemoteLibraryView: View {
             .frame(width: 90)
         }
         .padding(8)
+    }
+
+    /// 表示モード Picker の binding。変更時に state.setMode を呼ぶ。
+    private var modeBinding: Binding<RemoteScrollMode> {
+        Binding(
+            get: { state.scrollMode },
+            set: { state.setMode($0) }
+        )
+    }
+
+    /// Task 3: 1 ページの件数（Stepper + TextField、20...500、commit 時 clamp）。
+    /// SettingsView の thickBookThreshold パターンを踏襲。
+    private var perControl: some View {
+        HStack(spacing: 4) {
+            Text("1ページ")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            TextField("", text: $perInput)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 48)
+                .multilineTextAlignment(.trailing)
+                .onChange(of: perInput) { _, newValue in
+                    // 数字以外を弾く + 最大 3 桁（20...500 範囲なので十分）。
+                    let cleaned = String(newValue.filter(\.isNumber).prefix(3))
+                    if cleaned != newValue { perInput = cleaned }
+                }
+                .onSubmit { commitPerInput() }
+            Text("件")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Stepper("", value: stepperBinding, in: 20...500, step: 10)
+                .labelsHidden()
+        }
+    }
+
+    /// Stepper の binding。増減で state.setPer を呼ぶ。
+    private var stepperBinding: Binding<Int> {
+        Binding(
+            get: { state.per },
+            set: { state.setPer($0) }
+        )
+    }
+
+    /// TextField 入力を Int に変換し clamp して setPer に渡す。
+    /// 空文字・parse 失敗時は state.per を表示し直す（.onChange(of: state.per) で同期される）。
+    private func commitPerInput() {
+        if let v = Int(perInput) {
+            state.setPer(v)
+        }
+        perInput = String(state.per)
     }
 
     private func banner(_ text: String) -> some View {
@@ -140,6 +210,12 @@ struct RemoteLibraryView: View {
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { state.openViewer(book: book) }
             .tag(book.id)
+            // Task 3: infinite モードで末尾行が見えたら次チャンクを取得。
+            .onAppear {
+                if state.scrollMode == .infinite, book.id == state.books.last?.id {
+                    Task { await state.loadMore() }
+                }
+            }
         }
         // D1: List 自体を focusable にして Return を捕捉する。検索フィールドに focus が
         // ある間は onSubmit（検索）が優先されるため、競合しない。
@@ -169,6 +245,12 @@ struct RemoteLibraryView: View {
                     RemoteBookCell(book: book, state: state, selected: state.selection == book.id)
                         .onTapGesture(count: 2) { state.openViewer(book: book) }
                         .onTapGesture { state.selection = book.id }
+                        // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
+                        .onAppear {
+                            if state.scrollMode == .infinite, book.id == state.books.last?.id {
+                                Task { await state.loadMore() }
+                            }
+                        }
                 }
             }
             .padding(16)

@@ -21,16 +21,28 @@ final class RemoteLibraryState {
     var locked: Bool
     var libraryToken: String?
 
+    /// Phase 4.2b-1b-1 Task 3: 表示モード + per のグローバル設定（UserDefaults 永続）。
+    private let prefs = RemoteBrowsePreferences()
+
     var books: [BookListItemDTO] = []
     var total = 0
     var page = 1
-    var per = 100
+    var per: Int
     var query = ""
     var sortKey = "title"
     var ascending = true
     var isGrid = false
     var selection: Int? = nil
     var errorText: String? = nil
+
+    /// 表示モード（paged / infinite）。setMode 経由で変更・永続化する。
+    var scrollMode: RemoteScrollMode
+
+    /// infinite スクロールの多重 loadMore を防ぐガード。
+    private var isLoadingMore = false
+
+    /// infinite モードの 1 チャンク件数（paged の per とは独立した固定値）。
+    private let infiniteChunkSize = 100
 
     let coverCache = RemoteCoverCache()
 
@@ -43,24 +55,89 @@ final class RemoteLibraryState {
         self.libraryName = libraryName
         self.locked = locked
         self.libraryToken = libraryToken
+        self.per = prefs.perPageSize
+        self.scrollMode = prefs.scrollMode
     }
 
-    var pageCountTotalPages: Int { max(1, Int(ceil(Double(total) / Double(per)))) }
+    var pageCountTotalPages: Int { remoteTotalPages(total: total, per: per) }
+
+    // MARK: - Mode / per control
+
+    /// 表示モードを切り替えて永続化し、先頭から読み直す。
+    func setMode(_ m: RemoteScrollMode) {
+        scrollMode = m
+        prefs.scrollMode = m
+        Task { await reload() }
+    }
+
+    /// paged の per を 20...500 にクランプして永続化し、先頭から読み直す。
+    func setPer(_ n: Int) {
+        per = clampRemotePerPage(n)
+        prefs.perPageSize = per
+        Task { await reload() }
+    }
 
     // MARK: - Loading
 
+    /// 現在の取得サイズ（infinite は固定チャンク、paged は per）。
+    private var fetchSize: Int { scrollMode == .infinite ? infiniteChunkSize : per }
+
+    /// 指定ページ・サイズで 1 チャンク取得する（load/reload/loadMore 共通）。
+    private func fetchChunk(page: Int, size: Int) async throws -> BookPageDTO {
+        try await client.fetchBooks(
+            libraryUUID: libraryUUID,
+            query: query.isEmpty ? nil : query,
+            sort: sortKey,
+            ascending: ascending,
+            page: page,
+            per: size,
+            libraryToken: libraryToken
+        )
+    }
+
+    /// paged のページ送り。現在の page を per サイズで取得し books を置換する。
     func load() async {
         do {
-            let result = try await client.fetchBooks(
-                libraryUUID: libraryUUID,
-                query: query.isEmpty ? nil : query,
-                sort: sortKey,
-                ascending: ascending,
-                page: page,
-                per: per,
-                libraryToken: libraryToken
-            )
+            let result = try await fetchChunk(page: page, size: per)
             books = result.items
+            total = result.total
+            errorText = nil
+        } catch let e as RemoteClientError {
+            errorText = Self.message(for: e)
+        } catch {
+            errorText = "読み込みに失敗しました"
+        }
+    }
+
+    /// 先頭から読み直す（query/sort/ascending/mode/per 変更時）。books を置換する。
+    func reload() async {
+        page = 1
+        books = []
+        do {
+            let result = try await fetchChunk(page: 1, size: fetchSize)
+            books = result.items
+            total = result.total
+            errorText = nil
+        } catch let e as RemoteClientError {
+            errorText = Self.message(for: e)
+        } catch {
+            errorText = "読み込みに失敗しました"
+        }
+    }
+
+    /// infinite モードで末尾到達時に次チャンクを追記する。
+    func loadMore() async {
+        guard !isLoadingMore,
+              scrollMode == .infinite,
+              remoteNeedsNextChunk(loadedCount: books.count, total: total)
+        else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        do {
+            let nextPage = page + 1
+            let result = try await fetchChunk(page: nextPage, size: infiniteChunkSize)
+            page = nextPage
+            books.append(contentsOf: result.items)
             total = result.total
             errorText = nil
         } catch let e as RemoteClientError {
@@ -75,7 +152,7 @@ final class RemoteLibraryState {
             let token = try await client.unlock(libraryUUID: libraryUUID, password: password)
             libraryToken = token
             errorText = nil
-            await load()
+            await reload()
         } catch RemoteClientError.forbidden {
             errorText = "パスワードが違います"
         } catch let e as RemoteClientError {
