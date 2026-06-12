@@ -886,7 +886,6 @@ final class AppState {
         let start = ContinuousClock().now
         let n = displayedBooks.count
         Self.sortLogger.info("[sort] start n=\(n)")
-        print("[refreshSortedDisplayedBooks] start n=\(n)")
         let mode = librarySettings?.sortMode ?? .column
         switch mode {
         case .seriesVolumeAsc:
@@ -900,7 +899,6 @@ final class AppState {
         sortedDisplayedBooksVersion &+= 1
         let elapsed = start.duration(to: .now)
         Self.sortLogger.info("[sort] done n=\(n) elapsed=\(elapsed.description)")
-        print("[refreshSortedDisplayedBooks] done n=\(n) elapsed=\(elapsed)")
     }
 
     /// Reloads the favorites cache from DB. Call after favorites table mutations.
@@ -1284,25 +1282,30 @@ final class AppState {
 
     // MARK: - Phase 4.1c: external book change handler
 
-    /// サーバ（Web リーダー等）経由で本のメタデータが変わったときに呼ばれる。
-    /// DB から最新の displayedBooks を再取得し、詳細ペイン等の GUI に即時反映する。
-    /// refreshDisplayedBooks() が displayedSelectedBooks（詳細ペインのソース）も再構築するため、
-    /// PageDirectionPicker を含む全フィールドが更新される。
-    /// selectedBook はインデックス走査ではなく DB から直接再取得して確実に最新値を反映する。
+    /// サーバ（Web リーダー/将来のクライアント）からの本変更通知を受け、DB から最新を再取得して
+    /// 詳細ペイン・grid/list へ即時反映する。並び順に影響しない変更（例: title ソート中の読書）では
+    /// 全再ソートを避け、該当行のみ in-place 更新する（4.2a・高頻度 progress 対策）。
     func handleExternalBookChange(bookID: Int) {
-        guard let db = database else {
-            Self.logger.debug("[extChange] book=\(bookID, privacy: .public) no-db")
-            return
-        }
-        let fresh = try? db.fetchBook(id: bookID)
+        guard let db = database else { return }
+        guard let fresh = try? db.fetchBook(id: bookID) else { return }
         let idx = displayedBooks.firstIndex(where: { $0.id == bookID })
-        Self.logger.debug("[extChange] book=\(bookID, privacy: .public) freshDir=\(String(describing: fresh?.pageDirection), privacy: .public) idxFound=\(idx != nil, privacy: .public) selected=\(self.selectedBook?.id ?? -1, privacy: .public) displayed=\(self.displayedBooks.count, privacy: .public)")
-        guard let fresh else { return }
-        // search 非依存で該当本だけ差し替え → 詳細ペイン(displayedSelectedBooks)・grid を再導出。
+        let oldBook = idx.map { displayedBooks[$0] }
         if let idx { displayedBooks[idx] = fresh }
         if selectedBook?.id == bookID { selectedBook = fresh }
-        refreshDisplayedSelectedBooks()
-        refreshSortedDisplayedBooks()
+        refreshDisplayedSelectedBooks()   // 詳細ペイン（displayedSelectedBooks）は常に即時更新
+
+        let mode = librarySettings?.sortMode ?? .column
+        let colSort = librarySettings?.listViewSort ?? ColumnSort(column: .dateAdded, ascending: false)
+        let needsResort = oldBook.map {
+            sortOrderAffected(old: $0, new: fresh, sortMode: mode, columnSort: colSort)
+        } ?? false
+        if needsResort {
+            refreshSortedDisplayedBooks()
+        } else if let sidx = sortedDisplayedBooks.firstIndex(where: { $0.id == bookID }) {
+            // 並び順は不変。該当行の内容（未読●・最終閲覧日列等）だけ差し替えて version を bump。
+            sortedDisplayedBooks[sidx] = fresh
+            sortedDisplayedBooksVersion &+= 1
+        }
     }
 }
 
