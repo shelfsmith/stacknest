@@ -2,7 +2,7 @@
 // StackNest Web — リーダー画面（タップ/スワイプ/キーボードナビ、見開き、progress 書き戻し）。
 // Task R4。
 
-import { fetchManifest, fetchPageBlob, postProgress, UnauthorizedError, NetworkError } from "./api.js";
+import { fetchManifest, fetchPageBlob, postProgress, postDirection, UnauthorizedError, NetworkError } from "./api.js";
 import { deleteBook, clearAll } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
@@ -67,8 +67,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     }
 
     const { pageCount, format } = manifest;
-    const dirKey = `stacknest.reader.dir.${uuid}.${bookId}`;
-    let direction = localStorage.getItem(dirKey) || manifest.direction || "ltr";
+    let direction = manifest.direction || "ltr";   // manifest は実効方向（本 override ?? アプリ既定）
 
     // 2. resume: p は uiPage（1始まり）→ apiIndex（0始まり）に変換
     const startUi = Math.max(1, Math.min(pageCount, Number(query.p) || 1));
@@ -161,9 +160,16 @@ export async function renderReader(uuid, bookId, query, deps) {
             spread = !spread;
             spreadToggleBtn.textContent = spread ? "見開き ON" : "見開き OFF";
             spreadToggleBtn.setAttribute("aria-label", spread ? "見開きを解除" : "見開きモードにする");
+            stepOneBtn.hidden = !spread;
             show(cur);
         },
     });
+    const stepOneBtn = el("button", {
+        class: "reader-step-one", type: "button", text: "＋1頁",
+        "aria-label": "1ページだけ送る",
+        onClick: () => { show(Math.max(0, Math.min(pageCount - 1, cur + 1))); },
+    });
+    stepOneBtn.hidden = !spread;  // 初期は見開き OFF なので非表示
     const sliderEl = el("input", {
         class: "reader-slider",
         type: "range",
@@ -173,7 +179,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     });
     const counterEl = el("span", { class: "reader-counter", text: `${cur + 1} / ${pageCount}` });
     const bottomChrome = el("div", { class: "reader-chrome bottom" }, [
-        spreadToggleBtn, sliderEl, counterEl,
+        spreadToggleBtn, stepOneBtn, sliderEl, counterEl,
     ]);
 
     // タップゾーン（透明操作領域）
@@ -487,7 +493,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         const clearExitLabel = el("label", { for: "rs-clear-exit", text: "終了時にキャッシュを消す" });
         const clearExitRow = settingRow("", el("div", { class: "reader-settings-toggle-wrap" }, [clearExitCheck, clearExitLabel]));
 
-        // 4. 読み方向（本ごとに localStorage 永続化）
+        // 4. 読み方向（DB に書き戻し）
         const dirOptions = [
             { label: "左開き（ltr・左→右）", value: "ltr" },
             { label: "右開き（rtl・右→左 / 漫画）", value: "rtl" },
@@ -496,8 +502,8 @@ export async function renderReader(uuid, bookId, query, deps) {
             class: "reader-settings-select",
             onChange: (e) => {
                 direction = e.target.value;
-                localStorage.setItem(dirKey, direction);
                 show(cur);
+                postDirection(uuid, bookId, direction).catch(() => { toast("方向の保存に失敗しました"); });
             },
         }, dirOptions.map(({ label, value }) =>
             el("option", { value, text: label, selected: value === direction ? true : false })

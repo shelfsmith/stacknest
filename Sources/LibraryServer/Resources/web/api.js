@@ -101,6 +101,15 @@ export async function postProgress(uuid, bookId, apiIndex) {
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
 }
 
+/// 本のページ方向を DB に書き戻す（"rtl" | "ltr" | null）。!ok は status 付き Error。
+export async function postDirection(uuid, bookId, direction) {
+    const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/direction`,
+        { libraryUUID: uuid, method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ direction }) });
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+}
+
 /// ロック庫の解錠。成功で libraryToken を sessionStorage に保存する。
 /// 認証失敗（パスワード違い）は false を返す。
 export async function unlockLibrary(uuid, password) {
