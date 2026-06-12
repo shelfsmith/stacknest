@@ -19,7 +19,7 @@ public actor RemoteCoverCache {
     public init(countLimit: Int = 400) { cache.countLimit = countLimit }
 
     /// キャッシュにあれば返し、無ければ fetch して格納する。
-    public func data(for key: Key, fetch: () async throws -> Data) async throws -> Data {
+    public func data(for key: Key, fetch: @Sendable () async throws -> Data) async throws -> Data {
         if let hit = cache.object(forKey: key.string as NSString) { return hit as Data }
         let data = try await fetch()
         cache.setObject(data as NSData, forKey: key.string as NSString)

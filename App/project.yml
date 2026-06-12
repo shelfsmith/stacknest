@@ -101,6 +101,10 @@ targets:
         product: AppCore
       - package: StackNest
         product: LibraryServer
+      - package: StackNest
+        product: LibraryServerAPI
+      - package: StackNest
+        product: RemoteClient
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.shelfsmith.stacknest

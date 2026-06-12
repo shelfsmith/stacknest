@@ -1,5 +1,6 @@
 import AppCore
 import AppKit
+import LibraryServerAPI
 import LibraryStore
 import os
 import StackroomFormat
@@ -14,6 +15,10 @@ struct TitleScreenView: View {
   @Environment(\.openWindow) var openWindow
   @State private var showError = false
   @State private var errorMessage = ""
+  @State private var showConnectSheet = false
+  /// 複数ライブラリ共有時のピッカー用。接続成功後に setする。
+  @State private var pickerLibraries: [LibraryDTO] = []
+  @State private var pickerServerID: UUID?
 
   var body: some View {
     titleContent
@@ -22,6 +27,20 @@ struct TitleScreenView: View {
         Button("OK") { }
       } message: {
         Text(errorMessage)
+      }
+      .sheet(isPresented: $showConnectSheet) {
+        ConnectServerSheet { conn, libs in
+          handleConnected(conn: conn, libs: libs)
+        }
+      }
+      .sheet(isPresented: Binding(
+        get: { !pickerLibraries.isEmpty },
+        set: { if !$0 { pickerLibraries = [] } }
+      )) {
+        libraryPicker
+      }
+      .onReceive(NotificationCenter.default.publisher(for: .connectToServer)) { _ in
+        showConnectSheet = true
       }
       .task {
         Self.logger.info("Title mounted, registering handler")
@@ -65,12 +84,62 @@ struct TitleScreenView: View {
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
+
+        Button { showConnectSheet = true } label: {
+          Label("サーバに接続…", systemImage: "network")
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
       }
       .frame(maxWidth: 300)
       .padding(.vertical, 20)
 
       Spacer()
     }
+  }
+
+  // MARK: - Remote
+
+  /// 接続成功時のハンドラ。共有ライブラリ数に応じてウィンドウを開く / ピッカーを出す。
+  private func handleConnected(conn: ServerConnection, libs: [LibraryDTO]) {
+    if libs.isEmpty {
+      presentError(nil, title: "共有なし", message: "共有中のライブラリがありません")
+    } else if libs.count == 1 {
+      openWindow(value: RemoteLibraryRef(serverID: conn.id, libraryUUID: libs[0].id))
+    } else {
+      pickerServerID = conn.id
+      pickerLibraries = libs
+    }
+  }
+
+  @ViewBuilder
+  private var libraryPicker: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("ライブラリを選択").font(.headline)
+      List(pickerLibraries, id: \.id) { lib in
+        HStack {
+          Image(systemName: lib.locked ? "lock.fill" : "books.vertical")
+          VStack(alignment: .leading) {
+            Text(lib.name)
+            Text("\(lib.bookCount) 件").font(.caption).foregroundStyle(.secondary)
+          }
+          Spacer()
+          Button("開く") {
+            if let sid = pickerServerID {
+              openWindow(value: RemoteLibraryRef(serverID: sid, libraryUUID: lib.id))
+            }
+            pickerLibraries = []
+          }
+        }
+      }
+      .frame(height: 200)
+      HStack {
+        Spacer()
+        Button("キャンセル") { pickerLibraries = [] }
+      }
+    }
+    .padding(20)
+    .frame(width: 420)
   }
 
   // MARK: - Actions

@@ -59,6 +59,13 @@ struct StackNestApp: App {
             }
         }
         .handlesExternalEvents(matching: Set(["library"]))
+
+        // Phase 4.2b-1: リモートライブラリウィンドウ — RemoteLibraryRef-bound。
+        WindowGroup(for: RemoteLibraryRef.self) { $ref in
+            if let ref {
+                RemoteLibraryWindowContainer(ref: ref)
+            }
+        }
         .commands {
             FileCommands(openWindow: openWindow)
             WindowCommands()
@@ -584,6 +591,10 @@ struct FileCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
 
+            Button("サーバに接続…") {
+                NotificationCenter.default.post(name: .connectToServer, object: nil)
+            }
+
             Button("ライブラリを開く…") {
                 LibraryActions.runOpenPanelStandalone { bundleURL in
                     Task {
@@ -937,6 +948,8 @@ extension Notification.Name {
     static let openDuplicateScan = Notification.Name("stacknest.openDuplicateScan")
     /// Phase 2.8: リンク切れ検出シートを開く（File menu の「リンク切れを検出…」から post）。
     static let detectBrokenLinks = Notification.Name("stacknest.detectBrokenLinks")
+    /// Phase 4.2b-1: サーバ接続シートを開く（File menu / Title から post）。Title window が受信して表示する。
+    static let connectToServer = Notification.Name("stacknest.connectToServer")
 }
 
 // MARK: - UTType Extension
