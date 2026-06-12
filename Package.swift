@@ -13,6 +13,7 @@ let package = Package(
         .library(name: "ArchiveAdapter", targets: ["ArchiveAdapter"]),
         .library(name: "AppCore", targets: ["AppCore"]),
         .library(name: "LibraryServerAPI", targets: ["LibraryServerAPI"]),
+        .library(name: "RemoteClient", targets: ["RemoteClient"]),
         .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
     ],
@@ -60,6 +61,8 @@ let package = Package(
         ),
         .target(name: "LibraryServerAPI", path: "Sources/LibraryServerAPI"),
         .testTarget(name: "LibraryServerAPITests", dependencies: ["LibraryServerAPI"], path: "Tests/LibraryServerAPITests"),
+        .target(name: "RemoteClient", dependencies: ["LibraryServerAPI", "AppCore"], path: "Sources/RemoteClient"),
+        .testTarget(name: "RemoteClientTests", dependencies: ["RemoteClient", "LibraryServerAPI"], path: "Tests/RemoteClientTests"),
         .target(
             name: "LibraryServer",
             dependencies: [
