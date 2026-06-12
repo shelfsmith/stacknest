@@ -470,6 +470,8 @@ struct LibraryWindowContainer: View {
                 DetailPaneView(appState: appState, loader: appState.thumbnailLoader)
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)
             }
+            .navigationTitle("StackNest")
+            .navigationSubtitle(librarySubtitle)
             .frame(minWidth: 1024, minHeight: 600)
             .environment(appState)
             .focusedSceneValue(\.appState, appState)
@@ -480,6 +482,11 @@ struct LibraryWindowContainer: View {
             ProgressView()
                 .frame(minWidth: 400, minHeight: 300)
         }
+    }
+
+    /// 4.2b-1b-1: ウィンドウタイトルバーのサブタイトル用。bundleURL が nil のときは空文字。
+    private var librarySubtitle: String {
+        bundleURL?.deletingPathExtension().lastPathComponent ?? ""
     }
 
     private func openBundleIfNeeded() async {

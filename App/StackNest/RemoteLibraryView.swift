@@ -15,6 +15,9 @@ struct RemoteLibraryView: View {
     /// Task 3: paged per の TextField 入力（数字のみ・commit 時に clamp）。
     @State private var perInput = ""
 
+    /// 4.2b-1b-1: per TextField のフォーカス追跡（フォーカスを外したときに commitPerInput() を発火）。
+    @FocusState private var perFieldFocused: Bool
+
     var body: some View {
         Group {
             if state.locked && state.libraryToken == nil {
@@ -151,12 +154,16 @@ struct RemoteLibraryView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 48)
                 .multilineTextAlignment(.trailing)
+                .focused($perFieldFocused)
                 .onChange(of: perInput) { _, newValue in
                     // 数字以外を弾く + 最大 3 桁（20...500 範囲なので十分）。
                     let cleaned = String(newValue.filter(\.isNumber).prefix(3))
                     if cleaned != newValue { perInput = cleaned }
                 }
                 .onSubmit { commitPerInput() }
+                .onChange(of: perFieldFocused) { _, focused in
+                    if !focused { commitPerInput() }
+                }
             Text("件")
                 .font(.caption)
                 .foregroundStyle(.secondary)
