@@ -2,13 +2,16 @@
 import SwiftUI
 import AppKit
 import AppCore
-import LibraryStore
 
 /// Browser pane: 3 列の HStack + 下端の ResizeHandle で構成。
-/// 高さは LibrarySettings.browserPaneState.height で永続化、user drag で 80...600pt の範囲。
+/// 高さは BrowserPaneState.height で永続化、user drag で 80...600pt の範囲。
+///
+/// Phase 4.2b-1b-2a: AppState/LibrarySettings 依存を排除。injected closures で backend-agnostic に。
 struct BrowserPaneView: View {
-    @Bindable var appState: AppState
-    @Bindable var settings: LibrarySettings
+    @Binding var browserPaneState: BrowserPaneState
+    let labelFor: (BrowserPaneState.BrowseField) -> String
+    let refreshKey: String
+    let facetValues: (String, [(String, String)]) async -> [String]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -16,15 +19,17 @@ struct BrowserPaneView: View {
                 ForEach(0..<3) { i in
                     BrowserColumnView(
                         columnIndex: i,
-                        appState: appState,
-                        settings: settings
+                        browserPaneState: $browserPaneState,
+                        labelFor: labelFor,
+                        refreshKey: refreshKey,
+                        facetValues: facetValues
                     )
                     if i < 2 { Divider() }
                 }
             }
-            .frame(height: settings.browserPaneState.height)
+            .frame(height: browserPaneState.height)
 
-            ResizeHandle(height: Bindable(settings).browserPaneState.height)
+            ResizeHandle(height: $browserPaneState.height)
                 .frame(height: 4)
         }
     }

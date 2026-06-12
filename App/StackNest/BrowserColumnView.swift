@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppCore
-import LibraryStore
 
 /// Browser pane の 1 列を表す View。
 /// Header (Menu dropdown で field 切替) + 値 List。
-/// `task(id: refreshTrigger)` で関連 state が変わるたびに DB から distinctValues を再 fetch。
+/// `task(id: refreshKey)` で関連 state が変わるたびに distinctValues を再 fetch。
 ///
 /// Phase 2.4d R1 改修:
 /// - 「すべて」/値行を List(selection:) ではなく Button + onTapGesture で実装
@@ -15,10 +14,14 @@ import LibraryStore
 /// - 他列で使用中の field は menu で disabled (重複設定回避)
 /// - displayLabel 削除 (生 raw 値で表示、bookType/rating の文字置換は filter 機能側で扱う)
 /// - 行間 separator 非表示、ヘッダ字を大きめ・各行字を小さめに
+///
+/// Phase 4.2b-1b-2a: AppState/db 依存を排除。injected closures で backend-agnostic に。
 struct BrowserColumnView: View {
     let columnIndex: Int
-    @Bindable var appState: AppState
-    @Bindable var settings: LibrarySettings
+    @Binding var browserPaneState: BrowserPaneState
+    let labelFor: (BrowserPaneState.BrowseField) -> String
+    let refreshKey: String
+    let facetValues: (_ columnSQL: String, _ upperConstraints: [(String, String)]) async -> [String]
     @State private var values: [String] = []
     @FocusState private var isFocused: Bool
 
@@ -32,14 +35,14 @@ struct BrowserColumnView: View {
         .focused($isFocused)
         .onKeyPress(.upArrow)   { moveSelection(by: -1); return .handled }
         .onKeyPress(.downArrow) { moveSelection(by: +1); return .handled }
-        .task(id: refreshTrigger) { await loadValues() }
+        .task(id: refreshKey) { await loadValues() }
     }
 
     // MARK: - Arrow key navigation
 
     /// 現在選択されているインデックス。nil 選択（「すべて」）= -1 として扱う。
     private var currentSelectionIndex: Int {
-        guard let sel = settings.browserPaneState.selections[columnIndex] else { return -1 }
+        guard let sel = browserPaneState.selections[columnIndex] else { return -1 }
         return values.firstIndex(of: sel) ?? -1
     }
 
@@ -50,9 +53,9 @@ struct BrowserColumnView: View {
         let newIdx = max(-1, min(values.count - 1, currentIdx + delta))
         guard newIdx != currentIdx else { return }
         if newIdx == -1 {
-            settings.browserPaneState.setSelection(nil, at: columnIndex)
+            browserPaneState.setSelection(nil, at: columnIndex)
         } else {
-            settings.browserPaneState.setSelection(values[newIdx], at: columnIndex)
+            browserPaneState.setSelection(values[newIdx], at: columnIndex)
         }
     }
 
@@ -61,15 +64,15 @@ struct BrowserColumnView: View {
         Menu {
             ForEach(BrowserPaneState.BrowseField.allCases, id: \.self) { f in
                 Button {
-                    settings.browserPaneState.setField(f, at: columnIndex)
+                    browserPaneState.setField(f, at: columnIndex)
                 } label: {
-                    Text(settings.browseLabel(for: f))
+                    Text(labelFor(f))
                 }
                 .disabled(isFieldUsedInOtherColumn(f))
             }
         } label: {
             HStack {
-                Text(settings.browserPaneState.fields[columnIndex].map { settings.browseLabel(for: $0) } ?? "")
+                Text(browserPaneState.fields[columnIndex].map { labelFor($0) } ?? "")
                     .font(.subheadline)
                 Spacer()
                 Image(systemName: "chevron.down")
@@ -92,19 +95,19 @@ struct BrowserColumnView: View {
             // 「すべて (N 種類)」: click で当該列の selection を nil にリセット
             row(
                 label: "すべて (\(values.count) 種類)",
-                isSelected: settings.browserPaneState.selections[columnIndex] == nil
+                isSelected: browserPaneState.selections[columnIndex] == nil
             ) {
                 isFocused = true
-                settings.browserPaneState.setSelection(nil, at: columnIndex)
+                browserPaneState.setSelection(nil, at: columnIndex)
             }
 
             ForEach(values, id: \.self) { v in
                 row(
                     label: v,
-                    isSelected: settings.browserPaneState.selections[columnIndex] == v
+                    isSelected: browserPaneState.selections[columnIndex] == v
                 ) {
                     isFocused = true
-                    settings.browserPaneState.setSelection(v, at: columnIndex)
+                    browserPaneState.setSelection(v, at: columnIndex)
                 }
             }
         }
@@ -125,62 +128,21 @@ struct BrowserColumnView: View {
 
     /// columnIndex 以外の他列で同じ field が使われていれば true (重複設定の防止)。
     private func isFieldUsedInOtherColumn(_ field: BrowserPaneState.BrowseField) -> Bool {
-        for (idx, f) in settings.browserPaneState.fields.enumerated() where idx != columnIndex {
+        for (idx, f) in browserPaneState.fields.enumerated() where idx != columnIndex {
             if f == field { return true }
         }
         return false
     }
 
-    /// values の再 fetch trigger。field/上位列 selection/global filter/search/scope が変わるたび。
-    /// booksDataVersion を含めることで、本の追加・削除時も即時リフレッシュされる。
-    private var refreshTrigger: String {
-        let state = settings.browserPaneState
-        let upperSelections = state.selections.prefix(columnIndex).map { $0 ?? "" }.joined(separator: "|")
-        let field = state.fields[columnIndex]?.sqlColumn ?? ""
-        let filterEncoded = (try? JSONEncoder().encode(settings.filterState))
-            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        return "\(field):\(upperSelections):\(appState.searchQuery):\(filterEncoded):\(String(describing: appState.selectedSidebarItem)):\(appState.booksDataVersion)"
-    }
-
     private func loadValues() async {
-        guard let db = appState.database,
-              let item = appState.selectedSidebarItem,
-              let field = settings.browserPaneState.fields[columnIndex] else {
-            values = []
-            return
-        }
-        let scope: SidebarScope
-        switch item {
-        case .library:
-            scope = .library
-        case .favorites:
-            guard let favID = appState.favoritesShelfID else { values = []; return }
-            scope = .favorites(playlistID: favID)
-        case .recent:
-            scope = .recent(days: settings.recentDays)
-        case .shelf(let id, _, _):
-            scope = .shelf(playlistID: id)
-        case .smartShelf(let id, _):
-            scope = .smartShelf(playlistID: id)
-        }
+        guard let field = browserPaneState.fields[columnIndex] else { values = []; return }
         let upperConstraints: [(String, String)] = zip(
-            settings.browserPaneState.fields.prefix(columnIndex),
-            settings.browserPaneState.selections.prefix(columnIndex)
+            browserPaneState.fields.prefix(columnIndex),
+            browserPaneState.selections.prefix(columnIndex)
         ).compactMap { (f, s) in
             guard let f = f, let s = s else { return nil }
             return (f.sqlColumn, s)
         }
-        do {
-            values = try db.distinctValues(
-                forColumn: field.sqlColumn,
-                query: appState.searchQuery,
-                sidebarScope: scope,
-                filter: settings.filterState,
-                browserConstraints: upperConstraints
-            )
-        } catch {
-            appState.error = .unexpected(error)
-            values = []
-        }
+        values = await facetValues(field.sqlColumn, upperConstraints)
     }
 }
