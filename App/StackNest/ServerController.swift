@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import LibraryServer
 import AppCore
+import os
 
 /// アプリ内蔵サーバのライフサイクル管理（設定「共有」タブから操作）。
 /// 配信対象 = 開いている ∧ remoteSharingEnabled なライブラリ（AppStateLibraryDataSource）。
@@ -35,7 +36,12 @@ final class ServerController {
             defaultPageDirection: ViewerSettings.shared.pageDirection,   // サーバ起動時スナップショット（4.1c）
             onBookChanged: { uuid, bookID in
                 Task { @MainActor in
-                    for state in AppState.activeInstances.allObjects where state.librarySettings?.libraryUUID == uuid {
+                    let all = AppState.activeInstances.allObjects
+                    let known = all.map { $0.librarySettings?.libraryUUID ?? "nil" }.joined(separator: ",")
+                    let matched = all.filter { $0.librarySettings?.libraryUUID == uuid }
+                    Logger(subsystem: "app.shelfsmith.stacknest", category: "ReaderDirDebug")
+                        .debug("[onBookChanged] uuid=\(uuid, privacy: .public) book=\(bookID, privacy: .public) instances=\(all.count, privacy: .public) matched=\(matched.count, privacy: .public) known=\(known, privacy: .public)")
+                    for state in matched {
                         state.handleExternalBookChange(bookID: bookID)
                     }
                 }

@@ -3,6 +3,7 @@ import Foundation
 import AppCore
 import LibraryStore
 import Hummingbird
+import os
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -216,6 +217,8 @@ public struct LibraryServerCore: Sendable {
             default: throw HTTPError(.badRequest)
             }
             try lib.db.updatePageDirection(bookID: row.id, direction: dir)
+            Logger(subsystem: "app.shelfsmith.stacknest", category: "ReaderDirDebug")
+                .debug("[/direction] wrote dir=\(body.direction ?? "nil", privacy: .public) uuid=\(lib.uuid, privacy: .public) book=\(row.id, privacy: .public) cbSet=\(config.onBookChanged != nil, privacy: .public)")
             config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }

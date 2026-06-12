@@ -1290,10 +1290,19 @@ final class AppState {
     /// PageDirectionPicker を含む全フィールドが更新される。
     /// selectedBook はインデックス走査ではなく DB から直接再取得して確実に最新値を反映する。
     func handleExternalBookChange(bookID: Int) {
-        try? refreshDisplayedBooks()
-        if let db = database, selectedBook?.id == bookID, let fresh = try? db.fetchBook(id: bookID) {
-            selectedBook = fresh
+        guard let db = database else {
+            Self.logger.debug("[extChange] book=\(bookID, privacy: .public) no-db")
+            return
         }
+        let fresh = try? db.fetchBook(id: bookID)
+        let idx = displayedBooks.firstIndex(where: { $0.id == bookID })
+        Self.logger.debug("[extChange] book=\(bookID, privacy: .public) freshDir=\(String(describing: fresh?.pageDirection), privacy: .public) idxFound=\(idx != nil, privacy: .public) selected=\(self.selectedBook?.id ?? -1, privacy: .public) displayed=\(self.displayedBooks.count, privacy: .public)")
+        guard let fresh else { return }
+        // search 非依存で該当本だけ差し替え → 詳細ペイン(displayedSelectedBooks)・grid を再導出。
+        if let idx { displayedBooks[idx] = fresh }
+        if selectedBook?.id == bookID { selectedBook = fresh }
+        refreshDisplayedSelectedBooks()
+        refreshSortedDisplayedBooks()
     }
 }
 
