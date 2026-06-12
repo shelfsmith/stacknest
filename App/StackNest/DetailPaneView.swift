@@ -13,7 +13,7 @@ struct DetailPaneView: View {
     let canEdit: Bool                       // local = true
     let onApplyPatch: (Int, BookPatch) -> Void          // was applyPatch(bookID:patch:undoManager:)
     let onApplyPatchMulti: ([Int], BookPatch) -> Void   // was applyPatch(bookIDs:patch:undoManager:)
-    let onSetCover: (String?, Int) async -> Void        // was setCoverImageName(_:for:undoManager:)
+    let onSetCover: (String?, Int) async throws -> Void  // was setCoverImageName(_:for:undoManager:)
     let onClearCrop: (Int) -> Void                      // was updateBookCoverCropRect(id:json:nil)+refresh
     let onSetCrop: (Int, String) -> Void                // was updateBookCoverCropRect(id:json:<json>)+refresh
     let onJump: (DetailField, String) -> Void           // was jumpToFilterOrSearch(field:value:)
@@ -447,10 +447,15 @@ struct DetailPaneView: View {
                     .disabled(!isSingleSelection || !canEdit)
                     Button("自動に戻す") {
                         Task {
-                            await onSetCover(nil, book.id)
+                            do {
+                                try await onSetCover(nil, book.id)
+                            } catch {
+                                return
+                            }
                             // Phase 2.5g+h+i fixup v1: 表紙データを自動に戻すと同時に crop_rect も NULL に。
                             // 旧挙動は cover_image_name のみ NULL にして crop_rect が残り、自動表紙に
                             // 古い crop が貼り付くという smoke NG を解消する。
+                            // cover write が失敗した場合は上の catch で return し、ここには到達しない。
                             onClearCrop(book.id)
                         }
                     }
@@ -461,9 +466,13 @@ struct DetailPaneView: View {
                     CoverPickerSheet(book: book, bundleURL: bundleURL) { entry, cropRect in
                         Task {
                             // Phase 2.5h A18-ext: cover_image_name 書き込みと crop rect 書き込み。
-                            // (元の atomic guard は setCoverImageName の throw 検知に依存していたが、
-                            //  注入された onSetCover は非 throwing のため、コンテナ側で失敗をハンドルする。)
-                            await onSetCover(entry, book.id)
+                            // cover write が失敗したときは crop write をスキップして atomicity を保つ
+                            // (元の setCoverImageName の throw 伝搬と同じ制御フロー)。
+                            do {
+                                try await onSetCover(entry, book.id)
+                            } catch {
+                                return
+                            }
                             // cropRect == nil (=全体) のときは crop を NULL に戻す (onClearCrop)。
                             if let cropRect {
                                 onSetCrop(book.id, BookRow.encodeCoverCropRect(cropRect))

@@ -475,7 +475,7 @@ struct LibraryWindowContainer: View {
                     canEdit: true,
                     onApplyPatch: { id, p in appState.applyPatch(bookID: id, patch: p, undoManager: appState.undoManager) },
                     onApplyPatchMulti: { ids, p in _ = try? appState.applyPatch(bookIDs: ids, patch: p, undoManager: appState.undoManager) },
-                    onSetCover: { name, id in try? await appState.setCoverImageName(name, for: id, undoManager: appState.undoManager) },
+                    onSetCover: { name, id in try await appState.setCoverImageName(name, for: id, undoManager: appState.undoManager) },
                     onClearCrop: { id in try? appState.database?.updateBookCoverCropRect(id: id, json: nil); try? appState.refreshDisplayedBooks() },
                     onSetCrop: { id, j in try? appState.database?.updateBookCoverCropRect(id: id, json: j); try? appState.refreshDisplayedBooks() },
                     onJump: { f, v in appState.jumpToFilterOrSearch(field: f, value: v) },
