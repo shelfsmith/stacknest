@@ -233,6 +233,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         // UI 即時更新（スライダー・カウンタ）
         const uiPage = cur + 1;
         sliderEl.value = String(uiPage);
+        sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
         counterEl.textContent = `${uiPage} / ${pageCount}`;
         titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
 
