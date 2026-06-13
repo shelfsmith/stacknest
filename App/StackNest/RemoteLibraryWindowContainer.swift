@@ -65,6 +65,7 @@ struct RemoteLibraryWindowContainer: View {
         }
         state = RemoteLibraryState(
             client: client,
+            serverID: ref.serverID,
             libraryUUID: ref.libraryUUID,
             libraryName: name,
             locked: locked

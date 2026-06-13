@@ -270,16 +270,26 @@ struct RemoteLibraryView: View {
 
     private var listView: some View {
         List(state.books, id: \.id, selection: listSelectionBinding) { book in
-            VStack(alignment: .leading, spacing: 2) {
-                Text(book.title)
-                    .font(.body)
-                let sub = [book.author, book.series].compactMap { $0 }.joined(separator: " / ")
-                if !sub.isEmpty {
-                    Text(sub).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(book.title)
+                        .font(.body)
+                    let sub = [book.author, book.series].compactMap { $0 }.joined(separator: " / ")
+                    if !sub.isEmpty {
+                        Text(sub).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                // Task 4: ダウンロード済みバッジ（downloadedVersion を参照して再評価）。
+                if downloadedBadge(book.id) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(.tint)
+                        .help("オフライン保存済み")
                 }
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { state.openViewer(book: book) }
+            .contextMenu { downloadMenu(book) }
             .tag(book.id)
             // Task 3: infinite モードで末尾行が見えたら次チャンクを取得。
             .onAppear {
@@ -313,6 +323,24 @@ struct RemoteLibraryView: View {
         return .ignored
     }
 
+    // MARK: - Offline download (Task 4)
+
+    /// ダウンロード済みか。state.downloadedVersion を参照して body 再評価時に再計算させる。
+    private func downloadedBadge(_ bookID: Int) -> Bool {
+        _ = state.downloadedVersion
+        return state.isDownloaded(bookID)
+    }
+
+    /// コンテキストメニュー（ダウンロード / オフラインから削除）。
+    @ViewBuilder
+    private func downloadMenu(_ book: BookListItemDTO) -> some View {
+        if downloadedBadge(book.id) {
+            Button("オフラインから削除") { state.removeDownload(book.id) }
+        } else {
+            Button("ダウンロード") { Task { await state.downloadBook(book) } }
+        }
+    }
+
     // MARK: - Grid mode
 
     private let gridColumns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)]
@@ -321,9 +349,11 @@ struct RemoteLibraryView: View {
         ScrollView {
             LazyVGrid(columns: gridColumns, spacing: 16) {
                 ForEach(state.books, id: \.id) { book in
-                    RemoteBookCell(book: book, state: state, selected: state.selection == book.id)
+                    RemoteBookCell(book: book, state: state, selected: state.selection == book.id,
+                                   downloaded: downloadedBadge(book.id))
                         .onTapGesture(count: 2) { state.openViewer(book: book) }
                         .onTapGesture { Task { await state.selectBook(book.id) } }
+                        .contextMenu { downloadMenu(book) }
                         // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
                         .onAppear {
                             if state.scrollMode == .infinite, book.id == state.books.last?.id {
@@ -379,6 +409,8 @@ private struct RemoteBookCell: View {
     let book: BookListItemDTO
     let state: RemoteLibraryState
     let selected: Bool
+    /// Task 4: ダウンロード済みバッジ表示フラグ（親が downloadedVersion 参照込みで算出）。
+    let downloaded: Bool
 
     @State private var image: NSImage?
 
@@ -396,6 +428,16 @@ private struct RemoteBookCell: View {
                 }
             }
             .frame(height: 180)
+            .overlay(alignment: .topTrailing) {
+                if downloaded {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(.tint)
+                        .padding(4)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(4)
+                        .help("オフライン保存済み")
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)

@@ -16,10 +16,19 @@ final class RemoteLibraryState {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrary")
 
     let client: RemoteLibraryClient
+    let serverID: UUID
     let libraryUUID: String
     var libraryName: String
     var locked: Bool
     var libraryToken: String?
+
+    /// Phase 4.2b-2 Task 4: オフライン保存ストア（既定の Application Support ベース）。
+    private let offlineStore = OfflineStore()
+
+    /// オフライン DL/削除のたびに &+=1 する観測カウンタ。
+    /// OfflineStore はディスクから読むため SwiftUI が直接観測できない。
+    /// ビュー body で参照させ、ダウンロード済みバッジを再評価させるためのトリガ。
+    var downloadedVersion = 0
 
     /// Phase 4.2b-1b-1 Task 3: 表示モード + per のグローバル設定（UserDefaults 永続）。
     private let prefs = RemoteBrowsePreferences()
@@ -62,8 +71,9 @@ final class RemoteLibraryState {
     /// ビューワを 1 ウィンドウだけ保持する（ローカル AppState.viewerController と同じ方針）。
     private var viewerController: ViewerWindowController?
 
-    init(client: RemoteLibraryClient, libraryUUID: String, libraryName: String, locked: Bool, libraryToken: String? = nil) {
+    init(client: RemoteLibraryClient, serverID: UUID, libraryUUID: String, libraryName: String, locked: Bool, libraryToken: String? = nil) {
         self.client = client
+        self.serverID = serverID
         self.libraryUUID = libraryUUID
         self.libraryName = libraryName
         self.locked = locked
@@ -200,6 +210,35 @@ final class RemoteLibraryState {
         } catch {
             errorText = "解錠に失敗しました"
         }
+    }
+
+    // MARK: - Offline download (Phase 4.2b-2 Task 4)
+
+    /// 指定本がオフライン保存済みか。
+    func isDownloaded(_ bookID: Int) -> Bool {
+        offlineStore.isDownloaded(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
+    }
+
+    /// 本の detail + ファイル本体 + 表紙を取得し OfflineStore に保存する。
+    func downloadBook(_ item: BookListItemDTO) async {
+        do {
+            let detail = try await client.bookDetail(libraryUUID: libraryUUID, bookID: item.id, libraryToken: libraryToken)
+            let fileData = try await client.bookFile(libraryUUID: libraryUUID, bookID: item.id, libraryToken: libraryToken)
+            let coverData = try? await client.coverData(libraryUUID: libraryUUID, bookID: item.id, maxw: 600, libraryToken: libraryToken)
+            let ext = offlineFileExtension(for: fileData)
+            try offlineStore.save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
+                                  fileExtension: ext, fileData: fileData, coverData: coverData)
+            downloadedVersion &+= 1   // UI バッジ再評価のトリガ
+            errorText = nil
+        } catch {
+            errorText = "ダウンロードできませんでした（オフライン非対応の可能性）"
+        }
+    }
+
+    /// オフライン保存を削除する。
+    func removeDownload(_ bookID: Int) {
+        offlineStore.remove(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
+        downloadedVersion &+= 1
     }
 
     /// 表紙バイト列を取得する（LRU キャッシュ経由）。失敗時は nil。
