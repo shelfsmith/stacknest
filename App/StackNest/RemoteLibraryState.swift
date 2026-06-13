@@ -35,6 +35,16 @@ final class RemoteLibraryState {
     var selection: Int? = nil
     var errorText: String? = nil
 
+    /// Phase 4.2b-1b-2b Task 5: 共有 browse ビュー（sidebar / facet pane / detail）駆動状態。
+    enum RemoteSidebarSelection: Equatable {
+        case library, favorites(Int64), recent, shelf(Int64), smartShelf(Int64)
+    }
+    var sidebarSelection: RemoteSidebarSelection = .library
+    var filterState = FilterState()
+    var browserPaneState = BrowserPaneState()
+    var shelves: [ShelfDTO] = []
+    var detail: BookDetailDTO? = nil
+
     /// 表示モード（paged / infinite）。setMode 経由で変更・永続化する。
     var scrollMode: RemoteScrollMode
 
@@ -86,16 +96,39 @@ final class RemoteLibraryState {
     private var fetchSize: Int { scrollMode == .infinite ? infiniteChunkSize : per }
 
     /// 指定ページ・サイズで 1 チャンク取得する（load/reload/loadMore 共通）。
+    /// scope（sidebar）/ filter / browse（facet pane）を自動付与する。
     private func fetchChunk(page: Int, size: Int) async throws -> BookPageDTO {
-        try await client.fetchBooks(
+        let (scope, scopeId, recentDays) = scopeParams()
+        return try await client.fetchBooks(
             libraryUUID: libraryUUID,
             query: query.isEmpty ? nil : query,
             sort: sortKey,
             ascending: ascending,
             page: page,
             per: size,
-            libraryToken: libraryToken
+            libraryToken: libraryToken,
+            scope: scope, scopeId: scopeId, recentDays: recentDays,
+            filter: filterState, browse: browseConstraints()
         )
+    }
+
+    // MARK: - Scope / browse params
+
+    private func scopeParams() -> (String?, Int64?, Int?) {
+        switch sidebarSelection {
+        case .library: return (nil, nil, nil)
+        case .favorites(let id): return ("favorites", id, nil)
+        case .recent: return ("recent", nil, 7)
+        case .shelf(let id): return ("shelf", id, nil)
+        case .smartShelf(let id): return ("smartShelf", id, nil)
+        }
+    }
+
+    private func browseConstraints() -> [BrowseConstraint] {
+        zip(browserPaneState.fields, browserPaneState.selections).compactMap { (f, s) in
+            guard let f, let s else { return nil }
+            return BrowseConstraint(column: f.sqlColumn, value: s)
+        }
     }
 
     /// paged のページ送り。現在の page を per サイズで取得し books を置換する。
@@ -186,6 +219,72 @@ final class RemoteLibraryState {
         } catch {
             return nil
         }
+    }
+
+    // MARK: - Shelves / sidebar / detail (Phase 4.2b-1b-2b Task 5)
+
+    func loadShelves() async {
+        shelves = (try? await client.listShelves(libraryUUID: libraryUUID, libraryToken: libraryToken)) ?? []
+    }
+
+    func setSidebar(_ s: RemoteSidebarSelection) {
+        guard s != sidebarSelection else { return }
+        sidebarSelection = s
+        Task { await reload() }
+    }
+
+    func selectBook(_ id: Int?) async {
+        selection = id
+        guard let id else { detail = nil; return }
+        detail = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: id, libraryToken: libraryToken)
+    }
+
+    /// 共有ファセット pane の facetValues クロージャ用。
+    func facetValues(_ columnSQL: String, _ upper: [(String, String)]) async -> [String] {
+        let (scope, scopeId, recentDays) = scopeParams()
+        return (try? await client.facetValues(
+            libraryUUID: libraryUUID, field: columnSQL, scope: scope, scopeId: scopeId, recentDays: recentDays,
+            filter: filterState, browse: upper.map { BrowseConstraint(column: $0.0, value: $0.1) },
+            q: query.isEmpty ? nil : query, libraryToken: libraryToken)) ?? []
+    }
+
+    /// 共有ファセット pane の refreshKey。
+    var facetRefreshKey: String {
+        let s = browserPaneState
+        let f = (try? JSONEncoder().encode(filterState)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return "\(s.fields.map { $0?.sqlColumn ?? "" }.joined(separator: ","))|\(s.selections.map { $0 ?? "" }.joined(separator: ","))|\(query)|\(f)|\(String(describing: sidebarSelection))"
+    }
+
+    /// 共有 DetailPaneView の books（選択本の詳細 → BookRow 単一要素 or 空）。
+    func detailBookRows() -> [BookRow] {
+        guard let d = detail else { return [] }
+        return [Self.mapDetail(d)]
+    }
+
+    private static func mapDetail(_ d: BookDetailDTO) -> BookRow {
+        let dir: PageDirection? = d.pageDirection == "rtl" ? .rightToLeft : (d.pageDirection == "ltr" ? .leftToRight : nil)
+        return BookRow(
+            id: d.id, title: d.title, author: d.author, genre: d.genre, path: d.path,
+            dateAdded: d.dateAdded, playDate: d.playDate, bookType: d.bookType, fileType: d.fileType,
+            pages: d.pages, rating: d.rating, unseen: d.unseen, keywordA: d.keywordA, keywordB: d.keywordB,
+            keywordC: d.keywordC, neta: d.neta, memo: d.memo, series: d.series, volume: d.volume,
+            coverImageName: d.coverImageName,
+            coverCropRect: BookRow.decodeCoverCropRect(json: d.coverCropRectJSON),
+            pageDirection: dir, contentHash: nil, fileSize: nil, fileMtime: nil)
+    }
+
+    /// 共有 DetailPaneView の coverImage 注入用。
+    func coverImage(_ bookID: Int) async -> NSImage? {
+        // actor 境界を越える fetch クロージャが MainActor 隔離の self を捕捉しないよう、
+        // 必要な値（Sendable）をローカルにコピーしてから渡す（cover(bookID:) と同じ方針）。
+        let client = self.client
+        let uuid = self.libraryUUID
+        let token = self.libraryToken
+        let key = RemoteCoverCache.Key(libraryUUID: uuid, bookID: bookID, maxWidth: 600)
+        let data = try? await coverCache.data(for: key) {
+            try await client.coverData(libraryUUID: uuid, bookID: bookID, maxw: 600, libraryToken: token)
+        }
+        return data.flatMap { NSImage(data: $0) }
     }
 
     // MARK: - Viewer
