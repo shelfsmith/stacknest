@@ -10,6 +10,10 @@ struct DetailPaneView: View {
     let librarySettings: LibrarySettings?   // was appState.librarySettings
     let bundleURL: URL                      // was appState.bundleURL
     let loader: ThumbnailLoader?
+    /// Optional cover-image provider for remote (read-only) clients.
+    /// When non-nil, called instead of `loader` to fetch the cover NSImage over HTTP.
+    /// Defaults to nil — local callers omit this and stay on the `loader` path.
+    let coverImage: ((Int) async -> NSImage?)? = nil
     let canEdit: Bool                       // local = true
     let onApplyPatch: (Int, BookPatch) -> Void          // was applyPatch(bookID:patch:undoManager:)
     let onApplyPatchMulti: ([Int], BookPatch) -> Void   // was applyPatch(bookIDs:patch:undoManager:)
@@ -438,7 +442,7 @@ struct DetailPaneView: View {
         // 単一選択かどうかを判定 (複数選択時は context menu 全項目 disabled)
         let isSingleSelection = books.count == 1
         VStack(alignment: .center, spacing: 8) {
-            CoverImageView(book: book, loader: loader)
+            CoverImageView(book: book, loader: loader, coverImage: coverImage)
                 .frame(maxWidth: 240, maxHeight: 340)
                 .contextMenu {
                     Button("表紙を選択…") {
@@ -567,6 +571,8 @@ struct DetailPaneView: View {
 private struct CoverImageView: View {
     let book: BookRow
     let loader: ThumbnailLoader?
+    /// Optional remote cover provider. When non-nil, used instead of `loader`.
+    let coverImage: ((Int) async -> NSImage?)?
     @State private var image: CGImage?
 
     var body: some View {
@@ -591,7 +597,14 @@ private struct CoverImageView: View {
         // .task(id:) だけでは @State image 更新後も view が skip される場合がある。
         .id("\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? "")")
         .task(id: "\(book.id):\(book.coverImageName ?? "")") {
-            image = await loader?.thumbnail(for: book.id, maxPixelSize: 600)
+            if let coverImage {
+                // Remote path: fetch NSImage via injected provider, convert to CGImage.
+                let nsImage = await coverImage(book.id)
+                image = nsImage?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+            } else {
+                // Local path: use ThumbnailLoader (unchanged behavior).
+                image = await loader?.thumbnail(for: book.id, maxPixelSize: 600)
+            }
         }
     }
 
