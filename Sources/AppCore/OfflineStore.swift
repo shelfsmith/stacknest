@@ -21,6 +21,8 @@ public struct DownloadedBook: Codable, Sendable, Identifiable {
     }
 }
 
+/// 注: @unchecked Sendable。呼び出しは現状すべて @MainActor 経由（downloadBook / persistState）で
+/// 直列化されているため競合しない。並行呼び出しを足す場合は actor 化を検討。
 public struct OfflineStore: @unchecked Sendable {
     public let baseDirectory: URL
     private var indexURL: URL { baseDirectory.appendingPathComponent("index.json") }

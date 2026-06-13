@@ -231,7 +231,12 @@ final class RemoteLibraryState {
             downloadedVersion &+= 1   // UI バッジ再評価のトリガ
             errorText = nil
         } catch {
-            errorText = "ダウンロードできませんでした（オフライン非対応の可能性）"
+            switch error as? RemoteClientError {
+            case .offline: errorText = "ダウンロードできません（サーバに接続できません）"
+            case .timeout: errorText = "ダウンロードがタイムアウトしました"
+            case .notFound, .server: errorText = "この本はオフラインに保存できません（フォルダ型など非対応の可能性）"
+            default: errorText = "ダウンロードに失敗しました"
+            }
         }
     }
 

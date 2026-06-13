@@ -138,6 +138,7 @@ struct StackNestApp: App {
         Window("オフライン", id: "offline") {
             OfflineLibraryView()
         }
+        .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
         .commandsRemoved()
         .restorationBehavior(.disabled)

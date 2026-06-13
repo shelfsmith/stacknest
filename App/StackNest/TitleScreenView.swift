@@ -73,7 +73,7 @@ struct TitleScreenView: View {
         .buttonStyle(.bordered)
 
         Button { openWindow(id: "offline") } label: {
-          Label("オフライン（ダウンロード済み）", systemImage: "arrow.down.circle")
+          Label("オフライン（ダウンロード済み）", systemImage: "tray.and.arrow.down")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
