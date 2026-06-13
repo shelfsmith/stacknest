@@ -13,7 +13,7 @@ struct DetailPaneView: View {
     /// Optional cover-image provider for remote (read-only) clients.
     /// When non-nil, called instead of `loader` to fetch the cover NSImage over HTTP.
     /// Defaults to nil — local callers omit this and stay on the `loader` path.
-    let coverImage: ((Int) async -> NSImage?)? = nil
+    let coverImage: ((Int) async -> NSImage?)?
     let canEdit: Bool                       // local = true
     let onApplyPatch: (Int, BookPatch) -> Void          // was applyPatch(bookID:patch:undoManager:)
     let onApplyPatchMulti: ([Int], BookPatch) -> Void   // was applyPatch(bookIDs:patch:undoManager:)
@@ -22,6 +22,40 @@ struct DetailPaneView: View {
     let onSetCrop: (Int, String) -> Void                // was updateBookCoverCropRect(id:json:<json>)+refresh
     let onJump: (DetailField, String) -> Void           // was jumpToFilterOrSearch(field:value:)
     let onError: (AppError) -> Void                     // was appState.error = <AppError>
+
+    /// 明示イニシャライザ。`coverImage` は inline default (`= nil`) を持つため
+    /// 合成メモリワイズ init からは除外され、呼び出し側で渡せなくなる。
+    /// リモート (read-only) クライアントが coverImage を注入できるよう、
+    /// 末尾に default 付きで明示的に受け取る。ローカル呼び出しは従来どおり省略可。
+    init(
+        books: [BookRow],
+        librarySettings: LibrarySettings?,
+        bundleURL: URL,
+        loader: ThumbnailLoader?,
+        canEdit: Bool,
+        onApplyPatch: @escaping (Int, BookPatch) -> Void,
+        onApplyPatchMulti: @escaping ([Int], BookPatch) -> Void,
+        onSetCover: @escaping (String?, Int) async throws -> Void,
+        onClearCrop: @escaping (Int) -> Void,
+        onSetCrop: @escaping (Int, String) -> Void,
+        onJump: @escaping (DetailField, String) -> Void,
+        onError: @escaping (AppError) -> Void,
+        coverImage: ((Int) async -> NSImage?)? = nil
+    ) {
+        self.books = books
+        self.librarySettings = librarySettings
+        self.bundleURL = bundleURL
+        self.loader = loader
+        self.canEdit = canEdit
+        self.onApplyPatch = onApplyPatch
+        self.onApplyPatchMulti = onApplyPatchMulti
+        self.onSetCover = onSetCover
+        self.onClearCrop = onClearCrop
+        self.onSetCrop = onSetCrop
+        self.onJump = onJump
+        self.onError = onError
+        self.coverImage = coverImage
+    }
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
     /// @State and resets to the original (non-empty) title.

@@ -36,7 +36,7 @@ final class RemoteLibraryState {
     var errorText: String? = nil
 
     /// Phase 4.2b-1b-2b Task 5: 共有 browse ビュー（sidebar / facet pane / detail）駆動状態。
-    enum RemoteSidebarSelection: Equatable {
+    enum RemoteSidebarSelection: Equatable, Hashable {
         case library, favorites(Int64), recent, shelf(Int64), smartShelf(Int64)
     }
     var sidebarSelection: RemoteSidebarSelection = .library

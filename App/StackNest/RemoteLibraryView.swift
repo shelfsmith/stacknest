@@ -18,16 +18,50 @@ struct RemoteLibraryView: View {
     /// 4.2b-1b-1: per TextField のフォーカス追跡（フォーカスを外したときに commitPerInput() を発火）。
     @FocusState private var perFieldFocused: Bool
 
+    /// Task 6: フィルタ popover の表示制御。
+    @State private var filterShown = false
+
     var body: some View {
         Group {
             if state.locked && state.libraryToken == nil {
                 unlockForm
+                    .frame(minWidth: 720, minHeight: 480)
             } else {
-                browseView
+                splitView
             }
         }
-        .frame(minWidth: 720, minHeight: 480)
         .navigationTitle(state.libraryName)
+    }
+
+    // MARK: - Split layout (Task 6)
+
+    private var splitView: some View {
+        NavigationSplitView {
+            RemoteSidebarView(state: state)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 200)
+        } content: {
+            browseView
+                .frame(minWidth: 480)
+        } detail: {
+            detailPane
+                .navigationSplitViewColumnWidth(min: 240, ideal: 260)
+        }
+        .frame(minWidth: 960, minHeight: 480)
+    }
+
+    /// 共有 read-only DetailPaneView。canEdit:false・編集系クロージャは no-op。
+    private var detailPane: some View {
+        DetailPaneView(
+            books: state.detailBookRows(),
+            librarySettings: nil,
+            bundleURL: URL(fileURLWithPath: "/"),
+            loader: nil,
+            canEdit: false,
+            onApplyPatch: { _, _ in }, onApplyPatchMulti: { _, _ in },
+            onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },
+            onJump: { _, _ in }, onError: { _ in },
+            coverImage: { id in await state.coverImage(id) }
+        )
     }
 
     // MARK: - Unlock
@@ -64,6 +98,14 @@ struct RemoteLibraryView: View {
                 banner(err)
             }
             Divider()
+            // Task 6: 共有ファセット pane（上端）。
+            BrowserPaneView(
+                browserPaneState: $state.browserPaneState,
+                labelFor: { defaultBrowseFieldLabel($0) },
+                refreshKey: state.facetRefreshKey,
+                facetValues: { col, upper in await state.facetValues(col, upper) }
+            )
+            Divider()
             if state.isGrid {
                 gridView
             } else {
@@ -81,6 +123,14 @@ struct RemoteLibraryView: View {
             // setPer 経由などで per が変わったら TextField を同期。
             let synced = String(newValue)
             if perInput != synced { perInput = synced }
+        }
+        // Task 6: フィルタ変更で先頭から読み直す。
+        .onChange(of: state.filterState) { _, _ in
+            Task { await state.reload() }
+        }
+        // Task 6: ファセット選択で先頭から読み直す。
+        .onChange(of: state.browserPaneState.selections) { _, _ in
+            Task { await state.reload() }
         }
     }
 
@@ -124,6 +174,20 @@ struct RemoteLibraryView: View {
             }
 
             Spacer()
+
+            // Task 6: フィルタ popover（FilterPopoverView を再利用、data-agnostic）。
+            Button {
+                filterShown.toggle()
+            } label: {
+                Image(systemName: state.filterState.isEmpty
+                    ? "line.3.horizontal.decrease.circle"
+                    : "line.3.horizontal.decrease.circle.fill")
+            }
+            .help("フィルタ")
+            .popover(isPresented: $filterShown, arrowEdge: .bottom) {
+                FilterPopoverView(filter: $state.filterState)
+                    .frame(width: 280)
+            }
 
             Picker("", selection: $state.isGrid) {
                 Image(systemName: "list.bullet").tag(false)
@@ -205,7 +269,7 @@ struct RemoteLibraryView: View {
     // MARK: - List mode
 
     private var listView: some View {
-        List(state.books, id: \.id, selection: $state.selection) { book in
+        List(state.books, id: \.id, selection: listSelectionBinding) { book in
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)
                     .font(.body)
@@ -232,6 +296,14 @@ struct RemoteLibraryView: View {
         .task { listFocused = true }
     }
 
+    /// Task 6: List 選択 binding。選択変更時に detail pane を読み込む。
+    private var listSelectionBinding: Binding<Int?> {
+        Binding(
+            get: { state.selection },
+            set: { newID in Task { await state.selectBook(newID) } }
+        )
+    }
+
     /// D1: 選択中の本を開く。一覧/グリッド共通。
     private func openSelected() -> KeyPress.Result {
         if let id = state.selection, let book = state.books.first(where: { $0.id == id }) {
@@ -251,7 +323,7 @@ struct RemoteLibraryView: View {
                 ForEach(state.books, id: \.id) { book in
                     RemoteBookCell(book: book, state: state, selected: state.selection == book.id)
                         .onTapGesture(count: 2) { state.openViewer(book: book) }
-                        .onTapGesture { state.selection = book.id }
+                        .onTapGesture { Task { await state.selectBook(book.id) } }
                         // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
                         .onAppear {
                             if state.scrollMode == .infinite, book.id == state.books.last?.id {
