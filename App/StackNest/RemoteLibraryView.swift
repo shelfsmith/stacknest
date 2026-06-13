@@ -289,6 +289,10 @@ struct RemoteLibraryView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { state.openViewer(book: book) }
+            // D1 fix: .contextMenu を付けると List(selection:) のネイティブ単一クリック選択が
+            // 横取りされる（右クリック/ダブルクリックは生きるが単一選択が死ぬ）。グリッドと同じく
+            // 明示的な単一タップで selectBook して、壊れたネイティブ選択経路への依存をやめる。
+            .onTapGesture { Task { await state.selectBook(book.id) } }
             .contextMenu { downloadMenu(book) }
             .tag(book.id)
             // Task 3: infinite モードで末尾行が見えたら次チャンクを取得。
