@@ -132,6 +132,15 @@ struct StackNestApp: App {
         .defaultLaunchBehavior(.suppressed)
         .commandsRemoved()
         .restorationBehavior(.disabled)
+
+        // Phase 4.2b-2 Task 5: オフライン（ダウンロード済み）ウィンドウ。
+        // File メニュー / Title から openWindow(id:"offline")。サーバ接続なしで動作する。
+        Window("オフライン", id: "offline") {
+            OfflineLibraryView()
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .commandsRemoved()
+        .restorationBehavior(.disabled)
     }
 
     @Environment(\.openWindow) private var openWindow
@@ -629,6 +638,10 @@ struct FileCommands: Commands {
 
             Button("サーバに接続…") {
                 openWindow(id: "connect")
+            }
+
+            Button("オフライン（ダウンロード済み）…") {
+                openWindow(id: "offline")
             }
 
             Button("ライブラリを開く…") {

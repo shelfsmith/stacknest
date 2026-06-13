@@ -1,0 +1,264 @@
+// SPDX-License-Identifier: MIT
+import AppCore
+import AppKit
+import LibraryServerAPI
+import LibraryStore
+import SwiftUI
+
+/// Phase 4.2b-2 Task 5: オフライン（ダウンロード済み）ライブラリの閲覧 UI。
+/// サーバ接続を一切持たず、OfflineStore + ローカルファイルのみで動作する。
+/// ダウンロード済みの本を一覧し、内蔵ビューワでオフライン再生する。
+struct OfflineLibraryView: View {
+    @State private var books: [DownloadedBook] = []
+    @State private var query = ""
+    @State private var selectedID: String? = nil
+    @State private var errorText: String? = nil
+    /// 内蔵ビューワを 1 ウィンドウだけ保持する（RemoteLibraryState.viewerController と同方針）。
+    @State private var viewer: ViewerWindowController? = nil
+
+    private let store = OfflineStore()
+
+    var body: some View {
+        NavigationSplitView {
+            sidebar
+                .navigationSplitViewColumnWidth(min: 240, ideal: 300)
+        } detail: {
+            detailPane
+                .navigationSplitViewColumnWidth(min: 240, ideal: 260)
+        }
+        .frame(minWidth: 820, minHeight: 480)
+        .navigationTitle("オフライン")
+        .task { reload() }
+    }
+
+    // MARK: - Reload
+
+    private func reload() {
+        books = store.all()
+    }
+
+    /// query（タイトル一致）で絞り込んだ本。
+    private var filtered: [DownloadedBook] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return books }
+        return books.filter { $0.detail.title.localizedCaseInsensitiveContains(q) }
+    }
+
+    /// libraryName ごとにグルーピング（セクション表示用）。
+    private var groups: [(library: String, books: [DownloadedBook])] {
+        let dict = Dictionary(grouping: filtered, by: { $0.libraryName })
+        return dict.keys.sorted().map { name in
+            (library: name, books: dict[name]!.sorted { $0.detail.title < $1.detail.title })
+        }
+    }
+
+    // MARK: - Sidebar (content list)
+
+    private var sidebar: some View {
+        VStack(spacing: 0) {
+            if let errorText {
+                banner(errorText)
+                Divider()
+            }
+            if books.isEmpty {
+                ContentUnavailableView(
+                    "ダウンロード済みの本がありません",
+                    systemImage: "arrow.down.circle",
+                    description: Text("サーバ接続時に本をダウンロードすると、ここでオフライン閲覧できます。")
+                )
+            } else {
+                listView
+            }
+            Divider()
+            footer
+        }
+        .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
+    }
+
+    private var listView: some View {
+        List(selection: $selectedID) {
+            ForEach(groups, id: \.library) { group in
+                Section(group.library) {
+                    ForEach(group.books) { book in
+                        row(book)
+                            .tag(book.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) { openOffline(book) }
+                            .contextMenu {
+                                Button("開く") { openOffline(book) }
+                                Divider()
+                                Button("削除", role: .destructive) { delete(book) }
+                            }
+                    }
+                }
+            }
+        }
+        .onKeyPress(.return) {
+            if let book = selectedBook { openOffline(book); return .handled }
+            return .ignored
+        }
+    }
+
+    private func row(_ book: DownloadedBook) -> some View {
+        HStack(spacing: 8) {
+            thumbnail(book)
+                .frame(width: 36, height: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(book.detail.title)
+                    .font(.body)
+                    .lineLimit(2)
+                let sub = [book.detail.author, book.detail.series]
+                    .compactMap { $0 }
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " / ")
+                if !sub.isEmpty {
+                    Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(_ book: DownloadedBook) -> some View {
+        if book.hasCachedCover, let img = NSImage(contentsOf: store.coverURL(for: book)) {
+            Image(nsImage: img)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+        } else {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(Color.secondary.opacity(0.15))
+                .overlay(Image(systemName: "book").foregroundStyle(.secondary))
+        }
+    }
+
+    private var footer: some View {
+        HStack {
+            Text("\(books.count) 件")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(ByteCountFormatter.string(fromByteCount: store.totalSizeBytes(), countStyle: .file))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    private func banner(_ text: String) -> some View {
+        HStack {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(text)
+            Spacer()
+        }
+        .font(.caption)
+        .foregroundStyle(.red)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.red.opacity(0.1))
+    }
+
+    // MARK: - Detail pane
+
+    private var selectedBook: DownloadedBook? {
+        books.first { $0.id == selectedID }
+    }
+
+    private func selectedRows() -> [BookRow] {
+        guard let book = selectedBook else { return [] }
+        return [offlineBookRow(book, fileURL: store.fileURL(for: book))]
+    }
+
+    /// 共有 read-only DetailPaneView（RemoteLibraryView と同様、編集系は no-op）。
+    private var detailPane: some View {
+        DetailPaneView(
+            books: selectedRows(),
+            librarySettings: nil,
+            bundleURL: URL(fileURLWithPath: "/"),
+            loader: nil,
+            canEdit: false,
+            onApplyPatch: { _, _ in }, onApplyPatchMulti: { _, _ in },
+            onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },
+            onJump: { _, _ in }, onError: { _ in },
+            coverImage: { id in await offlineCover(id) }
+        )
+    }
+
+    /// detail pane の coverImage 注入用。選択中の本のキャッシュ表紙を NSImage で返す。
+    private func offlineCover(_ bookID: Int) async -> NSImage? {
+        guard let book = books.first(where: { $0.detail.id == bookID }), book.hasCachedCover else {
+            return nil
+        }
+        return NSImage(contentsOf: store.coverURL(for: book))
+    }
+
+    // MARK: - Actions
+
+    /// オフライン保存済みの本を内蔵ビューワで開く。BookContent はローカルファイル経由。
+    private func openOffline(_ book: DownloadedBook) {
+        let fileURL = store.fileURL(for: book)
+        let row = offlineBookRow(book, fileURL: fileURL)
+        let content: BookContent
+        do {
+            content = try BookContentFactory.make(for: row)
+        } catch {
+            errorText = "本を開けませんでした（オフライン非対応のファイル）"
+            return
+        }
+        Task { @MainActor in
+            let pageCount: Int
+            do {
+                pageCount = try await content.pageCount
+            } catch {
+                self.errorText = "本を開けませんでした"
+                return
+            }
+            guard pageCount > 0 else {
+                self.errorText = "本を開けませんでした（0ページ）"
+                return
+            }
+            // ローカル DB は持たないため、見開きはグローバル既定で開き、lastPage は OfflineStore の値。
+            let initialState = ResolvedViewerState(
+                spreadEnabled: ViewerSettings.shared.spreadByDefault,
+                coverOffset: true,
+                lastPage: max(0, book.lastPage ?? 0),
+                overrides: [:]
+            )
+            let options = ViewerOptions(
+                pageDirection: row.pageDirection ?? ViewerSettings.shared.pageDirection,
+                endOfBookBehavior: ViewerSettings.shared.endOfBookBehavior
+            )
+            let serverID = book.serverID
+            let libraryUUID = book.libraryUUID
+            let store = self.store
+            let controller = ViewerWindowController(
+                content: content,
+                book: row,
+                pageCount: pageCount,
+                options: options,
+                initialState: initialState,
+                // オフラインでは巻送り未対応。
+                loadNextVolume: { _ in nil },
+                loadPrevVolume: { _ in nil },
+                // 進捗を OfflineStore に永続化する（リモートサーバへの POST の代替）。
+                persistState: { b, lastPage, _, _ in
+                    store.updateLastPage(serverID: serverID, libraryUUID: libraryUUID, bookID: b.id, page: lastPage)
+                },
+                // ページレイアウト override はオフラインでは永続化しない（no-op）。
+                persistPageOverride: { _, _, _ in },
+                onClose: { self.viewer = nil }
+            )
+            self.viewer = controller
+            self.errorText = nil
+            controller.present()
+        }
+    }
+
+    /// オフライン保存を削除して一覧を更新する。
+    private func delete(_ book: DownloadedBook) {
+        store.remove(serverID: book.serverID, libraryUUID: book.libraryUUID, bookID: book.bookID)
+        if selectedID == book.id { selectedID = nil }
+        reload()
+    }
+}
