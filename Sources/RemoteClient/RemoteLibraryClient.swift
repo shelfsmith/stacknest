@@ -144,6 +144,11 @@ public struct RemoteLibraryClient: Sendable {
         return try await send(request(url, libraryToken: libraryToken))
     }
 
+    public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> Data {
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
+        return try await send(request(url, libraryToken: libraryToken))
+    }
+
     public func coverData(libraryUUID: String, bookID: Int, maxw: Int?, libraryToken: String?) async throws -> Data {
         var q: [URLQueryItem] = []
         if let maxw, maxw > 0 { q.append(.init(name: "maxw", value: String(maxw))) }

@@ -127,6 +127,14 @@ struct StubBackedRemoteClientTests {
             #expect(d.genre == "G")
             #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/books/9/detail")
         }
+        @Test func bookFileReturnsBytes() async throws {
+            let bytes = Data([0x50, 0x4B, 0x03, 0x04])
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
+            let data = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: "LT")
+            #expect(data == bytes)
+            #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/books/9/file")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
     }
 
     @Suite("RemoteBookContent — BookContent 適合")
