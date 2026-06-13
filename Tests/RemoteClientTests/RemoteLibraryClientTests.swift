@@ -4,6 +4,7 @@ import Foundation
 @testable import RemoteClient
 import LibraryServerAPI
 import AppCore
+import LibraryStore
 
 final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Stub { let status: Int; let headers: [String: String]; let body: Data }
@@ -83,6 +84,48 @@ struct StubBackedRemoteClientTests {
             let client = makeClient()
             _ = try await client.fetchBooks(libraryUUID: "u1", query: nil as String?, sort: "title", ascending: true, page: 1, per: 100, libraryToken: "LTOK")
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LTOK")
+        }
+    }
+
+    @Suite("RemoteLibraryClient browse")
+    struct RemoteBrowseClientTests {
+        private func makeClient() -> RemoteLibraryClient {
+            let cfg = URLSessionConfiguration.ephemeral
+            cfg.protocolClasses = [StubURLProtocol.self]
+            return RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "d",
+                                       session: URLSession(configuration: cfg))
+        }
+        private func enc() -> JSONEncoder { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; return e }
+
+        @Test func listShelvesDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode([ShelfDTO(id: 3, title: "S", kind: "user", isSmart: false)]))
+            let got = try await makeClient().listShelves(libraryUUID: "u", libraryToken: nil)
+            #expect(got.first?.id == 3)
+            #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/shelves")
+        }
+        @Test func facetValuesBuildsScopeAndFilterParams() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(["SF"]))
+            var fs = FilterState(); fs.bookTypes = [1]
+            _ = try await makeClient().facetValues(libraryUUID: "u", field: "genre",
+                scope: "shelf", scopeId: 7, recentDays: nil, filter: fs,
+                browse: [BrowseConstraint(column: "author", value: "X")], q: "k", libraryToken: "LT")
+            let comps = URLComponents(url: StubURLProtocol.lastRequest!.url!, resolvingAgainstBaseURL: false)!
+            let items = Dictionary(uniqueKeysWithValues: (comps.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            #expect(comps.path == "/api/v1/libraries/u/facets/genre")
+            #expect(items["scope"] == "shelf"); #expect(items["scopeId"] == "7"); #expect(items["q"] == "k")
+            #expect(items["filter"]?.isEmpty == false); #expect(items["browse"]?.isEmpty == false)
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
+        @Test func bookDetailDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(
+                BookDetailDTO(id: 9, title: "T", author: nil, genre: "G", path: nil, dateAdded: Date(timeIntervalSince1970: 0),
+                    playDate: nil, bookType: 0, fileType: 2, pages: nil, rating: 0, unseen: true,
+                    keywordA: nil, keywordB: nil, keywordC: nil, neta: nil, memo: nil, series: nil, volume: nil,
+                    coverImageName: nil, coverCropRectJSON: nil, pageDirection: nil)))
+            let d = try await makeClient().bookDetail(libraryUUID: "u", bookID: 9, libraryToken: nil)
+            #expect(d.genre == "G")
+            #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/books/9/detail")
         }
     }
 

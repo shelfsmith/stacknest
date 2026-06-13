@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryServerAPI
+import LibraryStore
 
 /// 別 StackNest サーバの HTTP API を叩くクライアント（メタ=JSON 共有 DTO / バイナリ=Data）。
 public struct RemoteLibraryClient: Sendable {
@@ -82,17 +83,53 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(UnlockReply.self, data).libraryToken
     }
 
+    private func encodeJSONParam<T: Encodable>(_ v: T) -> String? {
+        (try? JSONEncoder().encode(v)).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    private func browseQueryItems(scope: String?, scopeId: Int64?, recentDays: Int?,
+                                  filter: FilterState?, browse: [BrowseConstraint]?, q: String?) -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let q, !q.isEmpty { items.append(.init(name: "q", value: q)) }
+        if let scope { items.append(.init(name: "scope", value: scope)) }
+        if let scopeId { items.append(.init(name: "scopeId", value: String(scopeId))) }
+        if let recentDays { items.append(.init(name: "recentDays", value: String(recentDays))) }
+        if let filter, let j = encodeJSONParam(filter) { items.append(.init(name: "filter", value: j)) }
+        if let browse, !browse.isEmpty, let j = encodeJSONParam(browse) { items.append(.init(name: "browse", value: j)) }
+        return items
+    }
+
     public func fetchBooks(libraryUUID: String, query: String?, sort: String, ascending: Bool,
-                           page: Int, per: Int, libraryToken: String?) async throws -> BookPageDTO {
+                           page: Int, per: Int, libraryToken: String?,
+                           scope: String? = nil, scopeId: Int64? = nil, recentDays: Int? = nil,
+                           filter: FilterState? = nil, browse: [BrowseConstraint]? = nil) async throws -> BookPageDTO {
         var q: [URLQueryItem] = [
             .init(name: "sort", value: sort),
             .init(name: "order", value: ascending ? "asc" : "desc"),
             .init(name: "page", value: String(page)),
             .init(name: "per", value: String(per)),
         ]
-        if let query, !query.isEmpty { q.insert(.init(name: "q", value: query), at: 0) }
+        q += browseQueryItems(scope: scope, scopeId: scopeId, recentDays: recentDays, filter: filter, browse: browse, q: query)
         let url = makeURL("libraries/\(libraryUUID)/books", query: q)
         return try decode(BookPageDTO.self, try await send(request(url, libraryToken: libraryToken)))
+    }
+
+    public func listShelves(libraryUUID: String, libraryToken: String?) async throws -> [ShelfDTO] {
+        let url = makeURL("libraries/\(libraryUUID)/shelves")
+        return try decode([ShelfDTO].self, try await send(request(url, libraryToken: libraryToken)))
+    }
+
+    public func facetValues(libraryUUID: String, field: String, scope: String?, scopeId: Int64?,
+                            recentDays: Int?, filter: FilterState?, browse: [BrowseConstraint]?,
+                            q: String?, libraryToken: String?) async throws -> [String] {
+        let url = makeURL("libraries/\(libraryUUID)/facets/\(field)",
+                          query: browseQueryItems(scope: scope, scopeId: scopeId, recentDays: recentDays, filter: filter, browse: browse, q: q))
+        return try decode([String].self, try await send(request(url, libraryToken: libraryToken)))
+    }
+
+    public func bookDetail(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> BookDetailDTO {
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/detail")
+        return try decode(BookDetailDTO.self, try await send(request(url, libraryToken: libraryToken)))
     }
 
     public func manifest(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> ManifestDTO {
