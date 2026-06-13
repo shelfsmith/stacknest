@@ -187,12 +187,26 @@ export async function renderBooks(uuid, query, deps) {
         autocorrect: "off", spellcheck: "false", "aria-label": "検索",
     });
     // 300ms デバウンス。検索でページを 1 にリセット。
+    // navigate() は DOM（検索 input 含む）を作り直すため、IME 変換中に発火すると
+    // focus と未確定の変換が破棄され、日本語入力が確定前に中断される。
+    // → compositionstart〜compositionend の間は発火させず、確定時に拾う。
     let searchTimer = null;
-    search.addEventListener("input", () => {
+    let composing = false;
+    const scheduleSearch = () => {
         if (searchTimer) clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
             navigate(uuid, { page: 1, q: search.value, sort, order });
         }, 300);
+    };
+    search.addEventListener("compositionstart", () => { composing = true; });
+    search.addEventListener("compositionend", () => {
+        composing = false;
+        scheduleSearch();
+    });
+    search.addEventListener("input", (ev) => {
+        // 変換中は無視。確定は compositionend で拾う。
+        if (composing || ev.isComposing) return;
+        scheduleSearch();
     });
 
     const sortSelect = el("select", { class: "books-sort", "aria-label": "並び替え" },
