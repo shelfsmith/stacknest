@@ -37,4 +37,21 @@ struct DTORoundTripTests {
         let reply = UnlockReply(libraryToken: "tok")
         #expect(try dec().decode(UnlockReply.self, from: enc().encode(reply)).libraryToken == "tok")
     }
+
+    @Test func shelfAndBrowseConstraintRoundTrip() throws {
+        let s = ShelfDTO(id: 5, title: "棚", kind: "user", isSmart: false)
+        #expect(try dec().decode(ShelfDTO.self, from: enc().encode(s)).title == "棚")
+        let bc = BrowseConstraint(column: "genre", value: "SF")
+        #expect(try dec().decode(BrowseConstraint.self, from: enc().encode(bc)).value == "SF")
+    }
+    @Test func bookDetailRoundTrip() throws {
+        let d = BookDetailDTO(
+            id: 9, title: "T", author: "A", genre: "G", path: "/p", dateAdded: Date(timeIntervalSince1970: 0),
+            playDate: nil, bookType: 0, fileType: 2, pages: 12, rating: 3, unseen: true,
+            keywordA: "ka", keywordB: nil, keywordC: nil, neta: "n", memo: "m", series: "S", volume: 2,
+            coverImageName: nil, coverCropRectJSON: nil, pageDirection: "rtl")
+        let back = try dec().decode(BookDetailDTO.self, from: enc().encode(d))
+        #expect(back.keywordA == "ka")
+        #expect(back.pageDirection == "rtl")
+    }
 }

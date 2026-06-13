@@ -145,3 +145,60 @@ public struct UnlockReply: Codable, Sendable {
         self.libraryToken = libraryToken
     }
 }
+
+/// 棚（ユーザー定義棚 / スマート棚）の一覧 DTO（spec §3.3 /shelves）。
+public struct ShelfDTO: Codable, Sendable {
+    public let id: Int64
+    public let title: String
+    public let kind: String
+    public let isSmart: Bool
+    public init(id: Int64, title: String, kind: String, isSmart: Bool) {
+        self.id = id; self.title = title; self.kind = kind; self.isSmart = isSmart
+    }
+}
+
+/// ブラウズ絞り込み条件 1 件（列名 + 値ペア）。
+public struct BrowseConstraint: Codable, Sendable {
+    public let column: String
+    public let value: String
+    public init(column: String, value: String) { self.column = column; self.value = value }
+}
+
+/// 書籍詳細 DTO（spec §3.3 /books/:id）。
+public struct BookDetailDTO: Codable, Sendable {
+    public let id: Int
+    public let title: String
+    public let author: String?
+    public let genre: String?
+    public let path: String?
+    public let dateAdded: Date
+    public let playDate: Date?
+    public let bookType: Int
+    public let fileType: Int
+    public let pages: Int?
+    public let rating: Int
+    public let unseen: Bool
+    public let keywordA: String?
+    public let keywordB: String?
+    public let keywordC: String?
+    public let neta: String?
+    public let memo: String?
+    public let series: String?
+    public let volume: Double?
+    public let coverImageName: String?
+    public let coverCropRectJSON: String?
+    public let pageDirection: String?
+    public init(id: Int, title: String, author: String?, genre: String?, path: String?,
+                dateAdded: Date, playDate: Date?, bookType: Int, fileType: Int, pages: Int?,
+                rating: Int, unseen: Bool, keywordA: String?, keywordB: String?, keywordC: String?,
+                neta: String?, memo: String?, series: String?, volume: Double?,
+                coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?) {
+        self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
+        self.dateAdded = dateAdded; self.playDate = playDate; self.bookType = bookType
+        self.fileType = fileType; self.pages = pages; self.rating = rating; self.unseen = unseen
+        self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC
+        self.neta = neta; self.memo = memo; self.series = series; self.volume = volume
+        self.coverImageName = coverImageName; self.coverCropRectJSON = coverCropRectJSON
+        self.pageDirection = pageDirection
+    }
+}

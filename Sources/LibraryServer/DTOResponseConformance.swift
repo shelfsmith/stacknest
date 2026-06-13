@@ -8,3 +8,5 @@ extension LibraryDTO: ResponseEncodable {}
 extension ServerCapabilities: ResponseEncodable {}
 extension ManifestDTO: ResponseEncodable {}
 extension UnlockReply: ResponseEncodable {}
+extension ShelfDTO: ResponseEncodable {}
+extension BookDetailDTO: ResponseEncodable {}
