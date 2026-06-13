@@ -47,6 +47,24 @@ struct BooksQuery {
     let order: SortOrder
     let page: Int      // 1-based
     let per: Int       // clamp 1...500
+    let scope: SidebarScope
+    let filter: FilterState
+    let browse: [(String, String)]
+
+    init(
+        q: String?,
+        sort: BookSortKey,
+        order: SortOrder,
+        page: Int,
+        per: Int,
+        scope: SidebarScope = .library,
+        filter: FilterState = FilterState(),
+        browse: [(String, String)] = []
+    ) {
+        self.q = q; self.sort = sort; self.order = order
+        self.page = page; self.per = per
+        self.scope = scope; self.filter = filter; self.browse = browse
+    }
 
     /// 表紙を持つ本の id 集合。
     /// 実規約では表紙は `Thumbnails/<bookID>/thumbnail.jpg`（ファイル名固定）で、
@@ -64,13 +82,14 @@ struct BooksQuery {
     }
 
     func run(on lib: ServedLibrary) throws -> BookPageDTO {
-        // q 指定時はローカルと同じ FTS5(searchBooks) で絞り込み集合を得る。空時は全件高速パス。
-        let rows: [BookRow]
-        if let q, !q.isEmpty {
-            rows = try lib.db.searchBooks(query: q, sidebarScope: .library)
-        } else {
-            rows = try lib.db.fetchAllBooks()
-        }
+        // 全ケースを searchBooks(query:sidebarScope:filter:browserConstraints:) に統一。
+        // q=nil の空クエリ + filter/browse なし の場合は内部で fetchAllBooks() 高速パスに分岐する。
+        let rows = try lib.db.searchBooks(
+            query: q ?? "",
+            sidebarScope: scope,
+            filter: filter,
+            browserConstraints: browse.map { (column: $0.0, value: $0.1) }
+        )
         let progress = try lib.db.fetchAllViewerStates()
         // hasCover は Thumbnails/ 1 回 listing の安価な近似（全件可）。
         // coverVersion は thumbnail.jpg 個別 stat が必要なため、全件 stat（5,000 回）を避け

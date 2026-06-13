@@ -106,7 +106,7 @@ public struct LibraryServerCore: Sendable {
             guard lib.verifyPassword(body.password) else { throw HTTPError(.forbidden) }
             return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
         }
-        // books 一覧（ページング・検索・ソート・進行状況）。ロック庫は X-Library-Token 必須。
+        // books 一覧（ページング・検索・ソート・進行状況・scope/filter/browse）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books") { request, context in
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
@@ -125,14 +125,68 @@ public struct LibraryServerCore: Sendable {
             } else {
                 order = sort.defaultOrder
             }
+            // ?filter=<URL-encoded JSON FilterState> — decode or use empty default.
+            let filter = decodeFilterState(from: qp.get("filter"))
+            // ?browse=<URL-encoded JSON [[column,value]]> — decode or use empty default.
+            let browse = decodeBrowseConstraints(from: qp.get("browse"))
             let query = BooksQuery(
                 q: qp.get("q"),
                 sort: sort,
                 order: order,
                 page: max(1, qp.get("page", as: Int.self) ?? 1),
-                per: min(500, max(1, qp.get("per", as: Int.self) ?? 100))
+                per: min(500, max(1, qp.get("per", as: Int.self) ?? 100)),
+                filter: filter,
+                browse: browse
             )
             return try query.run(on: lib)
+        }
+        // 棚一覧（ユーザー棚・スマート棚）。ロック庫は X-Library-Token 必須。
+        api.get("libraries/:lib/shelves") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(
+                uuid: uuid, libraryToken: libraryToken(from: request)
+            ) else {
+                throw HTTPError(.notFound)
+            }
+            let rows = try lib.db.fetchAllShelves()
+            return rows.map { row in
+                ShelfDTO(id: row.id, title: row.title, kind: row.kind, isSmart: row.isSmart)
+            }
+        }
+        // ファセット（列の distinct 値リスト）。ロック庫は X-Library-Token 必須。
+        api.get("libraries/:lib/facets/:field") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(
+                uuid: uuid, libraryToken: libraryToken(from: request)
+            ) else {
+                throw HTTPError(.notFound)
+            }
+            let field = try context.parameters.require("field")
+            let qp = request.uri.queryParameters
+            let filter = decodeFilterState(from: qp.get("filter"))
+            let browse = decodeBrowseConstraints(from: qp.get("browse"))
+            let values = try lib.db.distinctValues(
+                forColumn: field,
+                query: qp.get("q") ?? "",
+                sidebarScope: .library,
+                filter: filter,
+                browserConstraints: browse.map { (column: $0.0, value: $0.1) }
+            )
+            return values
+        }
+        // 書籍詳細（フル BookRow の全フィールドを BookDetailDTO として返す）。ロック庫は X-Library-Token 必須。
+        api.get("libraries/:lib/books/:id/detail") { request, context in
+            let (_, row) = try await resolver.resolveBook(request, context)
+            return BookDetailDTO(
+                id: row.id, title: row.title, author: row.author, genre: row.genre, path: row.path,
+                dateAdded: row.dateAdded, playDate: row.playDate, bookType: row.bookType,
+                fileType: row.fileType, pages: row.pages, rating: row.rating, unseen: row.unseen,
+                keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC,
+                neta: row.neta, memo: row.memo, series: row.series, volume: row.volume,
+                coverImageName: row.coverImageName,
+                coverCropRectJSON: row.coverCropRect.map(BookRow.encodeCoverCropRect),
+                pageDirection: row.pageDirection.map { directionString($0) }
+            )
         }
         // 表紙画像（ETag + immutable キャッシュ・If-None-Match で 304）。
         // ETag は表紙ファイル自身の mtime+size 由来（表紙差し替えを追跡 — 引き継ぎ(1)）。
@@ -258,5 +312,28 @@ struct ProgressRequestBody: Decodable {
 /// 方向書き込みボディ（swiftc ASTMangler 対策でファイルスコープ）。
 struct DirectionRequestBody: Decodable {
     let direction: String?
+}
+
+/// ?filter=<URL-decoded JSON> から FilterState をデコードする。
+/// 不正 JSON / nil は空の FilterState にフォールバックする（呼び出し側で 400 にしない）。
+private func decodeFilterState(from jsonString: String?) -> FilterState {
+    guard let s = jsonString, !s.isEmpty,
+          let data = s.data(using: .utf8),
+          let fs = try? JSONDecoder().decode(FilterState.self, from: data)
+    else { return FilterState() }
+    return fs
+}
+
+/// ?browse=<URL-decoded JSON [[column,value]]> から [(String,String)] をデコードする。
+/// 不正 / nil は空配列にフォールバックする。
+private func decodeBrowseConstraints(from jsonString: String?) -> [(String, String)] {
+    guard let s = jsonString, !s.isEmpty,
+          let data = s.data(using: .utf8),
+          let arr = try? JSONDecoder().decode([[String]].self, from: data)
+    else { return [] }
+    return arr.compactMap { pair in
+        guard pair.count == 2 else { return nil }
+        return (pair[0], pair[1])
+    }
 }
 
