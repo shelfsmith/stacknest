@@ -56,7 +56,7 @@ let package = Package(
         ),
         .target(
             name: "AppCore",
-            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive"],
+            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI"],
             path: "Sources/AppCore"
         ),
         .target(name: "LibraryServerAPI", path: "Sources/LibraryServerAPI"),
@@ -109,7 +109,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AppCoreTests",
-            dependencies: ["AppCore", "LibraryStore", "StackroomFormat"],
+            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI"],
             path: "Tests/AppCoreTests",
             resources: [.copy("PDFFixtures")]
         ),
