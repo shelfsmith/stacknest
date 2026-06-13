@@ -94,6 +94,39 @@ struct RemoteBrowseEndpointsTests {
         }
     }
 
+    // MARK: - SQL injection prevention (4.2b-1b-2b)
+
+    @Test func facetsRejectsUnknownColumn() async throws {
+        let fixture = try TestLibraryFixture(name: "FcBad", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])).buildApplication()
+        try await app.test(.router) { client in
+            // SQL-injection-ish / unknown column → 400
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/facets/title);DROP", method: .get,
+                headers: [.authorization: "Bearer tk"]) { resp in
+                #expect(resp.status == .badRequest)
+            }
+        }
+    }
+
+    @Test func booksRejectsUnknownBrowseColumn() async throws {
+        let fixture = try TestLibraryFixture(name: "BfBad", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let badBrowse = String(data: try JSONEncoder().encode([BrowseConstraint(column: "evil; DROP TABLE book", value: "x")]), encoding: .utf8)!
+            .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed)!
+        let app = LibraryServerCore(config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/books?browse=\(badBrowse)", method: .get,
+                headers: [.authorization: "Bearer tk"]) { resp in
+                #expect(resp.status == .badRequest)
+            }
+        }
+    }
+
     @Test func booksFilterByBookTypeViaJSON() async throws {
         let fixture = try TestLibraryFixture(name: "Bf", bookCount: 0)
         defer { fixture.cleanup() }

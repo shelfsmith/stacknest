@@ -57,6 +57,12 @@ public struct LibraryRequestContext: RequestContext {
     }
 }
 
+/// ファセット / ブラウズで受け付ける列名の許可リスト（SQL injection 防御・4.2b-1b-2b）。
+/// BrowserPaneState.BrowseField.allCases から生成するため enum の変更に自動追従する。
+let allowedFacetColumns: Set<String> = Set(
+    BrowserPaneState.BrowseField.allCases.map { $0.sqlColumn }
+)
+
 /// HTTP サーバ本体。Router 構築と Application 生成を担う。
 /// AppKit / ImageIO / PDFKit を import しないこと（Linux 移植規律・spec §3.2）。
 public struct LibraryServerCore: Sendable {
@@ -127,8 +133,8 @@ public struct LibraryServerCore: Sendable {
             }
             // ?filter=<URL-encoded JSON FilterState> — decode or use empty default.
             let filter = decodeFilterState(from: qp.get("filter"))
-            // ?browse=<URL-encoded JSON [[column,value]]> — decode or use empty default.
-            let browse = decodeBrowseConstraints(from: qp.get("browse"))
+            // ?browse=<URL-encoded JSON [[column,value]]> — 不正列名は 400（SQL injection 防御）。
+            let browse = try decodeBrowseConstraintsValidated(from: qp.get("browse"))
             let query = BooksQuery(
                 q: qp.get("q"),
                 sort: sort,
@@ -162,9 +168,10 @@ public struct LibraryServerCore: Sendable {
                 throw HTTPError(.notFound)
             }
             let field = try context.parameters.require("field")
+            guard allowedFacetColumns.contains(field) else { throw HTTPError(.badRequest) }
             let qp = request.uri.queryParameters
             let filter = decodeFilterState(from: qp.get("filter"))
-            let browse = decodeBrowseConstraints(from: qp.get("browse"))
+            let browse = try decodeBrowseConstraintsValidated(from: qp.get("browse"))
             let values = try lib.db.distinctValues(
                 forColumn: field,
                 query: qp.get("q") ?? "",
@@ -324,16 +331,24 @@ private func decodeFilterState(from jsonString: String?) -> FilterState {
     return fs
 }
 
-/// ?browse=<URL-decoded JSON [[column,value]]> から [(String,String)] をデコードする。
-/// 不正 / nil は空配列にフォールバックする。
+/// ?browse=<URL-decoded JSON [{"column":…,"value":…}]> から [(String,String)] をデコードする。
+/// クライアントは [BrowseConstraint] (オブジェクト配列) として送信する。
+/// 不正 JSON / nil は空配列にフォールバックする（バリデーションなし版・内部利用）。
 private func decodeBrowseConstraints(from jsonString: String?) -> [(String, String)] {
     guard let s = jsonString, !s.isEmpty,
           let data = s.data(using: .utf8),
-          let arr = try? JSONDecoder().decode([[String]].self, from: data)
+          let arr = try? JSONDecoder().decode([BrowseConstraint].self, from: data)
     else { return [] }
-    return arr.compactMap { pair in
-        guard pair.count == 2 else { return nil }
-        return (pair[0], pair[1])
+    return arr.map { ($0.column, $0.value) }
+}
+
+/// ?browse=<URL-decoded JSON [{"column":…,"value":…}]> から [(String,String)] をデコードし、
+/// 列名が許可リスト外なら HTTPError(.badRequest) を投げる（SQL injection 防御・4.2b-1b-2b）。
+private func decodeBrowseConstraintsValidated(from jsonString: String?) throws -> [(String, String)] {
+    let pairs = decodeBrowseConstraints(from: jsonString)
+    for (column, _) in pairs {
+        guard allowedFacetColumns.contains(column) else { throw HTTPError(.badRequest) }
     }
+    return pairs
 }
 
