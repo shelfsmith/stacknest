@@ -141,6 +141,7 @@ public struct LibraryServerCore: Sendable {
                 order: order,
                 page: max(1, qp.get("page", as: Int.self) ?? 1),
                 per: min(500, max(1, qp.get("per", as: Int.self) ?? 100)),
+                scope: decodeSidebarScope(scope: qp.get("scope"), scopeId: qp.get("scopeId", as: Int64.self), recentDays: qp.get("recentDays", as: Int.self)),
                 filter: filter,
                 browse: browse
             )
@@ -175,7 +176,7 @@ public struct LibraryServerCore: Sendable {
             let values = try lib.db.distinctValues(
                 forColumn: field,
                 query: qp.get("q") ?? "",
-                sidebarScope: .library,
+                sidebarScope: decodeSidebarScope(scope: qp.get("scope"), scopeId: qp.get("scopeId", as: Int64.self), recentDays: qp.get("recentDays", as: Int.self)),
                 filter: filter,
                 browserConstraints: browse.map { (column: $0.0, value: $0.1) }
             )
@@ -185,7 +186,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/books/:id/detail") { request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
             return BookDetailDTO(
-                id: row.id, title: row.title, author: row.author, genre: row.genre, path: row.path,
+                id: row.id, title: row.title, author: row.author, genre: row.genre, path: nil,
                 dateAdded: row.dateAdded, playDate: row.playDate, bookType: row.bookType,
                 fileType: row.fileType, pages: row.pages, rating: row.rating, unseen: row.unseen,
                 keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC,
@@ -350,5 +351,22 @@ private func decodeBrowseConstraintsValidated(from jsonString: String?) throws -
         guard allowedFacetColumns.contains(column) else { throw HTTPError(.badRequest) }
     }
     return pairs
+}
+
+/// ?scope=<scope>&scopeId=<Int64>&recentDays=<Int> から SidebarScope をデコードする。
+/// 不正値・未知の scope は .library にフォールバックする（呼び出し側で 400 にしない）。
+private func decodeSidebarScope(scope: String?, scopeId: Int64?, recentDays: Int?) -> SidebarScope {
+    switch scope {
+    case "favorites":
+        return scopeId.map { SidebarScope.favorites(playlistID: $0) } ?? .library
+    case "recent":
+        return .recent(days: recentDays ?? 7)
+    case "shelf":
+        return scopeId.map { SidebarScope.shelf(playlistID: $0) } ?? .library
+    case "smartShelf":
+        return scopeId.map { SidebarScope.smartShelf(playlistID: $0) } ?? .library
+    default:
+        return .library
+    }
 }
 

@@ -127,6 +127,31 @@ struct RemoteBrowseEndpointsTests {
         }
     }
 
+    @Test func booksScopeShelfFiltersToShelfMembers() async throws {
+        let fixture = try TestLibraryFixture(name: "Scope", bookCount: 0)
+        defer { fixture.cleanup() }
+        let inShelf = try fixture.db.insertBookReturningID(BookRecord(id: 0, title: "InShelf", dateAdded: Date()))
+        _ = try fixture.db.insertBookReturningID(BookRecord(id: 0, title: "NotInShelf", dateAdded: Date()))
+        let shelfID = try fixture.db.createUserShelf(title: "MyShelf")
+        try fixture.db.appendBooksToShelf(playlistID: shelfID, bookIDs: [inShelf])
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books?scope=shelf&scopeId=\(shelfID)", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { resp in
+                #expect(resp.status == .ok)
+                let page = try dec().decode(BookPageDTO.self, from: Data(buffer: resp.body))
+                #expect(page.items.contains { $0.title == "InShelf" })
+                #expect(!page.items.contains { $0.title == "NotInShelf" })
+            }
+        }
+    }
+
     @Test func booksFilterByBookTypeViaJSON() async throws {
         let fixture = try TestLibraryFixture(name: "Bf", bookCount: 0)
         defer { fixture.cleanup() }

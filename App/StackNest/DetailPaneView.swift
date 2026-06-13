@@ -225,13 +225,15 @@ struct DetailPaneView: View {
             // Read-only metadata + Finder button (single only)
             if !snapshotIsMulti, let book = snapshotBooks.first {
                 readOnlyMetadata(book: book)
-                Divider()
-                Button {
-                    revealInFinder(book: book)
-                } label: {
-                    Label("Finder で表示", systemImage: "folder")
+                if canEdit {
+                    Divider()
+                    Button {
+                        revealInFinder(book: book)
+                    } label: {
+                        Label("Finder で表示", systemImage: "folder")
+                    }
+                    .buttonStyle(.bordered)
                 }
-                .buttonStyle(.bordered)
             }
         }
         .padding()
