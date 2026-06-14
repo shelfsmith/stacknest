@@ -240,6 +240,51 @@ final class RemoteLibraryState {
         }
     }
 
+    // MARK: - Multi-select (4.2b-5)
+    var selectionMode = false
+    var multiSelection: Set<Int> = []
+    /// 一括 DL の進捗（done, total）。実行中のみ非 nil。
+    var batchProgress: (done: Int, total: Int)? = nil
+
+    func toggleSelectionMode() {
+        selectionMode.toggle()
+        if !selectionMode { multiSelection.removeAll() }
+    }
+    func toggleSelected(_ id: Int) {
+        if multiSelection.contains(id) { multiSelection.remove(id) } else { multiSelection.insert(id) }
+    }
+    func selectAllVisible() { multiSelection = Set(books.map { $0.id }) }
+    func clearSelection() { multiSelection.removeAll() }
+
+    /// 選択集合を順に DL。既 DL はスキップ、失敗しても続行、完了時に要約を errorText に出す。
+    func downloadSelected() async {
+        // isDownloaded(_:) は self.serverID / self.libraryUUID を内部で参照するため
+        // BatchDownloadPlan.pending の isDownloaded クロージャはラベルなし bookID のみ渡す。
+        let pending = BatchDownloadPlan.pending(selected: multiSelection) { id in
+            isDownloaded(id)
+        }
+        let skipped = multiSelection.count - pending.count
+        guard !pending.isEmpty else {
+            errorText = skipped > 0 ? "選択はすべてダウンロード済みです" : "本が選択されていません"
+            return
+        }
+        var ok = 0, fail = 0
+        batchProgress = (0, pending.count)
+        for (i, id) in pending.enumerated() {
+            guard let item = books.first(where: { $0.id == id }) else { fail += 1; continue }
+            let before = downloadedVersion
+            await downloadBook(item)
+            if downloadedVersion != before { ok += 1 } else { fail += 1 }
+            batchProgress = (i + 1, pending.count)
+        }
+        batchProgress = nil
+        var parts = ["\(ok) 件ダウンロード"]
+        if skipped > 0 { parts.append("\(skipped) 件スキップ") }
+        if fail > 0 { parts.append("\(fail) 件失敗") }
+        errorText = parts.joined(separator: " / ")
+        downloadedVersion &+= 1
+    }
+
     /// オフライン保存を削除する。
     func removeDownload(_ bookID: Int) {
         offlineStore.remove(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
