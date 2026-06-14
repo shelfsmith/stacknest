@@ -176,6 +176,12 @@ public struct BrowseConstraint: Codable, Sendable {
     public init(column: String, value: String) { self.column = column; self.value = value }
 }
 
+/// 隣接巻（次/前）応答。該当なしは book == nil。
+public struct AdjacentVolumeReply: Codable, Sendable {
+    public let book: BookListItemDTO?
+    public init(book: BookListItemDTO?) { self.book = book }
+}
+
 /// 書籍詳細 DTO（spec §3.3 /books/:id）。
 public struct BookDetailDTO: Codable, Sendable {
     public let id: Int

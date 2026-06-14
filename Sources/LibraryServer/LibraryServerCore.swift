@@ -196,6 +196,31 @@ public struct LibraryServerCore: Sendable {
                 pageDirection: row.pageDirection.map { directionString($0) }
             )
         }
+        // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
+        // 該当なしは book == nil（常に 200）。
+        api.get("libraries/:lib/books/:id/adjacent") { request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let dir = request.uri.queryParameters.get("dir") ?? ""
+            let sibling: BookRow?
+            switch dir {
+            case "next": sibling = try lib.db.nextVolumeInSeries(after: row)
+            case "prev": sibling = try lib.db.prevVolumeInSeries(before: row)
+            default: throw HTTPError(.badRequest)
+            }
+            let dto = sibling.map { s in
+                BookListItemDTO(
+                    id: s.id, title: s.title, author: s.author,
+                    series: s.series, volume: s.volume,
+                    rating: s.rating, unseen: s.unseen, bookType: s.bookType,
+                    pages: s.pages,
+                    lastPage: (try? lib.db.loadViewerState(bookID: s.id))?.lastPage,
+                    lastReadAt: nil,
+                    dateAdded: s.dateAdded,
+                    hasCover: false, coverVersion: nil
+                )
+            }
+            return AdjacentVolumeReply(book: dto)
+        }
         // 表紙画像（ETag + immutable キャッシュ・If-None-Match で 304）。
         // ETag は表紙ファイル自身の mtime+size 由来（表紙差し替えを追跡 — 引き継ぎ(1)）。
         // 304 判定は Data(contentsOf:) の前に行う（一致時はバイト読込を省く — 4.1a Minor 解消）。
