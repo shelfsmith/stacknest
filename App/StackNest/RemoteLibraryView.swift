@@ -391,10 +391,20 @@ struct RemoteLibraryView: View {
     // MARK: - Grid mode
 
     private let gridColumns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)]
+    private let gridItemMinSize: CGFloat = 140
+    private let gridSpacing: CGFloat = 16
+
+    /// O6: グリッド幅を GeometryReader で取得し、列数計算に使う。
+    @State private var gridWidth: CGFloat = 0
+
+    /// O6: 現在の列数（GridColumnCalculator を使用）。
+    private var currentColumnCount: Int {
+        GridColumnCalculator.columns(viewportWidth: gridWidth, itemMinSize: gridItemMinSize, spacing: gridSpacing)
+    }
 
     private var gridView: some View {
         ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: 16) {
+            LazyVGrid(columns: gridColumns, spacing: gridSpacing) {
                 ForEach(state.books, id: \.id) { book in
                     RemoteBookCell(book: book, state: state, selected: state.selection == book.id,
                                    downloaded: downloadedBadge(book.id),
@@ -414,12 +424,46 @@ struct RemoteLibraryView: View {
                         }
                 }
             }
-            .padding(16)
+            .padding(gridSpacing)
         }
+        // O6: グリッド幅を背景 GeometryReader で取得（ScrollView レイアウトを変えない）。
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { gridWidth = geo.size.width }
+                .onChange(of: geo.size.width) { _, w in gridWidth = w }
+        })
         // D1: グリッドでも Return で選択中の本を開く。
         .focusable()
         .focused($listFocused)
         .onKeyPress(.return) { openSelected() }
+        // O6: 矢印キーでグリッドセルを移動する。
+        .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: .down) { press in
+            let books = state.books
+            guard !books.isEmpty else { return .ignored }
+            let cols = max(1, currentColumnCount)
+            let total = books.count
+            let cur = state.selection.flatMap { id in books.firstIndex(where: { $0.id == id }) }
+            let direction: GridNavigator.Direction
+            switch press.key {
+            case .upArrow:    direction = .up
+            case .downArrow:  direction = .down
+            case .leftArrow:  direction = .left
+            case .rightArrow: direction = .right
+            default: return .ignored
+            }
+            let targetIdx: Int
+            if let cur {
+                guard let next = GridNavigator.nextIndex(current: cur, direction: direction, total: total, columns: cols) else {
+                    return .handled  // 端で消費（スクロール等に伝播させない）
+                }
+                targetIdx = next
+            } else {
+                targetIdx = 0  // 未選択 + 矢印 → 先頭
+            }
+            let id = books[targetIdx].id
+            Task { await state.selectBook(id) }
+            return .handled
+        }
         .task { listFocused = true }
     }
 
