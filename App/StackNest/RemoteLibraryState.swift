@@ -373,9 +373,12 @@ final class RemoteLibraryState {
                 pageCount: pageCount,
                 options: options,
                 initialState: initialState,
-                // リモートでは巻送り未対応（同一シリーズ解決はサーバ側に未実装）。
-                loadNextVolume: { _ in nil },
-                loadPrevVolume: { _ in nil },
+                loadNextVolume: { [weak self] cur in
+                    await self?.resolveRemoteVolume(after: cur.id, direction: "next")
+                },
+                loadPrevVolume: { [weak self] cur in
+                    await self?.resolveRemoteVolume(after: cur.id, direction: "prev")
+                },
                 // 進捗をリモートサーバへ POST する（ローカル DB 書き込みの代替）。
                 persistState: { [weak self] (b, lastPage, _, _) in
                     guard let self else { return }
@@ -424,6 +427,31 @@ final class RemoteLibraryState {
             series: dto.series,
             volume: dto.volume
         )
+    }
+
+    /// 隣接巻をサーバから解決し NextVolume を組む。該当なし/失敗は nil。
+    /// content は RemoteBookContent（ストリーミング）なので未 DL の巻でも再生できる。
+    private func resolveRemoteVolume(after bookID: Int, direction: String) async -> NextVolume? {
+        let dto: BookListItemDTO?
+        do {
+            dto = try await client.adjacentVolume(
+                libraryUUID: libraryUUID, bookID: bookID,
+                direction: direction, libraryToken: libraryToken)
+        } catch {
+            return nil
+        }
+        guard let dto else { return nil }
+        let content = RemoteBookContent(
+            client: client, libraryUUID: libraryUUID,
+            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600)
+        let row = Self.makeBookRow(from: dto)
+        let state = ResolvedViewerState(
+            spreadEnabled: ViewerSettings.shared.spreadByDefault,
+            coverOffset: true,
+            lastPage: max(0, dto.lastPage ?? 0),
+            overrides: [:]
+        )
+        return NextVolume(content: content, book: row, state: state)
     }
 
     // MARK: - Error messages
