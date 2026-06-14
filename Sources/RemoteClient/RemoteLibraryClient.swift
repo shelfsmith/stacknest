@@ -170,4 +170,20 @@ public struct RemoteLibraryClient: Sendable {
         let data = try await send(request(url, libraryToken: libraryToken))
         return try decode(AdjacentVolumeReply.self, data).book
     }
+
+    /// GET /api/v1/me — ライブラリトークンのロールを返す。
+    public func me(libraryToken: String?) async throws -> TokenRole {
+        let data = try await send(request(makeURL("me"), libraryToken: libraryToken))
+        return try decode(MeReply.self, data).role
+    }
+
+    /// PATCH /api/v1/libraries/:lib/books/:id — メタデータを部分更新し、更新後の BookDetailDTO を返す。
+    public func updateBook(libraryUUID: String, bookID: Int, patch: BookPatchDTO,
+                           libraryToken: String?) async throws -> BookDetailDTO {
+        let body = try JSONEncoder().encode(patch)
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)")
+        let data = try await send(request(url, method: "PATCH", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json"))
+        return try decode(BookDetailDTO.self, data)
+    }
 }

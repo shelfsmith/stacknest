@@ -158,6 +158,40 @@ struct StubBackedRemoteClientTests {
             #expect(dto == nil)
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
         }
+
+        @Test func meReturnsRole() async throws {
+            let reply = MeReply(role: .write)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(reply))
+            let role = try await makeClient().me(libraryToken: "LT")
+            #expect(role == .write)
+            #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/me")
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
+
+        @Test func updateBookReturnsUpdatedDetail() async throws {
+            let detail = BookDetailDTO(id: 42, title: "NEW", author: nil, genre: nil, path: nil,
+                dateAdded: Date(timeIntervalSince1970: 0), playDate: nil, bookType: 0, fileType: 0,
+                pages: nil, rating: 0, unseen: false, keywordA: nil, keywordB: nil, keywordC: nil,
+                neta: nil, memo: nil, series: nil, volume: nil,
+                coverImageName: nil, coverCropRectJSON: nil, pageDirection: nil)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(detail))
+            let patch = BookPatchDTO(title: "NEW")
+            let got = try await makeClient().updateBook(libraryUUID: "U", bookID: 42, patch: patch, libraryToken: "LT")
+            #expect(got.title == "NEW")
+            #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/U/books/42")
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "PATCH")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "Content-Type") == "application/json")
+        }
+
+        @Test func updateBookForbiddenThrows() async throws {
+            StubURLProtocol.stub = .init(status: 403, headers: [:], body: Data())
+            let patch = BookPatchDTO()
+            await #expect(throws: RemoteClientError.forbidden) {
+                _ = try await makeClient().updateBook(libraryUUID: "U", bookID: 42, patch: patch, libraryToken: nil as String?)
+            }
+        }
     }
 
     @Suite("RemoteBookContent — BookContent 適合")
