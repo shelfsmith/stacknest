@@ -352,6 +352,17 @@ final class RemoteLibraryState {
         Task { await reload() }
     }
 
+    /// 詳細ペインの絞り込みジャンプ（作者等の「→」）。ローカル同様、DetailField を BrowseField に
+    /// 写像できれば filterState に反映、できなければ検索にフォールバックして reload する（自由記載バグ修正）。
+    func jumpToFilter(field: DetailField, value: String) async {
+        if let bf = BrowserPaneState.BrowseField(from: field) {
+            filterState.replaceSelection(for: bf.rawValue, with: [value])
+        } else {
+            query = value
+        }
+        await reload()
+    }
+
     func selectBook(_ id: Int?) async {
         selection = id
         guard let id else { detail = nil; return }

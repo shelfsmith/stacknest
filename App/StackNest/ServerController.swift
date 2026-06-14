@@ -24,7 +24,10 @@ final class ServerController {
     var port: Int { ServerPreferences.port() }
     var token: String { ServerPreferences.token() }
     /// 編集（RW）トークン。未生成は nil（その場合リモート編集は不可・R のみ）。
-    var editToken: String? { ServerPreferences.editToken() }
+    /// @Observable の stored property にすることで、サーバ停止中に発行/クリアしても共有設定 UI が
+    /// 即時更新される（A2 修正: computed だと稼働中の restart で observed prop が変わらない限り
+    /// 再描画されず「サーバ OFF で発行ボタン無反応」に見えた）。
+    private(set) var editToken: String? = ServerPreferences.editToken()
 
     func start() {
         guard !isRunning else { return }
@@ -75,13 +78,14 @@ final class ServerController {
 
     /// 編集（RW）トークンを生成/再生成する。稼働中なら新トークン反映のため再起動（4.2b-3）。
     func regenerateEditToken() {
-        ServerPreferences.regenerateEditToken()
+        editToken = ServerPreferences.regenerateEditToken()   // stored prop 更新で UI 即反映（A2）
         if isRunning { restart() }
     }
 
     /// 編集（RW）トークンを削除（リモート編集を無効化）。稼働中なら反映のため再起動（4.2b-3）。
     func clearEditToken() {
         ServerPreferences.clearEditToken()
+        editToken = nil
         if isRunning { restart() }
     }
 
