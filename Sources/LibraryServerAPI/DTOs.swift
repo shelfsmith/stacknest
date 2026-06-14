@@ -69,6 +69,18 @@ extension BookListItemDTO {
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: version
         )
     }
+
+    /// lastPage を差し替えた複製（リモート閲覧の進捗をメモリ上の一覧へ反映し、
+    /// 一覧を再取得しなくても再オープン時に続きから開くために使う）。
+    public func withLastPage(_ page: Int?) -> BookListItemDTO {
+        BookListItemDTO(
+            id: id, title: title, author: author,
+            series: series, volume: volume,
+            rating: rating, unseen: unseen, bookType: bookType,
+            pages: pages, lastPage: page, lastReadAt: lastReadAt,
+            dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion
+        )
+    }
 }
 
 /// books 一覧のページングレスポンス（spec §3.3）。

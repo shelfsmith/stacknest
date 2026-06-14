@@ -384,6 +384,12 @@ final class RemoteLibraryState {
                             libraryUUID: self.libraryUUID, bookID: b.id,
                             page: lastPage, libraryToken: self.libraryToken)
                     }
+                    // v4 修正: メモリ上の一覧 DTO の lastPage も更新する。これをしないと
+                    // 一覧を再取得するまで stale な lastPage で開いてしまい、リモートで
+                    // 開き直すと毎回元のページに戻る（サーバには POST 済でも一覧側が古い）。
+                    if let i = self.books.firstIndex(where: { $0.id == b.id }) {
+                        self.books[i] = self.books[i].withLastPage(lastPage)
+                    }
                 },
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
