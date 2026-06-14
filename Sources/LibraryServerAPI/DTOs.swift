@@ -229,3 +229,43 @@ public struct BookDetailDTO: Codable, Sendable {
         self.pageDirection = pageDirection
     }
 }
+
+/// PATCH /libraries/:lib/books/:id のリクエスト DTO（メタデータのみ・表紙フィールドなし）。
+/// nil フィールドは「変更しない」を意味し、clear* フラグは nil 化（SQL NULL 化）を要求する。
+public struct BookPatchDTO: Codable, Sendable {
+    public var title: String?
+    public var author: String?
+    public var genre: String?
+    public var neta: String?
+    public var memo: String?
+    public var keywordA: String?
+    public var keywordB: String?
+    public var keywordC: String?
+    public var rating: Int?
+    public var unseen: Bool?
+    public var series: String?
+    public var volume: Double?
+    public var bookType: Int?
+    /// ページ方向の上書き（"ltr"/"rtl"/nil=変更しない）。clearPageDirection=true で NULL 化。
+    public var pageDirection: String?
+    public var clearSeries: Bool
+    public var clearVolume: Bool
+    public var clearPageDirection: Bool
+
+    public init(
+        title: String? = nil, author: String? = nil, genre: String? = nil,
+        neta: String? = nil, memo: String? = nil,
+        keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil,
+        rating: Int? = nil, unseen: Bool? = nil,
+        series: String? = nil, volume: Double? = nil,
+        bookType: Int? = nil, pageDirection: String? = nil,
+        clearSeries: Bool = false, clearVolume: Bool = false, clearPageDirection: Bool = false
+    ) {
+        self.title = title; self.author = author; self.genre = genre; self.neta = neta
+        self.memo = memo; self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC
+        self.rating = rating; self.unseen = unseen; self.series = series; self.volume = volume
+        self.bookType = bookType; self.pageDirection = pageDirection
+        self.clearSeries = clearSeries; self.clearVolume = clearVolume
+        self.clearPageDirection = clearPageDirection
+    }
+}

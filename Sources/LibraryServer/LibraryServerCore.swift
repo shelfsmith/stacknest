@@ -197,10 +197,9 @@ public struct LibraryServerCore: Sendable {
             )
             return values
         }
-        // 書籍詳細（フル BookRow の全フィールドを BookDetailDTO として返す）。ロック庫は X-Library-Token 必須。
-        api.get("libraries/:lib/books/:id/detail") { request, context in
-            let (_, row) = try await resolver.resolveBook(request, context)
-            return BookDetailDTO(
+        // BookRow → BookDetailDTO 変換ヘルパ（/detail と PATCH エンドポイントで共用）。
+        @Sendable func makeBookDetailDTO(from row: BookRow) -> BookDetailDTO {
+            BookDetailDTO(
                 id: row.id, title: row.title, author: row.author, genre: row.genre, path: nil,
                 dateAdded: row.dateAdded, playDate: row.playDate, bookType: row.bookType,
                 fileType: row.fileType, pages: row.pages, rating: row.rating, unseen: row.unseen,
@@ -210,6 +209,47 @@ public struct LibraryServerCore: Sendable {
                 coverCropRectJSON: row.coverCropRect.map(BookRow.encodeCoverCropRect),
                 pageDirection: row.pageDirection.map { directionString($0) }
             )
+        }
+
+        // 書籍詳細（フル BookRow の全フィールドを BookDetailDTO として返す）。ロック庫は X-Library-Token 必須。
+        api.get("libraries/:lib/books/:id/detail") { request, context in
+            let (_, row) = try await resolver.resolveBook(request, context)
+            return makeBookDetailDTO(from: row)
+        }
+        // 書籍メタデータ更新（RW トークン専用・表紙フィールドは対象外）。
+        // role=write でなければ 403、resolve で 404/401 を返す既存ルーティングを再利用。
+        api.patch("libraries/:lib/books/:id") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let dto = try await request.decode(as: BookPatchDTO.self, context: context)
+            var patch = BookPatch()
+            patch.title = dto.title
+            patch.author = dto.author
+            patch.genre = dto.genre
+            patch.neta = dto.neta
+            patch.memo = dto.memo
+            patch.keywordA = dto.keywordA
+            patch.keywordB = dto.keywordB
+            patch.keywordC = dto.keywordC
+            patch.rating = dto.rating
+            patch.unseen = dto.unseen
+            patch.series = dto.series
+            patch.volume = dto.volume
+            patch.bookType = dto.bookType
+            patch.pageDirection = dto.pageDirection.flatMap { s -> PageDirection? in
+                switch s {
+                case "rtl": return .rightToLeft
+                case "ltr": return .leftToRight
+                default: return nil
+                }
+            }
+            patch.clearSeries = dto.clearSeries
+            patch.clearVolume = dto.clearVolume
+            patch.clearPageDirection = dto.clearPageDirection
+            try lib.db.updateBook(id: row.id, patch: patch)
+            config.onBookChanged?(lib.uuid, row.id)
+            let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
+            return makeBookDetailDTO(from: updated)
         }
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
