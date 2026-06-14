@@ -172,13 +172,21 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     /// 続きから読む場合（resumeLastPage > 0）のみ、ウィンドウ表示後に一度だけシートダイアログを表示する。
     private func showResumeDialogIfNeeded() {
-        guard resumeLastPage > 0, !didShowResumeDialog, let window else { return }
+        guard resumeLastPage > 0, !didShowResumeDialog else { return }
         didShowResumeDialog = true
+        showResumeDialog(forLastPage: resumeLastPage)
+    }
+
+    /// 指定の lastPage（> 0）で「続きから / 最初から」シートを表示する汎用版。
+    /// 初回オープン（showResumeDialogIfNeeded）と巻送り（performSwap）の双方から使う（4.2b-6）。
+    /// 呼び出し時点で model は lastPage に移動済みのため、「続きから」は no-op。
+    private func showResumeDialog(forLastPage lastPage: Int) {
+        guard lastPage > 0, let window else { return }
         let alert = NSAlert()
         alert.messageText = "続きから読みますか？"
-        alert.informativeText = "前回は P.\(resumeLastPage + 1) まで読みました。"
-        alert.addButton(withTitle: "続きから (P.\(resumeLastPage + 1))")   // .alertFirstButtonReturn
-        alert.addButton(withTitle: "最初から")                              // .alertSecondButtonReturn
+        alert.informativeText = "前回は P.\(lastPage + 1) まで読みました。"
+        alert.addButton(withTitle: "続きから (P.\(lastPage + 1))")   // .alertFirstButtonReturn
+        alert.addButton(withTitle: "最初から")                       // .alertSecondButtonReturn
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
             if response == .alertSecondButtonReturn {
@@ -627,6 +635,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         persistCurrent()
         isSwapping = false
         hudNote("\(hudPrefix)：\(nv.book.title)")
+        // 4.2b-6: 巻送り先が読みかけなら、初回オープンと同じ「続き/最初」シートを出す。
+        // 未読（lastPage==0）のときは出さず黙って先頭（既存挙動と一貫）。
+        if state.lastPage > 0 {
+            showResumeDialog(forLastPage: state.lastPage)
+        }
     }
 
     /// 末挙動をセッション内で stop → nextBook → loop → stop に巡回する（ViewerSettings へは保存しない）。
