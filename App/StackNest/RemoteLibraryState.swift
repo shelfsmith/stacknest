@@ -335,6 +335,9 @@ final class RemoteLibraryState {
 
     /// リモート本を内蔵ビューワで開く。BookContent は RemoteBookContent。
     func openViewer(book: BookListItemDTO) {
+        // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
+        // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。
+        errorText = nil
         let content = RemoteBookContent(
             client: client,
             libraryUUID: libraryUUID,
