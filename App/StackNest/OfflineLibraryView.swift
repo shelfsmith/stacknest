@@ -252,11 +252,17 @@ struct OfflineLibraryView: View {
                 pageCount: pageCount,
                 options: options,
                 initialState: initialState,
-                loadNextVolume: { [store] _ in
-                    Self.resolveOfflineVolume(store: store, from: book, direction: .next)
+                // 多段巻送り対応: 解決はクロージャ引数 `cur`（=現在スワップ済みの巻）の
+                // series/volume を基点にする。serverID/libraryUUID は同一シリーズ内で不変なので
+                // 開いた本のものを使う。`cur` を無視して最初の book から再解決すると 2 巻目で
+                // 止まる/自動進行が 2 巻目をループする（ローカル/リモートと同じく cur を使う）。
+                loadNextVolume: { [store] cur in
+                    Self.resolveOfflineVolume(store: store, serverID: serverID, libraryUUID: libraryUUID,
+                                              current: cur, direction: .next)
                 },
-                loadPrevVolume: { [store] _ in
-                    Self.resolveOfflineVolume(store: store, from: book, direction: .prev)
+                loadPrevVolume: { [store] cur in
+                    Self.resolveOfflineVolume(store: store, serverID: serverID, libraryUUID: libraryUUID,
+                                              current: cur, direction: .prev)
                 },
                 // 進捗を OfflineStore に永続化する（リモートサーバへの POST の代替）。
                 persistState: { b, lastPage, _, _ in
@@ -280,11 +286,13 @@ struct OfflineLibraryView: View {
     }
 
     /// DL 済の連続隣接巻を解決し NextVolume を組む。該当なし/失敗は nil。
-    private static func resolveOfflineVolume(store: OfflineStore, from book: DownloadedBook,
+    /// `current` は現在表示中の巻（多段巻送りで毎回更新される）。その series/volume を基点に解決する。
+    private static func resolveOfflineVolume(store: OfflineStore, serverID: UUID, libraryUUID: String,
+                                             current: BookRow,
                                              direction: OfflineStore.AdjacentDirection) -> NextVolume? {
-        guard let series = book.detail.series, let volume = book.detail.volume else { return nil }
+        guard let series = current.series, let volume = current.volume else { return nil }
         guard let sib = store.adjacentDownloaded(
-            serverID: book.serverID, libraryUUID: book.libraryUUID,
+            serverID: serverID, libraryUUID: libraryUUID,
             series: series, volume: volume, direction: direction) else { return nil }
         let url = store.fileURL(for: sib)
         let row = offlineBookRow(sib, fileURL: url)
