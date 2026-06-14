@@ -44,7 +44,8 @@ struct RemoteLibraryView: View {
                 .frame(minWidth: 480)
         } detail: {
             detailPane
-                .navigationSplitViewColumnWidth(min: 240, ideal: 260)
+                // O5: ローカルブラウザと同様に詳細ペインを固定幅にする（伸びて広すぎる問題の修正）。
+                .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)
         }
         .frame(minWidth: 960, minHeight: 480)
     }
