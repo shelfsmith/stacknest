@@ -252,9 +252,12 @@ struct OfflineLibraryView: View {
                 pageCount: pageCount,
                 options: options,
                 initialState: initialState,
-                // オフラインでは巻送り未対応。
-                loadNextVolume: { _ in nil },
-                loadPrevVolume: { _ in nil },
+                loadNextVolume: { [store] _ in
+                    Self.resolveOfflineVolume(store: store, from: book, direction: .next)
+                },
+                loadPrevVolume: { [store] _ in
+                    Self.resolveOfflineVolume(store: store, from: book, direction: .prev)
+                },
                 // 進捗を OfflineStore に永続化する（リモートサーバへの POST の代替）。
                 persistState: { b, lastPage, _, _ in
                     store.updateLastPage(serverID: serverID, libraryUUID: libraryUUID, bookID: b.id, page: lastPage)
@@ -274,5 +277,24 @@ struct OfflineLibraryView: View {
         store.remove(serverID: book.serverID, libraryUUID: book.libraryUUID, bookID: book.bookID)
         if selectedID == book.id { selectedID = nil }
         reload()
+    }
+
+    /// DL 済の連続隣接巻を解決し NextVolume を組む。該当なし/失敗は nil。
+    private static func resolveOfflineVolume(store: OfflineStore, from book: DownloadedBook,
+                                             direction: OfflineStore.AdjacentDirection) -> NextVolume? {
+        guard let series = book.detail.series, let volume = book.detail.volume else { return nil }
+        guard let sib = store.adjacentDownloaded(
+            serverID: book.serverID, libraryUUID: book.libraryUUID,
+            series: series, volume: volume, direction: direction) else { return nil }
+        let url = store.fileURL(for: sib)
+        let row = offlineBookRow(sib, fileURL: url)
+        guard let content = try? BookContentFactory.make(for: row) else { return nil }
+        let state = ResolvedViewerState(
+            spreadEnabled: ViewerSettings.shared.spreadByDefault,
+            coverOffset: true,
+            lastPage: max(0, sib.lastPage ?? 0),
+            overrides: [:]
+        )
+        return NextVolume(content: content, book: row, state: state)
     }
 }

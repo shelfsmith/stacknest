@@ -93,6 +93,22 @@ public struct OfflineStore: @unchecked Sendable {
         all().contains { $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID }
     }
 
+    public enum AdjacentDirection { case next, prev }
+
+    /// 同一 server/library/series で **連続する次/前の巻番号**（next=現在+1・prev=現在-1）が
+    /// DL 済ならその本を返す。連続巻が未 DL なら nil（=停止・ギャップスキップはしない）。
+    /// オフラインは全カタログを持たないため保守的に連続巻のみを対象とする。
+    public func adjacentDownloaded(serverID: UUID, libraryUUID: String, series: String,
+                                   volume: Double, direction: AdjacentDirection) -> DownloadedBook? {
+        guard !series.isEmpty else { return nil }
+        let target = (direction == .next) ? volume + 1 : volume - 1
+        return all().first {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID
+            && ($0.detail.series ?? "") == series
+            && $0.detail.volume == target
+        }
+    }
+
     public func totalSizeBytes() -> Int64 {
         all().reduce(0) { acc, b in
             let sz = (try? fileURL(for: b).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
