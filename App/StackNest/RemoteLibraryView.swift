@@ -95,6 +95,10 @@ struct RemoteLibraryView: View {
     private var browseView: some View {
         VStack(spacing: 0) {
             toolbar
+            if state.selectionMode {
+                selectionBar
+                Divider()
+            }
             if let err = state.errorText {
                 banner(err)
             }
@@ -133,6 +137,25 @@ struct RemoteLibraryView: View {
         .onChange(of: state.browserPaneState.selections) { _, _ in
             Task { await state.reload() }
         }
+    }
+
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            Text("\(state.multiSelection.count) 件選択").font(.callout).foregroundStyle(.secondary)
+            Button("すべて選択") { state.selectAllVisible() }
+            Button("選択解除") { state.clearSelection() }
+            Spacer()
+            if let p = state.batchProgress {
+                ProgressView(value: Double(p.done), total: Double(max(1, p.total))).frame(width: 120)
+                Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
+            }
+            Button { Task { await state.downloadSelected() } } label: {
+                Label("選択をダウンロード", systemImage: "arrow.down.circle")
+            }
+            .disabled(state.multiSelection.isEmpty || state.batchProgress != nil)
+            Button("完了") { state.toggleSelectionMode() }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
     private var toolbar: some View {
@@ -196,6 +219,11 @@ struct RemoteLibraryView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 90)
+
+            Button { state.toggleSelectionMode() } label: {
+                Image(systemName: state.selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+            }
+            .help(state.selectionMode ? "選択モードを終了" : "複数選択")
         }
         .padding(8)
     }
@@ -272,6 +300,10 @@ struct RemoteLibraryView: View {
     private var listView: some View {
         List(state.books, id: \.id, selection: listSelectionBinding) { book in
             HStack(spacing: 6) {
+                if state.selectionMode {
+                    Image(systemName: state.multiSelection.contains(book.id) ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(state.multiSelection.contains(book.id) ? Color.accentColor : .secondary)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(book.title)
                         .font(.body)
@@ -289,12 +321,15 @@ struct RemoteLibraryView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture(count: 2) { state.openViewer(book: book) }
+            .onTapGesture(count: 2) { if !state.selectionMode { state.openViewer(book: book) } }
             // D1 fix: .contextMenu を付けると List(selection:) のネイティブ単一クリック選択が
             // 横取りされる（右クリック/ダブルクリックは生きるが単一選択が死ぬ）。グリッドと同じく
             // 明示的な単一タップで selectBook して、壊れたネイティブ選択経路への依存をやめる。
-            .onTapGesture { Task { await state.selectBook(book.id) } }
-            .contextMenu { downloadMenu(book) }
+            .onTapGesture {
+                if state.selectionMode { state.toggleSelected(book.id) }
+                else { Task { await state.selectBook(book.id) } }
+            }
+            .contextMenu { if !state.selectionMode { downloadMenu(book) } }
             .tag(book.id)
             // Task 3: infinite モードで末尾行が見えたら次チャンクを取得。
             .onAppear {
@@ -355,10 +390,15 @@ struct RemoteLibraryView: View {
             LazyVGrid(columns: gridColumns, spacing: 16) {
                 ForEach(state.books, id: \.id) { book in
                     RemoteBookCell(book: book, state: state, selected: state.selection == book.id,
-                                   downloaded: downloadedBadge(book.id))
-                        .onTapGesture(count: 2) { state.openViewer(book: book) }
-                        .onTapGesture { Task { await state.selectBook(book.id) } }
-                        .contextMenu { downloadMenu(book) }
+                                   downloaded: downloadedBadge(book.id),
+                                   selectionMode: state.selectionMode,
+                                   checked: state.multiSelection.contains(book.id))
+                        .onTapGesture(count: 2) { if !state.selectionMode { state.openViewer(book: book) } }
+                        .onTapGesture {
+                            if state.selectionMode { state.toggleSelected(book.id) }
+                            else { Task { await state.selectBook(book.id) } }
+                        }
+                        .contextMenu { if !state.selectionMode { downloadMenu(book) } }
                         // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
                         .onAppear {
                             if state.scrollMode == .infinite, book.id == state.books.last?.id {
@@ -416,6 +456,10 @@ private struct RemoteBookCell: View {
     let selected: Bool
     /// Task 4: ダウンロード済みバッジ表示フラグ（親が downloadedVersion 参照込みで算出）。
     let downloaded: Bool
+    /// 4.2b-5: 複数選択モードフラグ。
+    let selectionMode: Bool
+    /// 4.2b-5: このセルが multiSelection に含まれているか。
+    let checked: Bool
 
     @State private var image: NSImage?
 
@@ -441,6 +485,13 @@ private struct RemoteBookCell: View {
                         .background(.thinMaterial, in: Circle())
                         .padding(4)
                         .help("オフライン保存済み")
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                if selectionMode {
+                    Image(systemName: checked ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(checked ? Color.accentColor : .secondary)
+                        .padding(4).background(.thinMaterial, in: Circle()).padding(4)
                 }
             }
             .overlay(
