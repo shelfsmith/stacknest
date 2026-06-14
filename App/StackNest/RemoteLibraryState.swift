@@ -45,6 +45,8 @@ final class RemoteLibraryState {
     var errorText: String? = nil
     /// Phase 4.2b-3 Task 4: /me で取得したトークンロール（write なら編集可）。
     var canEditServer = false
+    /// /me によるロール確認が成功したか（一度だけ確認・reload 毎の再取得を避ける）。
+    private var roleResolved = false
 
     /// Phase 4.2b-1b-2b Task 5: 共有 browse ビュー（sidebar / facet pane / detail）駆動状態。
     enum RemoteSidebarSelection: Equatable, Hashable {
@@ -168,8 +170,13 @@ final class RemoteLibraryState {
             books = result.items
             total = result.total
             errorText = nil
-            // Phase 4.2b-3 Task 4: 初回ロード成功時にトークンロールを確認し編集可否を設定する。
-            canEditServer = ((try? await client.me(libraryToken: libraryToken)) == .write)
+            // Phase 4.2b-3: トークンロール（編集可否）は一度だけ確認する。reload は
+            // filter/sort/page 変更の度に走るため毎回 /me を叩かない。失敗時は roleResolved を
+            // 立てず次回 reload で再試行（fail-closed: 解決するまで canEditServer=false）。
+            if !roleResolved, let role = try? await client.me(libraryToken: libraryToken) {
+                canEditServer = (role == .write)
+                roleResolved = true
+            }
         } catch let e as RemoteClientError {
             errorText = Self.message(for: e)
         } catch {
