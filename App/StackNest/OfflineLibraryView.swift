@@ -69,6 +69,18 @@ struct OfflineLibraryView: View {
 
     private var listColumn: some View {
         VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button { toggleSelectionMode() } label: {
+                    Image(systemName: selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+                }
+                .help(selectionMode ? "選択モードを終了" : "複数選択")
+            }
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            if selectionMode {
+                selectionBar
+                Divider()
+            }
             if let errorText {
                 banner(errorText)
                 Divider()
@@ -88,23 +100,48 @@ struct OfflineLibraryView: View {
         }
     }
 
+    private var selectionBar: some View {
+        HStack(spacing: 12) {
+            Text("\(multiSelection.count) 件選択").font(.callout).foregroundStyle(.secondary)
+            Button("すべて選択") { selectAllVisible() }
+            Button("選択解除") { clearSelection() }
+            Spacer()
+            Button(role: .destructive) { deleteSelected() } label: {
+                Label("選択を削除", systemImage: "trash")
+            }
+            .disabled(multiSelection.isEmpty)
+            Button("完了") { toggleSelectionMode() }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+    }
+
     private var listView: some View {
         List(selection: $selectedID) {
             ForEach(groups, id: \.library) { group in
                 Section(group.library) {
                     ForEach(group.books) { book in
-                        row(book)
-                            .tag(book.id)
-                            .contentShape(Rectangle())
-                            .onTapGesture(count: 2) { openOffline(book) }
-                            // O3: .contextMenu が List(selection:) のネイティブ単一クリック選択を
-                            // 横取りするため（D1 と同根）、明示的な単一タップで選択する。
-                            .onTapGesture { selectedID = book.id }
-                            .contextMenu {
+                        HStack(spacing: 8) {
+                            if selectionMode {
+                                Image(systemName: multiSelection.contains(book.id) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(multiSelection.contains(book.id) ? Color.accentColor : .secondary)
+                            }
+                            row(book)
+                        }
+                        .tag(book.id)
+                        .contentShape(Rectangle())
+                        .onTapGesture(count: 2) { if !selectionMode { openOffline(book) } }
+                        // O3: .contextMenu が List(selection:) のネイティブ単一クリック選択を
+                        // 横取りするため（D1 と同根）、明示的な単一タップで選択する。
+                        .onTapGesture {
+                            if selectionMode { toggleSelected(book.id) } else { selectedID = book.id }
+                        }
+                        .contextMenu {
+                            if !selectionMode {
                                 Button("開く") { openOffline(book) }
                                 Divider()
                                 Button("削除", role: .destructive) { delete(book) }
                             }
+                        }
                     }
                 }
             }
