@@ -245,6 +245,22 @@ final class RemoteLibraryState {
     var multiSelection: Set<Int> = []
     /// 一括 DL の進捗（done, total）。実行中のみ非 nil。
     var batchProgress: (done: Int, total: Int)? = nil
+    /// 一括 DL の完了要約（「○件ダウンロード」等）。4 秒後に自動で消える（A4 修正：
+    /// errorText に出すと赤バナーが残り続けるため専用の自動消滅フィールドにする）。
+    var batchSummary: String? = nil
+    private var batchSummaryToken = 0
+
+    /// 要約をセットし、4 秒後に自動でクリアする（最新の要約のみ残す）。
+    private func showBatchSummary(_ text: String) {
+        batchSummary = text
+        batchSummaryToken &+= 1
+        let token = batchSummaryToken
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard let self, self.batchSummaryToken == token else { return }
+            self.batchSummary = nil
+        }
+    }
 
     func toggleSelectionMode() {
         selectionMode.toggle()
@@ -256,7 +272,7 @@ final class RemoteLibraryState {
     func selectAllVisible() { multiSelection = Set(books.map { $0.id }) }
     func clearSelection() { multiSelection.removeAll() }
 
-    /// 選択集合を順に DL。既 DL はスキップ、失敗しても続行、完了時に要約を errorText に出す。
+    /// 選択集合を順に DL。既 DL はスキップ、失敗しても続行、完了時に自動消滅する要約を出す。
     func downloadSelected() async {
         // isDownloaded(_:) は self.serverID / self.libraryUUID を内部で参照するため
         // BatchDownloadPlan.pending の isDownloaded クロージャはラベルなし bookID のみ渡す。
@@ -265,9 +281,10 @@ final class RemoteLibraryState {
         }
         let skipped = multiSelection.count - pending.count
         guard !pending.isEmpty else {
-            errorText = skipped > 0 ? "選択はすべてダウンロード済みです" : "本が選択されていません"
+            showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "本が選択されていません")
             return
         }
+        errorText = nil   // 直前のエラーバナーをクリア（バッチ中の per-book 失敗は要約に集約）
         var ok = 0, fail = 0
         batchProgress = (0, pending.count)
         for (i, id) in pending.enumerated() {
@@ -281,7 +298,9 @@ final class RemoteLibraryState {
         var parts = ["\(ok) 件ダウンロード"]
         if skipped > 0 { parts.append("\(skipped) 件スキップ") }
         if fail > 0 { parts.append("\(fail) 件失敗") }
-        errorText = parts.joined(separator: " / ")
+        // per-book 失敗で downloadBook が errorText を立てている場合があるためクリアし、要約に一本化。
+        errorText = nil
+        showBatchSummary(parts.joined(separator: " / "))
         downloadedVersion &+= 1
     }
 

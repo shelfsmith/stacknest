@@ -36,6 +36,18 @@ struct OfflineLibraryView: View {
             .frame(minWidth: 760, minHeight: 480)
             .navigationTitle("オフライン")
             .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
+            // 自由記載①修正: 選択トグルはツールバーに置く（listColumn 内の浮いた行を廃止）。
+            // DL 済が無いときは選択対象が無いので出さない（空状態の浮き解消）。
+            .toolbar {
+                if !books.isEmpty {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { toggleSelectionMode() } label: {
+                            Image(systemName: selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
+                        }
+                        .help(selectionMode ? "選択モードを終了" : "複数選択")
+                    }
+                }
+            }
         }
         .task { reload() }
         // O2: 別ウィンドウ（リモートブラウズ）で DL/削除されたら即座に反映する。
@@ -69,14 +81,6 @@ struct OfflineLibraryView: View {
 
     private var listColumn: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button { toggleSelectionMode() } label: {
-                    Image(systemName: selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
-                }
-                .help(selectionMode ? "選択モードを終了" : "複数選択")
-            }
-            .padding(.horizontal, 12).padding(.vertical, 6)
             if selectionMode {
                 selectionBar
                 Divider()

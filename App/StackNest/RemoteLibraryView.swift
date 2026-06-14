@@ -148,6 +148,10 @@ struct RemoteLibraryView: View {
             if let p = state.batchProgress {
                 ProgressView(value: Double(p.done), total: Double(max(1, p.total))).frame(width: 120)
                 Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
+            } else if let summary = state.batchSummary {
+                // A4 修正: 完了要約は赤エラーバナーではなく選択バー内に出し、自動で消える。
+                Label(summary, systemImage: "checkmark.circle")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Button { Task { await state.downloadSelected() } } label: {
                 Label("選択をダウンロード", systemImage: "arrow.down.circle")
