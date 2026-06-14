@@ -53,6 +53,12 @@ targets:
         NSSupportsAutomaticTermination: YES
         NSSupportsSuddenTermination: YES
         NSHighResolutionCapable: YES
+        # App Transport Security: リモートクライアントは LAN / VPN 上のユーザ自身の
+        # StackNest サーバへ平文 HTTP で接続する。既定 ATS は RFC1918 私的 IP と .local
+        # への平文のみ許容し、Tailscale の 100.64.0.0/10（CGNAT・RFC6598）等は私的範囲外で
+        # ブロックする（URLSession が -1 になる）。LAN/VPN 用途のため平文 HTTP を全面許可する。
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
         CFBundleDocumentTypes:
           - CFBundleTypeName: "StackNest Library"
             CFBundleTypeRole: Editor
