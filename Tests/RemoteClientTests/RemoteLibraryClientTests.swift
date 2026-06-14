@@ -135,6 +135,29 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/books/9/file")
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
         }
+
+        @Test func adjacentVolumeReturnsDTO() async throws {
+            let book = BookListItemDTO(id: 43, title: "Vol 3", author: "Author", series: "S",
+                                       volume: 3.0, rating: 0, unseen: false, bookType: 0,
+                                       pages: nil, lastPage: nil, lastReadAt: nil,
+                                       dateAdded: Date(timeIntervalSince1970: 0),
+                                       hasCover: false, coverVersion: nil)
+            let reply = AdjacentVolumeReply(book: book)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(reply))
+            let dto = try await makeClient().adjacentVolume(libraryUUID: "u", bookID: 42, direction: "next", libraryToken: nil)
+            #expect(dto?.id == 43)
+            let url = StubURLProtocol.lastRequest?.url
+            #expect(url?.path == "/api/v1/libraries/u/books/42/adjacent")
+            #expect(url?.query?.contains("dir=next") == true)
+        }
+
+        @Test func adjacentVolumeNoneReturnsNil() async throws {
+            let reply = AdjacentVolumeReply(book: nil)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(reply))
+            let dto = try await makeClient().adjacentVolume(libraryUUID: "u", bookID: 42, direction: "prev", libraryToken: "LT")
+            #expect(dto == nil)
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
     }
 
     @Suite("RemoteBookContent — BookContent 適合")

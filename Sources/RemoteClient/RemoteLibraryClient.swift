@@ -161,4 +161,13 @@ public struct RemoteLibraryClient: Sendable {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/progress")
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
+
+    /// 同一シリーズの隣接巻メタ。該当なしは nil。direction は "next"/"prev"。
+    public func adjacentVolume(libraryUUID: String, bookID: Int, direction: String,
+                               libraryToken: String?) async throws -> BookListItemDTO? {
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/adjacent",
+                          query: [URLQueryItem(name: "dir", value: direction)])
+        let data = try await send(request(url, libraryToken: libraryToken))
+        return try decode(AdjacentVolumeReply.self, data).book
+    }
 }
