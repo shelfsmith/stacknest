@@ -11,3 +11,4 @@ extension UnlockReply: ResponseEncodable {}
 extension ShelfDTO: ResponseEncodable {}
 extension BookDetailDTO: ResponseEncodable {}
 extension AdjacentVolumeReply: ResponseEncodable {}
+extension MeReply: ResponseEncodable {}

@@ -23,6 +23,8 @@ final class ServerController {
 
     var port: Int { ServerPreferences.port() }
     var token: String { ServerPreferences.token() }
+    /// 編集（RW）トークン。未生成は nil（その場合リモート編集は不可・R のみ）。
+    var editToken: String? { ServerPreferences.editToken() }
 
     func start() {
         guard !isRunning else { return }
@@ -31,6 +33,7 @@ final class ServerController {
             host: "::",                      // dual-stack（IPv4/IPv6 両対応）
             port: ServerPreferences.port(),
             token: ServerPreferences.token(),
+            editToken: ServerPreferences.editToken(),
             transcoder: ImageIOTranscoder(),
             defaultPageDirection: ViewerSettings.shared.pageDirection,   // サーバ起動時スナップショット（4.1c）
             onBookChanged: { uuid, bookID in
@@ -67,6 +70,18 @@ final class ServerController {
     func regenerateToken() {
         ServerPreferences.regenerateToken()
         // 稼働中なら新トークンを反映するため再起動
+        if isRunning { restart() }
+    }
+
+    /// 編集（RW）トークンを生成/再生成する。稼働中なら新トークン反映のため再起動（4.2b-3）。
+    func regenerateEditToken() {
+        ServerPreferences.regenerateEditToken()
+        if isRunning { restart() }
+    }
+
+    /// 編集（RW）トークンを削除（リモート編集を無効化）。稼働中なら反映のため再起動（4.2b-3）。
+    func clearEditToken() {
+        ServerPreferences.clearEditToken()
         if isRunning { restart() }
     }
 

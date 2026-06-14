@@ -9,8 +9,10 @@ import LibraryServerAPI
 public struct LibraryServerConfig: Sendable {
     public var host: String
     public var port: Int
-    /// デバイス認証用の共有トークン（QR でクライアントに渡す）。
+    /// デバイス認証用の共有トークン（QR でクライアントに渡す）。読み取り（R）ロール。
     public var token: String
+    /// 編集（RW）ロール用トークン。未生成は nil（その場合 RW 認証はできず R のみ）。
+    public var editToken: String?
     /// 画像縮小器（既定は縮小しない Passthrough）。App は ImageIOTranscoder を注入する。
     public var transcoder: any ImageTranscoding
     /// 本ごと pageDirection が未設定のときの既定方向（アプリ起動時にスナップショット）。
@@ -22,12 +24,14 @@ public struct LibraryServerConfig: Sendable {
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
+                editToken: String? = nil,
                 transcoder: any ImageTranscoding = PassthroughTranscoder(),
                 defaultPageDirection: PageDirection = .rightToLeft,
                 onBookChanged: (@Sendable (String, Int) -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
+        self.editToken = editToken
         self.transcoder = transcoder
         self.defaultPageDirection = defaultPageDirection
         self.onBookChanged = onBookChanged
@@ -39,6 +43,8 @@ public struct LibraryServerConfig: Sendable {
 /// テスト側デコーダも .iso8601 で一致させること — plan 設計ノート）。
 public struct LibraryRequestContext: RequestContext {
     public var coreContext: CoreRequestContextStorage
+    /// 提示トークンのロール。BearerAuthMiddleware が認証成功時に刻む（既定 .read）。
+    public var role: TokenRole = .read
 
     public init(source: Source) {
         self.coreContext = .init(source: source)
@@ -56,6 +62,11 @@ public struct LibraryRequestContext: RequestContext {
         return encoder
     }
 }
+
+/// BearerAuthMiddleware が値型コンテキストへロールを刻めるよう、role を get/set 可能にする制約。
+/// 認証ミドルウェアはこの protocol への準拠だけを要求し、具体コンテキストに依存しない。
+public protocol RoleHoldingContext { var role: TokenRole { get set } }
+extension LibraryRequestContext: RoleHoldingContext {}
 
 /// ファセット / ブラウズで受け付ける列名の許可リスト（SQL injection 防御・4.2b-1b-2b）。
 /// BrowserPaneState.BrowseField.allCases から生成するため enum の変更に自動追従する。
@@ -89,10 +100,14 @@ public struct LibraryServerCore: Sendable {
         }
         // それ以外の API は Bearer トークン認証配下。
         let api = router.group("api/v1")
-            .add(middleware: BearerAuthMiddleware(token: config.token))
+            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken))
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
+        // 提示トークンのロール（read / write）を返す。RW ゲート編集の前段確認に使う（4.2b-3）。
+        api.get("me") { _, context in
+            MeReply(role: context.role)
+        }
         api.get("libraries") { _, _ in
             let libs = await dataSource.servedLibraries()
             return libs.map {

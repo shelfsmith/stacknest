@@ -98,6 +98,15 @@ public struct BookPageDTO: Codable, Sendable {
     }
 }
 
+/// 提示されたトークンに対応するロール（read = R / write = RW）。
+public enum TokenRole: String, Codable, Sendable { case read, write }
+
+/// GET /me の応答。提示トークンのロールを返す。
+public struct MeReply: Codable, Sendable {
+    public let role: TokenRole
+    public init(role: TokenRole) { self.role = role }
+}
+
 /// /libraries の一覧 1 件分（spec §3.3）。
 public struct LibraryDTO: Codable, Sendable {
     public let id: String
