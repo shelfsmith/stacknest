@@ -17,8 +17,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private let onClose: () -> Void
 
     // Phase 2.6b-2 injected closures
-    private let loadNextVolume: (BookRow) -> NextVolume?
-    private let loadPrevVolume: (BookRow) -> NextVolume?
+    private let loadNextVolume: (BookRow) async -> NextVolume?
+    private let loadPrevVolume: (BookRow) async -> NextVolume?
     private let persistState: (BookRow, Int, Bool, Bool) -> Void          // (book, lastPage, spreadEnabled, coverOffset)
     private let persistPageOverride: (BookRow, Int, Int?) -> Void          // (book, page, mode int or nil)
     /// Phase 2.6b-2 D3: コールバック。本のページ方向が変わったら AppState 経由で DB に永続化する。
@@ -60,8 +60,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         pageCount: Int,
         options: ViewerOptions,
         initialState: ResolvedViewerState,
-        loadNextVolume: @escaping (BookRow) -> NextVolume?,
-        loadPrevVolume: @escaping (BookRow) -> NextVolume?,
+        loadNextVolume: @escaping (BookRow) async -> NextVolume?,
+        loadPrevVolume: @escaping (BookRow) async -> NextVolume?,
         persistState: @escaping (BookRow, Int, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
         onClose: @escaping () -> Void
@@ -337,8 +337,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             persistCurrent()
             hudNote("先頭ページに移動しました")
         case .endNextBook:
-            // 成功時のノートは swapTo() 内の hudNote("\(hudPrefix)：\(title)") が発火する（重複防止）。
-            // 次巻なし時は loadNextVolumeNow() 内の hudNote("次の巻なし") が発火する。
+            // 成功時のノートは performSwap 内の hudNote が発火する。
+            // 次巻なし時は loadVolume 内の hudNote("次の巻なし") が発火する。
             loadNextVolumeNow()
         }
     }
@@ -554,80 +554,79 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             persistCurrent()
             hudNote("先頭ページに移動しました")
         case .endNextBook:
-            // 成功時のノートは swapTo() 内の hudNote("\(hudPrefix)：\(title)") が発火する（重複防止）。
-            // 次巻なし時は loadNextVolumeNow() 内の hudNote("次の巻なし") が発火する。
-            if !loadNextVolumeNow() { stopAutoAdvance() }   // 次巻なし → 停止
+            // 成功時のノートは performSwap 内の hudNote が発火。次巻なし時は loadVolume 内で
+            // hudNote("次の巻なし")＋stopAutoAdvance() が発火する（タイマー停止もそこで担う）。
+            loadNextVolumeNow()
         case .endStop:
             stopAutoAdvance()
             hudNote("最終ページです")
         }
     }
 
-    /// 次巻を同一ウィンドウでロードする。成功で true。
-    @discardableResult
-    private func loadNextVolumeNow() -> Bool {
-        guard let nv = loadNextVolume(book) else {
-            hudNote("次の巻なし")
-            return false
-        }
-        swapTo(nv, hudPrefix: "次の巻を開きました")
-        return true
+    /// 次巻を同一ウィンドウでロードする（解決は非同期）。
+    private func loadNextVolumeNow() {
+        loadVolume(resolve: loadNextVolume, hudPrefix: "次の巻を開きました", noVolumeNote: "次の巻なし")
     }
 
-    /// 前巻を同一ウィンドウでロードする。成功で true。
-    @discardableResult
-    private func loadPrevVolumeNow() -> Bool {
-        guard let pv = loadPrevVolume(book) else {
-            hudNote("前の巻なし")
-            return false
+    /// 前巻を同一ウィンドウでロードする（解決は非同期）。
+    private func loadPrevVolumeNow() {
+        loadVolume(resolve: loadPrevVolume, hudPrefix: "前の巻を開きました", noVolumeNote: "前の巻なし")
+    }
+
+    /// 隣接巻の「解決(async)」と「atomic swap」を 1 つの isSwapping ガード＋1 つの Task に統合する。
+    /// await 中は isSwapping=true で全入力/タイマーを無視し、旧 model と新 content の混在を防ぐ。
+    private func loadVolume(resolve: @escaping (BookRow) async -> NextVolume?,
+                            hudPrefix: String, noVolumeNote: String) {
+        guard !isSwapping else { return }
+        isSwapping = true
+        persistCurrent()                 // 旧巻の最終状態を保存（解決前に確定）
+        let cur = book
+        Task { [weak self] in
+            guard let self else { return }
+            guard let nv = await resolve(cur) else {
+                self.isSwapping = false
+                self.hudNote(noVolumeNote)
+                self.stopAutoAdvance()    // 自動進行中なら停止（手動時は既停止で無害）
+                return
+            }
+            await self.performSwap(nv, hudPrefix: hudPrefix)
         }
-        swapTo(pv, hudPrefix: "前の巻を開きました")
-        return true
     }
 
     /// content/book/model を差し替えて、その巻の保存済み読書位置から表示する。
-    /// pageCount は content から非同期取得する（NextVolume は pageCount を持たない）。
-    /// pageCount を先に取得し、await から復帰した後に content/book/model 等を **同期で一括**
-    /// 差し替える。await 中は isSwapping=true で入力/自動進行を全て無視し、旧 model と新 content
-    /// が混在する瞬間を作らない（古い model に新 content のページ索引を当てて範囲外/誤画像を読む競合を回避）。
-    private func swapTo(_ nv: NextVolume, hudPrefix: String) {
-        // 旧巻の最終状態を保存
-        persistCurrent()
+    /// 呼び出し時点で isSwapping=true・旧巻保存済み。pageCount を await 取得後、
+    /// content/book/model 等を **同期で一括** 差し替える（await 中の混在を作らない）。
+    private func performSwap(_ nv: NextVolume, hudPrefix: String) async {
         // 次巻の per-book 方向を解決する。nil の場合はグローバル設定を引き継ぐ。
         var options = model.options
         options.pageDirection = nv.book.pageDirection ?? ViewerSettings.shared.pageDirection
         let state = nv.state
-        isSwapping = true
-        // @MainActor のクラスなので Task 本体も main-actor 隔離。await 復帰後の本文は同期実行。
-        Task { [weak self] in
-            guard let self else { return }
-            let pageCount = (try? await nv.content.pageCount) ?? 0
-            // Phase 2.6b-2 T-B: 0-page ならスワップを中断し HUD ノートで通知する。
-            // 0-page の ViewerModel をインストールすると空白ビューワになるため、
-            // openInBuiltInViewer のガードと同じ方針で早期リターンする。
-            guard pageCount > 0 else {
-                self.isSwapping = false
-                self.hudNote("次の巻を開けません（0ページ）")
-                return
-            }
-            // ここから content-swap と model-install の間に suspension は無い（atomic swap）。
-            self.content = nv.content
-            self.book = nv.book
-            self.overrides = state.overrides
-            self.orientations = [:]
-            self.prefetch.removeAll()
-            let newModel = ViewerModel(pageCount: pageCount, options: options)
-            newModel.setCoverOffset(state.coverOffset)
-            newModel.setDisplayMode(state.spreadEnabled ? .spread : .single)
-            newModel.goTo(page: state.lastPage)
-            self.model = newModel
-            self.canvas.firstOnRight = (options.pageDirection == .rightToLeft)
-            self.rebuildSpreads()   // 末尾の model.setSpreads(...) が currentPage から再アンカーする
-            self.loadCurrentPage()
-            self.persistCurrent()
-            self.isSwapping = false
-            self.hudNote("\(hudPrefix)：\(nv.book.title)")
+        let pageCount = (try? await nv.content.pageCount) ?? 0
+        // Phase 2.6b-2 T-B: 0-page ならスワップを中断し HUD ノートで通知する。
+        // 0-page の ViewerModel をインストールすると空白ビューワになるため、
+        // openInBuiltInViewer のガードと同じ方針で早期リターンする。
+        guard pageCount > 0 else {
+            isSwapping = false
+            hudNote("次の巻を開けません（0ページ）")
+            return
         }
+        // ここから content-swap と model-install の間に suspension は無い（atomic swap）。
+        content = nv.content
+        book = nv.book
+        overrides = state.overrides
+        orientations = [:]
+        prefetch.removeAll()
+        let newModel = ViewerModel(pageCount: pageCount, options: options)
+        newModel.setCoverOffset(state.coverOffset)
+        newModel.setDisplayMode(state.spreadEnabled ? .spread : .single)
+        newModel.goTo(page: state.lastPage)
+        model = newModel
+        canvas.firstOnRight = (options.pageDirection == .rightToLeft)
+        rebuildSpreads()   // 末尾の model.setSpreads(...) が currentPage から再アンカーする
+        loadCurrentPage()
+        persistCurrent()
+        isSwapping = false
+        hudNote("\(hudPrefix)：\(nv.book.title)")
     }
 
     /// 末挙動をセッション内で stop → nextBook → loop → stop に巡回する（ViewerSettings へは保存しない）。
