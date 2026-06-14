@@ -21,6 +21,12 @@ struct RemoteLibraryView: View {
     /// Task 6: フィルタ popover の表示制御。
     @State private var filterShown = false
 
+    /// B2: ファセットペイン表示制御（セッションスコープ）。
+    @State private var showFacets = true
+
+    /// B2: サイドバー列表示制御（NavigationSplitView columnVisibility binding）。
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+
     var body: some View {
         Group {
             if state.locked && state.libraryToken == nil {
@@ -36,7 +42,7 @@ struct RemoteLibraryView: View {
     // MARK: - Split layout (Task 6)
 
     private var splitView: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
             RemoteSidebarView(state: state)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 200)
         } content: {
@@ -106,14 +112,16 @@ struct RemoteLibraryView: View {
                 banner(err)
             }
             Divider()
-            // Task 6: 共有ファセット pane（上端）。
-            BrowserPaneView(
-                browserPaneState: $state.browserPaneState,
-                labelFor: { defaultBrowseFieldLabel($0) },
-                refreshKey: state.facetRefreshKey,
-                facetValues: { col, upper in await state.facetValues(col, upper) }
-            )
-            Divider()
+            // Task 6 / B2: 共有ファセット pane（上端）。showFacets で表示切替可。
+            if showFacets {
+                BrowserPaneView(
+                    browserPaneState: $state.browserPaneState,
+                    labelFor: { defaultBrowseFieldLabel($0) },
+                    refreshKey: state.facetRefreshKey,
+                    facetValues: { col, upper in await state.facetValues(col, upper) }
+                )
+                Divider()
+            }
             if state.isGrid {
                 gridView
             } else {
@@ -219,6 +227,12 @@ struct RemoteLibraryView: View {
                 FilterPopoverView(filter: $state.filterState)
                     .frame(width: 280)
             }
+
+            // B2: ファセットペイン表示切替ボタン。
+            Button { showFacets.toggle() } label: {
+                Image(systemName: showFacets ? "rectangle.split.3x1" : "rectangle")
+            }
+            .help(showFacets ? "ファセットを隠す" : "ファセットを表示")
 
             Picker("", selection: $state.isGrid) {
                 Image(systemName: "list.bullet").tag(false)
