@@ -26,6 +26,12 @@ struct SharingSettingsView: View {
     /// トークン再生成の確認ダイアログ。
     @State private var showRegenerateConfirm = false
 
+    /// 編集トークン再生成の確認ダイアログ。
+    @State private var showRegenerateEditTokenConfirm = false
+
+    /// 編集トークン無効化の確認ダイアログ。
+    @State private var showClearEditTokenConfirm = false
+
     /// QR に使う接続先 IP アドレス。nil のとき addresses.first を使う。
     @State private var selectedHostIP: String?
 
@@ -36,6 +42,7 @@ struct SharingSettingsView: View {
                 connectionSection
             }
             tokenSection
+            editTokenSection
             librariesSection
         }
         .formStyle(.grouped)
@@ -214,6 +221,74 @@ struct SharingSettingsView: View {
                 Button("キャンセル", role: .cancel) {}
             } message: {
                 Text("既存のペアリング端末は再ペアリングが必要になります。")
+            }
+        }
+    }
+
+    // MARK: - 編集用トークンセクション（RW）
+
+    @ViewBuilder
+    private var editTokenSection: some View {
+        Section("編集用トークン（RW）") {
+            if let editToken = server.editToken {
+                // トークン発行済み: 表示・コピー・再生成・無効化
+                Text(editToken)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+
+                HStack(spacing: 12) {
+                    Button("コピー") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(editToken, forType: .string)
+                    }
+
+                    Button("再生成…") {
+                        showRegenerateEditTokenConfirm = true
+                    }
+                    .confirmationDialog(
+                        "編集用トークンを再生成しますか？",
+                        isPresented: $showRegenerateEditTokenConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("再生成", role: .destructive) {
+                            server.regenerateEditToken()
+                        }
+                        Button("キャンセル", role: .cancel) {}
+                    } message: {
+                        Text("既存の編集クライアントは再ペアリングが必要になります。")
+                    }
+
+                    Button("無効化（クリア）…", role: .destructive) {
+                        showClearEditTokenConfirm = true
+                    }
+                    .confirmationDialog(
+                        "編集用トークンを無効化しますか？",
+                        isPresented: $showClearEditTokenConfirm,
+                        titleVisibility: .visible
+                    ) {
+                        Button("無効化", role: .destructive) {
+                            server.clearEditToken()
+                        }
+                        Button("キャンセル", role: .cancel) {}
+                    } message: {
+                        Text("リモート編集が無効になります。再度発行するまで編集クライアントは接続できません。")
+                    }
+                }
+
+                Text("⚠ 編集用トークンは編集を許可します。自分・信頼できる相手にのみ渡してください。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                // トークン未発行: 説明と発行ボタン
+                Text("編集用トークンを発行すると、そのトークンで接続したクライアントが本のメタデータを編集できます（閲覧用トークンは読み取り専用のまま）。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button("編集用トークンを発行") {
+                    server.regenerateEditToken()
+                }
             }
         }
     }
