@@ -43,6 +43,8 @@ final class RemoteLibraryState {
     var isGrid = false
     var selection: Int? = nil
     var errorText: String? = nil
+    /// Phase 4.2b-3 Task 4: /me で取得したトークンロール（write なら編集可）。
+    var canEditServer = false
 
     /// Phase 4.2b-1b-2b Task 5: 共有 browse ビュー（sidebar / facet pane / detail）駆動状態。
     enum RemoteSidebarSelection: Equatable, Hashable {
@@ -166,6 +168,8 @@ final class RemoteLibraryState {
             books = result.items
             total = result.total
             errorText = nil
+            // Phase 4.2b-3 Task 4: 初回ロード成功時にトークンロールを確認し編集可否を設定する。
+            canEditServer = ((try? await client.me(libraryToken: libraryToken)) == .write)
         } catch let e as RemoteClientError {
             errorText = Self.message(for: e)
         } catch {
@@ -345,6 +349,33 @@ final class RemoteLibraryState {
         selection = id
         guard let id else { detail = nil; return }
         detail = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: id, libraryToken: libraryToken)
+    }
+
+    /// Phase 4.2b-3 Task 4: BookPatch をサーバへ PATCH し、詳細・一覧を更新する。
+    func applyRemotePatch(bookID: Int, patch: BookPatch) async {
+        let dirStr: (PageDirection) -> String = { dir in
+            switch dir {
+            case .rightToLeft: return "rtl"
+            case .leftToRight: return "ltr"
+            }
+        }
+        let dto = BookPatchDTO(
+            title: patch.title, author: patch.author, genre: patch.genre,
+            neta: patch.neta, memo: patch.memo,
+            keywordA: patch.keywordA, keywordB: patch.keywordB, keywordC: patch.keywordC,
+            rating: patch.rating, unseen: patch.unseen,
+            series: patch.series, volume: patch.volume, bookType: patch.bookType,
+            pageDirection: patch.pageDirection.map { dirStr($0) },
+            clearSeries: patch.clearSeries, clearVolume: patch.clearVolume,
+            clearPageDirection: patch.clearPageDirection)
+        do {
+            _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: bookID, patch: dto, libraryToken: libraryToken)
+            await selectBook(bookID)   // 詳細ペインを最新内容で再描画
+            await reload()             // 一覧行も更新
+        } catch {
+            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
+            else { errorText = "編集に失敗しました" }
+        }
     }
 
     /// 共有ファセット pane の facetValues クロージャ用。

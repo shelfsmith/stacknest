@@ -50,17 +50,20 @@ struct RemoteLibraryView: View {
         .frame(minWidth: 960, minHeight: 480)
     }
 
-    /// 共有 read-only DetailPaneView。canEdit:false・編集系クロージャは no-op。
+    /// 詳細 DetailPaneView。write トークン時は編集可（canEdit = state.canEditServer）。
+    /// v1: 単一本のメタデータ編集のみ。カバー・クロップ・マルチ選択編集は no-op。
     private var detailPane: some View {
         DetailPaneView(
             books: state.detailBookRows(),
             librarySettings: nil,
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
-            canEdit: false,
-            onApplyPatch: { _, _ in }, onApplyPatchMulti: { _, _ in },
+            canEdit: state.canEditServer,
+            onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },
+            onApplyPatchMulti: { _, _ in },
             onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },
-            onJump: { _, _ in }, onError: { _ in },
+            onJump: { _, _ in },
+            onError: { _ in },
             coverImage: { id in await state.coverImage(id) }
         )
     }
