@@ -13,6 +13,8 @@ struct OfflineLibraryView: View {
     @State private var query = ""
     @State private var selectedID: String? = nil
     @State private var errorText: String? = nil
+    @State private var selectionMode = false
+    @State private var multiSelection: Set<String> = []
     /// 内蔵ビューワを 1 ウィンドウだけ保持する（RemoteLibraryState.viewerController と同方針）。
     @State private var viewer: ViewerWindowController? = nil
 
@@ -276,6 +278,29 @@ struct OfflineLibraryView: View {
             self.errorText = nil
             controller.present()
         }
+    }
+
+    // MARK: - Multi-select state helpers
+
+    private func toggleSelectionMode() {
+        selectionMode.toggle()
+        if !selectionMode { multiSelection.removeAll() }
+    }
+
+    private func toggleSelected(_ id: String) {
+        if multiSelection.contains(id) { multiSelection.remove(id) } else { multiSelection.insert(id) }
+    }
+
+    private func selectAllVisible() { multiSelection = Set(filtered.map { $0.id }) }
+
+    private func clearSelection() { multiSelection.removeAll() }
+
+    private func deleteSelected() {
+        let targets = books.filter { multiSelection.contains($0.id) }
+        store.removeBooks(targets)
+        multiSelection.removeAll()
+        selectionMode = false
+        reload()
     }
 
     /// オフライン保存を削除して一覧を更新する。

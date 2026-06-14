@@ -72,6 +72,13 @@ public struct OfflineStore: @unchecked Sendable {
         baseDirectory.appendingPathComponent("\(book.serverID.uuidString)/\(book.libraryUUID)/\(book.detail.id).cover")
     }
 
+    /// 複数の DL 済を一括削除する。
+    public func removeBooks(_ books: [DownloadedBook]) {
+        for b in books {
+            remove(serverID: b.serverID, libraryUUID: b.libraryUUID, bookID: b.bookID)
+        }
+    }
+
     public func remove(serverID: UUID, libraryUUID: String, bookID: Int) {
         if let book = all().first(where: { $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID }) {
             try? fm.removeItem(at: fileURL(for: book))

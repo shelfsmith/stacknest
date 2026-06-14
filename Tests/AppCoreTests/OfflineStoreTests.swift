@@ -97,4 +97,25 @@ struct OfflineStoreTests {
         let fromOtherLibNext = store.adjacentDownloaded(serverID: sid, libraryUUID: otherLib, series: "S", volume: 1, direction: .next)
         #expect(fromOtherLibNext == nil)
     }
+
+    @Test func removeBooksDeletesAllGiven() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        // Save 3 books in the same server/library with different IDs
+        try store.save(detail(10, "Book A"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+                       fileExtension: "zip", fileData: Data([1]), coverData: nil)
+        try store.save(detail(20, "Book B"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+                       fileExtension: "zip", fileData: Data([2]), coverData: nil)
+        try store.save(detail(30, "Book C"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+                       fileExtension: "zip", fileData: Data([3]), coverData: nil)
+        let books = store.all()
+        #expect(books.count == 3)
+        // Remove first 2, leaving only the third
+        store.removeBooks(Array(books.prefix(2)))
+        let remaining = store.all()
+        #expect(remaining.count == 1)
+        // The remaining book should be the one not in the first two
+        let removedIDs = Set(books.prefix(2).map { $0.bookID })
+        #expect(!removedIDs.contains(remaining[0].bookID))
+    }
 }
