@@ -19,16 +19,25 @@ struct OfflineLibraryView: View {
     private let store = OfflineStore()
 
     var body: some View {
-        NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 240, ideal: 300)
-        } detail: {
-            detailPane
-                .navigationSplitViewColumnWidth(min: 240, ideal: 260)
+        // O4: ローカル/リモートとの整合のため「一覧（主・広い）＋詳細（固定240）」の 2 ペイン。
+        // NavigationSplitView の折り畳みサイドバー枠に一覧を入れると、折り畳むと詳細だけ残り
+        // 不整合になるため、HSplitView で一覧を非折り畳みの主ペインにし詳細を固定幅にする。
+        NavigationStack {
+            HSplitView {
+                listColumn
+                    .frame(minWidth: 360)
+                detailPane
+                    .frame(minWidth: 240, idealWidth: 240, maxWidth: 240)
+            }
+            .frame(minWidth: 760, minHeight: 480)
+            .navigationTitle("オフライン")
+            .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
         }
-        .frame(minWidth: 820, minHeight: 480)
-        .navigationTitle("オフライン")
         .task { reload() }
+        // O2: 別ウィンドウ（リモートブラウズ）で DL/削除されたら即座に反映する。
+        .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in
+            reload()
+        }
     }
 
     // MARK: - Reload
@@ -52,9 +61,9 @@ struct OfflineLibraryView: View {
         }
     }
 
-    // MARK: - Sidebar (content list)
+    // MARK: - List column (main pane)
 
-    private var sidebar: some View {
+    private var listColumn: some View {
         VStack(spacing: 0) {
             if let errorText {
                 banner(errorText)
@@ -68,11 +77,11 @@ struct OfflineLibraryView: View {
                 )
             } else {
                 listView
+                Divider()
+                // O1: footer（件数/合計サイズ）は本があるときだけ表示（空状態で出さない）。
+                footer
             }
-            Divider()
-            footer
         }
-        .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
     }
 
     private var listView: some View {
@@ -84,6 +93,9 @@ struct OfflineLibraryView: View {
                             .tag(book.id)
                             .contentShape(Rectangle())
                             .onTapGesture(count: 2) { openOffline(book) }
+                            // O3: .contextMenu が List(selection:) のネイティブ単一クリック選択を
+                            // 横取りするため（D1 と同根）、明示的な単一タップで選択する。
+                            .onTapGesture { selectedID = book.id }
                             .contextMenu {
                                 Button("開く") { openOffline(book) }
                                 Divider()

@@ -2,6 +2,11 @@
 import Foundation
 import LibraryServerAPI
 
+public extension Notification.Name {
+    /// OfflineStore の DL 済み集合が変化した（save/remove）。オフライン UI が監視して再読込する。
+    static let offlineStoreDidChange = Notification.Name("StackNest.offlineStoreDidChange")
+}
+
 public struct DownloadedBook: Codable, Sendable, Identifiable {
     public var detail: BookDetailDTO
     public var serverID: UUID
@@ -59,6 +64,7 @@ public struct OfflineStore: @unchecked Sendable {
         var list = all().filter { !($0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == detail.id) }
         list.append(book)
         try persist(list)
+        NotificationCenter.default.post(name: .offlineStoreDidChange, object: nil)
     }
 
     public func fileURL(for book: DownloadedBook) -> URL { baseDirectory.appendingPathComponent(book.relativeFilePath) }
@@ -72,6 +78,7 @@ public struct OfflineStore: @unchecked Sendable {
             if book.hasCachedCover { try? fm.removeItem(at: coverURL(for: book)) }
         }
         try? persist(all().filter { !($0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID) })
+        NotificationCenter.default.post(name: .offlineStoreDidChange, object: nil)
     }
 
     public func updateLastPage(serverID: UUID, libraryUUID: String, bookID: Int, page: Int) {
