@@ -65,6 +65,10 @@ re-implemented from observation.
 - **Supported formats**: archives ZIP / CBZ / RAR / CBR / 7z (via libarchive) and PDF (PDFKit); images JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF (via NSImage)
 - **First-run wizard**: on first launch, a paged wizard walks through "image-opening method (built-in / external viewer) → (if built-in) viewer initial settings → first library (create / open / import)". Re-showable anytime from Settings ▸ General
 - **Import**: migrate an existing Stackroom library XML into the SQLite database
+- **Remote sharing (server)**: serve a library over HTTP (token auth, QR / NIC selection / IPv6, downscaled delivery, locked-library unlock). Browse from a **web browser** (list / grid, FTS search, sort, paging) and read with the **web reader** (3-layer prefetch, spread / single-page, resume, two-way instant page-direction sync)
+- **Native remote client**: connect from StackNest on another Mac to a remote server (connect / history, **full browse** = sidebar / facets / filters / read-only detail pane, paged / infinite-scroll, built-in viewer, progress synced to the server)
+- **Offline download**: download selected remote books to local storage and browse / read them **without a connection** (resume supported). Open from the title screen / File menu "Offline". **Multi-select for batch download / delete**
+- **Remote / offline volume navigation**: the built-in viewer's previous / next volume works for remote (adjacent volume streamed, even if not downloaded) and offline (consecutive downloaded volumes). For a half-read volume, choose "continue / from start"
 
 ## Requirements
 
@@ -183,6 +187,25 @@ Once configured, double-clicking a book in the grid opens the file (or its cover
 ### Importing from the command line
 
 The same database that "Import from a Stackroom Library" produces can also be created from the command line with `swift run stackroom-import` (see `docs/importer.md`). Place the resulting SQLite DB inside a `.stacknest` bundle and then use "Open an existing library" to open it.
+
+### Remote access (sharing / client / offline)
+
+The same StackNest acts as both a **server (sharing)** and a **client**. You can browse your library from another Mac, an iPhone, or a tablet browser.
+
+**On the server side (share)**
+1. Open the library you want to share and turn **sharing ON** via the **antenna (delivery indicator)** in the toolbar (or the sharing settings).
+2. Hand the displayed **URL / QR code / access token** to the connecting side (NIC selection and IPv6 supported). Locked libraries require a password unlock on the connecting side.
+3. **Security:** do not expose the port directly to the internet; prefer access over a VPN such as **Tailscale** (LAN use is the assumption).
+
+**From a web browser**
+- Open the share URL on the connecting side to browse with list / grid, full-text search, sort, and paging; open a book to read in the web reader (prefetch, spread / single-page, resume, page-direction sync).
+
+**Native client (from StackNest on another Mac)**
+- Use **"Connect to a server…"** from the title screen (or File menu), enter the URL and token. You get full browse (sidebar / facets / filters / read-only detail pane) and the built-in viewer; reading progress is synced back to the server.
+
+**Offline (read without a connection)**
+- While connected, **right-click a book → "Download"** to store it locally. **Multi-select mode → batch download** is also available (narrow to a series via facets / search, then "Select all").
+- From the title screen / File menu **"Offline (downloaded)"**, browse and read downloaded books **even without a server connection** (resume and volume navigation supported). Remove unneeded books via multi-select mode.
 
 ## Library lock (Phase 2.5b+)
 
