@@ -20,14 +20,16 @@ struct OfflineLibraryView: View {
 
     var body: some View {
         // O4: ローカル/リモートとの整合のため「一覧（主・広い）＋詳細（固定240）」の 2 ペイン。
-        // NavigationSplitView の折り畳みサイドバー枠に一覧を入れると、折り畳むと詳細だけ残り
-        // 不整合になるため、HSplitView で一覧を非折り畳みの主ペインにし詳細を固定幅にする。
+        // HSplitView はコンテンツ理想サイズで配分し maxWidth を厳守しないため、詳細の中身
+        // （未選択の空状態 vs 選択時）で一覧幅（＝footer 幅）が揺れる（V4 NG）。
+        // → HStack で詳細を真の固定幅にし、一覧幅を選択状態に依らず一定にする。
         NavigationStack {
-            HSplitView {
+            HStack(spacing: 0) {
                 listColumn
-                    .frame(minWidth: 360)
+                    .frame(maxWidth: .infinity)
+                Divider()
                 detailPane
-                    .frame(minWidth: 240, idealWidth: 240, maxWidth: 240)
+                    .frame(width: 240)
             }
             .frame(minWidth: 760, minHeight: 480)
             .navigationTitle("オフライン")
