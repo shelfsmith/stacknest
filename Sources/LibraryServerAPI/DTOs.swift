@@ -24,6 +24,12 @@ public struct BookListItemDTO: Codable, Sendable {
     /// 表紙差し替えを Web の `?v=` で追跡するためのバージョン文字列（thumbnail.jpg の mtime+size 由来）。
     /// 表紙なしの本は nil。stat コスト抑制のためページスライス後の本のみ算出する（run 参照）。
     public let coverVersion: String?
+    // ── 動的フィールド（&fields= で要求された時のみ充填・既定 nil） ──
+    public let genre: String?
+    public let neta: String?
+    public let keywordA: String?
+    public let keywordB: String?
+    public let memo: String?
 
     public init(
         id: Int,
@@ -39,7 +45,9 @@ public struct BookListItemDTO: Codable, Sendable {
         lastReadAt: Date?,
         dateAdded: Date,
         hasCover: Bool,
-        coverVersion: String?
+        coverVersion: String?,
+        genre: String? = nil, neta: String? = nil,
+        keywordA: String? = nil, keywordB: String? = nil, memo: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -55,6 +63,8 @@ public struct BookListItemDTO: Codable, Sendable {
         self.dateAdded = dateAdded
         self.hasCover = hasCover
         self.coverVersion = coverVersion
+        self.genre = genre; self.neta = neta
+        self.keywordA = keywordA; self.keywordB = keywordB; self.memo = memo
     }
 }
 
@@ -66,7 +76,8 @@ extension BookListItemDTO {
             series: series, volume: volume,
             rating: rating, unseen: unseen, bookType: bookType,
             pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
-            dateAdded: dateAdded, hasCover: hasCover, coverVersion: version
+            dateAdded: dateAdded, hasCover: hasCover, coverVersion: version,
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo
         )
     }
 
@@ -78,7 +89,8 @@ extension BookListItemDTO {
             series: series, volume: volume,
             rating: rating, unseen: unseen, bookType: bookType,
             pages: pages, lastPage: page, lastReadAt: lastReadAt,
-            dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion
+            dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion,
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo
         )
     }
 }
