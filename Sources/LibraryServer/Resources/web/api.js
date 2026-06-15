@@ -110,6 +110,22 @@ export async function postDirection(uuid, bookId, direction) {
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
 }
 
+/// browse 制約（[{column,value},...] 形式）→ &browse=<URL-encoded JSON>。空なら ""。
+/// constraints は [{column: "genre", value: "SF"}, ...] の配列。
+export function browseParam(constraints) {
+    if (!constraints || constraints.length === 0) return "";
+    return `&browse=${encodeURIComponent(JSON.stringify(constraints))}`;
+}
+
+/// ファセット候補値。field は SQL 列名（"genre"|"author"|"series"|"neta"|"keyword_a"|"keyword_b"|"keyword_c"）。
+/// upper browse 制約（[{column,value},...]）と検索 q で絞った distinct 値の配列を返す。
+/// サーバは [String] をそのまま返すため、戻り値は string の配列。
+export function fetchFacet(uuid, field, { browse = [], q = "" } = {}) {
+    const path = `/libraries/${encodeURIComponent(uuid)}/facets/${encodeURIComponent(field)}`
+        + `?q=${encodeURIComponent(q)}${browseParam(browse)}`;
+    return apiJSON(path, { libraryUUID: uuid });
+}
+
 /// ロック庫の解錠。成功で libraryToken を sessionStorage に保存する。
 /// 認証失敗（パスワード違い）は false を返す。
 export async function unlockLibrary(uuid, password) {
