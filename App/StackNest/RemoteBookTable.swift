@@ -151,6 +151,18 @@ final class RemoteBookTableCoordinator: NSObject {
         }
         let current: [BookColumn] = table.tableColumns.compactMap { BookColumn(rawValue: $0.identifier.rawValue) }
         if current != visibleColumns { installColumns(in: table) }
+        // ヘッダのソートインジケータ（▲▼）を現在のソートに合わせる。
+        // state.sortKey は serverSortKey 文字列なので、それに一致する列の rawValue を
+        // sortDescriptor の key にする（列ヘッダの identifier は col.rawValue のため）。
+        isInstallingColumns = true
+        if let col = BookColumn.allCases.first(where: { $0.serverSortKey == state.sortKey }) {
+            let desired = NSSortDescriptor(key: col.rawValue, ascending: state.ascending)
+            if table.sortDescriptors.first?.key != desired.key
+               || table.sortDescriptors.first?.ascending != desired.ascending {
+                table.sortDescriptors = [desired]
+            }
+        }
+        isInstallingColumns = false
         let ids: Set<Int> = state.selectionMode ? state.multiSelection
             : (state.selection.map { [$0] } ?? [])
         var indices: [Int] = []

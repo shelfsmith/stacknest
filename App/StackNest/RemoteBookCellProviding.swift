@@ -2,12 +2,11 @@
 import Foundation
 import AppCore
 import LibraryStore
+import LibraryServerAPI
 
 extension BookRow: BookCellProviding {
     public var playDateValue: Date? { playDate }
 }
-
-import LibraryServerAPI
 
 extension BookListItemDTO: BookCellProviding {
     public var playDateValue: Date? { lastReadAt }
