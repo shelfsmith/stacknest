@@ -269,10 +269,16 @@ body {
   display: flex;
   gap: 10px;
   align-items: center;
+  /* iPhone 縦など狭幅では 1 行に収まらず seg/件数セレクタが画面外へ溢れて
+     押せなくなる。折り返し可にして 2 段目に逃がす（iPad/PC は 1 行のまま）。 */
+  flex-wrap: wrap;
 }
 
 .books-sort {
-  flex: 1;
+  /* min-width:0 で内容より小さく縮められるようにし、basis を確保して
+     折り返し時も「シリーズ」等が読める幅を保つ。 */
+  flex: 1 1 140px;
+  min-width: 0;
   min-height: var(--tap);
   padding: 0 10px;
   font-size: 16px;
