@@ -344,6 +344,10 @@ export async function renderBooks(uuid, query, deps) {
             // 表示モードを切り替えたら browse（ファセット）選択と step を破棄して
             // page 1 から開始する（カラムのドリルダウンを list/grid に持ち越さない）。
             navigate(uuid, { page: 1, q, sort, order });
+            // view は localStorage 管理で URL hash に乗らないため、hash が変わらない
+            // （ファセット未選択時など）と navigate 経由の hashchange が起きず再描画されない
+            // ＝ビュー切替が効かない（重大バグ）。明示 route() で必ず反映する。
+            deps.route();
         });
         return btn;
     };
