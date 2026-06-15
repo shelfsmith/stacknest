@@ -311,8 +311,8 @@ export async function renderBooks(uuid, query, deps) {
         return btn;
     };
     const viewSeg = el("div", { class: "seg", role: "group", "aria-label": "表示モード" }, [
-        makeSegBtn("list", "リスト", listIconSVG()),
         makeSegBtn("grid", "グリッド", gridIconSVG()),
+        makeSegBtn("list", "リスト", listIconSVG()),
         makeSegBtn("column", "カラム", columnIconSVG()),
     ]);
 
