@@ -2,10 +2,10 @@
 // StackNest Web — books ブラウズ（list/grid・ページ切替・検索・ソート・表紙・詳細モーダル）。
 // 状態は URL（#/lib/<uuid>?page=&q=&sort=）に反映し、表示モード/per/sort は localStorage に記憶する。
 
-import { api, apiJSON, deviceToken, libToken } from "./api.js";
+import { api, apiJSON, deviceToken, libToken, browseParam, fetchFacet } from "./api.js";
 
 // ---- localStorage キー（端末ごとの表示設定） --------------------------------
-const VIEW_KEY = "stacknest.books.view";   // "list" | "grid"
+const VIEW_KEY = "stacknest.books.view";   // "list" | "grid" | "column"
 const PER_KEY = "stacknest.books.per";     // 50 | 100 | 200
 const SORT_KEY = "stacknest.books.sort";   // title | series | dateAdded | lastRead
 const ORDER_KEY = "stacknest.books.order"; // asc | desc
@@ -22,11 +22,39 @@ const ORDER_VALUES = new Set(["asc", "desc"]);
 // ソートキーごとの自然な既定方向（サーバの BookSortKey.defaultOrder と一致させる）。
 const DEFAULT_ORDER = { title: "asc", series: "asc", dateAdded: "desc", lastRead: "desc" };
 
+const VIEW_VALUES = new Set(["list", "grid", "column"]);
 function getView() {
     const v = localStorage.getItem(VIEW_KEY);
-    return v === "grid" ? "grid" : "list";
+    return VIEW_VALUES.has(v) ? v : "list";
 }
-function setView(v) { localStorage.setItem(VIEW_KEY, v === "grid" ? "grid" : "list"); }
+function setView(v) { localStorage.setItem(VIEW_KEY, VIEW_VALUES.has(v) ? v : "list"); }
+
+// ---- browse（ファセット ドリルダウン）定義 ----------------------------------
+// レベル順: ジャンル → 作者 → シリーズ。SQL 列名 / 日本語ラベル / URL クエリ名。
+const BROWSE_LEVELS = [
+    { column: "genre", label: "ジャンル", param: "g" },
+    { column: "author", label: "作者", param: "a" },
+    { column: "series", label: "シリーズ", param: "s" },
+];
+
+/// query（parseRoute の query）から各レベルの選択値を読み出す。
+/// 返り値は { genre, author, series }（未選択は ""）。
+function browseSelection(query) {
+    const sel = {};
+    for (const lv of BROWSE_LEVELS) sel[lv.column] = query[lv.param] || "";
+    return sel;
+}
+
+/// 選択値 { genre, author, series } → browse 制約配列 [{column,value},...]。
+/// 値のあるレベルだけを BROWSE_LEVELS の順で含める。
+function browseConstraints(sel) {
+    const out = [];
+    for (const lv of BROWSE_LEVELS) {
+        const v = sel[lv.column];
+        if (v) out.push({ column: lv.column, value: v });
+    }
+    return out;
+}
 
 function getPer() {
     const n = parseInt(localStorage.getItem(PER_KEY) || "", 10);
@@ -145,6 +173,9 @@ export async function renderBooks(uuid, query, deps) {
     const order = ORDER_VALUES.has(query.order) ? query.order : getOrder(sort);
     const per = getPer();
     const view = getView();
+    // browse（ファセット ドリルダウン）選択。URL の g/a/s から読む。
+    const sel = browseSelection(query);
+    const currentBrowse = browseConstraints(sel);
     // sort/order は記憶に同期（URL で来た値を次回既定にする）。
     setSort(sort);
     setOrder(order);
@@ -155,7 +186,8 @@ export async function renderBooks(uuid, query, deps) {
             `/libraries/${encodeURIComponent(uuid)}/books`
             + `?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`
             + `&order=${encodeURIComponent(order)}`
-            + `&page=${page}&per=${per}`,
+            + `&page=${page}&per=${per}`
+            + browseParam(currentBrowse),
             { libraryUUID: uuid },
         );
     } catch (e) {
@@ -172,9 +204,12 @@ export async function renderBooks(uuid, query, deps) {
     const perPage = data.perPage ?? per;
     const totalPages = Math.max(1, Math.ceil(total / Math.max(1, perPage)));
 
+    // browse 選択を navigate に載せ直すための共通フィールド（g/a/s）。
+    const selParams = { g: sel.genre, a: sel.author, s: sel.series };
+
     // URL が範囲外ページを指していたら最終ページへ寄せる（リロード耐性）。
     if (page > totalPages && total > 0) {
-        navigate(uuid, { page: totalPages, q, sort, order });
+        navigate(uuid, { page: totalPages, q, sort, order, ...selParams });
         return;
     }
 
@@ -195,7 +230,7 @@ export async function renderBooks(uuid, query, deps) {
     const scheduleSearch = () => {
         if (searchTimer) clearTimeout(searchTimer);
         searchTimer = setTimeout(() => {
-            navigate(uuid, { page: 1, q: search.value, sort, order });
+            navigate(uuid, { page: 1, q: search.value, sort, order, ...selParams });
         }, 300);
     };
     search.addEventListener("compositionstart", () => { composing = true; });
@@ -218,7 +253,7 @@ export async function renderBooks(uuid, query, deps) {
         // キー変更時はそのキーの自然な既定方向に戻す（記憶も更新）。
         const o = DEFAULT_ORDER[s] || "asc";
         setOrder(o);
-        navigate(uuid, { page: 1, q, sort: s, order: o });
+        navigate(uuid, { page: 1, q, sort: s, order: o, ...selParams });
     });
 
     // 昇順/降順トグル。現在方向を表示し、押すと反転する。
@@ -231,32 +266,46 @@ export async function renderBooks(uuid, query, deps) {
     orderBtn.addEventListener("click", () => {
         const o = order === "asc" ? "desc" : "asc";
         setOrder(o);
-        navigate(uuid, { page: 1, q, sort, order: o });
+        navigate(uuid, { page: 1, q, sort, order: o, ...selParams });
     });
 
-    const viewBtn = el("button", {
-        type: "button", class: "books-viewtoggle",
-        "aria-label": view === "grid" ? "リスト表示に切替" : "グリッド表示に切替",
-        title: view === "grid" ? "リスト表示" : "グリッド表示",
-    }, [
-        // ボタンは「切替先のモード」のアイコンを表示する（grid 表示中→list アイコン）。
-        view === "grid" ? listIconSVG() : gridIconSVG(),
+    // 表示モード切替（リスト / グリッド / カラム）のセグメント コントロール。
+    const makeSegBtn = (mode, label, icon) => {
+        const btn = el("button", {
+            type: "button",
+            class: mode === view ? "seg-btn sel" : "seg-btn",
+            "aria-pressed": mode === view ? "true" : "false",
+            "aria-label": `${label}表示`,
+            title: `${label}表示`,
+        }, icon ? [icon] : [label]);
+        btn.addEventListener("click", () => {
+            if (mode === view) return;
+            setView(mode);
+            // 同じ URL で再描画（hashchange は起きないので明示的に再評価）。
+            deps.route();
+        });
+        return btn;
+    };
+    const viewSeg = el("div", { class: "seg", role: "group", "aria-label": "表示モード" }, [
+        makeSegBtn("list", "リスト", listIconSVG()),
+        makeSegBtn("grid", "グリッド", gridIconSVG()),
+        makeSegBtn("column", "カラム", null),
     ]);
-    viewBtn.addEventListener("click", () => {
-        setView(view === "grid" ? "list" : "grid");
-        // 同じ URL で再描画（hashchange は起きないので明示的に再評価）。
-        deps.route();
-    });
 
     root.append(el("div", { class: "books-toolbar" }, [
         search,
-        el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewBtn]),
+        el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewSeg]),
     ]));
 
-    // --- 件数 + ページャ（上） ---
-    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps }));
+    // --- カラム（ファセット）エリア（wide: 横並び。結果の上に置く） ---
+    if (view === "column") {
+        root.append(renderColumns(uuid, { sel, q, deps }));
+    }
 
-    // --- 本体（list / grid） ---
+    // --- 件数 + ページャ（上） ---
+    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, deps }));
+
+    // --- 本体（list / grid / column）。column モードの結果はリスト表示。 ---
     if (items.length === 0) {
         root.append(el("div", { class: "empty" },
             q ? "該当する本がありません。" : "このライブラリには本がありません。"));
@@ -268,7 +317,7 @@ export async function renderBooks(uuid, query, deps) {
 
     // --- ページャ（下） ---
     if (items.length > 0) {
-        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps }));
+        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, deps }));
     }
 
     render("ライブラリ", root, { showBack: true });
@@ -349,19 +398,121 @@ function gridView(uuid, items, deps) {
     return grid;
 }
 
+// ---- カラム（ファセット ドリルダウン）表示 ----------------------------------
+// wide（iPad/PC）: ジャンル → 作者 → シリーズ の列を横並びで表示し、上位の選択が
+// 下位の候補を絞り込む。各列の先頭は「すべて」（そのレベルの選択解除）。
+// 値クリックでそのレベルを設定し下位をクリア → navigate(g/a/s) → route 再描画。
+//
+// 非同期: 各列の候補はサーバ取得。まずプレースホルダ枠を返し、fetch 完了後に中身を
+// 差し込む（レンダリングはブロックしない）。連打時の競合は「最新 navigate が勝つ」で
+// 吸収する（route 再描画で全体が作り直されるため）。
+
+/// browse 選択 { genre, author, series } に対し、指定レベルより「厳密に上位」だけの
+/// 制約配列を返す（その列の候補を絞るための upper constraints）。
+function upperConstraintsFor(columnIdx, sel) {
+    const out = [];
+    for (let i = 0; i < columnIdx; i++) {
+        const lv = BROWSE_LEVELS[i];
+        const v = sel[lv.column];
+        if (v) out.push({ column: lv.column, value: v });
+    }
+    return out;
+}
+
+/// レベル選択を更新した browse パラメータ（g/a/s）を作る。
+/// 指定レベルに value を設定し、それより下位はすべてクリアする。
+/// value が "" のときはそのレベルもクリア（=「すべて」）。
+function selParamsWithLevel(sel, columnIdx, value) {
+    const next = { genre: "", author: "", series: "" };
+    for (let i = 0; i < columnIdx; i++) {
+        const c = BROWSE_LEVELS[i].column;
+        next[c] = sel[c] || "";
+    }
+    if (value) next[BROWSE_LEVELS[columnIdx].column] = value;
+    return { g: next.genre, a: next.author, s: next.series };
+}
+
+/// 1 列分の DOM を構築する（Task 4 のフルスクリーン stepper でも再利用可能）。
+/// columnIdx: BROWSE_LEVELS のインデックス。sel: 現在選択。q: 検索語。
+/// onPick(value): 値選択時の遷移ハンドラ（""=すべて）。
+/// 返り値はすぐ返る列要素。候補は非同期に fetch して差し込む。
+function buildFacetColumn(uuid, columnIdx, { sel, q, deps, onPick }) {
+    const { el } = deps;
+    const lv = BROWSE_LEVELS[columnIdx];
+    const selectedValue = sel[lv.column] || "";
+
+    const listEl = el("div", { class: "col-list" });
+    const countEl = el("span", { class: "col-count" });
+    const header = el("div", { class: "col-h" }, [
+        el("span", { class: "col-label", text: lv.label }),
+        countEl,
+    ]);
+
+    // 先頭「すべて」項目。
+    const allItem = el("button", {
+        type: "button",
+        class: selectedValue ? "col-item all" : "col-item all sel",
+        onClick: () => onPick(columnIdx, ""),
+    }, ["すべて"]);
+    listEl.append(allItem);
+
+    // ローディング プレースホルダ。
+    const loading = el("div", { class: "col-loading", text: "…" });
+    listEl.append(loading);
+
+    const upper = upperConstraintsFor(columnIdx, sel);
+    fetchFacet(uuid, lv.column, { browse: upper, q })
+        .then((values) => {
+            loading.remove();
+            const arr = Array.isArray(values) ? values : [];
+            countEl.textContent = String(arr.length);
+            for (const value of arr) {
+                if (value === null || value === undefined || value === "") continue;
+                const isSel = value === selectedValue;
+                listEl.append(el("button", {
+                    type: "button",
+                    class: isSel ? "col-item sel" : "col-item",
+                    onClick: () => onPick(columnIdx, value),
+                }, [String(value)]));
+            }
+        })
+        .catch(() => {
+            loading.textContent = "読み込み失敗";
+        });
+
+    return el("div", { class: "col" }, [header, listEl]);
+}
+
+/// wide のカラム エリア全体（横並び 3 列）を構築する。
+function renderColumns(uuid, { sel, q, deps }) {
+    const { el } = deps;
+    // 値選択 → navigate（最新が勝つ）。レベル設定で下位をクリア、ページは 1 に戻す。
+    // navigate で hash の g/a/s が変わる（=hashchange→route 再描画）。検索/ソートと同様、
+    // 明示 route() は呼ばない（既に「すべて」を再選択した等で hash が変わらない場合は no-op）。
+    const onPick = (columnIdx, value) => {
+        const sp = selParamsWithLevel(sel, columnIdx, value);
+        navigate(uuid, { page: 1, q, sort: getSort(), order: getOrder(getSort()), ...sp });
+    };
+    const cols = BROWSE_LEVELS.map((_lv, idx) =>
+        buildFacetColumn(uuid, idx, { sel, q, deps, onPick }));
+    return el("div", { class: "columns" }, cols);
+}
+
 // ---- ページャ ---------------------------------------------------------------
 
-function pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps }) {
+function pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, deps }) {
     const { el } = deps;
+    // browse 選択を navigate に載せ直す（ページ送り・per 変更で消さない）。
+    const selParams = sel ? { g: sel.genre, a: sel.author, s: sel.series } : {};
     const prev = el("button", {
         type: "button", class: "pager-btn", text: "‹ 前",
         disabled: page <= 1,
-        onClick: () => navigate(uuid, { page: page - 1, q, sort, order }),
+        onClick: () => navigate(uuid, { page: page - 1, q, sort, order, ...selParams }),
     });
     const next = el("button", {
         type: "button", class: "pager-btn", text: "次 ›",
         disabled: page >= totalPages,
-        onClick: () => navigate(uuid, { page: page + 1, q, sort, order }),
+        onClick: () => navigate(uuid, { page: page + 1, q, sort, order, ...selParams }),
     });
 
     const perSelect = el("select", { class: "pager-per", "aria-label": "1ページの件数" },
@@ -372,7 +523,7 @@ function pager(uuid, { page, totalPages, total, perPage, q, sort, order, deps })
         setPer(n);
         // per は URL に載らない（localStorage 記憶）。navigate でハッシュが変わらない場合
         // （既に page=1 等）hashchange が起きず再描画されないため、明示的に route() で再評価する。
-        navigate(uuid, { page: 1, q, sort, order });
+        navigate(uuid, { page: 1, q, sort, order, ...selParams });
         deps.route();
     });
 
@@ -481,7 +632,8 @@ function seriesDrilldown(uuid, series, deps) {
 
 /// books 画面の状態を hash に書き込んで遷移する。
 /// 空の q・既定値（sort=title / order=sort の自然既定）は URL に載せない（短く保つ）。
-export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order } = {}) {
+/// browse 選択（g/a/s = ジャンル/作者/シリーズ）は値があるときだけ載せる。
+export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order, g = "", a = "", s = "" } = {}) {
     const params = [];
     if (page && page !== 1) params.push(`page=${page}`);
     if (q) params.push(`q=${encodeURIComponent(q)}`);
@@ -490,6 +642,9 @@ export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order }
     if (order && order !== (DEFAULT_ORDER[sort] || "asc")) {
         params.push(`order=${encodeURIComponent(order)}`);
     }
+    if (g) params.push(`g=${encodeURIComponent(g)}`);
+    if (a) params.push(`a=${encodeURIComponent(a)}`);
+    if (s) params.push(`s=${encodeURIComponent(s)}`);
     const qs = params.length ? `?${params.join("&")}` : "";
     return `#/lib/${encodeURIComponent(uuid)}${qs}`;
 }
