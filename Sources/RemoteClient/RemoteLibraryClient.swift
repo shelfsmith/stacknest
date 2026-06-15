@@ -99,10 +99,17 @@ public struct RemoteLibraryClient: Sendable {
         return items
     }
 
+    /// `&fields=` 用クエリ要素。集合は決定的順序にするためソートして連結。空なら nil。
+    static func fieldsQueryItem(_ fields: Set<String>) -> URLQueryItem? {
+        guard !fields.isEmpty else { return nil }
+        return URLQueryItem(name: "fields", value: fields.sorted().joined(separator: ","))
+    }
+
     public func fetchBooks(libraryUUID: String, query: String?, sort: String, ascending: Bool,
                            page: Int, per: Int, libraryToken: String?,
                            scope: String? = nil, scopeId: Int64? = nil, recentDays: Int? = nil,
-                           filter: FilterState? = nil, browse: [BrowseConstraint]? = nil) async throws -> BookPageDTO {
+                           filter: FilterState? = nil, browse: [BrowseConstraint]? = nil,
+                           fields: Set<String> = []) async throws -> BookPageDTO {
         var q: [URLQueryItem] = [
             .init(name: "sort", value: sort),
             .init(name: "order", value: ascending ? "asc" : "desc"),
@@ -110,6 +117,7 @@ public struct RemoteLibraryClient: Sendable {
             .init(name: "per", value: String(per)),
         ]
         q += browseQueryItems(scope: scope, scopeId: scopeId, recentDays: recentDays, filter: filter, browse: browse, q: query)
+        if let f = Self.fieldsQueryItem(fields) { q.append(f) }
         let url = makeURL("libraries/\(libraryUUID)/books", query: q)
         return try decode(BookPageDTO.self, try await send(request(url, libraryToken: libraryToken)))
     }
