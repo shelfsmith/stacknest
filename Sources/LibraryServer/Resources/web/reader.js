@@ -82,8 +82,11 @@ export async function renderReader(uuid, bookId, query, deps) {
         fetchPageBlob,
     });
 
-    // 4. 見開き状態
-    let spread = false;
+    // 4. 見開き状態（保存済み値優先。未設定時はビューポート幅で決める: ≥768px → ON、iPhone → OFF）
+    const savedSpread = readerPrefs().spread;   // undefined = 未設定（幅で決める）
+    let spread = (typeof savedSpread === "boolean")
+        ? savedSpread
+        : window.matchMedia("(min-width: 768px)").matches;   // PC/iPad 既定 ON・iPhone OFF
 
     // 5. エフェメラル objectURL（表示中ビュー分のみ保持）
     // LRU は廃止。IndexedDB が本来のキャッシュ。
@@ -158,6 +161,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         "aria-label": spread ? "見開きを解除" : "見開きモードにする",
         onClick: () => {
             spread = !spread;
+            setReaderPref("spread", spread);   // 手動選択を localStorage に永続化
             spreadToggleBtn.textContent = spread ? "見開き ON" : "見開き OFF";
             spreadToggleBtn.setAttribute("aria-label", spread ? "見開きを解除" : "見開きモードにする");
             stepOneBtn.hidden = !spread;
