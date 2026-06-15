@@ -150,6 +150,21 @@ function listIconSVG() {
     }, kids);
 }
 
+/// カラム アイコン（Finder カラム表示相当）: 角丸四角を縦 3 列に分割。
+function columnIconSVG() {
+    const outer = svgEl("rect", {
+        x: 2, y: 3, width: 16, height: 14, rx: 2, ry: 2,
+        fill: "none", stroke: "currentColor", "stroke-width": 1.6,
+    });
+    const mk = (x) => svgEl("line", {
+        x1: x, y1: 3, x2: x, y2: 17, stroke: "currentColor", "stroke-width": 1.6,
+    });
+    return svgEl("svg", {
+        class: "tb-icon", viewBox: "0 0 20 20",
+        "aria-hidden": "true", focusable: "false",
+    }, [outer, mk(7.3), mk(12.7)]);
+}
+
 function coverURL(uuid, book, maxw = 320) {
     if (!book.coverVersion) return null;
     // ?v= が immutable キャッシュのキー。乱数は付けない（同じ v は再取得されない）。
@@ -298,7 +313,7 @@ export async function renderBooks(uuid, query, deps) {
     const viewSeg = el("div", { class: "seg", role: "group", "aria-label": "表示モード" }, [
         makeSegBtn("list", "リスト", listIconSVG()),
         makeSegBtn("grid", "グリッド", gridIconSVG()),
-        makeSegBtn("column", "カラム", null),
+        makeSegBtn("column", "カラム", columnIconSVG()),
     ]);
 
     root.append(el("div", { class: "books-toolbar" }, [

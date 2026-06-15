@@ -839,6 +839,10 @@ body {
   color: #fff;
 }
 
+/* B1 修正: .tb-icon は color:var(--accent) を持つため、選択時（青背景）に
+   currentColor が青のままでアイコンが消える。選択ボタンのアイコンは白にする。 */
+.seg-btn.sel .tb-icon { color: #fff; }
+
 .seg-btn:not(.sel):active { background: var(--surface-2); }
 
 /* ---- ファセットカラム コンテナ ---- */
