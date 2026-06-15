@@ -388,66 +388,11 @@ extension BookTableCoordinator: NSTableViewDelegate {
     }
 
     /// SwiftUI content for one cell, dispatched on BookColumn.
+    /// Delegates to the shared `bookCellView` in AppCore so local and remote
+    /// tables render identically (Phase 4.2c-1 refactor; behavior unchanged).
     @ViewBuilder
     fileprivate func cellContent(for col: BookColumn, book: BookRow) -> some View {
-        switch col {
-        case .title:
-            Text(book.title).lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .rating:
-            // Stars: left-align to match other columns
-            Text(book.rating > 0 ? String(repeating: "★", count: book.rating) : "")
-                .monospacedDigit()
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .author:
-            Text(book.author ?? "").lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .genre:
-            Text(book.genre ?? "").lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .dateAdded:
-            Text(book.dateAdded, format: .dateTime.year().month().day())
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .playDate:
-            if let d = book.playDate {
-                Text(d, format: .dateTime.year().month().day())
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("").frame(maxWidth: .infinity, alignment: .leading)
-            }
-        case .unseen:
-            // Bullet indicator: center for visual balance
-            Text(book.unseen ? "●" : "").foregroundStyle(.green)
-                .frame(maxWidth: .infinity, alignment: .center)
-        case .bookType:
-            Text(bookTypeLabel(book.bookType))
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .neta:
-            Text(book.neta ?? "").lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .keywordA:
-            Text(book.keywordA ?? "").lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .keywordB:
-            Text(book.keywordB ?? "").lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .memo:
-            Text((book.memo ?? "").replacingOccurrences(of: "\n", with: " "))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .series:
-            Text(book.series ?? "").lineLimit(1).truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        case .volume:
-            Text(book.volume.map { vol -> String in
-                let intVal = Int(vol)
-                return vol == Double(intVal) ? "\(intVal)" : String(vol)
-            } ?? "")
-            .monospacedDigit()
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
+        bookCellView(col, provider: book, settings: settings)
     }
 
     fileprivate func bookTypeLabel(_ type: Int) -> String {
