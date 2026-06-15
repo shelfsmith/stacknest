@@ -378,7 +378,14 @@ public struct LibraryServerCore: Sendable {
         // ★book を mutate する API は DB 書き込み成功後に config.onBookChanged?(lib.uuid, row.id) を
         //   呼ぶこと（リモート変更を Mac UI / 将来のクライアントへ即時反映するため・4.2a）。
         if let webRoot = Bundle.module.url(forResource: "web", withExtension: nil)?.path {
-            router.add(middleware: FileMiddleware(webRoot, searchForIndexHtml: true))
+            // Web シェル（html/js/css）は `Cache-Control: no-cache` で毎回再検証させる
+            // （ETag で 304/200）。これが無いとブラウザのヒューリスティックキャッシュにより
+            // アプリ更新後も古い JS が使われ続け、変更が反映されない（4.2c smoke で顕在化）。
+            // 表紙/ページ画像は別ルートで immutable 長期キャッシュ（?v= 版管理）のため影響なし。
+            router.add(middleware: FileMiddleware(
+                webRoot,
+                cacheControl: .init([(MediaType(type: .any), [.noCache])]),
+                searchForIndexHtml: true))
         }
         return Application(
             router: router,
