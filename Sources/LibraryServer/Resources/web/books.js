@@ -29,6 +29,9 @@ function getView() {
 }
 function setView(v) { localStorage.setItem(VIEW_KEY, VIEW_VALUES.has(v) ? v : "list"); }
 
+/// iPhone 幅（狭幅）判定。column モードのフルスクリーン stepper の出し分けに使う。
+function isNarrow() { return window.matchMedia("(max-width:767px)").matches; }
+
 // ---- browse（ファセット ドリルダウン）定義 ----------------------------------
 // レベル順: ジャンル → 作者 → シリーズ。SQL 列名 / 日本語ラベル / URL クエリ名。
 const BROWSE_LEVELS = [
@@ -204,8 +207,14 @@ export async function renderBooks(uuid, query, deps) {
     const perPage = data.perPage ?? per;
     const totalPages = Math.max(1, Math.ceil(total / Math.max(1, perPage)));
 
+    // 狭幅 column stepper の現在地（0=ジャンル/1=作者/2=シリーズ/3=結果）。
+    const narrowColumn = view === "column" && isNarrow();
+    let step = Math.max(0, Math.min(3, parseInt(query.step || "0", 10) || 0));
+
     // browse 選択を navigate に載せ直すための共通フィールド（g/a/s）。
+    // 狭幅 column のときは step も維持（ページ送り・検索・ソートで現在地を保つ）。
     const selParams = { g: sel.genre, a: sel.author, s: sel.series };
+    if (narrowColumn) selParams.step = step;
 
     // URL が範囲外ページを指していたら最終ページへ寄せる（リロード耐性）。
     if (page > totalPages && total > 0) {
@@ -297,13 +306,35 @@ export async function renderBooks(uuid, query, deps) {
         el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewSeg]),
     ]));
 
-    // --- カラム（ファセット）エリア（wide: 横並び。結果の上に置く） ---
-    if (view === "column") {
+    // --- 狭幅 column: フルスクリーン stepper（1 列ずつ → 結果） ---
+    if (narrowColumn && step < 3) {
+        // 値選択 → そのレベルを設定し step を 1 つ進めて navigate。
+        const onPickNarrow = (columnIdx, value) => {
+            const sp = selParamsWithLevel(sel, columnIdx, value);
+            navigate(uuid, {
+                page: 1, q, sort, order, ...sp, step: columnIdx + 1,
+            });
+        };
+        root.append(renderStepperBar(uuid, { sel, step, q, sort, order, deps }));
+        root.append(el("div", { class: "columns stepper" }, [
+            buildFacetColumn(uuid, step, { sel, q, deps, onPick: onPickNarrow }),
+        ]));
+        render("ライブラリ", root, { showBack: true });
+        return;
+    }
+
+    // --- カラム（ファセット）エリア ---
+    if (narrowColumn) {
+        // step === 3: 結果リスト（「‹ 戻る」で step 2 へ）。
+        root.append(stepBackBar(uuid, { ...selParams, page: 1, q, sort, order, step: 2 }, deps));
+    } else if (view === "column") {
+        // wide（iPad/PC）: Task 3 の横並び 3 列。
         root.append(renderColumns(uuid, { sel, q, deps }));
     }
 
     // --- 件数 + ページャ（上） ---
-    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, deps }));
+    const pagerStep = narrowColumn ? step : undefined;
+    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
 
     // --- 本体（list / grid / column）。column モードの結果はリスト表示。 ---
     if (items.length === 0) {
@@ -317,7 +348,7 @@ export async function renderBooks(uuid, query, deps) {
 
     // --- ページャ（下） ---
     if (items.length > 0) {
-        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, deps }));
+        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
     }
 
     render("ライブラリ", root, { showBack: true });
@@ -498,12 +529,72 @@ function renderColumns(uuid, { sel, q, deps }) {
     return el("div", { class: "columns" }, cols);
 }
 
+// ---- 狭幅 column stepper（フルスクリーン 1 列ずつ） --------------------------
+// iPhone 幅では 3 列を一度に出さず、ジャンル → 作者 → シリーズ → 結果 と 1 画面ずつ
+// 進める。上部に「‹ 戻る」（step>0 で有効）とパンくず（各レベルの選択値 / すべて /
+// 未到達ラベル）を置き、パンくずタップで任意のレベルへジャンプできる。
+
+/// 「‹ 戻る」のみのバー（step→指定 step へ navigate）。step===3 の結果画面で使う。
+function stepBackBar(uuid, navState, deps) {
+    const { el } = deps;
+    const back = el("button", {
+        type: "button", class: "icon-btn step-back", text: "‹ 戻る",
+        "aria-label": "前のステップに戻る",
+        onClick: () => navigate(uuid, navState),
+    });
+    return el("div", { class: "stepper-bar" }, [back]);
+}
+
+/// stepper の上部バー（戻る + パンくず）。step は現在地（0..2）。
+function renderStepperBar(uuid, { sel, step, q, sort, order, deps }) {
+    const { el } = deps;
+    const selParams = { g: sel.genre, a: sel.author, s: sel.series };
+
+    // 戻る（step>0 のとき 1 つ前へ）。
+    const back = step > 0
+        ? el("button", {
+            type: "button", class: "icon-btn step-back", text: "‹ 戻る",
+            "aria-label": "前のステップに戻る",
+            onClick: () => navigate(uuid, { page: 1, q, sort, order, ...selParams, step: step - 1 }),
+        })
+        : null;
+
+    // パンくず（ジャンル ▸ 作者 ▸ シリーズ）。各レベル: 選択済み=値 / 通過済みで未選択=
+    // 「すべて」/ 未到達=ラベル。タップでそのレベルへジャンプ（step を合わせる）。
+    const crumbs = [];
+    for (let i = 0; i < BROWSE_LEVELS.length; i++) {
+        const lv = BROWSE_LEVELS[i];
+        const value = sel[lv.column] || "";
+        let text;
+        if (value) text = value;            // 選択済み
+        else if (i < step) text = "すべて";  // 通過済みで未選択（=すべて）
+        else text = lv.label;               // 未到達（プレーンなラベル）
+        const cls = i === step ? "crumb cur" : "crumb step";
+        crumbs.push(el("button", {
+            type: "button", class: cls,
+            "aria-current": i === step ? "step" : null,
+            onClick: () => navigate(uuid, { page: 1, q, sort, order, ...selParams, step: i }),
+            text,
+        }));
+        if (i < BROWSE_LEVELS.length - 1) {
+            crumbs.push(el("span", { class: "crumb-sep", text: "▸", "aria-hidden": "true" }));
+        }
+    }
+
+    return el("div", { class: "stepper-bar" }, [
+        back,
+        el("nav", { class: "crumbs", "aria-label": "ステップ" }, crumbs),
+    ]);
+}
+
 // ---- ページャ ---------------------------------------------------------------
 
-function pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, deps }) {
+function pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step, deps }) {
     const { el } = deps;
     // browse 選択を navigate に載せ直す（ページ送り・per 変更で消さない）。
+    // 狭幅 column の結果（step===3）ではページ送りでも step を保つ。
     const selParams = sel ? { g: sel.genre, a: sel.author, s: sel.series } : {};
+    if (step != null) selParams.step = step;
     const prev = el("button", {
         type: "button", class: "pager-btn", text: "‹ 前",
         disabled: page <= 1,
@@ -633,7 +724,7 @@ function seriesDrilldown(uuid, series, deps) {
 /// books 画面の状態を hash に書き込んで遷移する。
 /// 空の q・既定値（sort=title / order=sort の自然既定）は URL に載せない（短く保つ）。
 /// browse 選択（g/a/s = ジャンル/作者/シリーズ）は値があるときだけ載せる。
-export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order, g = "", a = "", s = "" } = {}) {
+export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order, g = "", a = "", s = "", step } = {}) {
     const params = [];
     if (page && page !== 1) params.push(`page=${page}`);
     if (q) params.push(`q=${encodeURIComponent(q)}`);
@@ -645,6 +736,10 @@ export function buildBooksHash(uuid, { page = 1, q = "", sort = "title", order, 
     if (g) params.push(`g=${encodeURIComponent(g)}`);
     if (a) params.push(`a=${encodeURIComponent(a)}`);
     if (s) params.push(`s=${encodeURIComponent(s)}`);
+    // step は狭幅 column stepper の現在地（0=ジャンル/1=作者/2=シリーズ/3=結果）。
+    // 0 は既定なので URL に載せない（短く保つ）。
+    const stepN = parseInt(step, 10);
+    if (Number.isFinite(stepN) && stepN > 0) params.push(`step=${stepN}`);
     const qs = params.length ? `?${params.join("&")}` : "";
     return `#/lib/${encodeURIComponent(uuid)}${qs}`;
 }

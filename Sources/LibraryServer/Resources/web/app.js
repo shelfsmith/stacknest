@@ -273,6 +273,21 @@ function init() {
         else location.hash = "#/libraries";
     });
     window.addEventListener("hashchange", route);
+    // 幅が iPhone↔iPad/PC の境界（767px）を跨いだら再描画する。
+    // column モードの stepper（狭幅）↔横並び（広幅）を live に切り替えるため。
+    // 跨いだときだけ route() を呼ぶ（毎リサイズでの再描画＝入力 focus 喪失を避ける）。
+    let lastNarrow = window.matchMedia("(max-width:767px)").matches;
+    let resizeTimer = null;
+    window.addEventListener("resize", () => {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            const narrow = window.matchMedia("(max-width:767px)").matches;
+            if (narrow === lastNarrow) return;
+            lastNarrow = narrow;
+            const r = parseRoute();
+            if (r.name === "lib") route();
+        }, 150);
+    });
     consumePairingToken();
     if (!location.hash || location.hash === "#" || location.hash === "#/") {
         location.hash = hasDeviceToken() ? "#/libraries" : "#/pair";
