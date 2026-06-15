@@ -33,7 +33,14 @@ final class RemoteLibraryState {
     /// Phase 4.2b-1b-1 Task 3: 表示モード + per のグローバル設定（UserDefaults 永続）。
     private let prefs = RemoteBrowsePreferences()
 
-    var books: [BookListItemDTO] = []
+    /// books が更新されるたびに増えるカウンタ。表コーディネータが reloadData の要否判定に使う
+    /// （ソートのみの並べ替えで件数・先頭が一致しても確実に再描画）。
+    private(set) var booksVersion = 0
+    var books: [BookListItemDTO] = [] { didSet { booksVersion += 1 } }
+
+    /// 表示中の列から算出した、サーバへ要求する追加フィールド。RemoteBookTable のコーディネータが
+    /// settings 変更時に更新する。
+    var requestedFields: Set<String> = []
     var total = 0
     var page = 1
     var per: Int
@@ -122,7 +129,8 @@ final class RemoteLibraryState {
             per: size,
             libraryToken: libraryToken,
             scope: scope, scopeId: scopeId, recentDays: recentDays,
-            filter: filterState, browse: browseConstraints()
+            filter: filterState, browse: browseConstraints(),
+            fields: requestedFields
         )
     }
 
@@ -206,6 +214,14 @@ final class RemoteLibraryState {
         } catch {
             errorText = "読み込みに失敗しました"
         }
+    }
+
+    /// 表ヘッダのクリックでソートを適用する。同じ列の再クリックで昇降反転。
+    /// 列→サーバキーは AppCore の serverSortKey 写像を使う。
+    func applyHeaderSort(column: BookColumn) async {
+        let key = column.serverSortKey
+        if sortKey == key { ascending.toggle() } else { sortKey = key; ascending = true }
+        await reload()
     }
 
     func unlock(password: String) async {
