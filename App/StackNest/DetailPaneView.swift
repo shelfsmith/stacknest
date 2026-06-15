@@ -146,6 +146,7 @@ struct DetailPaneView: View {
                         applyIntCaptured(newValue, patchKeyPath: \BookPatch.rating,
                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                     }
+                    .disabled(!canEdit)
                     if snapshotIsMulti {
                         UnseenIndicator(
                             state: MixedValueState.from(snapshotBooks.map(\.unseen))
@@ -153,6 +154,7 @@ struct DetailPaneView: View {
                             applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
                                               isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                         }
+                        .disabled(!canEdit)
                     }
                     Spacer()
                 }
@@ -165,6 +167,7 @@ struct DetailPaneView: View {
                         applyIntCaptured(newValue, patchKeyPath: \BookPatch.bookType,
                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                     }
+                    .disabled(!canEdit)
                     Spacer()
                 }
                 HStack(spacing: 12) {
@@ -177,6 +180,7 @@ struct DetailPaneView: View {
                         applyPageDirectionCaptured(newValue, isMulti: snapshotIsMulti,
                                                    singleID: snapshotSingleID, ids: snapshotIDs)
                     }
+                    .disabled(!canEdit)
                     Spacer()
                 }
             }
@@ -216,7 +220,8 @@ struct DetailPaneView: View {
                 fieldID: .memo,
                 requestedField: requestedField,
                 requestedFieldNonce: requestedFieldNonce,
-                currentEditingField: $currentEditingField
+                currentEditingField: $currentEditingField,
+                isEditable: canEdit
             )
             .id("memo-\(fingerprint)")
 
@@ -279,9 +284,10 @@ struct DetailPaneView: View {
                                    snapshotIDs: [Int],
                                    fingerprint: [Int]) -> some View {
         let state = stringState(keyPath)
-        // Single-select のみ jump ボタンを表示 (multi-select では絞り込み対象が曖昧なため非表示)
+        // Single-select のみ jump ボタンを表示 (multi-select では絞り込み対象が曖昧なため非表示)。
+        // canEdit に関わらず表示する: jump-to-filter は read-only viewer も使える browse 機能。
         // BrowseField に対応する field → Browser pane filter を上書き、対応なし → searchQuery fallback
-        let jumpHandler: ((String) -> Void)? = (snapshotIsMulti || !canEdit) ? nil : { [fieldID] jumpTag in
+        let jumpHandler: ((String) -> Void)? = snapshotIsMulti ? nil : { [fieldID] jumpTag in
             onJump(fieldID, jumpTag)
         }
         EditableTextField(
@@ -296,7 +302,8 @@ struct DetailPaneView: View {
             requestedField: requestedField,
             requestedFieldNonce: requestedFieldNonce,
             currentEditingField: $currentEditingField,
-            onJumpToFilter: jumpHandler
+            onJumpToFilter: jumpHandler,
+            isEditable: canEdit
         )
         .id("tag-\(tag)-\(fingerprint)")
     }
@@ -316,6 +323,7 @@ struct DetailPaneView: View {
             requestedField: requestedField,
             requestedFieldNonce: requestedFieldNonce,
             currentEditingField: $currentEditingField,
+            isEditable: canEdit,
             onCommit: { newValue in
                 applyDoubleCaptured(newValue, patchKeyPath: \BookPatch.volume,
                                     isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
@@ -346,7 +354,8 @@ struct DetailPaneView: View {
             fieldID: .title,
             requestedField: requestedField,
             requestedFieldNonce: requestedFieldNonce,
-            currentEditingField: $currentEditingField
+            currentEditingField: $currentEditingField,
+            isEditable: canEdit
         )
         .id("title-\(book.id)-\(titleResetTrigger)")
     }
@@ -520,6 +529,7 @@ struct DetailPaneView: View {
                 }
             HStack(spacing: 6) {
                 UnseenIndicator(state: unseenState, onCommit: onUnseenCommit)
+                    .disabled(!canEdit)
                 if let pages = book.pages {
                     Text("\(pages) ページ")
                 }

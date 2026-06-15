@@ -22,6 +22,10 @@ struct EditableTextEditor: View {
     /// 親 (DetailPaneView) の currentEditingField への双方向 binding。
     /// 自身が isEditing になったら fieldID を書き込み、終了したら nil に戻す。
     @Binding var currentEditingField: DetailField?
+    /// When false (remote read-only), the editor never enters edit state:
+    /// taps, Tab navigation, and the clear context menu are all suppressed.
+    /// Defaults to true so all existing local call sites are unchanged.
+    var isEditable: Bool = true
 
     @State private var text: String = ""
     @State private var isEditing: Bool = false
@@ -38,7 +42,7 @@ struct EditableTextEditor: View {
             }
         }
         .onChange(of: requestedFieldNonce) { _, _ in
-            if let id = fieldID, requestedField == id, !isEditing {
+            if isEditable, let id = fieldID, requestedField == id, !isEditing {
                 startEditing()
             }
         }
@@ -66,9 +70,9 @@ struct EditableTextEditor: View {
             )
             .contentShape(Rectangle())
             .onHover { hovering in isHovering = hovering }
-            .onTapGesture { startEditing() }
+            .onTapGesture { if isEditable { startEditing() } }
             .contextMenu {
-                if shouldShowClearAction {
+                if isEditable && shouldShowClearAction {
                     Button("消去", role: .destructive) {
                         onCommit("")  // explicit clear, bypasses no-op check
                     }

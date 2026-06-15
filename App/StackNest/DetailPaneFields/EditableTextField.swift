@@ -32,6 +32,11 @@ struct EditableTextField: View {
     /// When non-nil, read-only display switches to inline chip(s) + jump button(s).
     /// The closure receives the individual tag value (comma-split) to filter by.
     var onJumpToFilter: ((String) -> Void)? = nil
+    /// When false (remote read-only), the field never enters edit state: taps,
+    /// Tab navigation, and the clear context menu are all suppressed. The jump
+    /// arrow remains active so read-only viewers can still jump-to-filter.
+    /// Defaults to true so all existing local call sites are unchanged.
+    var isEditable: Bool = true
 
     @State private var text: String = ""
     @State private var isEditing: Bool = false
@@ -50,7 +55,7 @@ struct EditableTextField: View {
         .onChange(of: requestedFieldNonce) { _, _ in
             // requestedFieldNonce が bump されたら request された field を読み、自分宛なら開始。
             // nonce ベースなので requestedField が同じ値の連続でも fire する。
-            if let id = fieldID, requestedField == id, !isEditing {
+            if isEditable, let id = fieldID, requestedField == id, !isEditing {
                 startEditing()
             }
         }
@@ -94,9 +99,9 @@ struct EditableTextField: View {
             )
             .contentShape(Rectangle())
             .onHover { hovering in isHovering = hovering }
-            .onTapGesture { startEditing() }
+            .onTapGesture { if isEditable { startEditing() } }
             .contextMenu {
-                if shouldShowClearAction {
+                if isEditable && shouldShowClearAction {
                     Button("消去", role: .destructive) {
                         onCommit("")  // explicit clear, bypasses no-op check
                     }
@@ -122,7 +127,7 @@ struct EditableTextField: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 4)
                 .contentShape(Rectangle())
-                .onTapGesture { startEditing() }
+                .onTapGesture { if isEditable { startEditing() } }
         } else {
             FlowLayout(spacing: 4) {
                 ForEach(Array(tags.enumerated()), id: \.offset) { _, tag in
@@ -141,9 +146,11 @@ struct EditableTextField: View {
                             .padding(.leading, 8)
                             .padding(.vertical, 2)
                             .contentShape(Rectangle())
-                            .onTapGesture { startEditing() }
+                            .onTapGesture { if isEditable { startEditing() } }
 
                         // jump arrow: Button → Image + onTapGesture
+                        // Always active regardless of isEditable — jump-to-filter
+                        // is a browse feature available to read-only viewers.
                         Image(systemName: "arrow.right.circle.fill")
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 4)
@@ -156,8 +163,10 @@ struct EditableTextField: View {
                 }
             }
             .contextMenu {
-                Button("消去", role: .destructive) {
-                    onCommit("")
+                if isEditable {
+                    Button("消去", role: .destructive) {
+                        onCommit("")
+                    }
                 }
             }
         }

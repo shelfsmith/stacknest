@@ -18,6 +18,10 @@ struct VolumeEditorField: View {
     /// 親 (DetailPaneView) の currentEditingField への双方向 binding。
     /// 自身が isEditing になったら fieldID を書き込み、終了したら nil に戻す。
     @Binding var currentEditingField: DetailField?
+    /// When false (remote read-only), the field never enters edit state:
+    /// taps, Tab navigation, and the clear context menu are all suppressed.
+    /// Defaults to true so all existing local call sites are unchanged.
+    var isEditable: Bool = true
     let onCommit: (Double?) -> Void
 
     @State private var text: String = ""
@@ -35,7 +39,7 @@ struct VolumeEditorField: View {
             }
         }
         .onChange(of: requestedFieldNonce) { _, _ in
-            if let id = fieldID, requestedField == id, !isEditing {
+            if isEditable, let id = fieldID, requestedField == id, !isEditing {
                 startEditing()
             }
         }
@@ -65,9 +69,9 @@ struct VolumeEditorField: View {
             )
             .contentShape(Rectangle())
             .onHover { hovering in isHovering = hovering }
-            .onTapGesture { startEditing() }
+            .onTapGesture { if isEditable { startEditing() } }
             .contextMenu {
-                if state.shouldShowClearAction {
+                if isEditable && state.shouldShowClearAction {
                     Button("消去", role: .destructive) {
                         onCommit(nil)
                     }
