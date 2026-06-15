@@ -341,8 +341,9 @@ export async function renderBooks(uuid, query, deps) {
         btn.addEventListener("click", () => {
             if (mode === view) return;
             setView(mode);
-            // 同じ URL で再描画（hashchange は起きないので明示的に再評価）。
-            deps.route();
+            // 表示モードを切り替えたら browse（ファセット）選択と step を破棄して
+            // page 1 から開始する（カラムのドリルダウンを list/grid に持ち越さない）。
+            navigate(uuid, { page: 1, q, sort, order });
         });
         return btn;
     };
@@ -352,31 +353,32 @@ export async function renderBooks(uuid, query, deps) {
         makeSegBtn("column", "カラム", columnIconSVG()),
     ]);
 
-    // スクロール表示モード（ページ表示 / 無限スクロール）の 2 ボタン セグメント。
-    // 変更は localStorage に記憶し、同一 URL で再描画（route）してモードを反映する。
-    const makeScrollBtn = (mode, label) => {
-        const btn = el("button", {
-            type: "button",
-            class: mode === scrollMode ? "seg-btn txt sel" : "seg-btn txt",
-            "aria-pressed": mode === scrollMode ? "true" : "false",
-            "aria-label": label, title: label, text: label,
-        });
-        btn.addEventListener("click", () => {
-            if (mode === scrollMode) return;
-            setScrollMode(mode);
-            deps.route();
-        });
-        return btn;
-    };
-    const scrollSeg = el("div", { class: "seg scroll-seg", role: "group", "aria-label": "スクロール表示モード" }, [
-        makeScrollBtn("paged", "ページ表示"),
-        makeScrollBtn("infinite", "無限スクロール"),
-    ]);
+    // 件数セレクタ（50/100/200/無限）。無限スクロールのモード選択もここに統合する。
+    // 現在値: 無限モードなら "infinite"、ページ表示なら現在の per（数値）。
+    // ツールバー行に常設し、無限モードでも見えるようにする（戻れるように）。
+    const perScrollSelect = el("select", { class: "pager-per books-perscroll", "aria-label": "表示件数 / スクロール" },
+        [
+            ...PER_OPTIONS.map((n) =>
+                el("option", { value: String(n), selected: scrollMode !== "infinite" && n === per, text: `${n}件` })),
+            el("option", { value: "infinite", selected: scrollMode === "infinite", text: "無限" }),
+        ]);
+    perScrollSelect.addEventListener("change", () => {
+        const v = perScrollSelect.value;
+        if (v === "infinite") {
+            setScrollMode("infinite");
+        } else {
+            setScrollMode("paged");
+            setPer(parseInt(v, 10));
+        }
+        // per/scrollMode は localStorage 記憶で URL に載らない。hashchange が起きない場合に
+        // 備えて navigate（page 1 へ）＋ route() で確実に再評価・再描画する。
+        navigate(uuid, { page: 1, q, sort, order, ...selParams });
+        deps.route();
+    });
 
     root.append(el("div", { class: "books-toolbar" }, [
         search,
-        el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewSeg]),
-        el("div", { class: "books-toolbar-row" }, [scrollSeg]),
+        el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewSeg, perScrollSelect]),
     ]));
 
     // --- 狭幅 column: フルスクリーン stepper（1 列ずつ → 結果） ---
@@ -761,23 +763,12 @@ function pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, st
         onClick: () => navigate(uuid, { page: page + 1, q, sort, order, ...selParams }),
     });
 
-    const perSelect = el("select", { class: "pager-per", "aria-label": "1ページの件数" },
-        PER_OPTIONS.map((n) =>
-            el("option", { value: n, selected: n === perPage, text: `${n}件` })));
-    perSelect.addEventListener("change", () => {
-        const n = parseInt(perSelect.value, 10);
-        setPer(n);
-        // per は URL に載らない（localStorage 記憶）。navigate でハッシュが変わらない場合
-        // （既に page=1 等）hashchange が起きず再描画されないため、明示的に route() で再評価する。
-        navigate(uuid, { page: 1, q, sort, order, ...selParams });
-        deps.route();
-    });
-
+    // per/scroll セレクタはツールバー行へ移設済み（無限モードでも見えるように常設）。
+    // ページャは前後送り＋件数表示のみを担う。
     return el("div", { class: "pager" }, [
         prev,
         el("span", { class: "pager-info", text: `${page} / 全${totalPages}（${total}冊）` }),
         next,
-        perSelect,
     ]);
 }
 

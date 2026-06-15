@@ -845,9 +845,8 @@ body {
 
 .seg-btn:not(.sel):active { background: var(--surface-2); }
 
-/* スクロール表示モード（ページ表示 / 無限スクロール）。テキスト 2 ボタンを横幅いっぱいに。 */
-.scroll-seg { display: flex; width: 100%; }
-.scroll-seg .seg-btn.txt { flex: 1; }
+/* 件数 / スクロール セレクタ（ツールバー行に常設）。tap 高さは .pager-per を継承。 */
+.books-perscroll { flex: 0 0 auto; }
 
 /* ---- 無限スクロール（末尾インジケータ + センチネル） ---- */
 .inf-status {
