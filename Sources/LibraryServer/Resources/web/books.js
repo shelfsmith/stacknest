@@ -382,10 +382,16 @@ function listView(uuid, items, deps) {
         if (book.unseen) right.push(el("span", { class: "unseen-dot", title: "未読", "aria-label": "未読" }));
         if (book.rating > 0) right.push(el("span", { class: "book-rating", "aria-label": `星${book.rating}`, text: "★".repeat(book.rating) }));
 
+        // 4.2c: list 行にも小さな表紙サムネ（遅延読み込み・縮小・キャッシュ）。表紙なしはプレースホルダ。
+        const thumbURL = coverURL(uuid, book, 120);
+        const thumb = thumbURL
+            ? el("img", { class: "book-row-thumb", src: thumbURL, loading: "lazy", decoding: "async", alt: "" })
+            : el("div", { class: "book-row-thumb book-row-thumb-empty" });
         const row = el("button", {
             type: "button", class: "book-row",
             onClick: () => openDetail(uuid, book, deps),
         }, [
+            thumb,
             el("div", { class: "book-row-main" }, [
                 el("div", { class: "book-title", text: book.title || "(無題)" }),
                 meta.length ? el("div", { class: "book-meta" }, meta) : null,

@@ -385,6 +385,19 @@ body {
 
 .book-row:active { background: var(--surface-2); }
 
+/* 4.2c: list 行の表紙サムネ（小・遅延読み込み）。 */
+.book-row-thumb {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 46px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+.book-row-thumb-empty {
+  border: 1px solid var(--border);
+}
+
 .book-row-main {
   flex: 1;
   min-width: 0;
