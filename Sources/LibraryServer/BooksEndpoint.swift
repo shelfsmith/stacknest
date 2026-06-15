@@ -12,12 +12,17 @@ enum SortOrder: String {
 /// `sort` は常に昇順（asc）で並べ、降順は呼び出し側で reverse する（order と直交させる）。
 enum BookSortKey: String {
     case title, series, dateAdded, lastRead
+    case author, rating, genre, unseen, bookType, volume, neta, keywordA, keywordB, memo
 
-    /// 明示 order が無いときの自然な既定方向（title/series=asc、dateAdded/lastRead=desc）。
+    /// 明示 order が無いときの自然な既定方向。
+    /// テスト系（title/series/author/genre/neta/keywordA/keywordB/memo）=asc、
+    /// 数値・日付・状態系（dateAdded/lastRead/rating/unseen/bookType/volume）=desc。
     var defaultOrder: SortOrder {
         switch self {
-        case .title, .series: return .asc
-        case .dateAdded, .lastRead: return .desc
+        case .title, .series, .author, .genre, .neta, .keywordA, .keywordB, .memo:
+            return .asc
+        case .dateAdded, .lastRead, .rating, .unseen, .bookType, .volume:
+            return .desc
         }
     }
 
@@ -36,6 +41,38 @@ enum BookSortKey: String {
             return books.sorted { $0.dateAdded < $1.dateAdded }
         case .lastRead:
             return books.sorted { ($0.lastReadAt ?? .distantPast) < ($1.lastReadAt ?? .distantPast) }
+        case .author:
+            return books.sorted {
+                ($0.author ?? "").localizedStandardCompare($1.author ?? "") == .orderedAscending
+            }
+        case .rating:
+            return books.sorted { $0.rating < $1.rating }
+        case .genre:
+            return books.sorted {
+                ($0.genre ?? "").localizedStandardCompare($1.genre ?? "") == .orderedAscending
+            }
+        case .unseen:
+            return books.sorted { ($0.unseen ? 1 : 0) < ($1.unseen ? 1 : 0) }
+        case .bookType:
+            return books.sorted { $0.bookType < $1.bookType }
+        case .volume:
+            return books.sorted { ($0.volume ?? 0) < ($1.volume ?? 0) }
+        case .neta:
+            return books.sorted {
+                ($0.neta ?? "").localizedStandardCompare($1.neta ?? "") == .orderedAscending
+            }
+        case .keywordA:
+            return books.sorted {
+                ($0.keywordA ?? "").localizedStandardCompare($1.keywordA ?? "") == .orderedAscending
+            }
+        case .keywordB:
+            return books.sorted {
+                ($0.keywordB ?? "").localizedStandardCompare($1.keywordB ?? "") == .orderedAscending
+            }
+        case .memo:
+            return books.sorted {
+                ($0.memo ?? "").localizedStandardCompare($1.memo ?? "") == .orderedAscending
+            }
         }
     }
 }
@@ -50,6 +87,8 @@ struct BooksQuery {
     let scope: SidebarScope
     let filter: FilterState
     let browse: [(String, String)]
+    /// 応答に含める追加フィールド名（&fields= で要求された列のみ充填する）。
+    let extraFields: Set<String>
 
     init(
         q: String?,
@@ -59,11 +98,13 @@ struct BooksQuery {
         per: Int,
         scope: SidebarScope = .library,
         filter: FilterState = FilterState(),
-        browse: [(String, String)] = []
+        browse: [(String, String)] = [],
+        extraFields: Set<String> = []
     ) {
         self.q = q; self.sort = sort; self.order = order
         self.page = page; self.per = per
         self.scope = scope; self.filter = filter; self.browse = browse
+        self.extraFields = extraFields
     }
 
     /// 表紙を持つ本の id 集合。
@@ -95,6 +136,8 @@ struct BooksQuery {
         // coverVersion は thumbnail.jpg 個別 stat が必要なため、全件 stat（5,000 回）を避け
         // フィルタ/ソート/スライス後の本（per ≤ 500）に限定して算出する（plan Task 1(b)）。
         let coverIDs = Self.coverBookIDs(bundleURL: lib.bundleURL)
+        // 追加フィールドは全件「完全充填」してからソートする（fill→sort）。
+        // memo はここでは切詰めず、応答スライス時（keepingExtras）に 200 字へ落とす。
         var items = rows.map { row in
             BookListItemDTO(
                 id: row.id, title: row.title, author: row.author,
@@ -105,7 +148,9 @@ struct BooksQuery {
                 lastReadAt: progress[row.id]?.updatedAt,
                 dateAdded: row.dateAdded,
                 hasCover: coverIDs.contains(row.id),
-                coverVersion: nil   // スライス後に表紙ありの本のみ埋める
+                coverVersion: nil,   // スライス後に表紙ありの本のみ埋める
+                genre: row.genre, neta: row.neta,
+                keywordA: row.keywordA, keywordB: row.keywordB, memo: row.memo
             )
         }
         items = sort.sortedAscending(items)
@@ -113,8 +158,10 @@ struct BooksQuery {
         let total = items.count
         let start = (page - 1) * per
         let slice = start < total ? Array(items[start..<min(start + per, total)]) : []
+        // 応答スライスを要求フィールドへマスク（&fields= 外を nil 化・memo 200 字切詰）。
+        let masked = slice.map { $0.keepingExtras(extraFields) }
         // スライス分だけ表紙ファイルを stat して coverVersion を付与（引用符は除いた素の文字列）。
-        let withVersion = slice.map { item -> BookListItemDTO in
+        let withVersion = masked.map { item -> BookListItemDTO in
             guard item.hasCover else { return item }
             let url = coverURL(bundleURL: lib.bundleURL, bookID: item.id)
             let version = thumbnailETag(url: url, bookID: item.id)?

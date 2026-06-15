@@ -81,6 +81,20 @@ extension BookListItemDTO {
         )
     }
 
+    /// 応答スライス用。fields に含まれない追加フィールドを nil に落とす。memo は 200 字に切詰。
+    public func keepingExtras(_ fields: Set<String>) -> BookListItemDTO {
+        BookListItemDTO(
+            id: id, title: title, author: author, series: series, volume: volume,
+            rating: rating, unseen: unseen, bookType: bookType, pages: pages,
+            lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
+            hasCover: hasCover, coverVersion: coverVersion,
+            genre: fields.contains("genre") ? genre : nil,
+            neta: fields.contains("neta") ? neta : nil,
+            keywordA: fields.contains("keywordA") ? keywordA : nil,
+            keywordB: fields.contains("keywordB") ? keywordB : nil,
+            memo: fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil)
+    }
+
     /// lastPage を差し替えた複製（リモート閲覧の進捗をメモリ上の一覧へ反映し、
     /// 一覧を再取得しなくても再オープン時に続きから開くために使う）。
     public func withLastPage(_ page: Int?) -> BookListItemDTO {

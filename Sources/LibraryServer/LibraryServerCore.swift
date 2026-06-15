@@ -150,6 +150,10 @@ public struct LibraryServerCore: Sendable {
             let filter = decodeFilterState(from: qp.get("filter"))
             // ?browse=<URL-encoded JSON [[column,value]]> — 不正列名は 400（SQL injection 防御）。
             let browse = try decodeBrowseConstraintsValidated(from: qp.get("browse"))
+            // ?fields=genre,neta,... — 応答に追加する任意フィールド（許可外は無視）。
+            let allowedFields: Set<String> = ["genre", "neta", "keywordA", "keywordB", "memo"]
+            let extraFields = Set((qp.get("fields") ?? "")
+                .split(separator: ",").map(String.init)).intersection(allowedFields)
             let query = BooksQuery(
                 q: qp.get("q"),
                 sort: sort,
@@ -158,7 +162,8 @@ public struct LibraryServerCore: Sendable {
                 per: min(500, max(1, qp.get("per", as: Int.self) ?? 100)),
                 scope: decodeSidebarScope(scope: qp.get("scope"), scopeId: qp.get("scopeId", as: Int64.self), recentDays: qp.get("recentDays", as: Int.self)),
                 filter: filter,
-                browse: browse
+                browse: browse,
+                extraFields: extraFields
             )
             return try query.run(on: lib)
         }

@@ -33,6 +33,9 @@ struct BooksEndpointTests {
             let pages: Int?; let lastPage: Int?; let hasCover: Bool
             let coverVersion: String?
             let dateAdded: Date
+            // 動的フィールド（&fields= 検証用・既定 nil）
+            let genre: String?; let neta: String?
+            let keywordA: String?; let keywordB: String?; let memo: String?
         }
         let items: [Item]; let total: Int; let page: Int; let perPage: Int
     }
@@ -245,6 +248,72 @@ struct BooksEndpointTests {
                 let book2 = try #require(page.items.first { $0.id == 2 })
                 #expect(book1.coverVersion != nil)
                 #expect(book2.coverVersion == nil)
+            }
+        }
+    }
+
+    /// 全列ソート: rating で昇順整列される（fixture の値に依存しない頑健な検査）。
+    @Test func sortByRatingAscending() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 5)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?sort=rating&order=asc&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                let ratings = page.items.map { $0.rating }
+                #expect(ratings == ratings.sorted())
+            }
+        }
+    }
+
+    /// &fields=genre のみ要求 → genre 以外の追加フィールドは nil のまま。
+    @Test func fieldsParamFillsOnlyRequestedExtras() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 3)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?fields=genre&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                #expect(page.items.allSatisfy { $0.neta == nil && $0.memo == nil && $0.keywordA == nil })
+            }
+        }
+    }
+
+    /// fields 指定なし → 追加フィールドは全て nil。
+    @Test func noFieldsParamLeavesAllExtrasNil() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 3)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                #expect(page.items.allSatisfy { $0.genre == nil && $0.neta == nil && $0.memo == nil })
+            }
+        }
+    }
+
+    /// genre で並べても、fields=genre を要求していなければ応答の genre は nil（fill→sort→slice→mask）。
+    @Test func sortByGenreWorksEvenWhenFieldNotRequested() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 5)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?sort=genre&order=asc&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                #expect(page.items.count <= 5)
+                #expect(page.items.allSatisfy { $0.genre == nil })
             }
         }
     }
