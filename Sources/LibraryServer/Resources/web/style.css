@@ -845,6 +845,24 @@ body {
 
 .seg-btn:not(.sel):active { background: var(--surface-2); }
 
+/* スクロール表示モード（ページ表示 / 無限スクロール）。テキスト 2 ボタンを横幅いっぱいに。 */
+.scroll-seg { display: flex; width: 100%; }
+.scroll-seg .seg-btn.txt { flex: 1; }
+
+/* ---- 無限スクロール（末尾インジケータ + センチネル） ---- */
+.inf-status {
+  min-height: 20px;
+  padding: 10px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.inf-status.inf-error { color: var(--accent); cursor: pointer; }
+.inf-sentinel { height: 1px; }
+
+/* 無限スクロール時の件数のみ表示（ページ送りなし） */
+.pager-countonly { justify-content: center; }
+
 /* ---- ファセットカラム コンテナ ---- */
 .columns {
   display: flex;

@@ -9,6 +9,7 @@ const VIEW_KEY = "stacknest.books.view";   // "list" | "grid" | "column"
 const PER_KEY = "stacknest.books.per";     // 50 | 100 | 200
 const SORT_KEY = "stacknest.books.sort";   // title | series | dateAdded | lastRead
 const ORDER_KEY = "stacknest.books.order"; // asc | desc
+const SCROLLMODE_KEY = "stacknest.books.scrollmode"; // "paged" | "infinite"
 
 const SORT_OPTIONS = [
     { value: "title", label: "タイトル" },
@@ -19,6 +20,7 @@ const SORT_OPTIONS = [
 const SORT_VALUES = new Set(SORT_OPTIONS.map((o) => o.value));
 const PER_OPTIONS = [50, 100, 200];
 const ORDER_VALUES = new Set(["asc", "desc"]);
+const SCROLLMODE_VALUES = new Set(["paged", "infinite"]);
 // ソートキーごとの自然な既定方向（サーバの BookSortKey.defaultOrder と一致させる）。
 const DEFAULT_ORDER = { title: "asc", series: "asc", dateAdded: "desc", lastRead: "desc" };
 
@@ -76,6 +78,20 @@ function getOrder(sort) {
     return ORDER_VALUES.has(o) ? o : (DEFAULT_ORDER[sort] || "asc");
 }
 function setOrder(o) { if (ORDER_VALUES.has(o)) localStorage.setItem(ORDER_KEY, o); }
+
+/// スクロール表示モード（ページ表示 / 無限スクロール）。既定は "paged"。
+function getScrollMode() {
+    const v = localStorage.getItem(SCROLLMODE_KEY);
+    return SCROLLMODE_VALUES.has(v) ? v : "paged";
+}
+function setScrollMode(v) { if (SCROLLMODE_VALUES.has(v)) localStorage.setItem(SCROLLMODE_KEY, v); }
+
+// 無限スクロールの IntersectionObserver は描画ごとに 1 つだけ存在させる。
+// 次の描画（フィルタ変更等）の冒頭で前回分を必ず disconnect してリークを防ぐ。
+let infObserver = null;
+function resetInfiniteScroll() {
+    if (infObserver) { infObserver.disconnect(); infObserver = null; }
+}
 
 // ---- 1 件分のメタ表示用ヘルパ -----------------------------------------------
 
@@ -176,6 +192,29 @@ function coverURL(uuid, book, maxw = 320) {
     return url;
 }
 
+// ---- books 取得（ページ単位） ----------------------------------------------
+
+/// /books を 1 ページ分取得する（無限スクロールの次ページ追記でも再利用）。
+/// 返り値は apiJSON の生 JSON（items/total/perPage 等）。
+function fetchBooksPage(uuid, { q, sort, order, page, per, browse }) {
+    return apiJSON(
+        `/libraries/${encodeURIComponent(uuid)}/books`
+        + `?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`
+        + `&order=${encodeURIComponent(order)}`
+        + `&page=${page}&per=${per}`
+        + browseParam(browse),
+        { libraryUUID: uuid },
+    );
+}
+
+/// 取得済み items を既存コンテナ（.book-list / .book-grid）へ追記する。
+/// view に応じて listView/gridView でノードを組み、その子要素を container へ移す
+/// （ビルダを丸ごと再利用するため、行/カードの構築ロジックを二重持ちしない）。
+function appendItems(container, uuid, items, view, deps) {
+    const built = view === "grid" ? gridView(uuid, items, deps) : listView(uuid, items, deps);
+    while (built.firstChild) container.append(built.firstChild);
+}
+
 // ---- books 画面本体 ---------------------------------------------------------
 
 /// books 画面を描画する。
@@ -191,6 +230,7 @@ export async function renderBooks(uuid, query, deps) {
     const order = ORDER_VALUES.has(query.order) ? query.order : getOrder(sort);
     const per = getPer();
     const view = getView();
+    const scrollMode = getScrollMode();
     // browse（ファセット ドリルダウン）選択。URL の g/a/s から読む。
     const sel = browseSelection(query);
     const currentBrowse = browseConstraints(sel);
@@ -198,16 +238,12 @@ export async function renderBooks(uuid, query, deps) {
     setSort(sort);
     setOrder(order);
 
+    // 描画をやり直すので、前回の無限スクロール observer は必ず切る（リーク防止）。
+    resetInfiniteScroll();
+
     let data;
     try {
-        data = await apiJSON(
-            `/libraries/${encodeURIComponent(uuid)}/books`
-            + `?q=${encodeURIComponent(q)}&sort=${encodeURIComponent(sort)}`
-            + `&order=${encodeURIComponent(order)}`
-            + `&page=${page}&per=${per}`
-            + browseParam(currentBrowse),
-            { libraryUUID: uuid },
-        );
+        data = await fetchBooksPage(uuid, { q, sort, order, page, per, browse: currentBrowse });
     } catch (e) {
         // 404 = 閲覧中に Mac 側でこのライブラリの配信が OFF にされた。
         // （ページャ/検索/ソート操作の再取得でも起こりうる）一覧へフォールバックする。
@@ -316,9 +352,31 @@ export async function renderBooks(uuid, query, deps) {
         makeSegBtn("column", "カラム", columnIconSVG()),
     ]);
 
+    // スクロール表示モード（ページ表示 / 無限スクロール）の 2 ボタン セグメント。
+    // 変更は localStorage に記憶し、同一 URL で再描画（route）してモードを反映する。
+    const makeScrollBtn = (mode, label) => {
+        const btn = el("button", {
+            type: "button",
+            class: mode === scrollMode ? "seg-btn txt sel" : "seg-btn txt",
+            "aria-pressed": mode === scrollMode ? "true" : "false",
+            "aria-label": label, title: label, text: label,
+        });
+        btn.addEventListener("click", () => {
+            if (mode === scrollMode) return;
+            setScrollMode(mode);
+            deps.route();
+        });
+        return btn;
+    };
+    const scrollSeg = el("div", { class: "seg scroll-seg", role: "group", "aria-label": "スクロール表示モード" }, [
+        makeScrollBtn("paged", "ページ表示"),
+        makeScrollBtn("infinite", "無限スクロール"),
+    ]);
+
     root.append(el("div", { class: "books-toolbar" }, [
         search,
         el("div", { class: "books-toolbar-row" }, [sortSelect, orderBtn, viewSeg]),
+        el("div", { class: "books-toolbar-row" }, [scrollSeg]),
     ]));
 
     // --- 狭幅 column: フルスクリーン stepper（1 列ずつ → 結果） ---
@@ -347,26 +405,102 @@ export async function renderBooks(uuid, query, deps) {
         root.append(renderColumns(uuid, { sel, q, deps }));
     }
 
-    // --- 件数 + ページャ（上） ---
+    // 無限スクロール時は本体（list/grid）を結果として扱い、ページャは出さない。
+    const infinite = scrollMode === "infinite";
+
+    // --- 件数 + ページャ（上）。無限スクロールでは件数だけ出す（ページ送りは隠す）。---
     const pagerStep = narrowColumn ? step : undefined;
-    root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
+    if (infinite) {
+        root.append(el("div", { class: "pager pager-countonly" }, [
+            el("span", { class: "pager-info", text: `全${total}冊` }),
+        ]));
+    } else {
+        root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
+    }
 
     // --- 本体（list / grid / column）。column モードの結果はリスト表示。 ---
+    // 結果コンテナの参照を保持（無限スクロールで次ページを追記する先）。
+    let resultContainer = null;
     if (items.length === 0) {
         root.append(el("div", { class: "empty" },
             q ? "該当する本がありません。" : "このライブラリには本がありません。"));
     } else if (view === "grid") {
-        root.append(gridView(uuid, items, deps));
+        resultContainer = gridView(uuid, items, deps);
+        root.append(resultContainer);
     } else {
-        root.append(listView(uuid, items, deps));
+        resultContainer = listView(uuid, items, deps);
+        root.append(resultContainer);
     }
 
-    // --- ページャ（下） ---
-    if (items.length > 0) {
+    if (infinite && resultContainer) {
+        // 無限スクロール: 末尾のセンチネルが見えたら次ページを取得して追記する。
+        // loadedPage は描画済みの最終ページ（=今描いた page）から開始。
+        setupInfiniteScroll(root, resultContainer, deps, {
+            uuid, q, sort, order, per, browse: currentBrowse,
+            view, loadedPage: page, totalPages,
+        });
+    } else if (items.length > 0) {
+        // ページ表示: 下にもページャを置く。
         root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
     }
 
     render("ライブラリ", root, { showBack: true });
+}
+
+// ---- 無限スクロール ---------------------------------------------------------
+
+/// 結果コンテナへ次ページを順次追記する仕組みを設定する。
+/// root: 画面ルート（センチネル/インジケータの設置先）。container: 追記先（list/grid）。
+/// state: { uuid,q,sort,order,per,browse,view,loadedPage,totalPages }。
+function setupInfiniteScroll(root, container, deps, state) {
+    const { el } = deps;
+    let { loadedPage } = state;
+    const { totalPages } = state;
+    let loading = false;
+
+    // 末尾インジケータ + センチネル（observe 対象）。
+    const status = el("div", { class: "inf-status" });
+    const sentinel = el("div", { class: "inf-sentinel", "aria-hidden": "true" });
+    root.append(status);
+    root.append(sentinel);
+
+    // 全ページ読み込み済みなら observer 不要。
+    if (loadedPage >= totalPages) return;
+
+    const loadNext = async () => {
+        if (loading || loadedPage >= totalPages) return;
+        loading = true;
+        status.textContent = "読み込み中…";
+        status.classList.remove("inf-error");
+        try {
+            const next = loadedPage + 1;
+            const data = await fetchBooksPage(state.uuid, {
+                q: state.q, sort: state.sort, order: state.order,
+                page: next, per: state.per, browse: state.browse,
+            });
+            const newItems = Array.isArray(data.items) ? data.items : [];
+            appendItems(container, state.uuid, newItems, state.view, deps);
+            loadedPage = next;
+            status.textContent = "";
+            if (loadedPage >= totalPages) {
+                resetInfiniteScroll();   // 完了。observe を止める。
+            }
+        } catch (e) {
+            // エラー時は停止し、タップで再試行できるようにする。
+            status.textContent = "読み込みに失敗しました。タップで再試行";
+            status.classList.add("inf-error");
+            status.onclick = () => { status.onclick = null; loadNext(); };
+        } finally {
+            loading = false;
+        }
+    };
+
+    infObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) { loadNext(); break; }
+        }
+    }, { rootMargin: "400px 0px" });
+    infObserver.observe(sentinel);
 }
 
 // ---- list 表示 --------------------------------------------------------------
