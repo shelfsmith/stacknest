@@ -207,8 +207,15 @@ struct SharingSettingsView: View {
                 .lineLimit(2)
                 .truncationMode(.middle)
 
-            Button("再生成…") {
-                showRegenerateConfirm = true
+            HStack(spacing: 12) {
+                Button("コピー") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(server.token, forType: .string)
+                }
+
+                Button("再生成…") {
+                    showRegenerateConfirm = true
+                }
             }
             .confirmationDialog(
                 "トークンを再生成しますか？",
