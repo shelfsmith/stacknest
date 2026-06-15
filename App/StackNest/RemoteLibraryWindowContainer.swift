@@ -1,8 +1,57 @@
 // SPDX-License-Identifier: MIT
 import AppCore
+import Foundation
 import LibraryServerAPI
+import LibraryStore
+import os
 import RemoteClient
 import SwiftUI
+
+/// Phase 4.2c-1: リモート閲覧ウィンドウ用の共有 `LibrarySettings`。
+///
+/// リモートウィンドウはローカルのバンドル DB を持たないため、列構成・列幅などの
+/// テーブル表示設定（`RemoteBookTableViewRepresentable` が必要とする）を保持する場所がない。
+/// ここでアプリサポート配下の専用 SQLite を 1 つ用意し、全リモートウィンドウで共有する
+/// （= 列のオン/オフや列幅がウィンドウ間・再起動間で一貫する）。
+@MainActor
+enum RemoteLibrarySettingsProvider {
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrarySettings")
+    private static var cached: LibrarySettings?
+
+    /// 共有インスタンス。初回アクセス時に DB を開いて（必要なら作成して）マイグレートする。
+    /// 失敗時はインメモリ DB にフォールバックする（設定は永続化されないが UI は動作する）。
+    static var shared: LibrarySettings {
+        if let cached { return cached }
+        let settings = makeSettings()
+        cached = settings
+        return settings
+    }
+
+    private static func makeSettings() -> LibrarySettings {
+        do {
+            let appSup = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let dir = appSup.appendingPathComponent("StackNest/RemoteSettings", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let dbURL = dir.appendingPathComponent("settings.db")
+            let db = FileManager.default.fileExists(atPath: dbURL.path)
+                ? try Database.openExisting(at: dbURL)
+                : try Database.openFile(at: dbURL, mode: .createOrFail)
+            try db.migrate()
+            return try LibrarySettings(database: db)
+        } catch {
+            logger.error("RemoteLibrarySettings: file-backed init failed (\(error.localizedDescription)); falling back to in-memory")
+            // フォールバック: インメモリ DB（永続化されないが UI は動作する）。
+            // ここも失敗するなら設定機構自体が壊れているので致命的に扱う。
+            do {
+                let db = try Database.openInMemory()
+                try db.migrate()
+                return try LibrarySettings(database: db)
+            } catch {
+                fatalError("RemoteLibrarySettings: in-memory fallback failed: \(error)")
+            }
+        }
+    }
+}
 
 /// リモートライブラリウィンドウを開くための値型（WindowGroup(for:) のキー）。
 /// token は含めない（serverID から ServerConnectionStore で解決する）。
@@ -22,7 +71,7 @@ struct RemoteLibraryWindowContainer: View {
     var body: some View {
         Group {
             if let state {
-                RemoteLibraryView(state: state)
+                RemoteLibraryView(state: state, settings: RemoteLibrarySettingsProvider.shared)
             } else if notFound {
                 missingView
             } else {

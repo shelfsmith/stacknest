@@ -9,7 +9,11 @@ import SwiftUI
 struct RemoteLibraryView: View {
     @Bindable var state: RemoteLibraryState
 
-    /// D1: 一覧/グリッドに focus を与えて .onKeyPress(.return) を確実に発火させる。
+    /// Phase 4.2c-1: リスト表示は NSTableView パリティウィジェット（RemoteBookTableViewRepresentable）が
+    /// 列構成・列幅を読み書きするための LibrarySettings。リモートウィンドウ共有インスタンス。
+    @Bindable var settings: LibrarySettings
+
+    /// D1: グリッドに focus を与えて .onKeyPress(.return) を確実に発火させる。
     @FocusState private var listFocused: Bool
 
     /// Task 3: paged per の TextField 入力（数字のみ・commit 時に clamp）。
@@ -125,7 +129,10 @@ struct RemoteLibraryView: View {
             if state.isGrid {
                 gridView
             } else {
-                listView
+                // Phase 4.2c-1: SwiftUI List をローカルと同じ多列 NSTableView パリティ
+                // ウィジェットに置換。列構成・列幅・ソート・選択・ダウンロード文脈メニュー・
+                // infinite スクロールは RemoteBookTableCoordinator 内で配線済み。
+                RemoteBookTableViewRepresentable(state: state, settings: settings)
             }
             // Task 3: paged のみページャ表示。infinite では非表示。
             if state.scrollMode == .paged {
@@ -316,66 +323,9 @@ struct RemoteLibraryView: View {
         .background(Color.red.opacity(0.1))
     }
 
-    // MARK: - List mode
+    // MARK: - Selection helpers
 
-    private var listView: some View {
-        List(state.books, id: \.id, selection: listSelectionBinding) { book in
-            HStack(spacing: 6) {
-                if state.selectionMode {
-                    Image(systemName: state.multiSelection.contains(book.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(state.multiSelection.contains(book.id) ? Color.accentColor : .secondary)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title)
-                        .font(.body)
-                    let sub = [book.author, book.series].compactMap { $0 }.joined(separator: " / ")
-                    if !sub.isEmpty {
-                        Text(sub).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                // Task 4: ダウンロード済みバッジ（downloadedVersion を参照して再評価）。
-                if downloadedBadge(book.id) {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundStyle(.tint)
-                        .help("オフライン保存済み")
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) { if !state.selectionMode { state.openViewer(book: book) } }
-            // D1 fix: .contextMenu を付けると List(selection:) のネイティブ単一クリック選択が
-            // 横取りされる（右クリック/ダブルクリックは生きるが単一選択が死ぬ）。グリッドと同じく
-            // 明示的な単一タップで selectBook して、壊れたネイティブ選択経路への依存をやめる。
-            .onTapGesture {
-                if state.selectionMode { state.toggleSelected(book.id) }
-                else { Task { await state.selectBook(book.id) } }
-            }
-            .contextMenu { if !state.selectionMode { downloadMenu(book) } }
-            .tag(book.id)
-            // Task 3: infinite モードで末尾行が見えたら次チャンクを取得。
-            .onAppear {
-                if state.scrollMode == .infinite, book.id == state.books.last?.id {
-                    Task { await state.loadMore() }
-                }
-            }
-        }
-        // D1: List 自体を focusable にして Return を捕捉する。検索フィールドに focus が
-        // ある間は onSubmit（検索）が優先されるため、競合しない。
-        .focusable()
-        .focused($listFocused)
-        .onKeyPress(.return) { openSelected() }
-        .task { listFocused = true }
-    }
-
-    /// Task 6: List 選択 binding。選択変更時に detail pane を読み込む。
-    private var listSelectionBinding: Binding<Int?> {
-        Binding(
-            get: { state.selection },
-            set: { newID in Task { await state.selectBook(newID) } }
-        )
-    }
-
-    /// D1: 選択中の本を開く。一覧/グリッド共通。
+    /// D1: 選択中の本を開く。グリッドの Return キー処理で使用。
     private func openSelected() -> KeyPress.Result {
         if let id = state.selection, let book = state.books.first(where: { $0.id == id }) {
             state.openViewer(book: book)
