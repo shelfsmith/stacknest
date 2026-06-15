@@ -787,6 +787,222 @@ body {
   text-align: center;
 }
 
+/* ============================================================
+   column-facet UI（セグメント制御 / カラム / ステッパー / パンくず）
+   ============================================================ */
+
+/* ---- セグメント制御（list / grid / column 切替） ---- */
+.seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.seg-btn {
+  min-height: 36px;
+  min-width: 52px;
+  padding: 0 12px;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: background 0.1s;
+}
+
+.seg-btn:first-child { border-left: none; }
+
+.seg-btn.sel {
+  background: var(--accent);
+  color: #fff;
+}
+
+.seg-btn:not(.sel):active { background: var(--surface-2); }
+
+/* ---- ファセットカラム コンテナ ---- */
+.columns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---- 個別カラム ---- */
+.col {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* カラムヘッダ（ラベル + 件数） */
+.col-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--surface-2);
+  font-size: 12px;
+  color: var(--text-dim);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.col-label { color: var(--text-dim); }
+
+.col-count {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* カラム項目リスト（スクロール可能） */
+.col-list {
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* カラム項目（タップターゲット最低 44px） */
+.col-item {
+  display: block;
+  width: 100%;
+  min-height: var(--tap);
+  padding: 10px 14px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  line-height: 1.3;
+}
+
+.col-item:first-child { border-top: none; }
+.col-item:active { background: var(--surface-2); }
+
+.col-item.all { font-weight: 600; }
+
+.col-item.sel {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 読み込み中 */
+.col-loading {
+  padding: 16px 14px;
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+/* ---- stepper バー（上部ナビ: 戻るボタン + パンくず） ---- */
+.stepper-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* 戻るボタン（.icon-btn はグローバル定義済み、上書きは最小限） */
+.step-back {
+  font-size: 15px;
+  font-weight: 600;
+  min-width: unset;
+  padding: 0 8px;
+  color: var(--accent);
+}
+
+/* ---- パンくず ---- */
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+}
+
+.crumb {
+  min-height: var(--tap);
+  padding: 0 8px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.crumb:hover { background: var(--surface-2); }
+
+.crumb.cur {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.crumb.step { color: var(--text-dim); }
+
+.crumb-sep {
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 0 2px;
+  user-select: none;
+}
+
+/* ---- phone: stepper は 1 列をフルスクリーンで表示 ---- */
+@media (max-width: 767px) {
+  .columns.stepper .col {
+    flex: 1 1 100%;
+    min-height: 60vh;
+  }
+}
+
+/* ============================================================
+   レスポンシブ（タブレット / デスクトップ）
+   ============================================================ */
+
+@media (min-width: 768px) {
+  .app-main {
+    max-width: 1100px;
+  }
+
+  /* グリッド: タブレット以上はカラムを広めに */
+  .book-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+
+  /* ファセットカラムを横並び */
+  .columns {
+    flex-direction: row;
+    align-items: stretch;
+  }
+
+  .columns .col {
+    flex: 1 1 0;
+    max-height: 320px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .app-main {
+    max-width: 1320px;
+  }
+}
+
 /* ---- 読み込み中インジケータ（stage 中央、chrome より上・設定シートより下） ---- */
 .reader-loading {
   position: absolute;
