@@ -50,6 +50,7 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         _ = state.downloadedVersion   // observe so updateNSView re-runs when DL state changes
+        _ = state.downloadProgress?.fraction
         let coord = context.coordinator
         coord.state = state
         coord.settings = settings
@@ -72,6 +73,7 @@ final class RemoteBookTableCoordinator: NSObject {
     private var isInstallingColumns = false
     private var lastBooksVersion = -1
     private var lastDownloadedVersion = -1
+    private var lastProgressKey: String = ""
 
     /// リモート専用「DL（ダウンロード済み）」列の識別子。BookColumn ではない sentinel。
     private static let downloadColumnID = "__remote_downloaded__"
@@ -162,6 +164,11 @@ final class RemoteBookTableCoordinator: NSObject {
             lastDownloadedVersion = state.downloadedVersion
             table.reloadData()
         }
+        let pk = state.downloadProgress.map { "\($0.bookID):\(Int($0.fraction * 20))" } ?? ""
+        if pk != lastProgressKey {
+            lastProgressKey = pk
+            table.reloadData()
+        }
         let current: [BookColumn] = table.tableColumns.compactMap { BookColumn(rawValue: $0.identifier.rawValue) }
         if current != visibleColumns { installColumns(in: table) }
         // ヘッダのソートインジケータ（▲▼）を現在のソートに合わせる。
@@ -209,12 +216,22 @@ extension RemoteBookTableCoordinator: NSTableViewDelegate {
         let book = state.books[row]
         if col.identifier.rawValue == RemoteBookTableCoordinator.downloadColumnID {
             let downloaded = state.isDownloaded(book.id)
-            let icon = AnyView(
-                Image(systemName: downloaded ? "arrow.down.circle.fill" : "")
-                    .foregroundStyle(.tint)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .help(downloaded ? "オフライン保存済み" : "")
-            )
+            let prog = state.downloadProgress
+            let cell: AnyView
+            if let prog, prog.bookID == book.id {
+                cell = AnyView(
+                    ProgressView(value: prog.fraction)
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                )
+            } else {
+                cell = AnyView(
+                    Image(systemName: downloaded ? "arrow.down.circle.fill" : "")
+                        .foregroundStyle(.tint)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .help(downloaded ? "オフライン保存済み" : ""))
+            }
             let id = col.identifier
             let hosting: NSHostingView<AnyView>
             if let reuse = tableView.makeView(withIdentifier: id, owner: nil) as? NSHostingView<AnyView> {
@@ -223,7 +240,7 @@ extension RemoteBookTableCoordinator: NSTableViewDelegate {
                 hosting = NSHostingView(rootView: AnyView(EmptyView()))
                 hosting.identifier = id
             }
-            hosting.rootView = icon
+            hosting.rootView = cell
             return hosting
         }
         guard let bookCol = BookColumn(rawValue: col.identifier.rawValue) else { return nil }
