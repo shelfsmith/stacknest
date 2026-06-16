@@ -95,6 +95,7 @@ final class RemoteLibraryState {
         self.libraryToken = libraryToken
         self.per = prefs.perPageSize
         self.scrollMode = prefs.scrollMode
+        RemoteLibraryRegistry.shared.add(self)
     }
 
     var pageCountTotalPages: Int { remoteTotalPages(total: total, per: per) }
@@ -567,7 +568,8 @@ final class RemoteLibraryState {
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
                 onClose: { [weak self] in self?.viewerController = nil },
-                suppressResumeDialog: resumeDirect
+                suppressResumeDialog: resumeDirect,
+                sourceLabel: "リモート"
             )
             self.viewerController = controller
             controller.onSetBookPageDirection = { [weak self] id, dir in

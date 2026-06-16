@@ -26,6 +26,20 @@ enum ResumeLastReadCoordinator {
             }
 
         case .remote(let serverID, _, let libraryUUID, _, let bookID, _, let locked):
+            // 既に開いているリモートウィンドウがあれば、そこで直接開く（pending を消費しない経路）。
+            if let st = RemoteLibraryRegistry.shared.allObjects.first(where: {
+                $0.serverID == serverID && $0.libraryUUID == libraryUUID
+            }) {
+                openWindow(value: RemoteLibraryRef(serverID: serverID, libraryUUID: libraryUUID)) // フォーカス
+                if let dto = st.books.first(where: { $0.id == bookID }) {
+                    st.openViewer(book: dto, resumeDirect: true)
+                } else {
+                    // 読み込み済みページに無ければ pending にして再取得（best-effort）。
+                    st.pendingOpenBookID = (bookID, true)
+                    await st.reload()
+                }
+                return
+            }
             let store = ServerConnectionStore()
             guard let conn = store.connection(id: serverID), let base = URL(string: conn.baseURL) else {
                 presentInfo("最後に開いた本のサーバ接続が見つかりません。「共有 → サーバに接続」で接続してから再度実行してください。")

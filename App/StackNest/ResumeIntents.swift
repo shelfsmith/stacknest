@@ -39,3 +39,13 @@ final class OfflineResumeIntent {
     static let shared = OfflineResumeIntent()
     var pendingBookID: Int?
 }
+
+/// 開いているリモートライブラリ state のレジストリ（AppState.activeInstances 相当）。
+/// ⌘⇧O で既に開いているウィンドウの本を直接開くために使う。weak 参照。
+@MainActor
+final class RemoteLibraryRegistry {
+    static let shared = RemoteLibraryRegistry()
+    private let table = NSHashTable<RemoteLibraryState>.weakObjects()
+    func add(_ s: RemoteLibraryState) { table.add(s) }
+    var allObjects: [RemoteLibraryState] { table.allObjects }
+}

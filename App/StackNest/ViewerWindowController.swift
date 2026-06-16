@@ -36,6 +36,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// resume ダイアログを 1 回だけ表示するフラグ。
     private var didShowResumeDialog = false
     private let suppressResumeDialog: Bool
+    /// 非 nil ならタイトルバーに "<ラベル>: <書名>" を表示する（リモート由来などの可視マーカ）。
+    private let sourceLabel: String?
 
     private let canvas = ViewerCanvasView()
     private var hudHosting: PassthroughHostingView<ViewerHUDView>?
@@ -66,7 +68,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         persistState: @escaping (BookRow, Int, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
         onClose: @escaping () -> Void,
-        suppressResumeDialog: Bool = false
+        suppressResumeDialog: Bool = false,
+        sourceLabel: String? = nil
     ) {
         self.content = content
         self.book = book
@@ -77,6 +80,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         self.persistPageOverride = persistPageOverride
         self.onClose = onClose
         self.suppressResumeDialog = suppressResumeDialog
+        self.sourceLabel = sourceLabel
         self.overrides = initialState.overrides
         self.resumeLastPage = initialState.lastPage
 
@@ -92,6 +96,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = .black
         super.init(window: window)
         window.delegate = self
+
+        // ソースラベル指定時はタイトルを可視化して由来（例: リモート）を明示する。
+        // 未指定（local）は既存の没入型・タイトル非表示挙動のまま。
+        if let sourceLabel {
+            window.title = "\(sourceLabel): \(book.title)"
+            window.titleVisibility = .visible
+        }
 
         // 初期表示状態をモデルへ反映
         model.setCoverOffset(initialState.coverOffset)
