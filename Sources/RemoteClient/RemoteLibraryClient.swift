@@ -169,6 +169,19 @@ public struct RemoteLibraryClient: Sendable {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
         let req = request(url, libraryToken: libraryToken)
         let (bytes, response) = try await session.bytes(for: req)
+        // URLSession は 4xx/5xx で throw しない。ステータスを検証しないとエラー本文を
+        // そのままファイルとして保存してしまうため、send(_:) と同じ判定をストリーム消費前に行う。
+        if let http = response as? HTTPURLResponse {
+            switch http.statusCode {
+            case 200...299: break
+            case 401: throw RemoteClientError.unauthorized
+            case 403: throw RemoteClientError.forbidden
+            case 404: throw RemoteClientError.notFound
+            default: throw RemoteClientError.server(http.statusCode)
+            }
+        } else {
+            throw RemoteClientError.badResponse
+        }
         let total = response.expectedContentLength   // 不明は -1
         var data = Data()
         if total > 0 { data.reserveCapacity(Int(total)) }
