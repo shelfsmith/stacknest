@@ -164,20 +164,25 @@ struct SharingSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(addresses, id: \.ip) { addr in
-                    HStack(spacing: 8) {
-                        // A4: verbatim で桁区切りを止める（LocalizedStringKey 補間だと
-                        // port が "8,724" のように桁区切りされる）。
-                        // IPv6 は displayHost が [...] で囲む。
-                        Text(verbatim: "http://\(addr.displayHost):\(server.port)/")
-                            .monospaced()
-                            .textSelection(.enabled)
-                        Spacer()
-                        Text(addr.interface)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(addresses, id: \.ip) { addr in
+                            HStack(spacing: 8) {
+                                // A4: verbatim で桁区切りを止める（LocalizedStringKey 補間だと
+                                // port が "8,724" のように桁区切りされる）。
+                                // IPv6 は displayHost が [...] で囲む。
+                                Text(verbatim: "http://\(addr.displayHost):\(server.port)/")
+                                    .monospaced()
+                                    .textSelection(.enabled)
+                                Spacer()
+                                Text(addr.interface)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
+                .frame(maxHeight: 120)
 
                 // アドレスが 2 件以上あるとき、QR に使う IP を選択できる Picker を表示する。
                 // nil のとき先頭にフォールバックして表示する（@State は書き換えない）。
