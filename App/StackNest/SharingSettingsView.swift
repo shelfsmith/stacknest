@@ -69,7 +69,6 @@ struct SharingSettingsView: View {
             Text(server.startError?.message ?? "")
         }
         .frame(width: 600)
-        .frame(minHeight: 520)
     }
 
     // MARK: - サーバセクション
