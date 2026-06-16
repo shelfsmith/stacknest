@@ -35,6 +35,15 @@ struct SharingSettingsView: View {
     /// QR に使う接続先 IP アドレス。nil のとき addresses.first を使う。
     @State private var selectedHostIP: String?
 
+    /// ポート使用不可（起動失敗）アラートの表示制御。
+    @State private var showPortInUseAlert = false
+
+    /// startError の portInUse 変化を検出するためのトークン。
+    private var portInUseToken: String {
+        if case .portInUse(let p) = server.startError { return "inuse-\(p)" }
+        return "none"
+    }
+
     var body: some View {
         Form {
             serverSection
@@ -46,6 +55,19 @@ struct SharingSettingsView: View {
             librariesSection
         }
         .formStyle(.grouped)
+        .onChange(of: portInUseToken) { _, _ in
+            if case .portInUse = server.startError { showPortInUseAlert = true }
+        }
+        .alert("ポートを使用できません", isPresented: $showPortInUseAlert) {
+            Button("ランダムにして再起動") {
+                ServerPreferences.setPort(ServerPreferences.randomPort())
+                portInput = String(ServerPreferences.port())
+                server.start()
+            }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(server.startError?.message ?? "")
+        }
     }
 
     // MARK: - サーバセクション
@@ -104,6 +126,13 @@ struct SharingSettingsView: View {
                         if cleaned != newValue { portInput = cleaned }
                     }
                     .onSubmit { commitPortIfPossible() }
+                Button("ランダム") {
+                    guard !server.isRunning else { return }
+                    ServerPreferences.setPort(ServerPreferences.randomPort())
+                    portInput = String(ServerPreferences.port())
+                }
+                .disabled(server.isRunning)
+                .help("使われにくいポート番号をランダムに設定")
             }
             if server.isRunning {
                 Text("ポートは停止中に変更できます。")
