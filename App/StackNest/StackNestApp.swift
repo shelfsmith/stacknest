@@ -667,7 +667,7 @@ struct FileCommands: Commands {
                     }
                 }
             }
-            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .keyboardShortcut("o", modifiers: .command)
 
             Button("Stackroom Library から取り込む…") {
                 LibraryActions.runXMLOpenPanelStandalone { xmlURL in
