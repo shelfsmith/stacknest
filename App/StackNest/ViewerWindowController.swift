@@ -35,6 +35,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private let resumeLastPage: Int
     /// resume ダイアログを 1 回だけ表示するフラグ。
     private var didShowResumeDialog = false
+    private let suppressResumeDialog: Bool
 
     private let canvas = ViewerCanvasView()
     private var hudHosting: PassthroughHostingView<ViewerHUDView>?
@@ -64,7 +65,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         loadPrevVolume: @escaping (BookRow) async -> NextVolume?,
         persistState: @escaping (BookRow, Int, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
-        onClose: @escaping () -> Void
+        onClose: @escaping () -> Void,
+        suppressResumeDialog: Bool = false
     ) {
         self.content = content
         self.book = book
@@ -74,6 +76,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         self.persistState = persistState
         self.persistPageOverride = persistPageOverride
         self.onClose = onClose
+        self.suppressResumeDialog = suppressResumeDialog
         self.overrides = initialState.overrides
         self.resumeLastPage = initialState.lastPage
 
@@ -172,7 +175,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     /// 続きから読む場合（resumeLastPage > 0）のみ、ウィンドウ表示後に一度だけシートダイアログを表示する。
     private func showResumeDialogIfNeeded() {
-        guard resumeLastPage > 0, !didShowResumeDialog else { return }
+        guard !suppressResumeDialog, resumeLastPage > 0, !didShowResumeDialog else { return }
         didShowResumeDialog = true
         showResumeDialog(forLastPage: resumeLastPage)
     }
