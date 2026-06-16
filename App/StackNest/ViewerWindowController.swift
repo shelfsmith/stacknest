@@ -159,6 +159,28 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         ])
         let tracking = NSTrackingArea(rect: .zero, options: [.activeAlways, .inVisibleRect, .mouseMoved], owner: container, userInfo: nil)
         container.addTrackingArea(tracking)
+
+        // ソースラベル指定時（リモート等）は、全画面でも常時可視な永続バッジを左上に重ねる。
+        // タイトルバー由来のラベルは全画面でタイトルバーが隠れて見えなくなるため（smoke H-RV）。
+        // PassthroughHostingView を使い hitTest=nil でページ送りタップを下の canvas に通す。
+        // canvas/HUD/help より後に addSubview することで subview 順で最前面に来る。
+        if let sourceLabel {
+            let badge = PassthroughHostingView(rootView:
+                Text(sourceLabel)
+                    .font(.caption2).bold()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Capsule().fill(Color.accentColor.opacity(0.85)))
+                    .padding(6)
+            )
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(badge)
+            NSLayoutConstraint.activate([
+                badge.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
+                badge.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
+            ])
+        }
+
         window.makeFirstResponder(container)
         showHUDThenScheduleHide()
     }
