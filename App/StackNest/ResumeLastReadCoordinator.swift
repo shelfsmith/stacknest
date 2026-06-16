@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: MIT
+import AppKit
+import SwiftUI
+import AppCore
+import RemoteClient
+
+@MainActor
+enum ResumeLastReadCoordinator {
+    /// ⌘⇧O 実行。アプリ全体の直近 1 冊を最終ページで開く。記録が無ければ no-op。
+    static func resume(openWindow: OpenWindowAction) async {
+        guard let last = LastReadTracker.shared.last else { return }
+        switch last {
+        case .offline(let bookID, _):
+            OfflineResumeIntent.shared.pendingBookID = bookID
+            openWindow(id: "offline")
+
+        case .local(let bundlePath, let bookID, _):
+            // 既に開いていれば直接開く。bundleURL は非 optional。
+            // try? + optional-chaining は二重 Optional を平坦化し BookRow? を返すため単一バインドで足りる。
+            if let st = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundlePath }),
+               let book = try? st.database?.fetchBook(id: bookID) {
+                st.openBooks([book], resumeDirect: true)
+            } else {
+                LocalResumeIntent.shared.pending = (bundlePath, bookID)
+                openWindow(value: URL(fileURLWithPath: bundlePath))
+            }
+
+        case .remote(let serverID, _, let libraryUUID, _, let bookID, _, let locked):
+            let store = ServerConnectionStore()
+            guard let conn = store.connection(id: serverID), let base = URL(string: conn.baseURL) else {
+                presentInfo("最後に開いた本のサーバ接続が見つかりません。「共有 → サーバに接続」で接続してから再度実行してください。")
+                return
+            }
+            let cacheKey = RemoteResumeIntent.key(serverID, libraryUUID)
+            var token: String? = locked ? RemoteResumeIntent.shared.unlockTokens[cacheKey] : nil
+            if locked && token == nil {
+                guard let pw = promptPassword() else { return }   // キャンセルで中止
+                let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
+                do {
+                    token = try await client.unlock(libraryUUID: libraryUUID, password: pw)
+                    RemoteResumeIntent.shared.unlockTokens[cacheKey] = token
+                } catch {
+                    presentInfo("解錠に失敗しました（パスワードを確認してください）。")
+                    return
+                }
+            }
+            RemoteResumeIntent.shared.pending = PendingRemoteOpen(
+                serverID: serverID, libraryUUID: libraryUUID, bookID: bookID,
+                libraryToken: token, forceResume: true)
+            openWindow(value: RemoteLibraryRef(serverID: serverID, libraryUUID: libraryUUID))
+        }
+    }
+
+    /// NSAlert＋セキュア入力でパスワードを尋ねる。OK→文字列、キャンセル→nil。
+    private static func promptPassword() -> String? {
+        let alert = NSAlert()
+        alert.messageText = "ライブラリのパスワード"
+        alert.informativeText = "最後に開いた本のライブラリは保護されています。"
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        alert.accessoryView = field
+        alert.addButton(withTitle: "解錠")
+        alert.addButton(withTitle: "キャンセル")
+        let resp = alert.runModal()
+        guard resp == .alertFirstButtonReturn else { return nil }
+        let v = field.stringValue
+        return v.isEmpty ? nil : v
+    }
+
+    private static func presentInfo(_ text: String) {
+        let alert = NSAlert()
+        alert.messageText = "最後に開いたページ"
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+}
