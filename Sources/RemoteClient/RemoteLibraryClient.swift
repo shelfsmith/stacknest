@@ -157,6 +157,33 @@ public struct RemoteLibraryClient: Sendable {
         return try await send(request(url, libraryToken: libraryToken))
     }
 
+    /// 受信/総バイトから進捗を算出。総量不明(<=0)は nil。
+    static func downloadFraction(received: Int64, total: Int64) -> Double? {
+        guard total > 0 else { return nil }
+        return min(1.0, max(0.0, Double(received) / Double(total)))
+    }
+
+    /// 進捗通知つき本ファイル取得。onProgress は 0...1（総量不明時は最後に 1.0 のみ）。
+    public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?,
+                         onProgress: (@Sendable (Double) -> Void)?) async throws -> Data {
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
+        let req = request(url, libraryToken: libraryToken)
+        let (bytes, response) = try await session.bytes(for: req)
+        let total = response.expectedContentLength   // 不明は -1
+        var data = Data()
+        if total > 0 { data.reserveCapacity(Int(total)) }
+        var received: Int64 = 0
+        for try await byte in bytes {
+            data.append(byte)
+            received += 1
+            if received % 65536 == 0, let f = Self.downloadFraction(received: received, total: total) {
+                onProgress?(f)
+            }
+        }
+        onProgress?(1.0)
+        return data
+    }
+
     public func coverData(libraryUUID: String, bookID: Int, maxw: Int?, libraryToken: String?) async throws -> Data {
         var q: [URLQueryItem] = []
         if let maxw, maxw > 0 { q.append(.init(name: "maxw", value: String(maxw))) }
