@@ -246,11 +246,20 @@ final class RemoteLibraryState {
         offlineStore.isDownloaded(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
     }
 
+    /// 現在ダウンロード中の本と進捗（0...1）。DL 列リング/バッチが参照。完了で nil。
+    var downloadProgress: (bookID: Int, fraction: Double)? = nil
+
     /// 本の detail + ファイル本体 + 表紙を取得し OfflineStore に保存する。
     func downloadBook(_ item: BookListItemDTO) async {
+        downloadProgress = (item.id, 0)
+        defer { downloadProgress = nil }
         do {
             let detail = try await client.bookDetail(libraryUUID: libraryUUID, bookID: item.id, libraryToken: libraryToken)
-            let fileData = try await client.bookFile(libraryUUID: libraryUUID, bookID: item.id, libraryToken: libraryToken)
+            let fileData = try await client.bookFile(
+                libraryUUID: libraryUUID, bookID: item.id, libraryToken: libraryToken,
+                onProgress: { [weak self] f in
+                    Task { @MainActor in self?.downloadProgress = (item.id, f) }
+                })
             let coverData = try? await client.coverData(libraryUUID: libraryUUID, bookID: item.id, maxw: 600, libraryToken: libraryToken)
             let ext = offlineFileExtension(for: fileData)
             try offlineStore.save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
@@ -467,6 +476,10 @@ final class RemoteLibraryState {
         // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
         // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。
         errorText = nil
+        // 未読即時反映: 開いた瞬間にメモリ一覧の unseen を落とす（ローカルの「開いたら既読」に合わせる）。
+        if let idx = books.firstIndex(where: { $0.id == book.id }), books[idx].unseen {
+            books[idx] = books[idx].withUnseen(false)
+        }
         let content = RemoteBookContent(
             client: client,
             libraryUUID: libraryUUID,
@@ -487,6 +500,8 @@ final class RemoteLibraryState {
                 self.errorText = "本を開けませんでした（0ページ）"
                 return
             }
+            // 開いた時点で既読をサーバ確定（/progress は R でも許可）。
+            Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: max(0, book.lastPage ?? 0), libraryToken: self.libraryToken) }
             // リモートでは per-book の永続見開き状態を持たないため、
             // グローバル既定（spreadByDefault）で開く。lastPage はサーバの値を尊重。
             let initialState = ResolvedViewerState(
