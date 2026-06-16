@@ -107,6 +107,16 @@ extension BookListItemDTO {
             genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo
         )
     }
+
+    /// unseen フラグだけ差し替えた複製（リモート閲覧で未読マーカーを楽観的に消すために使う）。
+    public func withUnseen(_ v: Bool) -> BookListItemDTO {
+        BookListItemDTO(
+            id: id, title: title, author: author, series: series, volume: volume,
+            rating: rating, unseen: v, bookType: bookType, pages: pages,
+            lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
+            hasCover: hasCover, coverVersion: coverVersion,
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo)
+    }
 }
 
 /// books 一覧のページングレスポンス（spec §3.3）。

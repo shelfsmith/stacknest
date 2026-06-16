@@ -41,4 +41,16 @@ import Foundation
         #expect(!json.contains("\"genre\""))
         #expect(!json.contains("\"memo\""))
     }
+
+    @Test func withUnseenReplacesFlag() {
+        let dto = BookListItemDTO(
+            id: 1, title: "T", author: nil, series: nil, volume: nil,
+            rating: 0, unseen: true, bookType: 0, pages: nil, lastPage: nil,
+            lastReadAt: nil, dateAdded: Date(timeIntervalSince1970: 0), hasCover: false, coverVersion: nil,
+            genre: "G")
+        let s = dto.withUnseen(false)
+        #expect(s.unseen == false)
+        #expect(s.genre == "G")
+        #expect(s.id == 1)
+    }
 }
