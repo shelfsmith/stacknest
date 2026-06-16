@@ -13,6 +13,8 @@ final class ServerController {
 
     private(set) var isRunning = false
     private(set) var lastError: String?
+    /// 直近の起動エラー分類（UI がダイアログ判定に使う）。成功/停止で nil。
+    private(set) var startError: ServerStartError?
     private var serverTask: Task<Void, Never>?
 
     /// ライフサイクル世代カウンタ。stop() / restart() のたびにインクリメントする。
@@ -32,6 +34,7 @@ final class ServerController {
     func start() {
         guard !isRunning else { return }
         lastError = nil
+        startError = nil
         let config = LibraryServerConfig(
             host: "::",                      // dual-stack（IPv4/IPv6 両対応）
             port: ServerPreferences.port(),
@@ -51,13 +54,18 @@ final class ServerController {
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         let app = core.buildApplication()
         isRunning = true
+        let portUsed = ServerPreferences.port()
         serverTask = Task {
             do {
                 // runService() は ServiceLifecycle 配下で動き、Task.cancel() に応答して
                 // graceful shutdown する。ポート使用中などの起動失敗もここで throw される。
                 try await app.runService()
             } catch {
-                await MainActor.run { self.lastError = error.localizedDescription }
+                await MainActor.run {
+                    let classified = ServerStartError.classify(error, port: portUsed)
+                    self.startError = classified
+                    self.lastError = classified.message
+                }
             }
             await MainActor.run { self.isRunning = false }
         }
