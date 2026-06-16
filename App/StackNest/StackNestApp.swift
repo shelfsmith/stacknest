@@ -68,6 +68,7 @@ struct StackNestApp: App {
         }
         .commands {
             FileCommands(openWindow: openWindow)
+            ShareCommands(openWindow: openWindow)
             WindowCommands()
             // macOS Sonoma+ の Settings scene は system-managed window で SwiftUI の
             // .windowResizability や .frame が一部しか効かない。横幅固定 + 縦のみ resize
@@ -137,6 +138,16 @@ struct StackNestApp: App {
         // File メニュー / Title から openWindow(id:"offline")。サーバ接続なしで動作する。
         Window("オフライン", id: "offline") {
             OfflineLibraryView()
+        }
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
+        .commandsRemoved()
+        .restorationBehavior(.disabled)
+
+        // Phase 4.2c-2: 共有設定ウィンドウ — 「共有」メニュー / openWindow(id:"sharing-settings")。
+        // Settings の旧「共有」タブを独立ウィンドウへ移設した（重複排除）。
+        Window("共有設定", id: "sharing-settings") {
+            SharingSettingsView()
         }
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
@@ -637,13 +648,10 @@ struct FileCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
 
-            Button("サーバに接続…") {
-                openWindow(id: "connect")
+            Button("最後に開いたページを開く") {
+                Task { await ResumeLastReadCoordinator.resume(openWindow: openWindow) }
             }
-
-            Button("オフライン（ダウンロード済み）…") {
-                openWindow(id: "offline")
-            }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
 
             Button("ライブラリを開く…") {
                 LibraryActions.runOpenPanelStandalone { bundleURL in
