@@ -6,10 +6,10 @@ struct ShareCommands: Commands {
     let openWindow: OpenWindowAction
     var body: some Commands {
         CommandMenu("共有") {
-            Button("共有設定…") { openWindow(id: "sharing-settings") }
+            Button("サーバ設定…") { openWindow(id: "sharing-settings") }
             Divider()
-            Button("サーバに接続…") { openWindow(id: "connect") }
-            Button("オフライン（ダウンロード済み）…") { openWindow(id: "offline") }
+            Button("リモートビューア…") { openWindow(id: "connect") }
+            Button("オフラインビューア…") { openWindow(id: "offline") }
         }
     }
 }

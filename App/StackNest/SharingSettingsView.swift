@@ -59,7 +59,7 @@ struct SharingSettingsView: View {
             if case .portInUse = server.startError { showPortInUseAlert = true }
         }
         .alert("ポートを使用できません", isPresented: $showPortInUseAlert) {
-            Button("ランダムにして再起動") {
+            Button("別のポートにして再起動") {
                 ServerPreferences.setPort(ServerPreferences.randomPort())
                 portInput = String(ServerPreferences.port())
                 server.start()
@@ -68,6 +68,8 @@ struct SharingSettingsView: View {
         } message: {
             Text(server.startError?.message ?? "")
         }
+        .frame(width: 600)
+        .frame(minHeight: 520)
     }
 
     // MARK: - サーバセクション

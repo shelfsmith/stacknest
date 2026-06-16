@@ -146,7 +146,7 @@ struct StackNestApp: App {
 
         // Phase 4.2c-2: 共有設定ウィンドウ — 「共有」メニュー / openWindow(id:"sharing-settings")。
         // Settings の旧「共有」タブを独立ウィンドウへ移設した（重複排除）。
-        Window("共有設定", id: "sharing-settings") {
+        Window("サーバ設定", id: "sharing-settings") {
             SharingSettingsView()
         }
         .windowResizability(.contentMinSize)
