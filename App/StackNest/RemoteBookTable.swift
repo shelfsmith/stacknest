@@ -49,6 +49,7 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        _ = state.downloadedVersion   // observe so updateNSView re-runs when DL state changes
         let coord = context.coordinator
         coord.state = state
         coord.settings = settings
@@ -70,6 +71,10 @@ final class RemoteBookTableCoordinator: NSObject {
     private var headerMenu: NSMenu?
     private var isInstallingColumns = false
     private var lastBooksVersion = -1
+    private var lastDownloadedVersion = -1
+
+    /// リモート専用「DL（ダウンロード済み）」列の識別子。BookColumn ではない sentinel。
+    private static let downloadColumnID = "__remote_downloaded__"
 
     init(state: RemoteLibraryState, settings: LibrarySettings) {
         self.state = state; self.settings = settings; super.init()
@@ -83,6 +88,13 @@ final class RemoteBookTableCoordinator: NSObject {
         isInstallingColumns = true
         defer { isInstallingColumns = false }
         table.tableColumns.forEach { table.removeTableColumn($0) }
+        let dlCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(rawValue: Self.downloadColumnID))
+        dlCol.title = "DL"
+        dlCol.width = 36
+        dlCol.minWidth = 36
+        dlCol.maxWidth = 44
+        // ソート対象外（sortDescriptorPrototype を設定しない）。
+        table.addTableColumn(dlCol)
         let savedWidths = settings.columnWidths
         for col in visibleColumns {
             let nsCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(rawValue: col.rawValue))
@@ -145,8 +157,9 @@ final class RemoteBookTableCoordinator: NSObject {
 
     func syncFromState() {
         guard let table = tableView else { return }
-        if state.booksVersion != lastBooksVersion {
+        if state.booksVersion != lastBooksVersion || state.downloadedVersion != lastDownloadedVersion {
             lastBooksVersion = state.booksVersion
+            lastDownloadedVersion = state.downloadedVersion
             table.reloadData()
         }
         let current: [BookColumn] = table.tableColumns.compactMap { BookColumn(rawValue: $0.identifier.rawValue) }
@@ -192,9 +205,28 @@ extension RemoteBookTableCoordinator: NSTableViewDataSource {
 
 extension RemoteBookTableCoordinator: NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let col = tableColumn, let bookCol = BookColumn(rawValue: col.identifier.rawValue),
-              row < state.books.count else { return nil }
+        guard let col = tableColumn, row < state.books.count else { return nil }
         let book = state.books[row]
+        if col.identifier.rawValue == RemoteBookTableCoordinator.downloadColumnID {
+            let downloaded = state.isDownloaded(book.id)
+            let icon = AnyView(
+                Image(systemName: downloaded ? "arrow.down.circle.fill" : "")
+                    .foregroundStyle(.tint)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .help(downloaded ? "オフライン保存済み" : "")
+            )
+            let id = col.identifier
+            let hosting: NSHostingView<AnyView>
+            if let reuse = tableView.makeView(withIdentifier: id, owner: nil) as? NSHostingView<AnyView> {
+                hosting = reuse
+            } else {
+                hosting = NSHostingView(rootView: AnyView(EmptyView()))
+                hosting.identifier = id
+            }
+            hosting.rootView = icon
+            return hosting
+        }
+        guard let bookCol = BookColumn(rawValue: col.identifier.rawValue) else { return nil }
         let hosting: NSHostingView<AnyView>
         if let reuse = tableView.makeView(withIdentifier: col.identifier, owner: nil) as? NSHostingView<AnyView> {
             hosting = reuse
