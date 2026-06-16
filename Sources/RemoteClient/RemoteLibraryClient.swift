@@ -170,6 +170,15 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
 
+    /// 読む方向をサーバへ POST する（/direction は R トークンでも許可）。
+    /// direction: "rtl" / "ltr" / nil（クリア）。
+    public func updatePageDirection(libraryUUID: String, bookID: Int, direction: String?, libraryToken: String?) async throws {
+        struct DirectionBody: Encodable { let direction: String? }
+        let body = try JSONEncoder().encode(DirectionBody(direction: direction))
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/direction")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
     /// 同一シリーズの隣接巻メタ。該当なしは nil。direction は "next"/"prev"。
     public func adjacentVolume(libraryUUID: String, bookID: Int, direction: String,
                                libraryToken: String?) async throws -> BookListItemDTO? {

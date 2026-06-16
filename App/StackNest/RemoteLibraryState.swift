@@ -531,7 +531,20 @@ final class RemoteLibraryState {
                 onClose: { [weak self] in self?.viewerController = nil }
             )
             self.viewerController = controller
+            controller.onSetBookPageDirection = { [weak self] id, dir in
+                Task { await self?.setRemoteDirection(bookID: id, direction: dir) }
+            }
             controller.present()
+        }
+    }
+
+    /// 読む方向をサーバへ同期する（R トークンでも /direction 経由で可）。
+    func setRemoteDirection(bookID: Int, direction: PageDirection?) async {
+        let s: String? = direction.map { $0 == .rightToLeft ? "rtl" : "ltr" }
+        do {
+            try await client.updatePageDirection(libraryUUID: libraryUUID, bookID: bookID, direction: s, libraryToken: libraryToken)
+        } catch {
+            errorText = "読む方向の同期に失敗しました"
         }
     }
 

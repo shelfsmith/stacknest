@@ -69,6 +69,8 @@ struct RemoteLibraryView: View {
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
             canEdit: state.canEditServer,
+            directionEditable: true,
+            onSetPageDirection: { id, dir in Task { await state.setRemoteDirection(bookID: id, direction: dir) } },
             onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },
             onApplyPatchMulti: { _, _ in },
             onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },

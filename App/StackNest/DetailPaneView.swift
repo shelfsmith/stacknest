@@ -15,6 +15,11 @@ struct DetailPaneView: View {
     /// Defaults to nil — local callers omit this and stay on the `loader` path.
     let coverImage: ((Int) async -> NSImage?)?
     let canEdit: Bool                       // local = true
+    /// 読む方向ピッカーの編集可否。canEdit と独立（R/O リモートでも /direction 経由で変更可）。
+    let directionEditable: Bool
+    /// 単一ブック時の読む方向変更を専用ルートへ流す closure（リモートは /direction へ）。
+    /// nil ならローカル従来どおり onApplyPatch（DB 直書き）へフォールバック。
+    let onSetPageDirection: ((Int, PageDirection?) -> Void)?
     let onApplyPatch: (Int, BookPatch) -> Void          // was applyPatch(bookID:patch:undoManager:)
     let onApplyPatchMulti: ([Int], BookPatch) -> Void   // was applyPatch(bookIDs:patch:undoManager:)
     let onSetCover: (String?, Int) async throws -> Void  // was setCoverImageName(_:for:undoManager:)
@@ -33,6 +38,8 @@ struct DetailPaneView: View {
         bundleURL: URL,
         loader: ThumbnailLoader?,
         canEdit: Bool,
+        directionEditable: Bool = true,
+        onSetPageDirection: ((Int, PageDirection?) -> Void)? = nil,
         onApplyPatch: @escaping (Int, BookPatch) -> Void,
         onApplyPatchMulti: @escaping ([Int], BookPatch) -> Void,
         onSetCover: @escaping (String?, Int) async throws -> Void,
@@ -47,6 +54,8 @@ struct DetailPaneView: View {
         self.bundleURL = bundleURL
         self.loader = loader
         self.canEdit = canEdit
+        self.directionEditable = directionEditable
+        self.onSetPageDirection = onSetPageDirection
         self.onApplyPatch = onApplyPatch
         self.onApplyPatchMulti = onApplyPatchMulti
         self.onSetCover = onSetCover
@@ -180,7 +189,7 @@ struct DetailPaneView: View {
                         applyPageDirectionCaptured(newValue, isMulti: snapshotIsMulti,
                                                    singleID: snapshotSingleID, ids: snapshotIDs)
                     }
-                    .disabled(!canEdit)
+                    .disabled(!directionEditable)
                     Spacer()
                 }
             }
@@ -436,7 +445,11 @@ struct DetailPaneView: View {
         if isMulti {
             onApplyPatchMulti(ids, patch)
         } else if let id = singleID {
-            onApplyPatch(id, patch)
+            if let onSetPageDirection {
+                onSetPageDirection(id, value)
+            } else {
+                onApplyPatch(id, patch)
+            }
         }
     }
 
