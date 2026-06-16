@@ -495,8 +495,16 @@ final class RemoteLibraryState {
                 lastPage: max(0, book.lastPage ?? 0),
                 overrides: [:]
             )
+            // 一覧 DTO には pageDirection が無いため、サーバの本詳細から実際の読む方向を取得する。
+            // これが無いと、方向を変更してもビューアを開き直すたびにグローバル既定へ戻る（smoke G3）。
+            let serverDetail = try? await self.client.bookDetail(
+                libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
+            let serverDir: PageDirection? = serverDetail.flatMap { d in
+                d.pageDirection == "rtl" ? .rightToLeft
+                    : (d.pageDirection == "ltr" ? .leftToRight : nil)
+            }
             let options = ViewerOptions(
-                pageDirection: row.pageDirection ?? ViewerSettings.shared.pageDirection,
+                pageDirection: serverDir ?? row.pageDirection ?? ViewerSettings.shared.pageDirection,
                 endOfBookBehavior: ViewerSettings.shared.endOfBookBehavior
             )
             let controller = ViewerWindowController(
@@ -543,6 +551,11 @@ final class RemoteLibraryState {
         let s: String? = direction.map { $0 == .rightToLeft ? "rtl" : "ltr" }
         do {
             try await client.updatePageDirection(libraryUUID: libraryUUID, bookID: bookID, direction: s, libraryToken: libraryToken)
+            // 詳細ペインへ即反映するため、選択中の本なら詳細を再取得する。
+            // これが無いと PageDirectionPicker が古い値のままで「編集できない」ように見える。
+            if selection == bookID {
+                detail = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken)
+            }
         } catch {
             errorText = "読む方向の同期に失敗しました"
         }
