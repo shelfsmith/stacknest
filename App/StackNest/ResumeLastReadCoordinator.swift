@@ -13,6 +13,10 @@ enum ResumeLastReadCoordinator {
         case .offline(let bookID, _):
             OfflineResumeIntent.shared.pendingBookID = bookID
             openWindow(id: "offline")
+            // 既にオフラインウィンドウが開いている場合、openWindow はフォーカスするだけで
+            // .task { reload() } を再実行しない。通知で live な OfflineLibraryView に reload() を
+            // 促し、pendingBookID を消費させる（リモートの already-open と同種のバグ対策）。
+            NotificationCenter.default.post(name: .offlineResumeRequested, object: nil)
 
         case .local(let bundlePath, let bookID, _):
             // 既に開いていれば直接開く。bundleURL は非 optional。

@@ -41,6 +41,7 @@ struct RemoteLibraryView: View {
             }
         }
         .navigationTitle(state.libraryName)
+        .navigationSubtitle("リモート")
     }
 
     // MARK: - Split layout (Task 6)

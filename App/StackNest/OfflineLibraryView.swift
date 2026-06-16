@@ -54,6 +54,11 @@ struct OfflineLibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in
             reload()
         }
+        // ⌘⇧O 復帰: オフラインウィンドウが既に開いている場合、openWindow はフォーカスのみで
+        // .task を再実行しないため、通知で reload() を発火し pendingBookID を消費する。
+        .onReceive(NotificationCenter.default.publisher(for: .offlineResumeRequested)) { _ in
+            reload()
+        }
     }
 
     // MARK: - Reload
@@ -327,7 +332,8 @@ struct OfflineLibraryView: View {
                 // B2: close 時に reload して、保存された lastPage を次回 open に反映する
                 // （updateLastPage は .offlineStoreDidChange を post しないため）。
                 onClose: { self.viewer = nil; self.reload() },
-                suppressResumeDialog: resumeDirect
+                suppressResumeDialog: resumeDirect,
+                sourceLabel: "オフライン"
             )
             self.viewer = controller
             self.errorText = nil

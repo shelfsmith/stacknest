@@ -5,6 +5,9 @@ import LibraryServerAPI
 public extension Notification.Name {
     /// OfflineStore の DL 済み集合が変化した（save/remove）。オフライン UI が監視して再読込する。
     static let offlineStoreDidChange = Notification.Name("StackNest.offlineStoreDidChange")
+    /// ⌘⇧O 復帰要求。オフラインウィンドウが既に開いている場合に reload() を発火させ、
+    /// OfflineResumeIntent.shared.pendingBookID を消費させる。
+    static let offlineResumeRequested = Notification.Name("stacknest.offlineResumeRequested")
 }
 
 public struct DownloadedBook: Codable, Sendable, Identifiable {
