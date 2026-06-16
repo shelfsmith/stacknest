@@ -71,6 +71,9 @@ final class RemoteBookTableCoordinator: NSObject {
     weak var scrollView: NSScrollView?
     private var headerMenu: NSMenu?
     private var isInstallingColumns = false
+    /// syncFromState のプログラム的な reloadData/selectRowIndexes 中に発火する
+    /// tableViewSelectionDidChange を無視するためのガード（ユーザー操作以外で multiSelection を壊さない）。
+    private var isSyncingSelection = false
     private var lastBooksVersion = -1
     private var lastDownloadedVersion = -1
     private var lastProgressKey: String = ""
@@ -159,6 +162,8 @@ final class RemoteBookTableCoordinator: NSObject {
 
     func syncFromState() {
         guard let table = tableView else { return }
+        isSyncingSelection = true
+        defer { isSyncingSelection = false }
         if state.booksVersion != lastBooksVersion || state.downloadedVersion != lastDownloadedVersion {
             lastBooksVersion = state.booksVersion
             lastDownloadedVersion = state.downloadedVersion
@@ -256,6 +261,7 @@ extension RemoteBookTableCoordinator: NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isSyncingSelection else { return }   // プログラム的変更は無視（ユーザー操作のみ反映）
         guard let table = tableView else { return }
         let sel = table.selectedRowIndexes
         if state.selectionMode {
