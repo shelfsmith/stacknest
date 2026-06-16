@@ -10,9 +10,26 @@ public enum ServerPreferences {
     public static let editTokenKey = "server_edit_token"
     public static let defaultPort = 8723
 
+    /// 乱択で避ける「よく使われる」ポート（手動入力には適用しない）。
+    public static let blockedPorts: Set<Int> = [
+        80, 443, 22, 21, 23, 25, 53, 110, 143, 389, 587, 993, 995,
+        3000, 3306, 5000, 5432, 5900, 6379, 7000, 8000, 8080, 8443, 8723, 9000, 9090, 27017
+    ]
+
+    /// 1024–65535 から blockedPorts を除いた一様乱数。
+    public static func randomPort() -> Int {
+        while true {
+            let p = Int.random(in: 1024...65535)
+            if !blockedPorts.contains(p) { return p }
+        }
+    }
+
     public static func port(defaults: UserDefaults = .standard) -> Int {
         let v = defaults.integer(forKey: portKey)
-        return (1...65535).contains(v) ? v : defaultPort
+        if (1...65535).contains(v) { return v }
+        let p = randomPort()
+        defaults.set(p, forKey: portKey)
+        return p
     }
 
     public static func setPort(_ port: Int, defaults: UserDefaults = .standard) {
