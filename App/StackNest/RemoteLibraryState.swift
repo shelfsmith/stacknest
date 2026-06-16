@@ -22,6 +22,10 @@ final class RemoteLibraryState {
     var locked: Bool
     var libraryToken: String?
 
+    /// Phase 4.2c-2: ウィンドウ生成時に注入される resume 意図。最初の本一覧ロード成功後に
+    /// 1 回だけ消費し、該当本を（resume なら続き確認なしで）開く。
+    var pendingOpenBookID: (id: Int, resume: Bool)?
+
     /// Phase 4.2b-2 Task 4: オフライン保存ストア（既定の Application Support ベース）。
     private let offlineStore = OfflineStore()
 
@@ -184,6 +188,12 @@ final class RemoteLibraryState {
             if !roleResolved, let role = try? await client.me(libraryToken: libraryToken) {
                 canEditServer = (role == .write)
                 roleResolved = true
+            }
+            // Phase 4.2c-2: 最初の本一覧ロード成功後に resume 意図を 1 回だけ消費する。
+            // self-clear するため再 reload では再発火しない。
+            if let pend = pendingOpenBookID, let dto = books.first(where: { $0.id == pend.id }) {
+                pendingOpenBookID = nil
+                openViewer(book: dto, resumeDirect: pend.resume)
             }
         } catch let e as RemoteClientError {
             errorText = Self.message(for: e)
@@ -472,7 +482,7 @@ final class RemoteLibraryState {
     // MARK: - Viewer
 
     /// リモート本を内蔵ビューワで開く。BookContent は RemoteBookContent。
-    func openViewer(book: BookListItemDTO) {
+    func openViewer(book: BookListItemDTO, resumeDirect: Bool = false) {
         // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
         // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。
         errorText = nil
@@ -480,6 +490,11 @@ final class RemoteLibraryState {
         if let idx = books.firstIndex(where: { $0.id == book.id }), books[idx].unseen {
             books[idx] = books[idx].withUnseen(false)
         }
+        // Phase 4.2c-2: 「最後に開いた本」を記録する（リモート）。
+        LastReadTracker.shared.record(.remote(
+            serverID: serverID, serverURL: client.baseURL.absoluteString,
+            libraryUUID: libraryUUID, libraryName: libraryName,
+            bookID: book.id, title: book.title, locked: locked))
         let content = RemoteBookContent(
             client: client,
             libraryUUID: libraryUUID,
@@ -551,7 +566,8 @@ final class RemoteLibraryState {
                 },
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
-                onClose: { [weak self] in self?.viewerController = nil }
+                onClose: { [weak self] in self?.viewerController = nil },
+                suppressResumeDialog: resumeDirect
             )
             self.viewerController = controller
             controller.onSetBookPageDirection = { [weak self] id, dir in

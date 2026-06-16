@@ -60,6 +60,12 @@ struct OfflineLibraryView: View {
 
     private func reload() {
         books = store.all()
+        // Phase 4.2c-2: オフライン resume 意図を 1 回だけ消費する。対象本（サーバ側 bookID 一致）が
+        // DL 済みにあれば続き確認なしで開く。self-clear するため再 reload では再発火しない。
+        if let id = OfflineResumeIntent.shared.pendingBookID, let book = books.first(where: { $0.detail.id == id }) {
+            OfflineResumeIntent.shared.pendingBookID = nil
+            openOffline(book, resumeDirect: true)
+        }
     }
 
     /// query（タイトル一致）で絞り込んだ本。
@@ -253,7 +259,9 @@ struct OfflineLibraryView: View {
     // MARK: - Actions
 
     /// オフライン保存済みの本を内蔵ビューワで開く。BookContent はローカルファイル経由。
-    private func openOffline(_ book: DownloadedBook) {
+    private func openOffline(_ book: DownloadedBook, resumeDirect: Bool = false) {
+        // Phase 4.2c-2: 「最後に開いた本」を記録する（オフライン・サーバ側 bookID を採用）。
+        LastReadTracker.shared.record(.offline(bookID: book.detail.id, title: book.detail.title))
         let fileURL = store.fileURL(for: book)
         let row = offlineBookRow(book, fileURL: fileURL)
         let content: BookContent
@@ -313,7 +321,8 @@ struct OfflineLibraryView: View {
                 },
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
-                onClose: { self.viewer = nil }
+                onClose: { self.viewer = nil },
+                suppressResumeDialog: resumeDirect
             )
             self.viewer = controller
             self.errorText = nil

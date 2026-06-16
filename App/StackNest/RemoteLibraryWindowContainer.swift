@@ -119,5 +119,11 @@ struct RemoteLibraryWindowContainer: View {
             libraryName: name,
             locked: locked
         )
+        // Phase 4.2c-2: このウィンドウ宛ての resume 意図があれば消費し、最初の本一覧
+        // ロード成功後に対象本を開かせる（unlock 済みトークンがあれば庫内パス画面をスキップ）。
+        if let p = RemoteResumeIntent.shared.take(serverID: ref.serverID, libraryUUID: ref.libraryUUID) {
+            if let tk = p.libraryToken { state?.libraryToken = tk }
+            state?.pendingOpenBookID = (p.bookID, p.forceResume)
+        }
     }
 }

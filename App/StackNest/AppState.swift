@@ -270,6 +270,13 @@ final class AppState {
         // B22: セッションガードをリセットし、終了時バックアップ用に自身を登録する。
         self.didBackupThisSession = false
         Self.activeInstances.add(self)
+        // Phase 4.2c-2: ローカル resume 意図を 1 回だけ消費する。本ライブラリの bundlePath と
+        // 一致し、対象 bookID が存在すれば続き確認なしで内蔵ビューワを開く（resumeDirect）。
+        if let p = LocalResumeIntent.shared.pending, bundleURL.path == p.bundlePath,
+           let row = try? database?.fetchBook(id: p.bookID) {
+            LocalResumeIntent.shared.pending = nil
+            openBooks([row], resumeDirect: true)
+        }
     }
 
     /// B23: `.recover` による最終手段の修復。入力＝最新の壊れた本体（library.corrupt-* 優先、
@@ -714,17 +721,19 @@ final class AppState {
     /// useBuiltInViewer が true かつ先頭 book が内蔵表示可能なら内蔵ビューワを開く。
     /// それ以外（外部設定 / 動画 / 非対応 / 失敗）は従来の外部ビューワ起動にフォールバック。
     /// 複数選択時、内蔵ビューワは先頭 1 冊のみ開く（外部は各冊起動）。
-    func openBooks(_ books: [BookRow]) {
+    func openBooks(_ books: [BookRow], resumeDirect: Bool = false) {
         guard !books.isEmpty else { return }
         if viewerSettings.useBuiltInViewer, let first = books.first {
-            openInBuiltInViewer(first)
+            openInBuiltInViewer(first, resumeDirect: resumeDirect)
             return
         }
         openInExternalViewer(books)
     }
 
     /// 単一 book を内蔵ビューワで開く。BookContent 化に失敗したら外部にフォールバック。
-    private func openInBuiltInViewer(_ book: BookRow) {
+    private func openInBuiltInViewer(_ book: BookRow, resumeDirect: Bool = false) {
+        // Phase 4.2c-2: 「最後に開いた本」を記録する（ローカル）。
+        LastReadTracker.shared.record(.local(bundlePath: bundleURL.path, bookID: book.id, title: book.title))
         let content: BookContent
         do {
             content = try BookContentFactory.make(for: book)
@@ -787,7 +796,8 @@ final class AppState {
                 persistPageOverride: { [weak self] (b, page, mode) in
                     try? self?.database?.setPageOverride(bookID: b.id, page: page, mode: mode)
                 },
-                onClose: { [weak self] in self?.viewerController = nil }
+                onClose: { [weak self] in self?.viewerController = nil },
+                suppressResumeDialog: resumeDirect
             )
             // Phase 2.6b-2 D3: per-book page direction の永続化コールバックを設定する。
             // DB 書き込み後に displayedBooks を更新する。これにより "r" トグル後にページ遷移なしで
@@ -850,6 +860,10 @@ final class AppState {
 
     /// 選択 books を外部ビューワで起動（従来挙動）。
     private func openInExternalViewer(_ books: [BookRow]) {
+        // Phase 4.2c-2: 「最後に開いた本」を記録する（外部ビューワ経路は先頭の本を採用）。
+        if let book = books.first {
+            LastReadTracker.shared.record(.local(bundlePath: bundleURL.path, bookID: book.id, title: book.title))
+        }
         for book in books {
             if let err = HelperLauncher.open(book: book, settings: viewerSettings) {
                 self.error = err
