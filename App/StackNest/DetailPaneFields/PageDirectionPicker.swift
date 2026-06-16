@@ -18,6 +18,11 @@ struct PageDirectionPicker: View {
     let state: MixedValueState<PageDirection?>
     let onCommit: (PageDirection?) -> Void
 
+    /// 親が `.disabled(...)` で渡す有効/無効状態。有効時はアクティブな配色（灰にしない）、
+    /// 無効時のみ secondary（灰）にする。R/O リモートでも編集可（directionEditable=true）の
+    /// ときにグレーアウトして見えないようにするため（smoke H1）。
+    @Environment(\.isEnabled) private var isEnabled
+
     private struct Option {
         let value: PageDirection
         let icon: String
@@ -48,13 +53,13 @@ struct PageDirectionPicker: View {
         HStack(spacing: 4) {
             Text("ページ方向")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isEnabled ? .primary : .secondary)
             ForEach(Self.options.indices, id: \.self) { idx in
                 let opt = Self.options[idx]
                 let selected = effectiveDirection == opt.value
                 Button { onCommit(opt.value) } label: {
                     Image(systemName: opt.icon)
-                        .foregroundStyle(selected ? Color.accentColor : .secondary)
+                        .foregroundStyle(selected ? Color.accentColor : (isEnabled ? .primary : .secondary))
                         .font(.title3)
                         .frame(width: 24, height: 24)
                         .background(selected ? Color.accentColor.opacity(0.15) : .clear)
