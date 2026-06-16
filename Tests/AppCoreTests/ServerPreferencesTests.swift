@@ -9,19 +9,20 @@ struct ServerPreferencesTests {
         UserDefaults(suiteName: "test-\(UUID().uuidString)")!
     }
 
-    /// 未設定時はデフォルトポートを返す。
-    @Test func portDefaultsWhenUnset() {
+    /// 未設定時はランダムポートを生成して確定する（デフォルト8723廃止）。詳細は ServerPortTests。
+    @Test func portRandomizedWhenUnset() {
         let d = freshDefaults()
-        #expect(ServerPreferences.port(defaults: d) == ServerPreferences.defaultPort)
+        let p = ServerPreferences.port(defaults: d)
+        #expect((1024...65535).contains(p))
+        #expect(p != 8723)
     }
 
-    /// 範囲外の値はデフォルトに丸められる。
-    @Test func portFallsBackWhenOutOfRange() {
+    /// 範囲外の保存値はランダムポートに置き換わる（有効範囲内）。
+    @Test func portFallsBackToRandomWhenOutOfRange() {
         let d = freshDefaults()
-        ServerPreferences.setPort(0, defaults: d)
-        #expect(ServerPreferences.port(defaults: d) == ServerPreferences.defaultPort)
-        ServerPreferences.setPort(70000, defaults: d)
-        #expect(ServerPreferences.port(defaults: d) == ServerPreferences.defaultPort)
+        d.set(70000, forKey: ServerPreferences.portKey)
+        let p = ServerPreferences.port(defaults: d)
+        #expect((1024...65535).contains(p))
     }
 
     /// 有効範囲のポートはそのまま返る。
