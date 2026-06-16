@@ -140,11 +140,6 @@ struct OfflineLibraryView: View {
                         .tag(book.id)
                         .contentShape(Rectangle())
                         .onTapGesture(count: 2) { if !selectionMode { openOffline(book) } }
-                        // O3: .contextMenu が List(selection:) のネイティブ単一クリック選択を
-                        // 横取りするため（D1 と同根）、明示的な単一タップで選択する。
-                        .onTapGesture {
-                            if selectionMode { toggleSelected(book.id) } else { selectedID = book.id }
-                        }
                         .contextMenu {
                             if !selectionMode {
                                 Button("開く") { openOffline(book) }
@@ -159,6 +154,13 @@ struct OfflineLibraryView: View {
         .onKeyPress(.return) {
             if let book = selectedBook { openOffline(book); return .handled }
             return .ignored
+        }
+        // O3 改: 選択モードでは List のネイティブ選択を multiSelection トグルに変換する。
+        // 非選択モードでは selectedID がそのまま detail ペインを駆動する（不変）。
+        .onChange(of: selectedID) { _, id in
+            guard selectionMode, let id else { return }
+            toggleSelected(id)
+            selectedID = nil
         }
     }
 
@@ -262,6 +264,9 @@ struct OfflineLibraryView: View {
     private func openOffline(_ book: DownloadedBook, resumeDirect: Bool = false) {
         // Phase 4.2c-2: 「最後に開いた本」を記録する（オフライン・サーバ側 bookID を採用）。
         LastReadTracker.shared.record(.offline(bookID: book.detail.id, title: book.detail.title))
+        // Phase 4.2c-2 (B2): 開く瞬間に OfflineStore から最新の lastPage を読む。
+        // captured `book`（@State books 由来）は前回 read 後 reload 前だと古い lastPage を持つため。
+        let freshLastPage = store.all().first(where: { $0.id == book.id })?.lastPage ?? book.lastPage
         let fileURL = store.fileURL(for: book)
         let row = offlineBookRow(book, fileURL: fileURL)
         let content: BookContent
@@ -287,7 +292,7 @@ struct OfflineLibraryView: View {
             let initialState = ResolvedViewerState(
                 spreadEnabled: ViewerSettings.shared.spreadByDefault,
                 coverOffset: true,
-                lastPage: max(0, book.lastPage ?? 0),
+                lastPage: max(0, freshLastPage ?? 0),
                 overrides: [:]
             )
             let options = ViewerOptions(
@@ -321,7 +326,9 @@ struct OfflineLibraryView: View {
                 },
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
-                onClose: { self.viewer = nil },
+                // B2: close 時に reload して、保存された lastPage を次回 open に反映する
+                // （updateLastPage は .offlineStoreDidChange を post しないため）。
+                onClose: { self.viewer = nil; self.reload() },
                 suppressResumeDialog: resumeDirect
             )
             self.viewer = controller
