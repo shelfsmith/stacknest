@@ -192,9 +192,9 @@ final class RemoteLibraryState {
             }
             // Phase 4.2c-2: 最初の本一覧ロード成功後に resume 意図を 1 回だけ消費する。
             // self-clear するため再 reload では再発火しない。
-            if let pend = pendingOpenBookID, let dto = books.first(where: { $0.id == pend.id }) {
+            if let pend = pendingOpenBookID {
                 pendingOpenBookID = nil
-                openViewer(book: dto, resumeDirect: pend.resume)
+                await openBookByID(pend.id, resumeDirect: pend.resume)
             }
         } catch let e as RemoteClientError {
             errorText = Self.message(for: e)
@@ -481,6 +481,23 @@ final class RemoteLibraryState {
     }
 
     // MARK: - Viewer
+
+    /// 指定 bookID を開く。読み込み済み一覧に無ければ detail を取得して合成 DTO で開く（⌘⇧O resume 用）。
+    func openBookByID(_ id: Int, resumeDirect: Bool) async {
+        if let dto = books.first(where: { $0.id == id }) {
+            openViewer(book: dto, resumeDirect: resumeDirect)
+            return
+        }
+        guard let d = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: id, libraryToken: libraryToken) else {
+            errorText = "本を開けませんでした"
+            return
+        }
+        let dto = BookListItemDTO(
+            id: d.id, title: d.title, author: d.author, series: d.series, volume: d.volume,
+            rating: d.rating, unseen: d.unseen, bookType: d.bookType, pages: d.pages,
+            lastPage: d.lastPage, lastReadAt: nil, dateAdded: d.dateAdded, hasCover: false, coverVersion: nil)
+        openViewer(book: dto, resumeDirect: resumeDirect)
+    }
 
     /// リモート本を内蔵ビューワで開く。BookContent は RemoteBookContent。
     func openViewer(book: BookListItemDTO, resumeDirect: Bool = false) {

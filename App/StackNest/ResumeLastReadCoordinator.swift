@@ -31,13 +31,7 @@ enum ResumeLastReadCoordinator {
                 $0.serverID == serverID && $0.libraryUUID == libraryUUID
             }) {
                 openWindow(value: RemoteLibraryRef(serverID: serverID, libraryUUID: libraryUUID)) // フォーカス
-                if let dto = st.books.first(where: { $0.id == bookID }) {
-                    st.openViewer(book: dto, resumeDirect: true)
-                } else {
-                    // 読み込み済みページに無ければ pending にして再取得（best-effort）。
-                    st.pendingOpenBookID = (bookID, true)
-                    await st.reload()
-                }
+                await st.openBookByID(bookID, resumeDirect: true)
                 return
             }
             let store = ServerConnectionStore()

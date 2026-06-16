@@ -239,6 +239,8 @@ public struct BookDetailDTO: Codable, Sendable {
     public let bookType: Int
     public let fileType: Int
     public let pages: Int?
+    /// 閲覧進捗の最終ページ（viewer state 由来・⌘⇧O resume で続きから開くために使う）。未読は nil。
+    public let lastPage: Int?
     public let rating: Int
     public let unseen: Bool
     public let keywordA: String?
@@ -253,12 +255,14 @@ public struct BookDetailDTO: Codable, Sendable {
     public let pageDirection: String?
     public init(id: Int, title: String, author: String?, genre: String?, path: String?,
                 dateAdded: Date, playDate: Date?, bookType: Int, fileType: Int, pages: Int?,
+                lastPage: Int? = nil,
                 rating: Int, unseen: Bool, keywordA: String?, keywordB: String?, keywordC: String?,
                 neta: String?, memo: String?, series: String?, volume: Double?,
                 coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate; self.bookType = bookType
-        self.fileType = fileType; self.pages = pages; self.rating = rating; self.unseen = unseen
+        self.fileType = fileType; self.pages = pages; self.lastPage = lastPage
+        self.rating = rating; self.unseen = unseen
         self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC
         self.neta = neta; self.memo = memo; self.series = series; self.volume = volume
         self.coverImageName = coverImageName; self.coverCropRectJSON = coverCropRectJSON

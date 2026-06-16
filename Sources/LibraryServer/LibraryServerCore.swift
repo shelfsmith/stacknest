@@ -203,11 +203,12 @@ public struct LibraryServerCore: Sendable {
             return values
         }
         // BookRow → BookDetailDTO 変換ヘルパ（/detail と PATCH エンドポイントで共用）。
-        @Sendable func makeBookDetailDTO(from row: BookRow) -> BookDetailDTO {
+        @Sendable func makeBookDetailDTO(from row: BookRow, lastPage: Int? = nil) -> BookDetailDTO {
             BookDetailDTO(
                 id: row.id, title: row.title, author: row.author, genre: row.genre, path: nil,
                 dateAdded: row.dateAdded, playDate: row.playDate, bookType: row.bookType,
-                fileType: row.fileType, pages: row.pages, rating: row.rating, unseen: row.unseen,
+                fileType: row.fileType, pages: row.pages, lastPage: lastPage,
+                rating: row.rating, unseen: row.unseen,
                 keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC,
                 neta: row.neta, memo: row.memo, series: row.series, volume: row.volume,
                 coverImageName: row.coverImageName,
@@ -218,8 +219,9 @@ public struct LibraryServerCore: Sendable {
 
         // 書籍詳細（フル BookRow の全フィールドを BookDetailDTO として返す）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books/:id/detail") { request, context in
-            let (_, row) = try await resolver.resolveBook(request, context)
-            return makeBookDetailDTO(from: row)
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let lastPage = (try? lib.db.loadViewerState(bookID: row.id))?.lastPage
+            return makeBookDetailDTO(from: row, lastPage: lastPage)
         }
         // 書籍メタデータ更新（RW トークン専用・表紙フィールドは対象外）。
         // role=write でなければ 403、resolve で 404/401 を返す既存ルーティングを再利用。
