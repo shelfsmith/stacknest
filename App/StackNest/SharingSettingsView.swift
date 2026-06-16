@@ -69,6 +69,11 @@ struct SharingSettingsView: View {
             Text(server.startError?.message ?? "")
         }
         .frame(width: 600)
+        .background(SettingsWindowFixedSize(
+            tabBarPadding: 0,
+            tab: 0,
+            contentRevision: server.isRunning ? 1 : 0
+        ))
     }
 
     // MARK: - サーバセクション

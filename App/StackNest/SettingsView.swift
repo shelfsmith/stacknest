@@ -336,7 +336,7 @@ struct SettingsView: View {
 /// 持ち、タブ切替で updateNSView を再発火させ、window をアクティブタブの fitted 高さへ
 /// **grow / shrink 両方向** で snap する (最初のタブ高さに固定すると、より高いタブで clip し
 /// scrollbar が出る / より低いタブで余白が出る)。
-private struct SettingsWindowFixedSize: NSViewRepresentable {
+struct SettingsWindowFixedSize: NSViewRepresentable {
     private let fixedWidth: CGFloat = 600
     private let minHeight: CGFloat = 240
     /// documentView.frame.height に加える余裕。
