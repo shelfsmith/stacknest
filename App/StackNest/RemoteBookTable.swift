@@ -4,6 +4,19 @@ import SwiftUI
 import AppCore
 import LibraryServerAPI
 
+/// Return/Enter で選択本を開くための NSTableView サブクラス。
+final class RemoteKeyTableView: NSTableView {
+    var onReturnKey: (() -> Void)?
+    override func keyDown(with event: NSEvent) {
+        // 36 = Return, 76 = Enter(テンキー)
+        if event.keyCode == 36 || event.keyCode == 76 {
+            onReturnKey?()
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+}
+
 /// リモートのリスト表示。ローカル NSTableView と同じ列モデル（BookColumn/LibrarySettings）と
 /// セル描画（bookCellView）を使い、配線先を RemoteLibraryState にしたリモート専用版。
 struct RemoteBookTableViewRepresentable: NSViewRepresentable {
@@ -12,7 +25,7 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = NSScrollView()
-        let table = NSTableView()
+        let table = RemoteKeyTableView()
         table.allowsMultipleSelection = true
         table.allowsColumnResizing = true
         table.allowsColumnReordering = true
@@ -23,6 +36,9 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
         table.doubleAction = #selector(RemoteBookTableCoordinator.handleDoubleClick(_:))
         table.target = context.coordinator
         context.coordinator.tableView = table
+        table.onReturnKey = { [weak coordinator = context.coordinator] in
+            coordinator?.handleOpenSelected()
+        }
         context.coordinator.installColumns(in: table)
 
         let menu = NSMenu()
@@ -199,6 +215,14 @@ final class RemoteBookTableCoordinator: NSObject {
     @objc func handleDoubleClick(_ sender: Any?) {
         guard let table = tableView, table.clickedRow >= 0, table.clickedRow < state.books.count else { return }
         state.openViewer(book: state.books[table.clickedRow])
+    }
+
+    /// Return キー: 選択中の先頭の本をビューワで開く（リモートビューワは 1 ウィンドウ運用のため先頭のみ）。
+    @objc func handleOpenSelected() {
+        guard let table = tableView,
+              let idx = table.selectedRowIndexes.first,
+              idx < state.books.count else { return }
+        state.openViewer(book: state.books[idx])
     }
 
     @objc func boundsDidChange(_ notification: Notification) {
