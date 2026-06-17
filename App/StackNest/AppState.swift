@@ -790,7 +790,9 @@ final class AppState {
                     self?.resolveVolume(cur, direction: .prev)
                 },
                 persistState: { [weak self] (b, lastPage, spread, cover) in
-                    try? self?.database?.saveViewerState(
+                    guard let self else { return }
+                    LastReadTracker.shared.record(.local(bundlePath: self.bundleURL.path, bookID: b.id, title: b.title))
+                    try? self.database?.saveViewerState(
                         bookID: b.id, spreadEnabled: spread, coverOffset: cover, lastPage: lastPage)
                 },
                 persistPageOverride: { [weak self] (b, page, mode) in

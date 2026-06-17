@@ -17,6 +17,9 @@ struct OfflineLibraryView: View {
     @State private var multiSelection: Set<String> = []
     /// 内蔵ビューワを 1 ウィンドウだけ保持する（RemoteLibraryState.viewerController と同方針）。
     @State private var viewer: ViewerWindowController? = nil
+    /// Bug 3b: List に focus を当て、Return キーで選択中の本を開けるようにする
+    /// （.searchable が focus を保持していると onKeyPress(.return) が発火しない）。
+    @FocusState private var listFocused: Bool
 
     private let store = OfflineStore()
 
@@ -165,6 +168,10 @@ struct OfflineLibraryView: View {
             if let book = selectedBook { openOffline(book); return .handled }
             return .ignored
         }
+        // Bug 3b: List 自身に focus を当てて Return キーを受け取る（RemoteLibraryView と同方針）。
+        .focusable()
+        .focused($listFocused)
+        .task { listFocused = true }
     }
 
     private func row(_ book: DownloadedBook) -> some View {
@@ -325,6 +332,7 @@ struct OfflineLibraryView: View {
                 },
                 // 進捗を OfflineStore に永続化する（リモートサーバへの POST の代替）。
                 persistState: { b, lastPage, _, _ in
+                    LastReadTracker.shared.record(.offline(bookID: b.id, title: b.title))
                     store.updateLastPage(serverID: serverID, libraryUUID: libraryUUID, bookID: b.id, page: lastPage)
                 },
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。

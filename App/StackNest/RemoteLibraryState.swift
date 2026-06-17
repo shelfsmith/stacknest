@@ -570,6 +570,11 @@ final class RemoteLibraryState {
                 // 進捗をリモートサーバへ POST する（ローカル DB 書き込みの代替）。
                 persistState: { [weak self] (b, lastPage, _, _) in
                     guard let self else { return }
+                    // Phase 4.2c-2: 巻スワップ後も「最後に開いた本」を現在の巻に更新する（リモート）。
+                    LastReadTracker.shared.record(.remote(
+                        serverID: self.serverID, serverURL: self.client.baseURL.absoluteString,
+                        libraryUUID: self.libraryUUID, libraryName: self.libraryName,
+                        bookID: b.id, title: b.title, locked: self.locked))
                     Task {
                         try? await self.client.postProgress(
                             libraryUUID: self.libraryUUID, bookID: b.id,
@@ -578,8 +583,9 @@ final class RemoteLibraryState {
                     // v4 修正: メモリ上の一覧 DTO の lastPage も更新する。これをしないと
                     // 一覧を再取得するまで stale な lastPage で開いてしまい、リモートで
                     // 開き直すと毎回元のページに戻る（サーバには POST 済でも一覧側が古い）。
+                    // Phase 4.2c-2 (Bug 2): スワップした巻の unseen マーカーも消す。
                     if let i = self.books.firstIndex(where: { $0.id == b.id }) {
-                        self.books[i] = self.books[i].withLastPage(lastPage)
+                        self.books[i] = self.books[i].withLastPage(lastPage).withUnseen(false)
                     }
                 },
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
