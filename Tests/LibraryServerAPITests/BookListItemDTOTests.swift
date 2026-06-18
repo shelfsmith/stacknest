@@ -53,4 +53,17 @@ import Foundation
         #expect(s.genre == "G")
         #expect(s.id == 1)
     }
+
+    @Test func withLastReadAtReplaces() {
+        let dto = BookListItemDTO(
+            id: 1, title: "T", author: nil, series: nil, volume: nil,
+            rating: 0, unseen: false, bookType: 0, pages: nil, lastPage: nil,
+            lastReadAt: nil, dateAdded: Date(timeIntervalSince1970: 0), hasCover: false, coverVersion: nil,
+            genre: "G")
+        let d = Date(timeIntervalSince1970: 1000)
+        let s = dto.withLastReadAt(d)
+        #expect(s.lastReadAt == d)
+        #expect(s.genre == "G")
+        #expect(s.id == 1)
+    }
 }
