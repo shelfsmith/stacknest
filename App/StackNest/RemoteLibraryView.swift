@@ -116,7 +116,8 @@ struct RemoteLibraryView: View {
     private var browseView: some View {
         VStack(spacing: 0) {
             toolbar
-            if state.selectionMode {
+            // 4.2c-3: 2 件以上選択されたら一括アクションバーを出す（選択モードトグルは廃止）。
+            if state.multiSelection.count >= 2 {
                 selectionBar
                 Divider()
             }
@@ -183,7 +184,6 @@ struct RemoteLibraryView: View {
                 Label("選択をダウンロード", systemImage: "arrow.down.circle")
             }
             .disabled(state.multiSelection.isEmpty || state.batchProgress != nil)
-            Button("完了") { state.toggleSelectionMode() }
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
@@ -255,11 +255,6 @@ struct RemoteLibraryView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 90)
-
-            Button { state.toggleSelectionMode() } label: {
-                Image(systemName: state.selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
-            }
-            .help(state.selectionMode ? "選択モードを終了" : "複数選択")
         }
         .padding(8)
     }
@@ -379,15 +374,10 @@ struct RemoteLibraryView: View {
             LazyVGrid(columns: gridColumns, spacing: gridSpacing) {
                 ForEach(state.books, id: \.id) { book in
                     RemoteBookCell(book: book, state: state, selected: state.selection == book.id,
-                                   downloaded: downloadedBadge(book.id),
-                                   selectionMode: state.selectionMode,
-                                   checked: state.multiSelection.contains(book.id))
-                        .onTapGesture(count: 2) { if !state.selectionMode { state.openViewer(book: book) } }
-                        .onTapGesture {
-                            if state.selectionMode { state.toggleSelected(book.id) }
-                            else { Task { await state.selectBook(book.id) } }
-                        }
-                        .contextMenu { if !state.selectionMode { downloadMenu(book) } }
+                                   downloaded: downloadedBadge(book.id))
+                        .onTapGesture(count: 2) { state.openViewer(book: book) }
+                        .onTapGesture { Task { await state.selectBook(book.id) } }
+                        .contextMenu { downloadMenu(book) }
                         // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
                         .onAppear {
                             if state.scrollMode == .infinite, book.id == state.books.last?.id {
@@ -479,10 +469,6 @@ private struct RemoteBookCell: View {
     let selected: Bool
     /// Task 4: ダウンロード済みバッジ表示フラグ（親が downloadedVersion 参照込みで算出）。
     let downloaded: Bool
-    /// 4.2b-5: 複数選択モードフラグ。
-    let selectionMode: Bool
-    /// 4.2b-5: このセルが multiSelection に含まれているか。
-    let checked: Bool
 
     @State private var image: NSImage?
 
@@ -508,13 +494,6 @@ private struct RemoteBookCell: View {
                         .background(.thinMaterial, in: Circle())
                         .padding(4)
                         .help("オフライン保存済み")
-                }
-            }
-            .overlay(alignment: .topLeading) {
-                if selectionMode {
-                    Image(systemName: checked ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(checked ? Color.accentColor : .secondary)
-                        .padding(4).background(.thinMaterial, in: Circle()).padding(4)
                 }
             }
             .overlay(

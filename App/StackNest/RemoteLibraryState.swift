@@ -287,8 +287,7 @@ final class RemoteLibraryState {
         }
     }
 
-    // MARK: - Multi-select (4.2b-5)
-    var selectionMode = false
+    // MARK: - Multi-select (4.2b-5 → 4.2c-3: native ⌘/Shift multi-select)
     var multiSelection: Set<Int> = []
     /// 一括 DL の進捗（done, total）。実行中のみ非 nil。
     var batchProgress: (done: Int, total: Int)? = nil
@@ -309,13 +308,6 @@ final class RemoteLibraryState {
         }
     }
 
-    func toggleSelectionMode() {
-        selectionMode.toggle()
-        if !selectionMode { multiSelection.removeAll() }
-    }
-    func toggleSelected(_ id: Int) {
-        if multiSelection.contains(id) { multiSelection.remove(id) } else { multiSelection.insert(id) }
-    }
     func selectAllVisible() { multiSelection = Set(books.map { $0.id }) }
     func clearSelection() { multiSelection.removeAll() }
 

@@ -204,8 +204,11 @@ final class RemoteBookTableCoordinator: NSObject {
             }
         }
         isInstallingColumns = false
-        let ids: Set<Int> = state.selectionMode ? state.multiSelection
-            : (state.selection.map { [$0] } ?? [])
+        // 4.2c-3: native ⌘/Shift 複数選択。multiSelection を正とし、無ければ
+        // 単一選択（state.selection）にフォールバックして行を選択し直す。
+        let ids: Set<Int> = state.multiSelection.isEmpty
+            ? (state.selection.map { [$0] } ?? [])
+            : state.multiSelection
         var indices: [Int] = []
         for (i, b) in state.books.enumerated() where ids.contains(b.id) { indices.append(i) }
         let set = IndexSet(indices)
@@ -288,9 +291,11 @@ extension RemoteBookTableCoordinator: NSTableViewDelegate {
         guard !isSyncingSelection else { return }   // プログラム的変更は無視（ユーザー操作のみ反映）
         guard let table = tableView else { return }
         let sel = table.selectedRowIndexes
-        if state.selectionMode {
-            state.multiSelection = Set(sel.compactMap { $0 < state.books.count ? state.books[$0].id : nil })
-        } else if let first = sel.first, first < state.books.count {
+        // 4.2c-3: native ⌘/Shift 複数選択。選択された行集合をそのまま multiSelection に反映する。
+        let ids = Set(sel.compactMap { $0 < state.books.count ? state.books[$0].id : nil })
+        state.multiSelection = ids
+        // 単一選択時のみ詳細ペインを更新する（複数選択中は詳細を切り替えない）。
+        if ids.count == 1, let first = sel.first, first < state.books.count {
             let id = state.books[first].id
             if state.selection != id { Task { await state.selectBook(id) } }
         }
