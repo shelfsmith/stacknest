@@ -585,7 +585,7 @@ final class RemoteLibraryState {
                     // 開き直すと毎回元のページに戻る（サーバには POST 済でも一覧側が古い）。
                     // Phase 4.2c-2 (Bug 2): スワップした巻の unseen マーカーも消す。
                     if let i = self.books.firstIndex(where: { $0.id == b.id }) {
-                        self.books[i] = self.books[i].withLastPage(lastPage).withUnseen(false)
+                        self.books[i] = self.books[i].withLastPage(lastPage).withUnseen(false).withLastReadAt(Date())
                     }
                 },
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
