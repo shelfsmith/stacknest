@@ -52,7 +52,7 @@ struct LibrarySettingsSheet: View {
     @State var stagedFieldLabels: [String: String] = [:]
     @State var stagedBookTypeLabels: [String: String] = [:]
 
-    /// 現在表示中の設定タブ (0=フォーマット / 1=ラベル / 2=ロック / 3=メタデータ)。
+    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 2=ラベル / 3=ロック)。
     @State private var settingsTab = 0
 
     var body: some View {
@@ -64,21 +64,18 @@ struct LibrarySettingsSheet: View {
                 .padding(.bottom, 8)
 
             TabView(selection: $settingsTab) {
+                ScrollView { generalSection().padding(16) }
+                    .tabItem { Label("一般", systemImage: "gearshape") }
+                    .tag(0)
                 ScrollView { formatSection().padding(16) }
                     .tabItem { Label("フォーマット", systemImage: "textformat") }
-                    .tag(0)
+                    .tag(1)
                 ScrollView { labelSection().padding(16) }
                     .tabItem { Label("ラベル", systemImage: "tag") }
-                    .tag(1)
+                    .tag(2)
                 ScrollView { lockSection().padding(16) }
                     .tabItem { Label("ロック", systemImage: "lock") }
-                    .tag(2)
-                ScrollView { metadataSection().padding(16) }
-                    .tabItem { Label("メタデータ", systemImage: "wand.and.stars") }
                     .tag(3)
-                ScrollView { backupSection().padding(16) }
-                    .tabItem { Label("バックアップ", systemImage: "externaldrive.badge.timemachine") }
-                    .tag(4)
             }
             .padding(.horizontal, 12)
 
@@ -226,6 +223,26 @@ struct LibrarySettingsSheet: View {
             }
             .padding(8)
         }
+    }
+
+    // MARK: - Phase 4.2c-3: 一般セクション（ライブラリ名 + メタデータ + バックアップ）
+
+    @ViewBuilder
+    private func generalSection() -> some View {
+        GroupBox("一般") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("ライブラリ名").frame(width: 120, alignment: .leading)
+                    TextField("未指定の場合「\(bundleName)」", text: $settings.displayName)
+                        .textFieldStyle(.roundedBorder)
+                }
+                Text("ブラウザのタイトルやリモート配信名に使われます。空欄でファイル名「\(bundleName)」。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(8)
+        }
+        metadataSection()
+        backupSection()
     }
 
     // MARK: - Phase 2.5c Task 14: メタデータ遡及セクション
