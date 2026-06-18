@@ -36,7 +36,7 @@ struct OfflineLibraryView: View {
                     .frame(width: 240)
             }
             .frame(minWidth: 760, minHeight: 480)
-            .navigationTitle("オフラインビューア")
+            .navigationTitle("StackNest Remote Offline")
             .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
             .toolbar {
                 // 4.2c-3 (D4): 一括バーを廃し、選択削除はツールバーの削除ボタンに統一。

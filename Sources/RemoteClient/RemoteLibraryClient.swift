@@ -164,8 +164,12 @@ public struct RemoteLibraryClient: Sendable {
     }
 
     /// 進捗通知つき本ファイル取得。onProgress は 0...1（総量不明時は最後に 1.0 のみ）。
+    /// shouldCancel: 非 nil の場合、受信中に true を返すと即座に CancellationError で中断する
+    /// （ダウンロードの即時キャンセル用。バイトストリームは MainActor 外で回るため、呼び出し側は
+    /// スレッド安全なトークンを渡すこと。Task.isCancelled には依存しない）。
     public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?,
-                         onProgress: (@Sendable (Double) -> Void)?) async throws -> Data {
+                         onProgress: (@Sendable (Double) -> Void)?,
+                         shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> Data {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
         let req = request(url, libraryToken: libraryToken)
         let (bytes, response) = try await session.bytes(for: req)
@@ -189,8 +193,12 @@ public struct RemoteLibraryClient: Sendable {
         for try await byte in bytes {
             data.append(byte)
             received += 1
-            if received % 65536 == 0, let f = Self.downloadFraction(received: received, total: total) {
-                onProgress?(f)
+            if received % 65536 == 0 {
+                // 即時キャンセル: トークンが立っていれば受信を打ち切る（in-flight 中断）。
+                if shouldCancel?() == true { throw CancellationError() }
+                if let f = Self.downloadFraction(received: received, total: total) {
+                    onProgress?(f)
+                }
             }
         }
         onProgress?(1.0)

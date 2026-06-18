@@ -273,7 +273,8 @@ final class RemoteLibraryState {
     var downloadProgress: (bookID: Int, fraction: Double)? = nil
 
     /// 本の detail + ファイル本体 + 表紙を取得し OfflineStore に保存する。
-    func downloadBook(_ item: BookListItemDTO) async {
+    /// cancelToken: 一括 DL の即時キャンセル用（×ボタン）。受信中に立つと CancellationError で中断。
+    func downloadBook(_ item: BookListItemDTO, cancelToken: CancelFlag? = nil) async {
         downloadProgress = (item.id, 0)
         defer { downloadProgress = nil }
         do {
@@ -282,7 +283,8 @@ final class RemoteLibraryState {
                 libraryUUID: libraryUUID, bookID: item.id, libraryToken: libraryToken,
                 onProgress: { [weak self] f in
                     Task { @MainActor in self?.downloadProgress = (item.id, f) }
-                })
+                },
+                shouldCancel: { cancelToken?.isCancelled ?? false })
             let coverData = try? await client.coverData(libraryUUID: libraryUUID, bookID: item.id, maxw: 600, libraryToken: libraryToken)
             let ext = offlineFileExtension(for: fileData)
             try offlineStore.save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
@@ -290,8 +292,8 @@ final class RemoteLibraryState {
             downloadedVersion &+= 1   // UI バッジ再評価のトリガ
             errorText = nil
         } catch {
-            // 4.2c-3 (D2a v2): ×ボタンによる中断はエラー扱いしない（要約に「中断」を出す）。
-            if Task.isCancelled || error is CancellationError { return }
+            // 4.2c-3 (D2a): ×ボタンによる中断はエラー扱いしない（要約に「中断」を出す）。
+            if (cancelToken?.isCancelled ?? false) || error is CancellationError || Task.isCancelled { return }
             switch error as? RemoteClientError {
             case .offline: errorText = "ダウンロードできません（サーバに接続できません）"
             case .timeout: errorText = "ダウンロードがタイムアウトしました"
@@ -309,8 +311,18 @@ final class RemoteLibraryState {
     /// errorText に出すと赤バナーが残り続けるため専用の自動消滅フィールドにする）。
     var batchSummary: String? = nil
     private var batchSummaryToken = 0
-    /// 4.2c-3 (D2a v2): 一括 DL の Task ハンドル。×ボタンが cancel() し、実行中の bookFile の
-    /// バイトストリーム（for try await）も即座に中断される。
+    /// 4.2c-3 (D2a v3): スレッド安全なキャンセルトークン。bookFile のバイトループは MainActor 外で
+    /// 回るため、Task.isCancelled には依存せず（v4 で不伝播のデグレ）、ロック付きフラグで
+    /// ループ制御と in-flight 受信打ち切りの両方を確実に行う。
+    final class CancelFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+        func cancel() { lock.lock(); value = true; lock.unlock() }
+        var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return value }
+    }
+    /// 実行中の一括 DL のキャンセルトークン（×ボタンが立てる）。
+    private var batchCancel: CancelFlag?
+    /// 一括 DL の Task ハンドル（ボタンから async を起動するため保持。cancel は補助）。
     private var batchTask: Task<Void, Never>?
 
     /// 要約をセットし、4 秒後に自動でクリアする（最新の要約のみ残す）。
@@ -338,14 +350,15 @@ final class RemoteLibraryState {
             return
         }
         errorText = nil   // 直前のエラーバナーをクリア（バッチ中の per-book 失敗は要約に集約）
+        let token = batchCancel
         var ok = 0, fail = 0, cancelled = false
         batchProgress = (0, pending.count)
         for (i, id) in pending.enumerated() {
-            if Task.isCancelled { cancelled = true; break }   // D2a: ×ボタン（反復前の中断）
+            if token?.isCancelled == true { cancelled = true; break }   // D2a: ×ボタン（反復前の中断）
             guard let item = books.first(where: { $0.id == id }) else { fail += 1; continue }
             let before = downloadedVersion
-            await downloadBook(item)
-            if Task.isCancelled { cancelled = true; break }   // D2a: in-flight をキャンセルした場合
+            await downloadBook(item, cancelToken: token)
+            if token?.isCancelled == true { cancelled = true; break }   // D2a: in-flight をキャンセルした場合
             if downloadedVersion != before { ok += 1 } else { fail += 1 }
             batchProgress = (i + 1, pending.count)
         }
@@ -360,14 +373,20 @@ final class RemoteLibraryState {
         downloadedVersion &+= 1
     }
 
-    /// 4.2c-3 (D2a v2): 一括 DL を開始する（Task を保持して×ボタンで cancel 可能にする）。
+    /// 4.2c-3 (D2a v3): 一括 DL を開始する。新しいキャンセルトークンを作り Task で走らせる。
     func startBatchDownload() {
+        batchCancel?.cancel()
         batchTask?.cancel()
+        batchCancel = CancelFlag()
         batchTask = Task { [weak self] in await self?.downloadSelected() }
     }
 
-    /// 4.2c-3 (D2a v2): 実行中の一括 DL を即時中断する。bookFile のバイトストリームも中断される。
-    func cancelBatchDownload() { batchTask?.cancel() }
+    /// 4.2c-3 (D2a v3): 実行中の一括 DL を即時中断する。トークンを同期で立て、bookFile の
+    /// バイト受信ループが次の確認点（~64KB ごと）で打ち切る。Task.cancel は補助。
+    func cancelBatchDownload() {
+        batchCancel?.cancel()
+        batchTask?.cancel()
+    }
 
     /// オフライン保存を削除する。
     func removeDownload(_ bookID: Int) {

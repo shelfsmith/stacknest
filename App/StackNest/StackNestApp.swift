@@ -136,8 +136,8 @@ struct StackNestApp: App {
 
         // Phase 4.2b-2 Task 5: オフラインビューア（ダウンロード済み）ウィンドウ。
         // File メニュー / Title から openWindow(id:"offline")。サーバ接続なしで動作する。
-        // 4.2c-3 (A5-2): タイトルを「オフラインビューア」に統一。
-        Window("オフラインビューア", id: "offline") {
+        // 4.2c-3 (A5-2 / v4 自由記載): ウィンドウタイトルは「StackNest Remote Offline」に統一。
+        Window("StackNest Remote Offline", id: "offline") {
             OfflineLibraryView()
         }
         .windowResizability(.contentMinSize)
