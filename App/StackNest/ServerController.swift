@@ -131,7 +131,7 @@ struct AppStateLibraryDataSource: LibraryServerDataSource {
                 let uuid = settings.ensureLibraryUUID()
                 return ServedLibrary(
                     uuid: uuid,
-                    name: state.bundleURL.deletingPathExtension().lastPathComponent,
+                    name: settings.resolvedName(fallback: state.bundleURL.deletingPathExtension().lastPathComponent),
                     bundleURL: state.bundleURL,
                     db: db,
                     isLocked: settings.lockPasswordHash != nil
