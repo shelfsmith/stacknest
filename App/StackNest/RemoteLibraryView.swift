@@ -41,7 +41,12 @@ struct RemoteLibraryView: View {
             }
         }
         .navigationTitle(state.libraryName)
-        .navigationSubtitle("リモート")
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("StackNest Remote – \(state.libraryName)")
+                    .font(.title3.weight(.semibold))
+            }
+        }
     }
 
     // MARK: - Split layout (Task 6)

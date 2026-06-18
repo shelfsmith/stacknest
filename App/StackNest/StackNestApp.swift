@@ -510,8 +510,13 @@ struct LibraryWindowContainer: View {
                 )
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)
             }
-            .navigationTitle("StackNest")
-            .navigationSubtitle(librarySubtitle)
+            .navigationTitle(libraryDisplayName)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("StackNest – \(libraryDisplayName)")
+                        .font(.title3.weight(.semibold))
+                }
+            }
             .frame(minWidth: 1024, minHeight: 600)
             .environment(appState)
             .focusedSceneValue(\.appState, appState)
@@ -524,9 +529,12 @@ struct LibraryWindowContainer: View {
         }
     }
 
-    /// 4.2b-1b-1: ウィンドウタイトルバーのサブタイトル用。bundleURL が nil のときは空文字。
-    private var librarySubtitle: String {
-        bundleURL?.deletingPathExtension().lastPathComponent ?? ""
+    /// 4.2c-3: ブラウザツールバー principal の大見出し用ライブラリ表示名。
+    /// カスタム表示名（LibrarySettings.resolvedName）が設定されていればそれを、
+    /// 未設定ならバンドル名（拡張子を除いたファイル名）を返す。
+    private var libraryDisplayName: String {
+        let fallback = bundleURL?.deletingPathExtension().lastPathComponent ?? ""
+        return appState?.librarySettings?.resolvedName(fallback: fallback) ?? fallback
     }
 
     private func openBundleIfNeeded() async {
