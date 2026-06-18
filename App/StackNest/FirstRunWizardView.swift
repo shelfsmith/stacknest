@@ -17,6 +17,7 @@ struct FirstRunWizardView: View {
     @State private var flow = FirstRunWizardFlow()
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var libraryName = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -123,8 +124,13 @@ struct FirstRunWizardView: View {
             Text("新しく作成するか、既存のライブラリを開きます。")
                 .foregroundStyle(.secondary)
             VStack(spacing: 12) {
+                TextField("ライブラリ名（任意）", text: $libraryName)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 280)
                 Button {
-                    LibraryActions.createNew(onOpen: { completeAndOpen($0) }, onError: { presentError($0, $1) })
+                    let trimmed = libraryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let fileName = (trimmed.isEmpty ? "Untitled" : trimmed) + ".stacknest"
+                    LibraryActions.createNew(defaultName: fileName, onOpen: { completeAndOpen($0) }, onError: { presentError($0, $1) })
                 } label: {
                     Label("新しいライブラリを作成", systemImage: "plus.circle").frame(maxWidth: .infinity)
                 }

@@ -12,10 +12,11 @@ import UniformTypeIdentifiers
 @MainActor
 enum LibraryActions {
     static func createNew(
+        defaultName: String = "Untitled.stacknest",
         onOpen: @escaping (URL) -> Void,
         onError: @escaping (Error?, String) -> Void
     ) {
-        Self.runSavePanelStandalone(defaultName: "Untitled.stacknest") { bundleURL in
+        Self.runSavePanelStandalone(defaultName: defaultName) { bundleURL in
             Task {
                 do {
                     let finalURL = bundleURL.pathExtension == "stacknest"
