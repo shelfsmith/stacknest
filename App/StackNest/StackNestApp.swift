@@ -68,8 +68,8 @@ struct StackNestApp: App {
         }
         .commands {
             FileCommands(openWindow: openWindow)
-            ShareCommands(openWindow: openWindow)
             WindowCommands()
+            ShareCommands(openWindow: openWindow)
             // macOS Sonoma+ の Settings scene は system-managed window で SwiftUI の
             // .windowResizability や .frame が一部しか効かない。横幅固定 + 縦のみ resize
             // をきちんと制御するために自前 Window scene 化し、⌘, は .appSettings の
