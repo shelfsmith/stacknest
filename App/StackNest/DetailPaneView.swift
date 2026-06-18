@@ -503,7 +503,7 @@ struct DetailPaneView: View {
             CoverImageView(book: book, loader: loader, coverImage: coverImage)
                 .frame(maxWidth: 240, maxHeight: 340)
                 .contextMenu {
-                    Button("表紙を選択…") {
+                    Button("表紙を編集") {
                         showCoverPicker = true
                     }
                     .disabled(!isSingleSelection || !canEdit)

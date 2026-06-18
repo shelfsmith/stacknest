@@ -121,7 +121,7 @@ struct CoverPickerSheet: View {
     /// 既存ユーザ (crop 不使用) には UI を圧迫しないよう default は collapsed。
     @ViewBuilder
     private var cropEditorSection: some View {
-        DisclosureGroup("crop 矩形を指定 (横長カバー対応)", isExpanded: $showCropEditor) {
+        DisclosureGroup(isExpanded: $showCropEditor) {
             if let preview = previewImage {
                 VStack(spacing: 8) {
                     CoverCropPicker(image: preview, normalizedRect: $cropRect)
@@ -163,6 +163,8 @@ struct CoverPickerSheet: View {
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 12)
             }
+        } label: {
+            Text("切り取り").font(.title2.bold())
         }
     }
 
