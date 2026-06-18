@@ -11,9 +11,8 @@ import SwiftUI
 struct OfflineLibraryView: View {
     @State private var books: [DownloadedBook] = []
     @State private var query = ""
-    @State private var selectedID: String? = nil
     @State private var errorText: String? = nil
-    @State private var selectionMode = false
+    /// ネイティブ List(selection:) による複数選択（⌘/Shift）。単一選択でも詳細ペインを駆動する。
     @State private var multiSelection: Set<String> = []
     /// 内蔵ビューワを 1 ウィンドウだけ保持する（RemoteLibraryState.viewerController と同方針）。
     @State private var viewer: ViewerWindowController? = nil
@@ -39,18 +38,6 @@ struct OfflineLibraryView: View {
             .frame(minWidth: 760, minHeight: 480)
             .navigationTitle("オフライン")
             .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
-            // 自由記載①修正: 選択トグルはツールバーに置く（listColumn 内の浮いた行を廃止）。
-            // DL 済が無いときは選択対象が無いので出さない（空状態の浮き解消）。
-            .toolbar {
-                if !books.isEmpty {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button { toggleSelectionMode() } label: {
-                            Image(systemName: selectionMode ? "checkmark.circle.fill" : "checkmark.circle")
-                        }
-                        .help(selectionMode ? "選択モードを終了" : "複数選択")
-                    }
-                }
-            }
         }
         .task { reload() }
         // O2: 別ウィンドウ（リモートブラウズ）で DL/削除されたら即座に反映する。
@@ -95,7 +82,8 @@ struct OfflineLibraryView: View {
 
     private var listColumn: some View {
         VStack(spacing: 0) {
-            if selectionMode {
+            // 2 件以上選択されたときだけ一括操作バーを出す（単一選択は詳細ペインで扱う）。
+            if multiSelection.count >= 2 {
                 selectionBar
                 Divider()
             }
@@ -128,44 +116,33 @@ struct OfflineLibraryView: View {
                 Label("選択を削除", systemImage: "trash")
             }
             .disabled(multiSelection.isEmpty)
-            Button("完了") { toggleSelectionMode() }
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
     }
 
     private var listView: some View {
-        List(selection: $selectedID) {
+        // ネイティブ複数選択: Set バインディングにより ⌘/Shift クリックで複数選択できる。
+        // 単一クリックは List のネイティブ選択が処理する（明示の onTapGesture は置かない）。
+        List(selection: $multiSelection) {
             ForEach(groups, id: \.library) { group in
                 Section(group.library) {
                     ForEach(group.books) { book in
-                        HStack(spacing: 8) {
-                            if selectionMode {
-                                Image(systemName: multiSelection.contains(book.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(multiSelection.contains(book.id) ? Color.accentColor : .secondary)
-                            }
-                            row(book)
-                        }
-                        .tag(book.id)
-                        .contentShape(Rectangle())
-                        .onTapGesture(count: 2) { if !selectionMode { openOffline(book) } }
-                        // O3: .contextMenu が List(selection:) のネイティブ単一クリック選択を
-                        // 横取りするため、明示的な単一タップで選択する（これが無いとクリック選択が効かない）。
-                        .onTapGesture {
-                            if selectionMode { toggleSelected(book.id) } else { selectedID = book.id }
-                        }
-                        .contextMenu {
-                            if !selectionMode {
+                        row(book)
+                            .tag(book.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture(count: 2) { openOffline(book) }
+                            .contextMenu {
                                 Button("開く") { openOffline(book) }
                                 Divider()
                                 Button("削除", role: .destructive) { delete(book) }
                             }
-                        }
                     }
                 }
             }
         }
         .onKeyPress(.return) {
-            if let book = selectedBook { openOffline(book); return .handled }
+            // 単一選択のときだけ開く（複数選択時は Return を無視）。
+            if multiSelection.count == 1, let book = selectedBook { openOffline(book); return .handled }
             return .ignored
         }
         // Bug 3b: List 自身に focus を当てて Return キーを受け取る（RemoteLibraryView と同方針）。
@@ -236,8 +213,9 @@ struct OfflineLibraryView: View {
 
     // MARK: - Detail pane
 
+    /// 詳細ペイン用: 単一選択のときのみ本を返す（複数選択時は nil）。
     private var selectedBook: DownloadedBook? {
-        books.first { $0.id == selectedID }
+        multiSelection.count == 1 ? books.first { multiSelection.contains($0.id) } : nil
     }
 
     private func selectedRows() -> [BookRow] {
@@ -351,15 +329,6 @@ struct OfflineLibraryView: View {
 
     // MARK: - Multi-select state helpers
 
-    private func toggleSelectionMode() {
-        selectionMode.toggle()
-        if !selectionMode { multiSelection.removeAll() }
-    }
-
-    private func toggleSelected(_ id: String) {
-        if multiSelection.contains(id) { multiSelection.remove(id) } else { multiSelection.insert(id) }
-    }
-
     private func selectAllVisible() { multiSelection = Set(filtered.map { $0.id }) }
 
     private func clearSelection() { multiSelection.removeAll() }
@@ -368,14 +337,13 @@ struct OfflineLibraryView: View {
         let targets = books.filter { multiSelection.contains($0.id) }
         store.removeBooks(targets)
         multiSelection.removeAll()
-        selectionMode = false
         reload()
     }
 
     /// オフライン保存を削除して一覧を更新する。
     private func delete(_ book: DownloadedBook) {
         store.remove(serverID: book.serverID, libraryUUID: book.libraryUUID, bookID: book.bookID)
-        if selectedID == book.id { selectedID = nil }
+        multiSelection.remove(book.id)
         reload()
     }
 
