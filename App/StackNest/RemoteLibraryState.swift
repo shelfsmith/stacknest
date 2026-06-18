@@ -324,6 +324,8 @@ final class RemoteLibraryState {
     private var batchCancel: CancelFlag?
     /// 一括 DL の Task ハンドル（ボタンから async を起動するため保持。cancel は補助）。
     private var batchTask: Task<Void, Never>?
+    /// 検証用ログ（Console.app で subsystem=app.shelfsmith.stacknest category=BatchDL）。
+    private static let dlLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "BatchDL")
 
     /// 要約をセットし、4 秒後に自動でクリアする（最新の要約のみ残す）。
     private func showBatchSummary(_ text: String) {
@@ -353,9 +355,11 @@ final class RemoteLibraryState {
         let token = batchCancel
         var ok = 0, fail = 0, cancelled = false
         batchProgress = (0, pending.count)
+        Self.dlLog.info("batch start: \(pending.count) items")
         for (i, id) in pending.enumerated() {
             if token?.isCancelled == true { cancelled = true; break }   // D2a: ×ボタン（反復前の中断）
             guard let item = books.first(where: { $0.id == id }) else { fail += 1; continue }
+            Self.dlLog.info("iter \(i) bookID=\(id) cancelled=\(token?.isCancelled == true)")
             let before = downloadedVersion
             await downloadBook(item, cancelToken: token)
             if token?.isCancelled == true { cancelled = true; break }   // D2a: in-flight をキャンセルした場合
@@ -384,6 +388,7 @@ final class RemoteLibraryState {
     /// 4.2c-3 (D2a v3): 実行中の一括 DL を即時中断する。トークンを同期で立て、bookFile の
     /// バイト受信ループが次の確認点（~64KB ごと）で打ち切る。Task.cancel は補助。
     func cancelBatchDownload() {
+        Self.dlLog.info("✗ cancelBatchDownload tapped (token=\(self.batchCancel != nil))")
         batchCancel?.cancel()
         batchTask?.cancel()
     }

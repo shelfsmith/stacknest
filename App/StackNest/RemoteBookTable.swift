@@ -188,7 +188,16 @@ final class RemoteBookTableCoordinator: NSObject {
         let pk = state.downloadProgress.map { "\($0.bookID):\(Int($0.fraction * 20))" } ?? ""
         if pk != lastProgressKey {
             lastProgressKey = pk
-            table.reloadData()
+            // v5 NG 根因修正: 進捗更新（5%刻み≒20回/件）ごとに全行 reloadData すると、
+            // 5,000 件規模＋複数選択の再選択処理で MainActor が飽和し、×（中断）ボタンの
+            // クリックが処理されなくなる。対象行の DL 列セルだけを部分再描画して負荷を激減させる。
+            if let prog = state.downloadProgress,
+               let row = state.books.firstIndex(where: { $0.id == prog.bookID }),
+               let colIdx = table.tableColumns.firstIndex(where: {
+                   $0.identifier.rawValue == Self.downloadColumnID }) {
+                table.reloadData(forRowIndexes: IndexSet(integer: row),
+                                 columnIndexes: IndexSet(integer: colIdx))
+            }
         }
         let current: [BookColumn] = table.tableColumns.compactMap { BookColumn(rawValue: $0.identifier.rawValue) }
         if current != visibleColumns { installColumns(in: table) }
