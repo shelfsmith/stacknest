@@ -16,4 +16,7 @@ struct NextVolume {
     let content: BookContent
     let book: BookRow
     let state: ResolvedViewerState
+    /// 4.2c-3: 巻ごとのソース識別ラベル（"オフライン"/"リモート"）。nil の場合は現在のバッジを維持する
+    /// （ローカルビューア=バッジなし、オフラインビューア=常に「オフライン」のため未指定で良い）。
+    var sourceLabel: String? = nil
 }

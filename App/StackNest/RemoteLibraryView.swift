@@ -49,6 +49,11 @@ struct RemoteLibraryView: View {
         // ネットワーク再取得を避ける）。× クリアで query="" → onChange → 全件再読込。
         .searchable(text: $state.query, placement: .toolbar, prompt: "検索")
         .onChange(of: state.query) { _, _ in state.scheduleSearchReload() }
+        // 4.2c-3 (Issue 4): 別ウィンドウ（オフラインビューア等）で DL/削除されたら、リモート一覧の
+        // DL バッジを即時再評価する。downloadedVersion を bump → updateNSView 再走 → DL 列再描画。
+        .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in
+            state.downloadedVersion &+= 1
+        }
     }
 
     // MARK: - Split layout (Task 6)
@@ -202,8 +207,13 @@ struct RemoteLibraryView: View {
             // 4.2c-3 (D2): バッチバーを廃し、選択ダウンロードはツールバーの常設ボタンに統一。
             // 選択 0 件でグレーアウト、1 件以上で有効。DL 中は×（中断）ボタンに変わる（D2a）。
             if let p = state.batchProgress {
-                ProgressView(value: Double(p.done), total: Double(max(1, p.total))).frame(width: 80)
-                Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
+                // D2b: 進捗バーは「完了件数 + 進行中ファイルのバイト割合」で滑らかに動かす。
+                // ラベルは進行中の項目番号（1始まり。0/1 ではなく 1/1）を表示する。
+                let frac = state.downloadProgress?.fraction ?? 0
+                let value = (Double(p.done) + frac) / Double(max(1, p.total))
+                let current = min(p.done + 1, p.total)
+                ProgressView(value: min(1, max(0, value))).frame(width: 80)
+                Text("\(current)/\(p.total)").font(.caption).foregroundStyle(.secondary)
                 Button { state.cancelBatchDownload() } label: {
                     Image(systemName: "xmark.circle")
                 }
@@ -212,7 +222,7 @@ struct RemoteLibraryView: View {
                 if let summary = state.batchSummary {
                     Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
                 }
-                Button { Task { await state.downloadSelected() } } label: {
+                Button { state.startBatchDownload() } label: {
                     Image(systemName: "arrow.down.circle")
                 }
                 .help("選択した書籍をダウンロード")

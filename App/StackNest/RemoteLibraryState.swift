@@ -290,6 +290,8 @@ final class RemoteLibraryState {
             downloadedVersion &+= 1   // UI バッジ再評価のトリガ
             errorText = nil
         } catch {
+            // 4.2c-3 (D2a v2): ×ボタンによる中断はエラー扱いしない（要約に「中断」を出す）。
+            if Task.isCancelled || error is CancellationError { return }
             switch error as? RemoteClientError {
             case .offline: errorText = "ダウンロードできません（サーバに接続できません）"
             case .timeout: errorText = "ダウンロードがタイムアウトしました"
@@ -307,9 +309,9 @@ final class RemoteLibraryState {
     /// errorText に出すと赤バナーが残り続けるため専用の自動消滅フィールドにする）。
     var batchSummary: String? = nil
     private var batchSummaryToken = 0
-    /// 4.2c-3 (D2a): 一括 DL の中断要求フラグ。ツールバーの×ボタンが立て、各反復頭で確認する。
-    /// 実行中の 1 件は完了するが、以降はスキップして中断する。
-    private var cancelBatchRequested = false
+    /// 4.2c-3 (D2a v2): 一括 DL の Task ハンドル。×ボタンが cancel() し、実行中の bookFile の
+    /// バイトストリーム（for try await）も即座に中断される。
+    private var batchTask: Task<Void, Never>?
 
     /// 要約をセットし、4 秒後に自動でクリアする（最新の要約のみ残す）。
     private func showBatchSummary(_ text: String) {
@@ -336,19 +338,18 @@ final class RemoteLibraryState {
             return
         }
         errorText = nil   // 直前のエラーバナーをクリア（バッチ中の per-book 失敗は要約に集約）
-        cancelBatchRequested = false
         var ok = 0, fail = 0, cancelled = false
         batchProgress = (0, pending.count)
         for (i, id) in pending.enumerated() {
-            if cancelBatchRequested { cancelled = true; break }   // D2a: ×ボタンで中断
+            if Task.isCancelled { cancelled = true; break }   // D2a: ×ボタン（反復前の中断）
             guard let item = books.first(where: { $0.id == id }) else { fail += 1; continue }
             let before = downloadedVersion
             await downloadBook(item)
+            if Task.isCancelled { cancelled = true; break }   // D2a: in-flight をキャンセルした場合
             if downloadedVersion != before { ok += 1 } else { fail += 1 }
             batchProgress = (i + 1, pending.count)
         }
         batchProgress = nil
-        cancelBatchRequested = false
         var parts = ["\(ok) 件ダウンロード"]
         if skipped > 0 { parts.append("\(skipped) 件スキップ") }
         if fail > 0 { parts.append("\(fail) 件失敗") }
@@ -359,8 +360,14 @@ final class RemoteLibraryState {
         downloadedVersion &+= 1
     }
 
-    /// 4.2c-3 (D2a): 実行中の一括 DL を中断する。次の反復頭で break する。
-    func cancelBatchDownload() { cancelBatchRequested = true }
+    /// 4.2c-3 (D2a v2): 一括 DL を開始する（Task を保持して×ボタンで cancel 可能にする）。
+    func startBatchDownload() {
+        batchTask?.cancel()
+        batchTask = Task { [weak self] in await self?.downloadSelected() }
+    }
+
+    /// 4.2c-3 (D2a v2): 実行中の一括 DL を即時中断する。bookFile のバイトストリームも中断される。
+    func cancelBatchDownload() { batchTask?.cancel() }
 
     /// オフライン保存を削除する。
     func removeDownload(_ bookID: Int) {
@@ -697,17 +704,25 @@ final class RemoteLibraryState {
             return nil
         }
         guard let dto else { return nil }
-        let content = RemoteBookContent(
-            client: client, libraryUUID: libraryUUID,
-            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600)
-        let row = Self.makeBookRow(from: dto)
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,
             lastPage: max(0, dto.lastPage ?? 0),
             overrides: [:]
         )
-        return NextVolume(content: content, book: row, state: state)
+        // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
+        // 巻ごとに付け替える。未 DL はリモート解決のまま「リモート」バッジに更新する。
+        if let dl = offlineStore.all().first(where: {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
+        }), let made = try? BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) {
+            let row = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
+            return NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン")
+        }
+        let content = RemoteBookContent(
+            client: client, libraryUUID: libraryUUID,
+            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600)
+        let row = Self.makeBookRow(from: dto)
+        return NextVolume(content: content, book: row, state: state, sourceLabel: "リモート")
     }
 
     // MARK: - Error messages

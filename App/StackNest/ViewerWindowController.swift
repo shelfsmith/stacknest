@@ -37,7 +37,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var didShowResumeDialog = false
     private let suppressResumeDialog: Bool
     /// 非 nil ならタイトルバーに "<ラベル>: <書名>" を表示する（リモート由来などの可視マーカ）。
-    private let sourceLabel: String?
+    /// 4.2c-3: 巻送りでソースが変わる（DL済み=オフライン/未DL=リモート）ため var にして更新する。
+    private var sourceLabel: String?
+    /// 4.2c-3: 巻送り時にラベルを差し替えるため、左上の永続バッジ host を保持する。
+    private var sourceBadge: PassthroughHostingView<AnyView>?
 
     private let canvas = ViewerCanvasView()
     private var hudHosting: PassthroughHostingView<ViewerHUDView>?
@@ -165,24 +168,30 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // PassthroughHostingView を使い hitTest=nil でページ送りタップを下の canvas に通す。
         // canvas/HUD/help より後に addSubview することで subview 順で最前面に来る。
         if let sourceLabel {
-            let badge = PassthroughHostingView(rootView:
-                Text(sourceLabel)
-                    .font(.caption2).bold()
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Capsule().fill(Color.accentColor.opacity(0.85)))
-                    .padding(6)
-            )
+            let badge = PassthroughHostingView(rootView: Self.sourceBadgeView(sourceLabel))
             badge.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(badge)
             NSLayoutConstraint.activate([
                 badge.topAnchor.constraint(equalTo: container.topAnchor, constant: 8),
                 badge.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 8),
             ])
+            sourceBadge = badge
         }
 
         window.makeFirstResponder(container)
         showHUDThenScheduleHide()
+    }
+
+    /// 4.2c-3: ソース識別バッジの SwiftUI ビュー（初期表示・巻送りでの差し替えで共用）。
+    static func sourceBadgeView(_ label: String) -> AnyView {
+        AnyView(
+            Text(label)
+                .font(.caption2).bold()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(Color.accentColor.opacity(0.85)))
+                .padding(6)
+        )
     }
 
     func present() {
@@ -669,6 +678,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         rebuildSpreads()   // 末尾の model.setSpreads(...) が currentPage から再アンカーする
         loadCurrentPage()
         persistCurrent()
+        // 4.2c-3: 巻ごとにソースが変わる場合（DL済み=オフライン/未DL=リモート）はバッジ/タイトルを更新する。
+        if let newLabel = nv.sourceLabel {
+            sourceLabel = newLabel
+            sourceBadge?.rootView = Self.sourceBadgeView(newLabel)
+            window?.title = "\(newLabel): \(nv.book.title)"
+        }
         isSwapping = false
         hudNote("\(hudPrefix)：\(nv.book.title)")
         // 4.2b-6: 巻送り先が読みかけなら、初回オープンと同じ「続き/最初」シートを出す。
