@@ -77,6 +77,11 @@ public final class LibrarySettings {
     public var filenameFormat: String {
         didSet { persistFilenameFormat() }
     }
+    /// ライブラリの表示名（per-library）。空（空白のみ含む）ならファイル名にフォールバックする。
+    /// 解決には `resolvedName(fallback:)` を使う。
+    public var displayName: String {
+        didSet { persistDisplayName() }
+    }
     /// 命名フォーマットのプリセット集合（per-library）。`filenameFormat` は既定プリセットの format ミラー。
     public var filenameFormatPresets: [FilenameFormatPreset] {
         didSet { persistFilenameFormatPresets() }
@@ -161,6 +166,7 @@ public final class LibrarySettings {
     private static let viewModeKey = "viewMode"
     private static let windowFrameKey = "windowFrame"
     private static let filenameFormatKey = "filename_format"
+    private static let displayNameKey = "display_name"
     private static let filenameFormatPresetsKey = "filename_format_presets"
     private static let filenameFormatDefaultIDKey = "filename_format_default_id"
     private static let topPaneModeKey = "top_pane_mode"
@@ -263,6 +269,14 @@ public final class LibrarySettings {
             loadedFilenameFormat = Self.defaultFilenameFormat
         }
         self.filenameFormat = loadedFilenameFormat
+        // Load displayName. Default to empty string (falls back to filename via resolvedName).
+        let loadedDisplayName: String
+        if let value = try database.getLibrarySetting(key: Self.displayNameKey) {
+            loadedDisplayName = value
+        } else {
+            loadedDisplayName = ""
+        }
+        self.displayName = loadedDisplayName
         // Load filename-format presets (Phase 2.7 B6). 無ければ単一 filenameFormat から移行。
         var didSeedPresets = false
         if let json = try database.getLibrarySetting(key: Self.filenameFormatPresetsKey),
@@ -480,6 +494,20 @@ public final class LibrarySettings {
         } catch {
             Self.logger.error("Failed to persist filenameFormat: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func persistDisplayName() {
+        do {
+            try database.setLibrarySetting(key: Self.displayNameKey, value: displayName)
+        } catch {
+            Self.logger.error("Failed to persist displayName: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// 表示名。未設定（空白のみ含む）なら fallback（通常はファイル名）を返す。
+    public func resolvedName(fallback: String) -> String {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? fallback : trimmed
     }
 
     private func persistFilenameFormatPresets() {
