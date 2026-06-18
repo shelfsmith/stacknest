@@ -524,14 +524,39 @@ final class RemoteLibraryState {
             serverID: serverID, serverURL: client.baseURL.absoluteString,
             libraryUUID: libraryUUID, libraryName: libraryName,
             bookID: book.id, title: book.title, locked: locked))
-        let content = RemoteBookContent(
-            client: client,
-            libraryUUID: libraryUUID,
-            bookID: book.id,
-            libraryToken: libraryToken,
-            maxWidth: 1600
-        )
-        let row = Self.makeBookRow(from: book)
+        // 4.2c-3 (自由記載#1): DL 済みの本はローカルファイルから読む（ページ画像の
+        // ネットワーク取得を避け負荷削減）。進捗はサーバへ POST 継続、多段巻送りの次巻は
+        // 従来どおりリモート解決（簡易実装）。ローカルが壊れている等は失敗時にリモートへフォールバック。
+        let downloaded = offlineStore.all().first {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == book.id
+        }
+        let content: BookContent
+        let row: BookRow
+        let sourceLabel: String
+        let readingOffline: Bool
+        if let dl = downloaded {
+            let offlineRow = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
+            if let made = try? BookContentFactory.make(for: offlineRow) {
+                content = made
+                row = offlineRow
+                sourceLabel = "オフライン"
+                readingOffline = true
+            } else {
+                content = RemoteBookContent(
+                    client: client, libraryUUID: libraryUUID, bookID: book.id,
+                    libraryToken: libraryToken, maxWidth: 1600)
+                row = Self.makeBookRow(from: book)
+                sourceLabel = "リモート"
+                readingOffline = false
+            }
+        } else {
+            content = RemoteBookContent(
+                client: client, libraryUUID: libraryUUID, bookID: book.id,
+                libraryToken: libraryToken, maxWidth: 1600)
+            row = Self.makeBookRow(from: book)
+            sourceLabel = "リモート"
+            readingOffline = false
+        }
         Task { @MainActor in
             let pageCount: Int
             do {
@@ -556,11 +581,17 @@ final class RemoteLibraryState {
             )
             // 一覧 DTO には pageDirection が無いため、サーバの本詳細から実際の読む方向を取得する。
             // これが無いと、方向を変更してもビューアを開き直すたびにグローバル既定へ戻る（smoke G3）。
-            let serverDetail = try? await self.client.bookDetail(
-                libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
-            let serverDir: PageDirection? = serverDetail.flatMap { d in
-                d.pageDirection == "rtl" ? .rightToLeft
-                    : (d.pageDirection == "ltr" ? .leftToRight : nil)
+            // オフライン読み出し時は offline detail（row.pageDirection）を使い、無駄なネットワーク取得を避ける。
+            let serverDir: PageDirection?
+            if readingOffline {
+                serverDir = row.pageDirection
+            } else {
+                let serverDetail = try? await self.client.bookDetail(
+                    libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
+                serverDir = serverDetail.flatMap { d in
+                    d.pageDirection == "rtl" ? .rightToLeft
+                        : (d.pageDirection == "ltr" ? .leftToRight : nil)
+                }
             }
             let options = ViewerOptions(
                 pageDirection: serverDir ?? row.pageDirection ?? ViewerSettings.shared.pageDirection,
@@ -603,7 +634,7 @@ final class RemoteLibraryState {
                 persistPageOverride: { _, _, _ in },
                 onClose: { [weak self] in self?.viewerController = nil },
                 suppressResumeDialog: resumeDirect,
-                sourceLabel: "リモート"
+                sourceLabel: sourceLabel
             )
             self.viewerController = controller
             controller.onSetBookPageDirection = { [weak self] id, dir in
