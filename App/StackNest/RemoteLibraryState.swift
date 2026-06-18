@@ -78,6 +78,18 @@ final class RemoteLibraryState {
     /// reload()/load() のたびにインクリメントし、in-flight な loadMore を無効化するカウンタ。
     private var loadGeneration = 0
 
+    /// Phase 4.2c-3: 検索欄のライブフィルタ用デバウンス Task。連続入力中は最後の 1 回のみ reload。
+    private var searchDebounce: Task<Void, Never>?
+    /// 検索欄入力時に呼ぶ。300ms デバウンスして reload（連続入力中は最後の1回のみ）。
+    func scheduleSearchReload() {
+        searchDebounce?.cancel()
+        searchDebounce = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            if Task.isCancelled { return }
+            await self?.reload()
+        }
+    }
+
     /// infinite モードの 1 チャンク件数（paged の per とは独立した固定値）。
     private let infiniteChunkSize = 100
 

@@ -47,6 +47,12 @@ struct RemoteLibraryView: View {
                     .font(.title3.weight(.semibold))
             }
         }
+        // Phase 4.2c-3: ローカルブラウザと同じライブフィルタ + クリア(×)ボタンの検索欄。
+        // .searchable がツールバーに検索フィールドと × クリアを提供。入力ごとに onChange が
+        // 発火し scheduleSearchReload() が 300ms デバウンスして reload する（キー入力毎の
+        // ネットワーク再取得を避ける）。× クリアで query="" → onChange → 全件再読込。
+        .searchable(text: $state.query, placement: .toolbar, prompt: "検索")
+        .onChange(of: state.query) { _, _ in state.scheduleSearchReload() }
     }
 
     // MARK: - Split layout (Task 6)
@@ -190,11 +196,6 @@ struct RemoteLibraryView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            TextField("検索", text: $state.query)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 240)
-                .onSubmit { Task { await state.reload() } }
-
             Picker("並び替え", selection: $state.sortKey) {
                 Text("タイトル").tag("title")
                 Text("シリーズ").tag("series")
