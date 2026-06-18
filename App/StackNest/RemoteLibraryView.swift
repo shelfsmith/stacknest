@@ -200,18 +200,24 @@ struct RemoteLibraryView: View {
             Spacer()
 
             // 4.2c-3 (D2): バッチバーを廃し、選択ダウンロードはツールバーの常設ボタンに統一。
-            // 選択 0 件でグレーアウト、1 件以上で有効。進捗/完了要約はボタン左に表示する。
+            // 選択 0 件でグレーアウト、1 件以上で有効。DL 中は×（中断）ボタンに変わる（D2a）。
             if let p = state.batchProgress {
                 ProgressView(value: Double(p.done), total: Double(max(1, p.total))).frame(width: 80)
                 Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
-            } else if let summary = state.batchSummary {
-                Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+                Button { state.cancelBatchDownload() } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .help("ダウンロードを中断")
+            } else {
+                if let summary = state.batchSummary {
+                    Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+                }
+                Button { Task { await state.downloadSelected() } } label: {
+                    Image(systemName: "arrow.down.circle")
+                }
+                .help("選択した書籍をダウンロード")
+                .disabled(state.multiSelection.isEmpty)
             }
-            Button { Task { await state.downloadSelected() } } label: {
-                Image(systemName: "arrow.down.circle")
-            }
-            .help("選択した本をダウンロード")
-            .disabled(state.multiSelection.isEmpty || state.batchProgress != nil)
 
             // Task 6: フィルタ popover（FilterPopoverView を再利用、data-agnostic）。
             Button {

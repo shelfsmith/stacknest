@@ -307,6 +307,9 @@ final class RemoteLibraryState {
     /// errorText に出すと赤バナーが残り続けるため専用の自動消滅フィールドにする）。
     var batchSummary: String? = nil
     private var batchSummaryToken = 0
+    /// 4.2c-3 (D2a): 一括 DL の中断要求フラグ。ツールバーの×ボタンが立て、各反復頭で確認する。
+    /// 実行中の 1 件は完了するが、以降はスキップして中断する。
+    private var cancelBatchRequested = false
 
     /// 要約をセットし、4 秒後に自動でクリアする（最新の要約のみ残す）。
     private func showBatchSummary(_ text: String) {
@@ -329,13 +332,15 @@ final class RemoteLibraryState {
         }
         let skipped = multiSelection.count - pending.count
         guard !pending.isEmpty else {
-            showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "本が選択されていません")
+            showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "書籍が選択されていません")
             return
         }
         errorText = nil   // 直前のエラーバナーをクリア（バッチ中の per-book 失敗は要約に集約）
-        var ok = 0, fail = 0
+        cancelBatchRequested = false
+        var ok = 0, fail = 0, cancelled = false
         batchProgress = (0, pending.count)
         for (i, id) in pending.enumerated() {
+            if cancelBatchRequested { cancelled = true; break }   // D2a: ×ボタンで中断
             guard let item = books.first(where: { $0.id == id }) else { fail += 1; continue }
             let before = downloadedVersion
             await downloadBook(item)
@@ -343,14 +348,19 @@ final class RemoteLibraryState {
             batchProgress = (i + 1, pending.count)
         }
         batchProgress = nil
+        cancelBatchRequested = false
         var parts = ["\(ok) 件ダウンロード"]
         if skipped > 0 { parts.append("\(skipped) 件スキップ") }
         if fail > 0 { parts.append("\(fail) 件失敗") }
+        if cancelled { parts.append("中断") }
         // per-book 失敗で downloadBook が errorText を立てている場合があるためクリアし、要約に一本化。
         errorText = nil
         showBatchSummary(parts.joined(separator: " / "))
         downloadedVersion &+= 1
     }
+
+    /// 4.2c-3 (D2a): 実行中の一括 DL を中断する。次の反復頭で break する。
+    func cancelBatchDownload() { cancelBatchRequested = true }
 
     /// オフライン保存を削除する。
     func removeDownload(_ bookID: Int) {

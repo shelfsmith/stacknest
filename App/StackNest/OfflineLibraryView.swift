@@ -99,9 +99,9 @@ struct OfflineLibraryView: View {
             }
             if books.isEmpty {
                 ContentUnavailableView(
-                    "ダウンロード済みの本がありません",
+                    "ダウンロード済みの書籍がありません",
                     systemImage: "arrow.down.circle",
-                    description: Text("サーバ接続時に本をダウンロードすると、ここでオフライン閲覧できます。")
+                    description: Text("サーバ接続時に書籍をダウンロードすると、ここでオフライン閲覧できます。")
                 )
             } else {
                 listView

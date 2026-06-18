@@ -107,8 +107,9 @@ struct ConnectFormView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // 4.2c-3 (A5-2): 画面タイトルを「リモートビューア」に統一（フォーム項目は据え置き）。
-            Text("リモートビューア").font(.headline)
+            // 4.2c-3 (A5-2 v3): ウィンドウ名のみ「リモートビューア」に統一。コンテンツ見出しは
+            // 接続操作を表す「サーバに接続」のまま（ユーザー指定）。
+            Text("サーバに接続").font(.headline)
             if !saved.isEmpty {
                 Text("接続済みサーバ").font(.subheadline)
                 List {

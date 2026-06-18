@@ -329,12 +329,26 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
                                   action: #selector(ctxOpen(_:)), keyEquivalent: "")
         openItem.target = self; openItem.representedObject = book.id
         menu.addItem(openItem)
-        let dlTitle = state.isDownloaded(book.id) ? String(localized: "ダウンロード済み")
-                                                  : String(localized: "ダウンロード")
-        let dlItem = NSMenuItem(title: dlTitle, action: #selector(ctxDownload(_:)), keyEquivalent: "")
-        dlItem.target = self; dlItem.representedObject = book.id
-        dlItem.isEnabled = !state.isDownloaded(book.id)
-        menu.addItem(dlItem)
+        // 4.2c-3 (D2b): 複数選択時は選択集合に対する「選択をダウンロード」。選択内に未 DL が
+        // 1 件でもあれば有効化し、downloadSelected()（未 DL のみ DL）を呼ぶ。DL 済みが混在
+        // していても disabled にしない（ツールバーのダウンロードボタンと挙動を揃える）。
+        let selected = table.selectedRowIndexes
+        if selected.count >= 2 {
+            let selBooks = selected.compactMap { $0 < state.books.count ? state.books[$0] : nil }
+            let anyNotDownloaded = selBooks.contains { !state.isDownloaded($0.id) }
+            let dlItem = NSMenuItem(title: String(localized: "選択をダウンロード"),
+                                    action: #selector(ctxDownloadSelected(_:)), keyEquivalent: "")
+            dlItem.target = self
+            dlItem.isEnabled = anyNotDownloaded
+            menu.addItem(dlItem)
+        } else {
+            let dlTitle = state.isDownloaded(book.id) ? String(localized: "ダウンロード済み")
+                                                      : String(localized: "ダウンロード")
+            let dlItem = NSMenuItem(title: dlTitle, action: #selector(ctxDownload(_:)), keyEquivalent: "")
+            dlItem.target = self; dlItem.representedObject = book.id
+            dlItem.isEnabled = !state.isDownloaded(book.id)
+            menu.addItem(dlItem)
+        }
     }
 
     @objc private func ctxOpen(_ sender: NSMenuItem) {
@@ -344,5 +358,9 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
     @objc private func ctxDownload(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? Int, let b = state.books.first(where: { $0.id == id }) else { return }
         Task { await state.downloadBook(b) }
+    }
+    /// 4.2c-3 (D2b): 複数選択に対する一括ダウンロード（未 DL のみ）。multiSelection を対象にする。
+    @objc private func ctxDownloadSelected(_ sender: NSMenuItem) {
+        Task { await state.downloadSelected() }
     }
 }
