@@ -320,9 +320,6 @@ final class RemoteLibraryState {
         }
     }
 
-    func selectAllVisible() { multiSelection = Set(books.map { $0.id }) }
-    func clearSelection() { multiSelection.removeAll() }
-
     /// 選択集合を順に DL。既 DL はスキップ、失敗しても続行、完了時に自動消滅する要約を出す。
     func downloadSelected() async {
         // isDownloaded(_:) は self.serverID / self.libraryUUID を内部で参照するため

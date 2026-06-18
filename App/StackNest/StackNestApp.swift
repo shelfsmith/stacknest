@@ -124,9 +124,9 @@ struct StackNestApp: App {
         .commandsRemoved()
         .restorationBehavior(.disabled)
 
-        // Phase 4.2b-1 fixup v1: サーバに接続ウィンドウ — File メニュー / Title から openWindow(id:"connect")。
-        // タイトルウィンドウを開かずに接続フローを完結する（A1）。
-        Window("サーバに接続", id: "connect") {
+        // Phase 4.2b-1 fixup v1: リモートビューア（接続）ウィンドウ — File メニュー / Title から openWindow(id:"connect")。
+        // タイトルウィンドウを開かずに接続フローを完結する（A1）。4.2c-3 (A5-2): タイトルを「リモートビューア」に統一。
+        Window("リモートビューア", id: "connect") {
             RemoteConnectFlowView()
         }
         .windowResizability(.contentSize)
@@ -134,9 +134,10 @@ struct StackNestApp: App {
         .commandsRemoved()
         .restorationBehavior(.disabled)
 
-        // Phase 4.2b-2 Task 5: オフライン（ダウンロード済み）ウィンドウ。
+        // Phase 4.2b-2 Task 5: オフラインビューア（ダウンロード済み）ウィンドウ。
         // File メニュー / Title から openWindow(id:"offline")。サーバ接続なしで動作する。
-        Window("オフライン", id: "offline") {
+        // 4.2c-3 (A5-2): タイトルを「オフラインビューア」に統一。
+        Window("オフラインビューア", id: "offline") {
             OfflineLibraryView()
         }
         .windowResizability(.contentMinSize)
@@ -510,13 +511,9 @@ struct LibraryWindowContainer: View {
                 )
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)
             }
-            .navigationTitle(libraryDisplayName)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("StackNest – \(libraryDisplayName)")
-                        .font(.title3.weight(.semibold))
-                }
-            }
+            // 4.2c-3 (A3): タイトルはツールバー中央(principal)ではなく、ウィンドウタイトル
+            // （左・背景なし・プレーン）として「StackNest – 〈表示名〉」を表示する。
+            .navigationTitle("StackNest – \(libraryDisplayName)")
             .frame(minWidth: 1024, minHeight: 600)
             .environment(appState)
             .focusedSceneValue(\.appState, appState)
@@ -649,7 +646,7 @@ struct FileCommands: Commands {
                             // appendLastOpenedBundleURL は LibraryWindowContainer.openBundleIfNeeded に集約済 (Phase 2.5f)
                             openWindow(value: finalURL)
                         } catch {
-                            NSAlert.presentError(error, title: "Failed to create library")
+                            NSAlert.presentError(error, title: "ライブラリを作成できませんでした")
                         }
                     }
                 }
@@ -694,12 +691,12 @@ struct FileCommands: Commands {
                                         // appendLastOpenedBundleURL は LibraryWindowContainer.openBundleIfNeeded に集約済 (Phase 2.5f)
                                         openWindow(value: finalURL)
                                     } catch {
-                                        NSAlert.presentError(error, title: "Failed to import library")
+                                        NSAlert.presentError(error, title: "ライブラリを取り込めませんでした")
                                     }
                                 }
                             }
                         } catch {
-                            NSAlert.presentError(error, title: "Failed to select XML file")
+                            NSAlert.presentError(error, title: "XML ファイルを選択できませんでした")
                         }
                     }
                 }
@@ -857,7 +854,10 @@ struct WindowCommands: Commands {
                     (responder as? NSView)?.isKind(of: NSTextField.self) == true ||
                     String(describing: type(of: responder)).contains("TextField")) {
                     NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-                } else {
+                } else if !NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil) {
+                    // 4.2c-3 (D2): リモート/オフライン/ローカルのリスト（NSTableView / SwiftUI List）は
+                    // responder chain の selectAll: で全選択される。selectAll: を実装しない first
+                    // responder（ローカル grid 等）の場合のみ、本モデル全選択を通知で依頼する。
                     NotificationCenter.default.post(name: .stacknestSelectAllRequest, object: nil)
                 }
             }

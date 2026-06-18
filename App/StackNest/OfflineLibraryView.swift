@@ -36,8 +36,19 @@ struct OfflineLibraryView: View {
                     .frame(width: 240)
             }
             .frame(minWidth: 760, minHeight: 480)
-            .navigationTitle("オフライン")
+            .navigationTitle("オフラインビューア")
             .searchable(text: $query, placement: .toolbar, prompt: "タイトルで検索")
+            .toolbar {
+                // 4.2c-3 (D4): 一括バーを廃し、選択削除はツールバーの削除ボタンに統一。
+                // 0 件でグレーアウト、1 件以上で有効（リモートのダウンロードボタンと同方針）。
+                ToolbarItem {
+                    Button(role: .destructive) { deleteSelected() } label: {
+                        Label("削除", systemImage: "trash")
+                    }
+                    .disabled(multiSelection.isEmpty)
+                    .help("選択した本のオフライン保存を削除")
+                }
+            }
         }
         .task { reload() }
         // O2: 別ウィンドウ（リモートブラウズ）で DL/削除されたら即座に反映する。
@@ -82,11 +93,6 @@ struct OfflineLibraryView: View {
 
     private var listColumn: some View {
         VStack(spacing: 0) {
-            // 2 件以上選択されたときだけ一括操作バーを出す（単一選択は詳細ペインで扱う）。
-            if multiSelection.count >= 2 {
-                selectionBar
-                Divider()
-            }
             if let errorText {
                 banner(errorText)
                 Divider()
@@ -106,46 +112,36 @@ struct OfflineLibraryView: View {
         }
     }
 
-    private var selectionBar: some View {
-        HStack(spacing: 12) {
-            Text("\(multiSelection.count) 件選択").font(.callout).foregroundStyle(.secondary)
-            Button("すべて選択") { selectAllVisible() }
-            Button("選択解除") { clearSelection() }
-            Spacer()
-            Button(role: .destructive) { deleteSelected() } label: {
-                Label("選択を削除", systemImage: "trash")
-            }
-            .disabled(multiSelection.isEmpty)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-    }
-
     private var listView: some View {
-        // ネイティブ複数選択: Set バインディングにより ⌘/Shift クリックで複数選択できる。
-        // 単一クリックは List のネイティブ選択が処理する（明示の onTapGesture は置かない）。
+        // ネイティブ複数選択: Set バインディングにより単一クリック選択・⌘/Shift 複数選択ができる。
+        // v1 デグレ対策: 行ごとの .contextMenu は List のネイティブ単一クリック選択を奪う。
+        // List 全体に .contextMenu(forSelectionType:) を付け、選択と統合された右クリック +
+        // primaryAction（ダブルクリック / Return）で開く（macOS 標準 API）。
         List(selection: $multiSelection) {
             ForEach(groups, id: \.library) { group in
                 Section(group.library) {
                     ForEach(group.books) { book in
                         row(book)
                             .tag(book.id)
-                            .contentShape(Rectangle())
-                            .onTapGesture(count: 2) { openOffline(book) }
-                            .contextMenu {
-                                Button("開く") { openOffline(book) }
-                                Divider()
-                                Button("削除", role: .destructive) { delete(book) }
-                            }
                     }
                 }
             }
         }
-        .onKeyPress(.return) {
-            // 単一選択のときだけ開く（複数選択時は Return を無視）。
-            if multiSelection.count == 1, let book = selectedBook { openOffline(book); return .handled }
-            return .ignored
+        .contextMenu(forSelectionType: String.self) { ids in
+            if ids.count >= 2 {
+                Button("削除", role: .destructive) { deleteSelected() }
+            } else if let id = ids.first, let book = books.first(where: { $0.id == id }) {
+                Button("開く") { openOffline(book) }
+                Divider()
+                Button("削除", role: .destructive) { delete(book) }
+            }
+        } primaryAction: { ids in
+            // ダブルクリック / Return: 先頭の選択本を開く（オフラインビューワは 1 ウィンドウ運用）。
+            if let id = ids.first, let book = books.first(where: { $0.id == id }) {
+                openOffline(book)
+            }
         }
-        // Bug 3b: List 自身に focus を当てて Return キーを受け取る（RemoteLibraryView と同方針）。
+        // Bug 3b: List 自身に focus を当てて primaryAction（Return）を確実に発火させる。
         .focusable()
         .focused($listFocused)
         .task { listFocused = true }
@@ -328,10 +324,6 @@ struct OfflineLibraryView: View {
     }
 
     // MARK: - Multi-select state helpers
-
-    private func selectAllVisible() { multiSelection = Set(filtered.map { $0.id }) }
-
-    private func clearSelection() { multiSelection.removeAll() }
 
     private func deleteSelected() {
         let targets = books.filter { multiSelection.contains($0.id) }

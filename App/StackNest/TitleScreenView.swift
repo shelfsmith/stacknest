@@ -18,7 +18,7 @@ struct TitleScreenView: View {
   var body: some View {
     titleContent
       .frame(width: 600, height: 500)
-      .alert("Error", isPresented: $showError) {
+      .alert("エラー", isPresented: $showError) {
         Button("OK") { }
       } message: {
         Text(errorMessage)
@@ -67,13 +67,13 @@ struct TitleScreenView: View {
         .buttonStyle(.bordered)
 
         Button { openWindow(id: "connect") } label: {
-          Label("サーバに接続…", systemImage: "network")
+          Label("リモートビューアを開く", systemImage: "network")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
 
         Button { openWindow(id: "offline") } label: {
-          Label("オフライン（ダウンロード済み）", systemImage: "tray.and.arrow.down")
+          Label("オフラインビューアを開く", systemImage: "tray.and.arrow.down")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
@@ -108,14 +108,14 @@ struct TitleScreenView: View {
     )
   }
 
-  private func presentError(_ error: Error?, title: String = "Error",
+  private func presentError(_ error: Error?, title: String = "エラー",
                             message: String? = nil) {
     if let message = message {
       errorMessage = message
     } else if let error = error {
       errorMessage = error.localizedDescription
     } else {
-      errorMessage = "An unknown error occurred"
+      errorMessage = "不明なエラーが発生しました"
     }
     showError = true
   }

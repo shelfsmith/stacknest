@@ -25,7 +25,7 @@ enum LibraryActions {
                     UserDefaultsKeys.setDefaultLibraryParentURL(finalURL.deletingLastPathComponent())
                     onOpen(finalURL)
                 } catch {
-                    onError(error, "Failed to create library")
+                    onError(error, "ライブラリを作成できませんでした")
                 }
             }
         }
@@ -67,12 +67,12 @@ enum LibraryActions {
                                     finalURL.deletingLastPathComponent())
                                 onOpen(finalURL)
                             } catch {
-                                onError(error, "Failed to import library")
+                                onError(error, "ライブラリを取り込めませんでした")
                             }
                         }
                     }
                 } catch {
-                    onError(error, "Failed to select XML file")
+                    onError(error, "XML ファイルを選択できませんでした")
                 }
             }
         }
@@ -83,8 +83,8 @@ enum LibraryActions {
     /// Static helper to run NSSavePanel standalone (for FileCommands).
     static func runSavePanelStandalone(defaultName: String = "Untitled.stacknest", completion: @escaping (URL) -> Void) {
         let panel = NSSavePanel()
-        panel.title = "Create New Library"
-        panel.message = "Choose a location for your new StackNest library"
+        panel.title = "新しいライブラリを作成"
+        panel.message = "新しい StackNest ライブラリの保存先を選んでください"
         panel.allowedContentTypes = [.stackNestLibrary]
         panel.nameFieldStringValue = defaultName
         panel.canCreateDirectories = true
@@ -101,8 +101,8 @@ enum LibraryActions {
     /// Static helper to run NSOpenPanel for existing library (for FileCommands).
     static func runOpenPanelStandalone(completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
-        panel.title = "Open Library"
-        panel.message = "Select a StackNest library bundle"
+        panel.title = "ライブラリを開く"
+        panel.message = "StackNest ライブラリを選択してください"
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.stackNestLibrary]
@@ -118,8 +118,8 @@ enum LibraryActions {
     /// Static helper to run NSOpenPanel for Stackroom XML (for FileCommands).
     static func runXMLOpenPanelStandalone(completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
-        panel.title = "Import from Stackroom XML"
-        panel.message = "Select a Stackroom library.xml file"
+        panel.title = "Stackroom XML から取り込む"
+        panel.message = "Stackroom の library.xml ファイルを選択してください"
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.xml]
@@ -134,8 +134,8 @@ enum LibraryActions {
             } else {
                 NSAlert.presentError(
                     nil,
-                    title: "Invalid Stackroom Library File",
-                    message: "Please select a file named 'library.xml' from your Stackroom library"
+                    title: "Stackroom ライブラリファイルが不正です",
+                    message: "Stackroom ライブラリ内の 'library.xml' という名前のファイルを選択してください"
                 )
             }
         }

@@ -40,13 +40,9 @@ struct RemoteLibraryView: View {
                 splitView
             }
         }
-        .navigationTitle(state.libraryName)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("StackNest Remote – \(state.libraryName)")
-                    .font(.title3.weight(.semibold))
-            }
-        }
+        // 4.2c-3 (A3): タイトルはツールバー中央(principal)ではなく、ウィンドウタイトル
+        // （左・背景なし・プレーン）として表示する（ローカルと同方針）。
+        .navigationTitle("StackNest Remote – \(state.libraryName)")
         // Phase 4.2c-3: ローカルブラウザと同じライブフィルタ + クリア(×)ボタンの検索欄。
         // .searchable がツールバーに検索フィールドと × クリアを提供。入力ごとに onChange が
         // 発火し scheduleSearchReload() が 300ms デバウンスして reload する（キー入力毎の
@@ -122,11 +118,6 @@ struct RemoteLibraryView: View {
     private var browseView: some View {
         VStack(spacing: 0) {
             toolbar
-            // 4.2c-3: 2 件以上選択されたら一括アクションバーを出す（選択モードトグルは廃止）。
-            if state.multiSelection.count >= 2 {
-                selectionBar
-                Divider()
-            }
             if let err = state.errorText {
                 banner(err)
             }
@@ -172,28 +163,6 @@ struct RemoteLibraryView: View {
         }
     }
 
-    private var selectionBar: some View {
-        HStack(spacing: 12) {
-            Text("\(state.multiSelection.count) 件選択").font(.callout).foregroundStyle(.secondary)
-            Button("すべて選択") { state.selectAllVisible() }
-            Button("選択解除") { state.clearSelection() }
-            Spacer()
-            if let p = state.batchProgress {
-                ProgressView(value: Double(p.done), total: Double(max(1, p.total))).frame(width: 120)
-                Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
-            } else if let summary = state.batchSummary {
-                // A4 修正: 完了要約は赤エラーバナーではなく選択バー内に出し、自動で消える。
-                Label(summary, systemImage: "checkmark.circle")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Button { Task { await state.downloadSelected() } } label: {
-                Label("選択をダウンロード", systemImage: "arrow.down.circle")
-            }
-            .disabled(state.multiSelection.isEmpty || state.batchProgress != nil)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-    }
-
     private var toolbar: some View {
         HStack(spacing: 12) {
             Picker("並び替え", selection: $state.sortKey) {
@@ -229,6 +198,20 @@ struct RemoteLibraryView: View {
             }
 
             Spacer()
+
+            // 4.2c-3 (D2): バッチバーを廃し、選択ダウンロードはツールバーの常設ボタンに統一。
+            // 選択 0 件でグレーアウト、1 件以上で有効。進捗/完了要約はボタン左に表示する。
+            if let p = state.batchProgress {
+                ProgressView(value: Double(p.done), total: Double(max(1, p.total))).frame(width: 80)
+                Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
+            } else if let summary = state.batchSummary {
+                Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+            }
+            Button { Task { await state.downloadSelected() } } label: {
+                Image(systemName: "arrow.down.circle")
+            }
+            .help("選択した本をダウンロード")
+            .disabled(state.multiSelection.isEmpty || state.batchProgress != nil)
 
             // Task 6: フィルタ popover（FilterPopoverView を再利用、data-agnostic）。
             Button {
