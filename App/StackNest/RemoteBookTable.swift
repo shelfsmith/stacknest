@@ -7,6 +7,21 @@ import LibraryServerAPI
 /// Return/Enter で選択本を開くための NSTableView サブクラス。
 final class RemoteKeyTableView: NSTableView {
     var onReturnKey: (() -> Void)?
+    /// クリック処理中ガード（ローカル GatedTableView と同方針）。DL 中など updateNSView が高頻度で
+    /// 走るとき、クリック追跡中に syncFromState の reloadData/selectRowIndexes が割り込むと
+    /// ユーザーの選択が即座に巻き戻る。mouseDown の間はテーブル変更をバッファして click 後に流す。
+    var isClickInProgress = false
+    var pendingPostClickSync: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        isClickInProgress = true
+        super.mouseDown(with: event)
+        isClickInProgress = false
+        let pending = pendingPostClickSync
+        pendingPostClickSync = nil
+        pending?()
+    }
+
     override func keyDown(with event: NSEvent) {
         // 36 = Return, 76 = Enter(テンキー)
         if event.keyCode == 36 || event.keyCode == 76 {
@@ -178,6 +193,13 @@ final class RemoteBookTableCoordinator: NSObject {
 
     func syncFromState() {
         guard let table = tableView else { return }
+        // クリック処理中はテーブル状態（reloadData/selectRowIndexes）を触らない。触るとクリックが
+        // 巻き戻る（DL 中の高頻度 updateNSView で「クリックしても即戻る」不具合の原因）。
+        // mouseDown 完了後に 1 度だけ流す（ローカル GatedTableView と同方針）。
+        if let keyTable = table as? RemoteKeyTableView, keyTable.isClickInProgress {
+            keyTable.pendingPostClickSync = { [weak self] in self?.syncFromState() }
+            return
+        }
         isSyncingSelection = true
         defer { isSyncingSelection = false }
         if state.booksVersion != lastBooksVersion || state.downloadedVersion != lastDownloadedVersion {

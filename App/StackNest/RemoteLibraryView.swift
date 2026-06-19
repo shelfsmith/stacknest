@@ -451,6 +451,16 @@ struct RemoteLibraryView: View {
 private struct RemoteDownloadButton: View {
     @Bindable var state: RemoteLibraryState
 
+    /// 4.2c-3: 要約の種別に応じたアイコン/色。成功のみ=✓ / 失敗あり=⚠(橙) / 中断=✕ / 情報=ⓘ。
+    private static func summaryStyle(_ kind: RemoteLibraryState.BatchSummaryKind) -> (icon: String, color: Color) {
+        switch kind {
+        case .success:   return ("checkmark.circle", .secondary)
+        case .warning:   return ("exclamationmark.triangle", .orange)
+        case .cancelled: return ("xmark.circle", .secondary)
+        case .info:      return ("info.circle", .secondary)
+        }
+    }
+
     var body: some View {
         HStack(spacing: 12) {
             if let p = state.batchProgress {
@@ -467,7 +477,8 @@ private struct RemoteDownloadButton: View {
                 .help("ダウンロードを中断")
             } else {
                 if let summary = state.batchSummary {
-                    Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+                    let style = Self.summaryStyle(state.batchSummaryKind)
+                    Label(summary, systemImage: style.icon).font(.caption).foregroundStyle(style.color)
                 }
                 Button { state.startBatchDownload() } label: {
                     Image(systemName: "arrow.down.circle")

@@ -310,6 +310,9 @@ final class RemoteLibraryState {
     /// 一括 DL の完了要約（「○件ダウンロード」等）。4 秒後に自動で消える（A4 修正：
     /// errorText に出すと赤バナーが残り続けるため専用の自動消滅フィールドにする）。
     var batchSummary: String? = nil
+    /// 4.2c-3: 要約の種別（アイコン/色の出し分け）。成功のみ=✓ / 失敗あり=⚠ / 中断=✕ / 情報=ⓘ。
+    enum BatchSummaryKind { case success, warning, cancelled, info }
+    var batchSummaryKind: BatchSummaryKind = .success
     private var batchSummaryToken = 0
     /// 4.2c-3 (D2a v3): スレッド安全なキャンセルトークン。bookFile のバイトループは MainActor 外で
     /// 回るため、Task.isCancelled には依存せず（v4 で不伝播のデグレ）、ロック付きフラグで
@@ -328,8 +331,9 @@ final class RemoteLibraryState {
     private static let dlLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "BatchDL")
 
     /// 要約をセットし、4 秒後に自動でクリアする（最新の要約のみ残す）。
-    private func showBatchSummary(_ text: String) {
+    private func showBatchSummary(_ text: String, kind: BatchSummaryKind = .success) {
         batchSummary = text
+        batchSummaryKind = kind
         batchSummaryToken &+= 1
         let token = batchSummaryToken
         Task { [weak self] in
@@ -348,7 +352,8 @@ final class RemoteLibraryState {
         }
         let skipped = multiSelection.count - pending.count
         guard !pending.isEmpty else {
-            showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "書籍が選択されていません")
+            showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "書籍が選択されていません",
+                             kind: .info)
             return
         }
         errorText = nil   // 直前のエラーバナーをクリア（バッチ中の per-book 失敗は要約に集約）
@@ -375,7 +380,9 @@ final class RemoteLibraryState {
         if cancelled { parts.append("中断") }
         // per-book 失敗で downloadBook が errorText を立てている場合があるためクリアし、要約に一本化。
         errorText = nil
-        showBatchSummary(parts.joined(separator: " / "))
+        // アイコン/色の出し分け: 中断 > 失敗あり > 成功のみ の優先で種別を決める。
+        let kind: BatchSummaryKind = cancelled ? .cancelled : (fail > 0 ? .warning : .success)
+        showBatchSummary(parts.joined(separator: " / "), kind: kind)
         downloadedVersion &+= 1
     }
 
