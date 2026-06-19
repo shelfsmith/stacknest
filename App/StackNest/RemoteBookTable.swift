@@ -369,7 +369,9 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         Task { await state.downloadBook(b) }
     }
     /// 4.2c-3 (D2b): 複数選択に対する一括ダウンロード（未 DL のみ）。multiSelection を対象にする。
+    /// v6 NG 修正: downloadSelected() 直呼びだと startBatchDownload() を通らずキャンセルトークンが
+    /// 作られず、×（中断）が効かない（token=false）。必ず startBatchDownload() 経由で起動する。
     @objc private func ctxDownloadSelected(_ sender: NSMenuItem) {
-        Task { await state.downloadSelected() }
+        state.startBatchDownload()
     }
 }

@@ -352,6 +352,8 @@ final class RemoteLibraryState {
             return
         }
         errorText = nil   // 直前のエラーバナーをクリア（バッチ中の per-book 失敗は要約に集約）
+        // 保険: 通常は startBatchDownload() が事前に作成するが、万一未作成なら×が効くよう自己生成する。
+        if batchCancel == nil { batchCancel = CancelFlag() }
         let token = batchCancel
         var ok = 0, fail = 0, cancelled = false
         batchProgress = (0, pending.count)
