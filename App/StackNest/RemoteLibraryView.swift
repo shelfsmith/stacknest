@@ -204,30 +204,13 @@ struct RemoteLibraryView: View {
 
             Spacer()
 
-            // 4.2c-3 (D2): バッチバーを廃し、選択ダウンロードはツールバーの常設ボタンに統一。
-            // 選択 0 件でグレーアウト、1 件以上で有効。DL 中は×（中断）ボタンに変わる（D2a）。
-            if let p = state.batchProgress {
-                // D2b: 進捗バーは「完了件数 + 進行中ファイルのバイト割合」で滑らかに動かす。
-                // ラベルは進行中の項目番号（1始まり。0/1 ではなく 1/1）を表示する。
-                let frac = state.downloadProgress?.fraction ?? 0
-                let value = (Double(p.done) + frac) / Double(max(1, p.total))
-                let current = min(p.done + 1, p.total)
-                ProgressView(value: min(1, max(0, value))).frame(width: 80)
-                Text("\(current)/\(p.total)").font(.caption).foregroundStyle(.secondary)
-                Button { state.cancelBatchDownload() } label: {
-                    Image(systemName: "xmark.circle")
-                }
-                .help("ダウンロードを中断")
-            } else {
-                if let summary = state.batchSummary {
-                    Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
-                }
-                Button { state.startBatchDownload() } label: {
-                    Image(systemName: "arrow.down.circle")
-                }
-                .help("選択した書籍をダウンロード")
-                .disabled(state.multiSelection.isEmpty)
-            }
+            // 4.2c-3 (v7 自由記載修正): ダウンロード進捗/中断ボタンは独立した子ビューに分離する。
+            // downloadProgress は 64KB ごとに更新されるため、toolbar/browseView 本体がこれを読むと
+            // 進捗のたびに本体全体が再評価され、上部ファセットペイン（ジャンル/作者/シリーズ）の List が
+            // 高頻度に再レイアウトされてチラつく。子ビューに切り出すと本体は downloadProgress を読まず
+            // 再評価されない（リストの DL リングは RemoteBookTable.updateNSView が downloadProgress を
+            // 自前で購読しているため独立して更新される）。
+            RemoteDownloadButton(state: state)
 
             // Task 6: フィルタ popover（FilterPopoverView を再利用、data-agnostic）。
             Button {
@@ -457,6 +440,42 @@ struct RemoteLibraryView: View {
             Text("全 \(state.total) 件").font(.caption).foregroundStyle(.secondary)
         }
         .padding(8)
+    }
+}
+
+// MARK: - Download button (isolated)
+
+/// 4.2c-3: ダウンロード進捗バー / 中断(×) / 開始ボタン。downloadProgress（64KB ごと更新）を
+/// 読むのはこの子ビューだけにして、RemoteLibraryView 本体（ファセットペイン等）の高頻度
+/// 再評価＝チラつきを防ぐ。
+private struct RemoteDownloadButton: View {
+    @Bindable var state: RemoteLibraryState
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let p = state.batchProgress {
+                // D2b: 進捗バーは「完了件数 + 進行中ファイルのバイト割合」で滑らかに動かす。
+                // ラベルは進行中の項目番号（1始まり。0/1 ではなく 1/1）を表示する。
+                let frac = state.downloadProgress?.fraction ?? 0
+                let value = (Double(p.done) + frac) / Double(max(1, p.total))
+                let current = min(p.done + 1, p.total)
+                ProgressView(value: min(1, max(0, value))).frame(width: 80)
+                Text("\(current)/\(p.total)").font(.caption).foregroundStyle(.secondary)
+                Button { state.cancelBatchDownload() } label: {
+                    Image(systemName: "xmark.circle")
+                }
+                .help("ダウンロードを中断")
+            } else {
+                if let summary = state.batchSummary {
+                    Label(summary, systemImage: "checkmark.circle").font(.caption).foregroundStyle(.secondary)
+                }
+                Button { state.startBatchDownload() } label: {
+                    Image(systemName: "arrow.down.circle")
+                }
+                .help("選択した書籍をダウンロード")
+                .disabled(state.multiSelection.isEmpty)
+            }
+        }
     }
 }
 
