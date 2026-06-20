@@ -114,6 +114,7 @@ final class RemoteLibraryState {
             self.isGrid = s.isGrid
             self.filterState = s.filterState
             self.sidebarSelection = s.sidebar
+            self.lastPersistedBrowseState = s   // 初回 reload での無駄書きを防ぐ
         }
         RemoteLibraryRegistry.shared.add(self)
     }
@@ -226,14 +227,19 @@ final class RemoteLibraryState {
         persistBrowseState()
     }
 
+    /// 直近に永続化したブラウズ状態。reload は検索デバウンス等で高頻度に走るため、
+    /// 差分があるときだけ UserDefaults へ書いて無駄な JSON 書込みを避ける。
+    @ObservationIgnored private var lastPersistedBrowseState: RemoteBrowseState?
+
     /// 4.2c-7: 現在のブラウズ状態を (serverID, libraryUUID) 単位で UserDefaults に保存する。
-    /// query（検索文字列）は一時的なものとして保存しない。
+    /// query（検索文字列）は一時的なものとして保存しない。直近保存値と同一なら何もしない。
     func persistBrowseState() {
-        prefs.setBrowseState(
-            RemoteBrowseState(
-                browserPaneState: browserPaneState, sortKey: sortKey, ascending: ascending,
-                isGrid: isGrid, filterState: filterState, sidebar: sidebarSelection),
-            serverID: serverID, libraryUUID: libraryUUID)
+        let s = RemoteBrowseState(
+            browserPaneState: browserPaneState, sortKey: sortKey, ascending: ascending,
+            isGrid: isGrid, filterState: filterState, sidebar: sidebarSelection)
+        guard s != lastPersistedBrowseState else { return }
+        lastPersistedBrowseState = s
+        prefs.setBrowseState(s, serverID: serverID, libraryUUID: libraryUUID)
     }
 
     /// infinite モードで末尾到達時に次チャンクを追記する。
@@ -463,11 +469,16 @@ final class RemoteLibraryState {
 
     func loadShelves() async {
         shelves = (try? await client.listShelves(libraryUUID: libraryUUID, libraryToken: libraryToken)) ?? []
-        // 4.2c-7: 復元した sidebar が現存しないシェルフを指す場合は library に戻す（存在しない
-        // シェルフでも reload は空表示になるだけだが、UX のためフォールバックする）。
+        // 4.2c-7: 復元した sidebar が現存しないシェルフを指す場合は library に戻す。
+        // loadShelves と reload は NavigationSplitView の兄弟 task で順序保証が無く、reload が
+        // 削除済みシェルフ scope で空一覧を取得した後に loadShelves が走ると「library 選択なのに
+        // 0 件」が残る。値を戻したときは reload し直して正しい一覧を表示する。
         switch sidebarSelection {
         case .shelf(let id), .smartShelf(let id):
-            if !shelves.contains(where: { $0.id == id }) { sidebarSelection = .library }
+            if !shelves.contains(where: { $0.id == id }) {
+                sidebarSelection = .library
+                await reload()
+            }
         default:
             break
         }
