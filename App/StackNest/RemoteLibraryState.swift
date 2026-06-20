@@ -60,9 +60,8 @@ final class RemoteLibraryState {
     private var roleResolved = false
 
     /// Phase 4.2b-1b-2b Task 5: 共有 browse ビュー（sidebar / facet pane / detail）駆動状態。
-    enum RemoteSidebarSelection: Equatable, Hashable {
-        case library, favorites(Int64), recent, shelf(Int64), smartShelf(Int64)
-    }
+    /// 4.2c-7: 永続化のため AppCore.RemoteSidebarSelection を参照（typealias で呼び出し側無改修）。
+    typealias RemoteSidebarSelection = AppCore.RemoteSidebarSelection
     var sidebarSelection: RemoteSidebarSelection = .library
     var filterState = FilterState()
     var browserPaneState = BrowserPaneState()
@@ -107,6 +106,15 @@ final class RemoteLibraryState {
         self.libraryToken = libraryToken
         self.per = prefs.perPageSize
         self.scrollMode = prefs.scrollMode
+        // 4.2c-7: 保存済みブラウズ状態（ファセット/ソート/grid/フィルタ/サイドバー）を復元する。
+        if let s = prefs.browseState(serverID: serverID, libraryUUID: libraryUUID) {
+            self.browserPaneState = s.browserPaneState
+            self.sortKey = s.sortKey
+            self.ascending = s.ascending
+            self.isGrid = s.isGrid
+            self.filterState = s.filterState
+            self.sidebarSelection = s.sidebar
+        }
         RemoteLibraryRegistry.shared.add(self)
     }
 
@@ -213,6 +221,19 @@ final class RemoteLibraryState {
         } catch {
             errorText = "読み込みに失敗しました"
         }
+        // 4.2c-7: filter/sort/facet/sidebar/mode 変更はいずれも reload を伴うため、
+        // ここで現在のブラウズ状態を (serverID, libraryUUID) 単位で永続化する。
+        persistBrowseState()
+    }
+
+    /// 4.2c-7: 現在のブラウズ状態を (serverID, libraryUUID) 単位で UserDefaults に保存する。
+    /// query（検索文字列）は一時的なものとして保存しない。
+    func persistBrowseState() {
+        prefs.setBrowseState(
+            RemoteBrowseState(
+                browserPaneState: browserPaneState, sortKey: sortKey, ascending: ascending,
+                isGrid: isGrid, filterState: filterState, sidebar: sidebarSelection),
+            serverID: serverID, libraryUUID: libraryUUID)
     }
 
     /// infinite モードで末尾到達時に次チャンクを追記する。
@@ -442,6 +463,14 @@ final class RemoteLibraryState {
 
     func loadShelves() async {
         shelves = (try? await client.listShelves(libraryUUID: libraryUUID, libraryToken: libraryToken)) ?? []
+        // 4.2c-7: 復元した sidebar が現存しないシェルフを指す場合は library に戻す（存在しない
+        // シェルフでも reload は空表示になるだけだが、UX のためフォールバックする）。
+        switch sidebarSelection {
+        case .shelf(let id), .smartShelf(let id):
+            if !shelves.contains(where: { $0.id == id }) { sidebarSelection = .library }
+        default:
+            break
+        }
     }
 
     func setSidebar(_ s: RemoteSidebarSelection) {
@@ -620,14 +649,16 @@ final class RemoteLibraryState {
                 self.errorText = "本を開けませんでした（0ページ）"
                 return
             }
-            // 開いた時点で既読をサーバ確定（/progress は R でも許可）。
-            Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: max(0, book.lastPage ?? 0), libraryToken: self.libraryToken) }
-            // リモートでは per-book の永続見開き状態を持たないため、
-            // グローバル既定（spreadByDefault）で開く。lastPage はサーバの値を尊重。
+            // 4.2c-5: DL済みは offline の lastPage も考慮し max で続きを解決（前進読み前提）。
+            let resolvedLastPage = resolveResumePage(server: book.lastPage, offline: downloaded?.lastPage)
+            // 開いた時点で既読をサーバ確定（/progress は R でも許可）。offline 先行時にサーバを
+            // 巻き戻さないよう、解決後ページで POST する。
+            Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: resolvedLastPage, libraryToken: self.libraryToken) }
+            // リモートでは per-book の永続見開き状態を持たないため、グローバル既定で開く。
             let initialState = ResolvedViewerState(
                 spreadEnabled: ViewerSettings.shared.spreadByDefault,
                 coverOffset: true,
-                lastPage: max(0, book.lastPage ?? 0),
+                lastPage: resolvedLastPage,
                 overrides: [:]
             )
             // 一覧 DTO には pageDirection が無いため、サーバの本詳細から実際の読む方向を取得する。
@@ -672,6 +703,13 @@ final class RemoteLibraryState {
                         try? await self.client.postProgress(
                             libraryUUID: self.libraryUUID, bookID: b.id,
                             page: lastPage, libraryToken: self.libraryToken)
+                    }
+                    // 4.2c-5: DL済み(オフライン読み出し)はオフラインストアの lastPage も更新し、
+                    // オフラインビューアと続きを一致させる。未DLはエントリが無く no-op。
+                    if readingOffline {
+                        self.offlineStore.updateLastPage(
+                            serverID: self.serverID, libraryUUID: self.libraryUUID,
+                            bookID: b.id, page: lastPage)
                     }
                     // v4 修正: メモリ上の一覧 DTO の lastPage も更新する。これをしないと
                     // 一覧を再取得するまで stale な lastPage で開いてしまい、リモートで

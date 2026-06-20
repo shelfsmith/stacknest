@@ -198,6 +198,8 @@ struct RemoteLibraryView: View {
         .onChange(of: state.browserPaneState.selections) { _, _ in
             Task { await state.reload() }
         }
+        // 4.2c-7: grid/list トグルは reload を伴わないため個別にブラウズ状態を永続化する。
+        .onChange(of: state.isGrid) { _, _ in state.persistBrowseState() }
     }
 
     private var toolbar: some View {
