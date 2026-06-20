@@ -532,7 +532,11 @@ struct RemoteLibraryView: View {
             }
             .task { listFocused = true }
             // 4.2c-4: ⌘/Shift クリック判定用の NSEvent モニタをグリッド表示中だけ有効化する。
-            .onAppear { startModifierMonitor() }
+            // list→grid 切替直後の初回 ⇧クリックが範囲選択になるよう、アンカー未設定なら現在の選択で seed する。
+            .onAppear {
+                startModifierMonitor()
+                if anchorBookID == nil { anchorBookID = state.multiSelection.first ?? state.selection }
+            }
             .onDisappear { stopModifierMonitor() }
         }
     }
@@ -640,7 +644,9 @@ private struct RemoteBookCell: View {
                     ProgressView().controlSize(.small)
                 }
             }
-            .frame(height: 180)
+            // 4.2c-4: 表紙を 2:3 の枠で列幅に追従させる（gridItemSize スライダーで拡縮・ローカル相当）。
+            .aspectRatio(2.0 / 3.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
             .overlay(alignment: .topTrailing) {
                 if downloaded {
                     Image(systemName: "arrow.down.circle.fill")
