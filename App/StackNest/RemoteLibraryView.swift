@@ -16,6 +16,12 @@ struct RemoteLibraryView: View {
     /// D1: グリッドに focus を与えて .onKeyPress(.return) を確実に発火させる。
     @FocusState private var listFocused: Bool
 
+    /// 4.2c-4: グリッドの ⌘/Shift クリック複数選択用。NSEvent ローカルモニタで連続追跡する。
+    @State private var currentModifiers: NSEvent.ModifierFlags = []
+    @State private var modifierMonitor: Any?
+    /// Shift クリックの範囲選択アンカー。
+    @State private var anchorBookID: Int?
+
     /// Task 3: paged per の TextField 入力（数字のみ・commit 時に clamp）。
     @State private var perInput = ""
 
@@ -170,25 +176,8 @@ struct RemoteLibraryView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            Picker("並び替え", selection: $state.sortKey) {
-                Text("タイトル").tag("title")
-                Text("シリーズ").tag("series")
-                Text("追加日").tag("dateAdded")
-                Text("最終閲覧").tag("lastRead")
-            }
-            .frame(width: 150)
-            .onChange(of: state.sortKey) { _, _ in
-                Task { await state.reload() }
-            }
-
-            Button {
-                state.ascending.toggle()
-                Task { await state.reload() }
-            } label: {
-                Image(systemName: state.ascending ? "arrow.up" : "arrow.down")
-            }
-            .help(state.ascending ? "昇順" : "降順")
-
+            // 4.2c-4: 並び替えはリスト=ヘッダクリック / グリッド=セル右クリックに集約したため、
+            // ツールバーの「並び替え」Picker＋昇降ボタンは撤去（state.sortKey 共有で両者は同期）。
             // Task 3: 表示モード（ページ表示 / 無限スクロール）。
             Picker("", selection: modeBinding) {
                 Text("ページ表示").tag(RemoteScrollMode.paged)
@@ -311,13 +300,91 @@ struct RemoteLibraryView: View {
 
     // MARK: - Selection helpers
 
-    /// D1: 選択中の本を開く。グリッドの Return キー処理で使用。
+    /// D1 / 4.2c-4: 選択中（アンカー優先→複数選択先頭→単一選択）の本を開く。グリッドの Return 用。
     private func openSelected() -> KeyPress.Result {
-        if let id = state.selection, let book = state.books.first(where: { $0.id == id }) {
+        let id = anchorBookID ?? state.multiSelection.first ?? state.selection
+        if let id, let book = state.books.first(where: { $0.id == id }) {
             state.openViewer(book: book)
             return .handled
         }
         return .ignored
+    }
+
+    // MARK: - Grid modifier monitor (4.2c-4)
+
+    private func startModifierMonitor() {
+        guard modifierMonitor == nil else { return }
+        currentModifiers = []
+        modifierMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged]) { event in
+            currentModifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            return event
+        }
+    }
+
+    private func stopModifierMonitor() {
+        if let monitor = modifierMonitor {
+            NSEvent.removeMonitor(monitor)
+            modifierMonitor = nil
+        }
+    }
+
+    // MARK: - Grid selection (4.2c-4)
+
+    /// 単一クリック: 修飾子で分岐（ローカルグリッドと同方針）。
+    private func handleGridClick(_ book: BookListItemDTO) {
+        if currentModifiers.contains(.command) {
+            toggleSelection(book)
+        } else if currentModifiers.contains(.shift) {
+            rangeSelect(to: book)
+        } else {
+            replaceSelection(book)
+        }
+    }
+
+    /// 修飾なし: 単一選択に置換＋アンカー更新＋詳細追従。
+    private func replaceSelection(_ book: BookListItemDTO) {
+        state.multiSelection = [book.id]
+        anchorBookID = book.id
+        Task { await state.selectBook(book.id) }
+    }
+
+    /// ⌘: トグル。
+    private func toggleSelection(_ book: BookListItemDTO) {
+        if state.multiSelection.contains(book.id) {
+            state.multiSelection.remove(book.id)
+        } else {
+            state.multiSelection.insert(book.id)
+            anchorBookID = book.id
+        }
+        syncDetailAfterMulti()
+    }
+
+    /// ⇧: アンカーからの範囲選択。
+    private func rangeSelect(to book: BookListItemDTO) {
+        let books = state.books
+        guard let anchor = anchorBookID,
+              let a = books.firstIndex(where: { $0.id == anchor }),
+              let c = books.firstIndex(where: { $0.id == book.id }) else {
+            replaceSelection(book)
+            return
+        }
+        let lo = min(a, c), hi = max(a, c)
+        state.multiSelection = Set(books[lo...hi].map(\.id))
+        syncDetailAfterMulti()
+    }
+
+    /// 複数選択後: 単一選択になったときだけ詳細ペインを追従させる（リスト挙動に一致）。
+    private func syncDetailAfterMulti() {
+        if state.multiSelection.count == 1, let id = state.multiSelection.first {
+            Task { await state.selectBook(id) }
+        }
+    }
+
+    /// グリッド空白タップ: 選択を全解除し詳細をクリア。
+    private func clearGridSelection() {
+        state.multiSelection = []
+        anchorBookID = nil
+        Task { await state.selectBook(nil) }
     }
 
     // MARK: - Offline download (Task 4)
@@ -338,78 +405,136 @@ struct RemoteLibraryView: View {
         }
     }
 
+    /// 4.2c-4: グリッドセル右クリックの並び替え。state.sortKey/ascending を設定して reload する。
+    /// リスト（NSTableView ヘッダ並び替え）とは state.sortKey を共有するため自動的に相互同期する。
+    /// キーは現行ツールバー Picker と同一（サーバ対応のソートキー）。
+    private static let remoteSortOptions: [(key: String, label: String)] = [
+        ("title", "タイトル"), ("series", "シリーズ"), ("dateAdded", "追加日"), ("lastRead", "最終閲覧"),
+    ]
+
+    @ViewBuilder
+    private func sortMenu() -> some View {
+        Menu("並び替え") {
+            ForEach(Self.remoteSortOptions, id: \.key) { opt in
+                Button {
+                    if state.sortKey == opt.key {
+                        state.ascending.toggle()
+                    } else {
+                        state.sortKey = opt.key
+                        state.ascending = true
+                    }
+                    Task { await state.reload() }
+                } label: {
+                    Text(state.sortKey == opt.key
+                         ? "\(opt.label) \(state.ascending ? "↑" : "↓")"
+                         : opt.label)
+                }
+            }
+        }
+    }
+
     // MARK: - Grid mode
 
-    private let gridColumns = [GridItem(.adaptive(minimum: 140, maximum: 200), spacing: 16)]
-    private let gridItemMinSize: CGFloat = 140
     private let gridSpacing: CGFloat = 16
 
     /// O6: グリッド幅を GeometryReader で取得し、列数計算に使う。
     @State private var gridWidth: CGFloat = 0
 
-    /// O6: 現在の列数（GridColumnCalculator を使用）。
+    /// 4.2c-4: グリッドのセルサイズは LibrarySettings.gridItemSize（GridSubToolbar スライダー・100...300）
+    /// に従う。ローカルグリッドと同様 minimum=maximum を同値にして連続的にサイズ変更を反映する。
+    private var gridColumns: [GridItem] {
+        let size = settings.gridItemSize
+        return [GridItem(.adaptive(minimum: size, maximum: size), spacing: gridSpacing)]
+    }
+
+    /// O6: 現在の列数（GridColumnCalculator を使用）。itemMinSize は gridItemSize に従う。
     private var currentColumnCount: Int {
-        GridColumnCalculator.columns(viewportWidth: gridWidth, itemMinSize: gridItemMinSize, spacing: gridSpacing)
+        GridColumnCalculator.columns(viewportWidth: gridWidth, itemMinSize: settings.gridItemSize, spacing: gridSpacing)
     }
 
     private var gridView: some View {
-        ScrollView {
-            LazyVGrid(columns: gridColumns, spacing: gridSpacing) {
-                ForEach(state.books, id: \.id) { book in
-                    RemoteBookCell(book: book, state: state, selected: state.selection == book.id,
-                                   downloaded: downloadedBadge(book.id))
-                        .onTapGesture(count: 2) { state.openViewer(book: book) }
-                        .onTapGesture { Task { await state.selectBook(book.id) } }
-                        .contextMenu { downloadMenu(book) }
-                        // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
-                        .onAppear {
-                            if state.scrollMode == .infinite, book.id == state.books.last?.id {
-                                Task { await state.loadMore() }
-                            }
+        VStack(spacing: 0) {
+            // 4.2c-4: グリッド表示サイズスライダー（ローカルと同じ GridSubToolbar を再利用）。
+            GridSubToolbar(settings: settings)
+            Divider()
+            gridScroll
+        }
+    }
+
+    private var gridScroll: some View {
+        GeometryReader { geo in
+            ScrollView {
+                ZStack(alignment: .topLeading) {
+                    // 4.2c-4: 空白タップで選択解除（最下層・viewport 全面）。ローカルグリッドと同方針。
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .frame(maxWidth: .infinity, minHeight: geo.size.height)
+                        .onTapGesture { clearGridSelection() }
+
+                    LazyVGrid(columns: gridColumns, spacing: gridSpacing) {
+                        ForEach(state.books, id: \.id) { book in
+                            // 4.2c-4: ハイライトは multiSelection に従う（リストと共有）。
+                            RemoteBookCell(book: book, state: state,
+                                           selected: state.multiSelection.contains(book.id),
+                                           downloaded: downloadedBadge(book.id))
+                                .onTapGesture(count: 2) { state.openViewer(book: book) }
+                                // 4.2c-4: 単一クリックは修飾子で分岐（⌘トグル / ⇧範囲 / 無修飾置換）。
+                                .onTapGesture { handleGridClick(book) }
+                                .contextMenu { downloadMenu(book); Divider(); sortMenu() }
+                                // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
+                                .onAppear {
+                                    if state.scrollMode == .infinite, book.id == state.books.last?.id {
+                                        Task { await state.loadMore() }
+                                    }
+                                }
                         }
+                    }
+                    .padding(gridSpacing)
                 }
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
             }
-            .padding(gridSpacing)
-        }
-        // O6: グリッド幅を背景 GeometryReader で取得（ScrollView レイアウトを変えない）。
-        .background(GeometryReader { geo in
-            Color.clear
-                .onAppear { gridWidth = geo.size.width }
-                .onChange(of: geo.size.width) { _, w in gridWidth = w }
-        })
-        // D1: グリッドでも Return で選択中の本を開く。
-        .focusable()
-        .focused($listFocused)
-        .onKeyPress(.return) { openSelected() }
-        // O6: 矢印キーでグリッドセルを移動する。
-        .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: .down) { press in
-            let books = state.books
-            guard !books.isEmpty else { return .ignored }
-            let cols = max(1, currentColumnCount)
-            let total = books.count
-            let cur = state.selection.flatMap { id in books.firstIndex(where: { $0.id == id }) }
-            let direction: GridNavigator.Direction
-            switch press.key {
-            case .upArrow:    direction = .up
-            case .downArrow:  direction = .down
-            case .leftArrow:  direction = .left
-            case .rightArrow: direction = .right
-            default: return .ignored
-            }
-            let targetIdx: Int
-            if let cur {
-                guard let next = GridNavigator.nextIndex(current: cur, direction: direction, total: total, columns: cols) else {
-                    return .handled  // 端で消費（スクロール等に伝播させない）
+            .onAppear { gridWidth = geo.size.width }
+            .onChange(of: geo.size.width) { _, w in gridWidth = w }
+            // D1: グリッドでも Return で選択中の本を開く。
+            .focusable()
+            .focused($listFocused)
+            .onKeyPress(.return) { openSelected() }
+            // O6: 矢印キーでグリッドセルを移動する（4.2c-4: multiSelection を単一に置換しながら移動）。
+            .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: .down) { press in
+                let books = state.books
+                guard !books.isEmpty else { return .ignored }
+                let cols = max(1, currentColumnCount)
+                let total = books.count
+                let cur = anchorBookID.flatMap { id in books.firstIndex(where: { $0.id == id }) }
+                    ?? state.multiSelection.first.flatMap { id in books.firstIndex(where: { $0.id == id }) }
+                let direction: GridNavigator.Direction
+                switch press.key {
+                case .upArrow:    direction = .up
+                case .downArrow:  direction = .down
+                case .leftArrow:  direction = .left
+                case .rightArrow: direction = .right
+                default: return .ignored
                 }
-                targetIdx = next
-            } else {
-                targetIdx = 0  // 未選択 + 矢印 → 先頭
+                let targetIdx: Int
+                if let cur {
+                    guard let next = GridNavigator.nextIndex(current: cur, direction: direction, total: total, columns: cols) else {
+                        return .handled  // 端で消費（スクロール等に伝播させない）
+                    }
+                    targetIdx = next
+                } else {
+                    targetIdx = 0  // 未選択 + 矢印 → 先頭
+                }
+                let id = books[targetIdx].id
+                state.multiSelection = [id]
+                anchorBookID = id
+                Task { await state.selectBook(id) }
+                return .handled
             }
-            let id = books[targetIdx].id
-            Task { await state.selectBook(id) }
-            return .handled
+            .task { listFocused = true }
+            // 4.2c-4: ⌘/Shift クリック判定用の NSEvent モニタをグリッド表示中だけ有効化する。
+            .onAppear { startModifierMonitor() }
+            .onDisappear { stopModifierMonitor() }
         }
-        .task { listFocused = true }
     }
 
     // MARK: - Pager
