@@ -16,6 +16,7 @@ struct RemoteStampPaneView: View {
                     label: field.localizedTitle,
                     definitions: (state.stampDefinitions[field.dbColumn] ?? []).sorted(),
                     applyEnabled: state.canEditServer && !state.multiSelection.isEmpty,
+                    editEnabled: state.canEditServer,
                     onApplyValue: { state.applyStamp(field: field, value: $0) },
                     onApplyClear: { state.clearStamp(field: field) },
                     onAddDefinition: { state.addStampDefinition(field: field, value: $0) },
@@ -28,5 +29,7 @@ struct RemoteStampPaneView: View {
             }
         }
         .frame(height: 200)
+        // C2 改善: スタンプペイン表示時にサーバ定義を再取得（タブ切替で最新化＝再接続不要）。
+        .task { await state.loadStampDefinitions() }
     }
 }

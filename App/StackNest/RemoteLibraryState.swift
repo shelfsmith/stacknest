@@ -682,8 +682,28 @@ final class RemoteLibraryState {
 
     /// 共有 DetailPaneView の books（選択本の詳細 → BookRow 単一要素 or 空）。
     func detailBookRows() -> [BookRow] {
+        // 4.2c-6a 修正: 複数選択時は選択中の一覧 DTO を BookRow に写して返す。これにより
+        // DetailPaneView が複数選択編集パス（onApplyPatchMulti）を発火する（単一 detail だけだと
+        // 一括編集が起動せず反映されなかった＝smoke A1/A2 NG の根因）。keywordC は list wire
+        // 非対応のため複数選択編集時の現在値表示は nil（適用自体は全フィールド可能）。
+        if multiSelection.count >= 2 {
+            let rows = books.filter { multiSelection.contains($0.id) }.map { Self.detailRow(from: $0) }
+            if !rows.isEmpty { return rows }
+        }
         guard let d = detail else { return [] }
         return [Self.mapDetail(d)]
+    }
+
+    /// 一覧 DTO → 一括編集用 BookRow（表示可能フィールドを写す）。
+    private static func detailRow(from dto: BookListItemDTO) -> BookRow {
+        BookRow(
+            id: dto.id, title: dto.title, author: dto.author, genre: dto.genre, path: nil,
+            dateAdded: dto.dateAdded, playDate: dto.lastReadAt, bookType: dto.bookType, fileType: 0,
+            pages: dto.pages, rating: dto.rating, unseen: dto.unseen,
+            keywordA: dto.keywordA, keywordB: dto.keywordB, keywordC: nil, neta: dto.neta,
+            memo: dto.memo, series: dto.series, volume: dto.volume,
+            coverImageName: nil, coverCropRect: nil, pageDirection: nil,
+            contentHash: nil, fileSize: nil, fileMtime: nil)
     }
 
     private static func mapDetail(_ d: BookDetailDTO) -> BookRow {

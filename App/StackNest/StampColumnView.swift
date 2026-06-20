@@ -14,6 +14,8 @@ struct StampColumnView: View {
     let definitions: [String]
     /// 選択本が 1 件以上か（適用/消去の有効化）。
     let applyEnabled: Bool
+    /// 定義の追加・削除が可能か（ローカル=常時 / リモート=RW のみ）。
+    var editEnabled: Bool = true
     let onApplyValue: (String) -> Void
     let onApplyClear: () -> Void
     let onAddDefinition: (String) -> Void
@@ -33,13 +35,27 @@ struct StampColumnView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ChipView(variant: .clear, disabled: !applyEnabled) { onApplyClear() }
                     ForEach(definitions, id: \.self) { v in
-                        ChipView(variant: .value(v), disabled: !applyEnabled) { onApplyValue(v) }
-                            .contextMenu {
-                                Button("削除", role: .destructive) { onDeleteDefinition(v) }
+                        HStack(spacing: 2) {
+                            ChipView(variant: .value(v), disabled: !applyEnabled) { onApplyValue(v) }
+                            // D2: チップ右に × を設けて定義を削除（右クリックでも可）。
+                            Button { onDeleteDefinition(v) } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
+                            .buttonStyle(.plain)
+                            .disabled(!editEnabled)
+                            .opacity(editEnabled ? 1.0 : 0.3)
+                            .help("この値（定義）を削除")
+                        }
+                        .contextMenu {
+                            Button("削除", role: .destructive) { onDeleteDefinition(v) }
+                                .disabled(!editEnabled)
+                        }
                     }
-                    // [+ 新規追加] は定義を追加するのみ（book を変更しないので 0 件選択時でも常時有効）。
-                    ChipView(variant: .newAdd, disabled: false) { showAddPopover = true }
+                    // [+ 新規追加] は定義を追加するのみ（book を変更しないので 0 件選択時でも有効。
+                    // ただし編集不可（リモート R）のときは無効）。
+                    ChipView(variant: .newAdd, disabled: !editEnabled) { showAddPopover = true }
                         .popover(isPresented: $showAddPopover) { addPopover }
                 }
                 .padding(6)
