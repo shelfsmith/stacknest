@@ -510,7 +510,12 @@ final class RemoteLibraryState {
     /// Phase 4.2b-3 Task 4: BookPatch をサーバへ PATCH し、詳細・一覧を更新する。
     /// BookPatch → BookPatchDTO 変換（単一/一括編集で共有）。
     static func patchToDTO(_ patch: BookPatch) -> BookPatchDTO {
-        let dirStr: (PageDirection) -> String = { $0 == .rightToLeft ? "rtl" : "ltr" }
+        let dirStr: (PageDirection) -> String = { dir in
+            switch dir {
+            case .rightToLeft: return "rtl"
+            case .leftToRight: return "ltr"
+            }
+        }
         return BookPatchDTO(
             title: patch.title, author: patch.author, genre: patch.genre,
             neta: patch.neta, memo: patch.memo,
