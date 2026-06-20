@@ -508,14 +508,10 @@ final class RemoteLibraryState {
     }
 
     /// Phase 4.2b-3 Task 4: BookPatch をサーバへ PATCH し、詳細・一覧を更新する。
-    func applyRemotePatch(bookID: Int, patch: BookPatch) async {
-        let dirStr: (PageDirection) -> String = { dir in
-            switch dir {
-            case .rightToLeft: return "rtl"
-            case .leftToRight: return "ltr"
-            }
-        }
-        let dto = BookPatchDTO(
+    /// BookPatch → BookPatchDTO 変換（単一/一括編集で共有）。
+    static func patchToDTO(_ patch: BookPatch) -> BookPatchDTO {
+        let dirStr: (PageDirection) -> String = { $0 == .rightToLeft ? "rtl" : "ltr" }
+        return BookPatchDTO(
             title: patch.title, author: patch.author, genre: patch.genre,
             neta: patch.neta, memo: patch.memo,
             keywordA: patch.keywordA, keywordB: patch.keywordB, keywordC: patch.keywordC,
@@ -524,6 +520,10 @@ final class RemoteLibraryState {
             pageDirection: patch.pageDirection.map { dirStr($0) },
             clearSeries: patch.clearSeries, clearVolume: patch.clearVolume,
             clearPageDirection: patch.clearPageDirection)
+    }
+
+    func applyRemotePatch(bookID: Int, patch: BookPatch) async {
+        let dto = Self.patchToDTO(patch)
         do {
             _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: bookID, patch: dto, libraryToken: libraryToken)
             await selectBook(bookID)   // 詳細ペインを最新内容で再描画
@@ -532,6 +532,62 @@ final class RemoteLibraryState {
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
             else { errorText = "編集に失敗しました" }
         }
+    }
+
+    // MARK: - 4.2c-6a: 一括メタ編集（replace・per-book PATCH＋進捗/中断）
+
+    /// 詳細ペイン複数選択編集の進捗（done, total）。実行中のみ非 nil。
+    var editProgress: (done: Int, total: Int)? = nil
+    var editSummary: String? = nil
+    var editSummaryKind: BatchSummaryKind = .success
+    private var editSummaryToken = 0
+    private var editCancel: CancelFlag?
+    private var editTask: Task<Void, Never>?
+
+    private func showEditSummary(_ text: String, kind: BatchSummaryKind) {
+        editSummary = text; editSummaryKind = kind
+        editSummaryToken &+= 1
+        let token = editSummaryToken
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard let self, self.editSummaryToken == token else { return }
+            self.editSummary = nil
+        }
+    }
+
+    /// 詳細ペインの複数選択一括編集を開始（RW 必須・×中断トークン付き）。
+    func startBatchEdit(ids: Set<Int>, patch: BookPatch) {
+        guard canEditServer, !ids.isEmpty else { return }
+        editCancel?.cancel(); editTask?.cancel()
+        let flag = CancelFlag(); editCancel = flag
+        editTask = Task { [weak self] in await self?.applyRemotePatchMulti(ids: ids, patch: patch, cancel: flag) }
+    }
+
+    func cancelBatchEdit() { editCancel?.cancel(); editTask?.cancel() }
+
+    /// 一律 patch を選択本へ per-book PATCH（replace）。進捗・中断・要約を出す。
+    private func applyRemotePatchMulti(ids: Set<Int>, patch: BookPatch, cancel: CancelFlag) async {
+        let list = Array(ids)
+        guard !list.isEmpty else { return }
+        let dto = Self.patchToDTO(patch)
+        errorText = nil
+        var ok = 0, fail = 0, cancelled = false
+        editProgress = (0, list.count)
+        for (i, id) in list.enumerated() {
+            if cancel.isCancelled { cancelled = true; break }
+            do {
+                _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: dto, libraryToken: libraryToken)
+                ok += 1
+            } catch { fail += 1 }
+            editProgress = (i + 1, list.count)
+        }
+        editProgress = nil
+        await reload()
+        if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
+        var parts = ["\(ok) 件更新"]
+        if fail > 0 { parts.append("\(fail) 件失敗") }
+        if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }
+        showEditSummary(parts.joined(separator: " / "), kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
     }
 
     /// 共有ファセット pane の facetValues クロージャ用。

@@ -116,7 +116,7 @@ struct RemoteLibraryView: View {
             directionEditable: true,
             onSetPageDirection: { id, dir in Task { await state.setRemoteDirection(bookID: id, direction: dir) } },
             onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },
-            onApplyPatchMulti: { _, _ in },
+            onApplyPatchMulti: { ids, patch in state.startBatchEdit(ids: Set(ids), patch: patch) },
             onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },
             onJump: { field, value in Task { await state.jumpToFilter(field: field, value: value) } },
             onError: { _ in },
@@ -227,6 +227,7 @@ struct RemoteLibraryView: View {
             // 高頻度に再レイアウトされてチラつく。子ビューに切り出すと本体は downloadProgress を読まず
             // 再評価されない（リストの DL リングは RemoteBookTable.updateNSView が downloadProgress を
             // 自前で購読しているため独立して更新される）。
+            RemoteBatchEditButton(state: state)
             RemoteDownloadButton(state: state)
         }
         .padding(8)
@@ -623,6 +624,37 @@ private struct RemoteTopPaneControl: View {
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
         // 注: "stamp"→"browse" の矯正は RemoteLibrarySettingsProvider.makeSettings() で
         // ロード時に一度だけ行う（ビュー出現ごとの書込み・複数ウィンドウでの重複発火を避ける）。
+    }
+}
+
+// MARK: - Batch edit indicator (4.2c-6a)
+
+/// 4.2c-6a: 詳細ペイン複数選択編集（replace）の進捗バー / 中断(×) / 完了要約。
+/// editProgress を読むのはこの子ビューだけにして本体の高頻度再評価を避ける。
+private struct RemoteBatchEditButton: View {
+    @Bindable var state: RemoteLibraryState
+
+    private static func summaryStyle(_ kind: RemoteLibraryState.BatchSummaryKind) -> (icon: String, color: Color) {
+        switch kind {
+        case .success:   return ("checkmark.circle", .secondary)
+        case .warning:   return ("exclamationmark.triangle", .orange)
+        case .cancelled: return ("xmark.circle", .secondary)
+        case .info:      return ("info.circle", .secondary)
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let p = state.editProgress {
+                ProgressView(value: Double(p.done) / Double(max(1, p.total))).frame(width: 80)
+                Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
+                Button { state.cancelBatchEdit() } label: { Image(systemName: "xmark.circle") }
+                    .help("一括編集を中断")
+            } else if let summary = state.editSummary {
+                let style = Self.summaryStyle(state.editSummaryKind)
+                Label(summary, systemImage: style.icon).font(.caption).foregroundStyle(style.color)
+            }
+        }
     }
 }
 
