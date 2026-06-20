@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import LibraryStore
 
 /// リモートブラウズの表示モード（排他 2 択）。
 public enum RemoteScrollMode: String, Codable, Sendable, CaseIterable {
@@ -43,4 +44,55 @@ public struct RemoteBrowsePreferences: @unchecked Sendable {
         }
         nonmutating set { defaults.set(clampRemotePerPage(newValue), forKey: Self.perKey) }
     }
+
+    // MARK: - 4.2c-7: ブラウザ状態の永続化（(serverID, libraryUUID) 単位）
+
+    private static func browseStateKey(_ serverID: UUID, _ libraryUUID: String) -> String {
+        "remote_browse_state/\(serverID.uuidString)/\(libraryUUID)"
+    }
+
+    public func browseState(serverID: UUID, libraryUUID: String) -> RemoteBrowseState? {
+        guard let data = defaults.data(forKey: Self.browseStateKey(serverID, libraryUUID)) else { return nil }
+        return try? JSONDecoder().decode(RemoteBrowseState.self, from: data)
+    }
+
+    public nonmutating func setBrowseState(_ s: RemoteBrowseState, serverID: UUID, libraryUUID: String) {
+        guard let data = try? JSONEncoder().encode(s) else { return }
+        defaults.set(data, forKey: Self.browseStateKey(serverID, libraryUUID))
+    }
+}
+
+/// 4.2c-7: リモートのサイドバー選択（AppCore へ移動して RemoteBrowseState から参照可能にする）。
+/// 関連値付き enum の Codable は Swift が自動合成する。
+public enum RemoteSidebarSelection: Codable, Sendable, Equatable, Hashable {
+    case library
+    case favorites(Int64)
+    case recent
+    case shelf(Int64)
+    case smartShelf(Int64)
+}
+
+/// 4.2c-7: リモートブラウザの復元対象ブラウズ状態（(serverID, libraryUUID) 単位で永続化）。
+public struct RemoteBrowseState: Codable, Sendable, Equatable {
+    public var browserPaneState: BrowserPaneState
+    public var sortKey: String
+    public var ascending: Bool
+    public var isGrid: Bool
+    public var filterState: FilterState
+    public var sidebar: RemoteSidebarSelection
+
+    public init(browserPaneState: BrowserPaneState, sortKey: String, ascending: Bool,
+                isGrid: Bool, filterState: FilterState, sidebar: RemoteSidebarSelection) {
+        self.browserPaneState = browserPaneState
+        self.sortKey = sortKey
+        self.ascending = ascending
+        self.isGrid = isGrid
+        self.filterState = filterState
+        self.sidebar = sidebar
+    }
+}
+
+/// 4.2c-5: 続き位置の解決。サーバと offline の lastPage のうち大きい方（前進読み前提・nil=0）。
+public func resolveResumePage(server: Int?, offline: Int?) -> Int {
+    max(max(0, server ?? 0), max(0, offline ?? 0))
 }
