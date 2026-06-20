@@ -158,8 +158,8 @@ struct RemoteLibraryView: View {
                 banner(err)
             }
             Divider()
-            // Task 6 / B2 / 4.2c-4: 共有ファセット pane（上端）。上ペイン切替が "browse" のとき表示。
-            // "hidden" で非表示。"stamp" はリモートでは未対応（グレーアウト）。
+            // Task 6 / B2 / 4.2c-4 / 4.2c-6a: 上ペイン切替。"browse"=ファセット / "stamp"=スタンプ
+            // / "hidden"=非表示。
             if settings.topPaneMode == "browse" {
                 BrowserPaneView(
                     browserPaneState: $state.browserPaneState,
@@ -167,6 +167,9 @@ struct RemoteLibraryView: View {
                     refreshKey: state.facetRefreshKey,
                     facetValues: { col, upper in await state.facetValues(col, upper) }
                 )
+                Divider()
+            } else if settings.topPaneMode == "stamp" {
+                RemoteStampPaneView(state: state)
                 Divider()
             }
             if state.isGrid {
@@ -183,7 +186,7 @@ struct RemoteLibraryView: View {
                 pager
             }
         }
-        .task { await state.reload() }
+        .task { await state.reload(); await state.loadStampDefinitions() }
         .onAppear { perInput = String(state.per) }
         .onChange(of: state.per) { _, newValue in
             // setPer 経由などで per が変わったら TextField を同期。
@@ -594,7 +597,7 @@ private struct RemoteTopPaneControl: View {
     private struct Item { let mode: String; let icon: String; let help: String; let enabled: Bool }
     private static let items: [Item] = [
         Item(mode: "browse", icon: "rectangle.split.3x1", help: "ブラウズ", enabled: true),
-        Item(mode: "stamp",  icon: "tag",                 help: "スタンプ（別フェーズで対応予定）", enabled: false),
+        Item(mode: "stamp",  icon: "tag",                 help: "スタンプ", enabled: true),
         Item(mode: "hidden", icon: "eye.slash",           help: "隠す", enabled: true),
     ]
 

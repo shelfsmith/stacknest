@@ -590,6 +590,75 @@ final class RemoteLibraryState {
         showEditSummary(parts.joined(separator: " / "), kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
     }
 
+    // MARK: - 4.2c-6a: スタンプ（サーバ定義同期＋一括適用）
+
+    /// サーバ常駐のスタンプ定義キャッシュ（dbColumn→値配列）。library open 時に GET、編集で PUT。
+    var stampDefinitions: [String: [String]] = [:]
+
+    /// サーバからスタンプ定義を取得してキャッシュする。
+    func loadStampDefinitions() async {
+        stampDefinitions = (try? await client.fetchStampDefinitions(
+            libraryUUID: libraryUUID, libraryToken: libraryToken)) ?? [:]
+    }
+
+    /// 選択本へスタンプ値を append 適用（サーバ一括 API・単一リクエスト）。
+    func applyStamp(field: StampField, value: String) {
+        guard canEditServer, !multiSelection.isEmpty else { return }
+        let ids = Array(multiSelection)
+        Task {
+            _ = try? await client.applyStamp(libraryUUID: libraryUUID, field: field.dbColumn,
+                                             value: value, clear: false, bookIDs: ids, libraryToken: libraryToken)
+            await reload()
+            if let id = selection { await selectBook(id) }
+        }
+    }
+
+    /// 選択本の当該スタンプフィールドを消去（サーバ一括 API）。
+    func clearStamp(field: StampField) {
+        guard canEditServer, !multiSelection.isEmpty else { return }
+        let ids = Array(multiSelection)
+        Task {
+            _ = try? await client.applyStamp(libraryUUID: libraryUUID, field: field.dbColumn,
+                                             value: nil, clear: true, bookIDs: ids, libraryToken: libraryToken)
+            await reload()
+            if let id = selection { await selectBook(id) }
+        }
+    }
+
+    /// スタンプ定義を追加（重複 skip）→ サーバ PUT。選択があれば併せて適用。RW 必須。
+    func addStampDefinition(field: StampField, value: String) {
+        guard canEditServer else { return }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        var defs = stampDefinitions
+        var fieldDefs = defs[field.dbColumn] ?? []
+        if !fieldDefs.contains(trimmed) {
+            fieldDefs.append(trimmed); defs[field.dbColumn] = fieldDefs; stampDefinitions = defs
+        }
+        let snapshot = stampDefinitions
+        Task {
+            if let saved = try? await client.putStampDefinitions(snapshot, libraryUUID: libraryUUID, libraryToken: libraryToken) {
+                stampDefinitions = saved
+            }
+        }
+        if !multiSelection.isEmpty { applyStamp(field: field, value: trimmed) }
+    }
+
+    /// スタンプ定義を削除 → サーバ PUT。ショートカット定義のみ除去（本メタは不変）。RW 必須。
+    func deleteStampDefinition(field: StampField, value: String) {
+        guard canEditServer else { return }
+        var defs = stampDefinitions
+        if var fieldDefs = defs[field.dbColumn], let i = fieldDefs.firstIndex(of: value) {
+            fieldDefs.remove(at: i); defs[field.dbColumn] = fieldDefs; stampDefinitions = defs
+        }
+        let snapshot = stampDefinitions
+        Task {
+            if let saved = try? await client.putStampDefinitions(snapshot, libraryUUID: libraryUUID, libraryToken: libraryToken) {
+                stampDefinitions = saved
+            }
+        }
+    }
+
     /// 共有ファセット pane の facetValues クロージャ用。
     func facetValues(_ columnSQL: String, _ upper: [(String, String)]) async -> [String] {
         let (scope, scopeId, recentDays) = scopeParams()
