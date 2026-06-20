@@ -414,27 +414,26 @@ struct RemoteLibraryView: View {
 
     /// 4.2c-4: グリッドセル右クリックの並び替え。state.sortKey/ascending を設定して reload する。
     /// リスト（NSTableView ヘッダ並び替え）とは state.sortKey を共有するため自動的に相互同期する。
-    /// キーは現行ツールバー Picker と同一（サーバ対応のソートキー）。
-    private static let remoteSortOptions: [(key: String, label: String)] = [
-        ("title", "タイトル"), ("series", "シリーズ"), ("dateAdded", "追加日"), ("lastRead", "最終閲覧"),
-    ]
-
+    /// smoke v2 要望: リストは列ヘッダで全列を並び替えできるため、グリッドのメニューも
+    /// 全 BookColumn（= サーバ対応の全ソートキー）を出してリストと同等にする。キー・ラベルは
+    /// BookColumn.serverSortKey / localizedTitleString を直接使い、列ヘッダと表記を揃える。
     @ViewBuilder
     private func sortMenu() -> some View {
         Menu("並び替え") {
-            ForEach(Self.remoteSortOptions, id: \.key) { opt in
+            ForEach(BookColumn.allCases, id: \.self) { col in
+                let key = col.serverSortKey
                 Button {
-                    if state.sortKey == opt.key {
+                    if state.sortKey == key {
                         state.ascending.toggle()
                     } else {
-                        state.sortKey = opt.key
+                        state.sortKey = key
                         state.ascending = true
                     }
                     Task { await state.reload() }
                 } label: {
-                    Text(state.sortKey == opt.key
-                         ? "\(opt.label) \(state.ascending ? "↑" : "↓")"
-                         : opt.label)
+                    Text(state.sortKey == key
+                         ? "\(col.localizedTitleString) \(state.ascending ? "↑" : "↓")"
+                         : col.localizedTitleString)
                 }
             }
         }
@@ -683,9 +682,12 @@ private struct RemoteBookCell: View {
                 }
             }
 
+            // smoke v2 自由記載: タイトルは「最大2行」だと1行で収まる本だけセル全高が低くなり、
+            // LazyVGrid が行内の高さ違いセルを縦中央寄せするため左端等が上下にずれて見える。
+            // reservesSpace: true で常に2行分の高さを確保し、全セル高さを統一してずれを解消する。
             Text(book.title)
                 .font(.caption)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
