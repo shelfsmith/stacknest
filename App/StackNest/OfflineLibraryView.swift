@@ -3,6 +3,7 @@ import AppCore
 import AppKit
 import LibraryServerAPI
 import LibraryStore
+import RemoteClient
 import SwiftUI
 
 /// Phase 4.2b-2 Task 5: オフライン（ダウンロード済み）ライブラリの閲覧 UI。
@@ -308,6 +309,15 @@ struct OfflineLibraryView: View {
                 persistState: { b, lastPage, _, _ in
                     LastReadTracker.shared.record(.offline(bookID: b.id, title: b.title))
                     store.updateLastPage(serverID: serverID, libraryUUID: libraryUUID, bookID: b.id, page: lastPage)
+                    // 4.2c-5: サーバへも best-effort で POST（リモートビューアと続きを一致させる）。
+                    // オフライン/接続なし/ロック庫(トークン無し)は握り潰す。
+                    Task {
+                        guard let conn = ServerConnectionStore().connection(id: serverID),
+                              let base = URL(string: conn.baseURL) else { return }
+                        let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
+                        try? await client.postProgress(
+                            libraryUUID: libraryUUID, bookID: b.id, page: lastPage, libraryToken: nil)
+                    }
                 },
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
