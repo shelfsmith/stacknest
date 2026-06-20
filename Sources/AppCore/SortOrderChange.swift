@@ -25,7 +25,10 @@ public func sortOrderAffected(
         case .keywordA:  return old.keywordA != new.keywordA
         case .keywordB:  return old.keywordB != new.keywordB
         case .memo:      return old.memo != new.memo
-        case .series:    return old.series != new.series
+        // 4.2c-4: .series 列は「シリーズ名 → 巻数」の2段ソート(sortedByColumn(.series))に
+        // 変わったため、series 同値でも volume 変更で並び順が変わり得る。両方を見る
+        // （.seriesVolumeAsc/Desc と同じ保守的判定）。
+        case .series:    return old.series != new.series || old.volume != new.volume
         case .rating:    return old.rating != new.rating
         case .bookType:  return old.bookType != new.bookType
         case .unseen:    return old.unseen != new.unseen

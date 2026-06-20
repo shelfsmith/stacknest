@@ -60,4 +60,27 @@ struct SortOrderChangeTests {
         #expect(sortOrderAffected(old: old, new: new,
             sortMode: .seriesVolumeDesc, columnSort: ColumnSort(column: .title, ascending: true)) == true)
     }
+
+    // 4.2c-4: .series 列ソートは「シリーズ名 → 巻数」の2段ソートのため、series 同値でも
+    // volume 変更で並び順が変わり得る → 再ソート必要。
+    @Test func seriesColumnVolumeChanged() {
+        let old = book(1, series: "S", volume: 1)
+        let new = book(1, series: "S", volume: 2)
+        #expect(sortOrderAffected(old: old, new: new,
+            sortMode: .column, columnSort: ColumnSort(column: .series, ascending: true)) == true)
+    }
+    // series 列ソートで series 名が変われば従来どおり再ソート必要。
+    @Test func seriesColumnSeriesChanged() {
+        let old = book(1, series: "A", volume: 1)
+        let new = book(1, series: "B", volume: 1)
+        #expect(sortOrderAffected(old: old, new: new,
+            sortMode: .column, columnSort: ColumnSort(column: .series, ascending: true)) == true)
+    }
+    // series 列ソートで series/volume とも不変なら再ソート不要。
+    @Test func seriesColumnUnaffectedWhenSeriesAndVolumeSame() {
+        let old = book(1, title: "A", series: "S", volume: 1)
+        let new = book(1, title: "B", series: "S", volume: 1)
+        #expect(sortOrderAffected(old: old, new: new,
+            sortMode: .column, columnSort: ColumnSort(column: .series, ascending: true)) == false)
+    }
 }
