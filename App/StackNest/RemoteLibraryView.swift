@@ -31,9 +31,12 @@ struct RemoteLibraryView: View {
     /// B2: サイドバー列表示制御（NavigationSplitView columnVisibility binding）。
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
 
+    /// 解錠フォーム（未解錠の保護ライブラリ）を表示中か。body の分岐と .toolbar の出し分けで共有する。
+    private var isUnlockFormShown: Bool { state.locked && state.libraryToken == nil }
+
     var body: some View {
         Group {
-            if state.locked && state.libraryToken == nil {
+            if isUnlockFormShown {
                 unlockForm
                     .frame(minWidth: 720, minHeight: 480)
             } else {
@@ -55,7 +58,7 @@ struct RemoteLibraryView: View {
         // - 上ペイン切替 [ブラウズ|スタンプ|隠す] をローカルから移植（スタンプは現状グレーアウト）。
         //   「隠す」(eye.slash) でファセット（=カラム）ペインを非表示にする。
         .toolbar {
-            if !(state.locked && state.libraryToken == nil) {
+            if !isUnlockFormShown {
                 ToolbarItem(placement: .principal) {
                     Picker("", selection: $state.isGrid) {
                         Image(systemName: "square.grid.2x2").tag(true)
@@ -594,13 +597,16 @@ private struct RemoteTopPaneControl: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(Self.items, id: \.mode) { item in
+            ForEach(Array(Self.items.enumerated()), id: \.element.mode) { index, item in
+                if index > 0 {
+                    Divider().frame(height: 16)
+                }
                 let selected = settings.topPaneMode == item.mode
                 Button {
                     settings.topPaneMode = item.mode
                 } label: {
                     Image(systemName: item.icon)
-                        .frame(width: 30, height: 22)
+                        .frame(width: 32, height: 22)
                         .contentShape(Rectangle())
                         .background(selected ? Color.accentColor.opacity(0.25) : Color.clear)
                 }
@@ -613,8 +619,8 @@ private struct RemoteTopPaneControl: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
-        // 過去設定で "stamp"（リモート無効）が残っていたら "browse" に矯正する。
-        .onAppear { if settings.topPaneMode == "stamp" { settings.topPaneMode = "browse" } }
+        // 注: "stamp"→"browse" の矯正は RemoteLibrarySettingsProvider.makeSettings() で
+        // ロード時に一度だけ行う（ビュー出現ごとの書込み・複数ウィンドウでの重複発火を避ける）。
     }
 }
 

@@ -37,7 +37,12 @@ enum RemoteLibrarySettingsProvider {
                 ? try Database.openExisting(at: dbURL)
                 : try Database.openFile(at: dbURL, mode: .createOrFail)
             try db.migrate()
-            return try LibrarySettings(database: db)
+            let settings = try LibrarySettings(database: db)
+            // 4.2c-4: リモートブラウザは上ペインの「スタンプ」未対応（別フェーズ）。旧ビルドで
+            // ローカルと設定 DB を共有していた等の歴史的経緯で "stamp" が残っていたら、ここで
+            // 一度だけ "browse" に矯正する（リモート UI からは stamp を選べないため通常は到達しない）。
+            if settings.topPaneMode == "stamp" { settings.topPaneMode = "browse" }
+            return settings
         } catch {
             logger.error("RemoteLibrarySettings: file-backed init failed (\(error.localizedDescription)); falling back to in-memory")
             // フォールバック: インメモリ DB（永続化されないが UI は動作する）。
