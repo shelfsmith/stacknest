@@ -60,6 +60,12 @@ struct RemoteLibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in
             state.downloadedVersion &+= 1
         }
+        // 4.2c-4 (A5): グリッドは LazyVGrid が selectAll: を持たないため、編集メニュー「すべてを選択」
+        // (⌘A) の通知をグリッド表示中に受けて全件選択する（リストは NSTableView が selectAll: を直接処理）。
+        .onReceive(NotificationCenter.default.publisher(for: .stacknestSelectAllRequest)) { _ in
+            guard state.isGrid, listFocused else { return }
+            state.multiSelection = Set(state.books.map(\.id))
+        }
     }
 
     // MARK: - Split layout (Task 6)
@@ -401,7 +407,8 @@ struct RemoteLibraryView: View {
         if downloadedBadge(book.id) {
             Button("オフラインから削除") { state.removeDownload(book.id) }
         } else {
-            Button("ダウンロード") { Task { await state.downloadBook(book) } }
+            // 4.2c-4: 単一 DL も一括と同じ進捗バー/×中断 UI を出す。
+            Button("ダウンロード") { state.startSingleDownload(book) }
         }
     }
 
@@ -470,6 +477,8 @@ struct RemoteLibraryView: View {
                         .contentShape(Rectangle())
                         .frame(maxWidth: .infinity, minHeight: geo.size.height)
                         .onTapGesture { clearGridSelection() }
+                        // C1: 項目外（空白）の右クリックでも並び替えメニューを出す（ローカル相当）。
+                        .contextMenu { sortMenu() }
 
                     LazyVGrid(columns: gridColumns, spacing: gridSpacing) {
                         ForEach(state.books, id: \.id) { book in
@@ -497,6 +506,8 @@ struct RemoteLibraryView: View {
             .onChange(of: geo.size.width) { _, w in gridWidth = w }
             // D1: グリッドでも Return で選択中の本を開く。
             .focusable()
+            // 自由記載#1: フォーカスリングでグリッド全体が選択状態に見えるのを抑止（ローカル相当）。
+            .focusEffectDisabled()
             .focused($listFocused)
             .onKeyPress(.return) { openSelected() }
             // O6: 矢印キーでグリッドセルを移動する（4.2c-4: multiSelection を単一に置換しながら移動）。
@@ -661,6 +672,16 @@ private struct RemoteBookCell: View {
                 RoundedRectangle(cornerRadius: 4)
                     .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)
             )
+            // 自由記載#3: ダウンロード中の本にはリスト DL 列と同じ進捗リングを重ねる。
+            .overlay {
+                if let prog = state.downloadProgress, prog.bookID == book.id {
+                    ProgressView(value: prog.fraction)
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .padding(6)
+                        .background(.thinMaterial, in: Circle())
+                }
+            }
 
             Text(book.title)
                 .font(.caption)

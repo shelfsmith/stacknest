@@ -342,13 +342,16 @@ final class RemoteLibraryState {
     }
 
     /// 選択集合を順に DL。既 DL はスキップ、失敗しても続行、完了時に自動消滅する要約を出す。
-    func downloadSelected() async {
+    func downloadSelected() async { await downloadBooks(ids: multiSelection) }
+
+    /// 指定 ID 群を順に DL する中核（単一/複数で共有）。進捗バー・×中断・要約を出す。
+    private func downloadBooks(ids: Set<Int>) async {
         // isDownloaded(_:) は self.serverID / self.libraryUUID を内部で参照するため
         // BatchDownloadPlan.pending の isDownloaded クロージャはラベルなし bookID のみ渡す。
-        let pending = BatchDownloadPlan.pending(selected: multiSelection) { id in
+        let pending = BatchDownloadPlan.pending(selected: ids) { id in
             isDownloaded(id)
         }
-        let skipped = multiSelection.count - pending.count
+        let skipped = ids.count - pending.count
         guard !pending.isEmpty else {
             showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "書籍が選択されていません",
                              kind: .info)
@@ -392,6 +395,15 @@ final class RemoteLibraryState {
         batchTask?.cancel()
         batchCancel = CancelFlag()
         batchTask = Task { [weak self] in await self?.downloadSelected() }
+    }
+
+    /// 4.2c-4: 単一 DL も一括と同じ進捗バー/×中断 UI を出す（右クリック「ダウンロード」用）。
+    func startSingleDownload(_ book: BookListItemDTO) {
+        batchCancel?.cancel()
+        batchTask?.cancel()
+        batchCancel = CancelFlag()
+        let id = book.id
+        batchTask = Task { [weak self] in await self?.downloadBooks(ids: [id]) }
     }
 
     /// 4.2c-3 (D2a v3): 実行中の一括 DL を即時中断する。トークンを同期で立て、bookFile の
