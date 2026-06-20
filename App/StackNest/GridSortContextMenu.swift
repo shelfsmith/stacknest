@@ -4,9 +4,10 @@ import AppCore
 import LibraryStore
 
 /// Grid view 背景の右クリックで表示する sort menu。
-/// 12 個の BookColumn を表示し、active field には方向 indicator (chevron.up / chevron.down) を付ける。
+/// 全 BookColumn を表示し、active field には方向 indicator (↑/↓) を付ける。
 /// 同じ field を再選択すると ascending を flip、異なる field を選択すると新 field を asc で適用する。
-/// 「シリーズ → 巻数」複合ソートは単一カラムによらない複合ソートとして末尾に表示する。
+/// 4.2c-4: 旧「シリーズ → 巻数」複合ソートは廃止。単一カラム「シリーズ」がリモート同様に
+/// 同一シリーズ内を巻数順に並べる（sortedByColumn(.series)）ため複合項目は不要になった。
 /// Phase 2.4c (commit `22ea96d` 系列以降)。Phase 2.5c-a Task 11 で複合ソート追加。
 /// Phase 2.5c-b: smoke v1 NG 後に確認 — @Bindable settings の chevron indicator は List view 相当。
 struct GridSortContextMenu: View {
@@ -41,30 +42,7 @@ struct GridSortContextMenu: View {
                 }
             }
         }
-
-        // --- 複合ソート ---
-        Divider()
-        Button {
-            // Toggle: 別 mode → .seriesVolumeAsc、Asc なら Desc、Desc なら Asc
-            switch settings.sortMode {
-            case .seriesVolumeAsc:
-                settings.sortMode = .seriesVolumeDesc
-            case .seriesVolumeDesc:
-                settings.sortMode = .seriesVolumeAsc
-            default:
-                settings.sortMode = .seriesVolumeAsc
-            }
-            onChange()
-        } label: {
-            // macOS Menu items は Label の systemImage を表示しないため Unicode 矢印で代替する。
-            switch settings.sortMode {
-            case .seriesVolumeAsc:
-                Text("シリーズ → 巻数 ↑")
-            case .seriesVolumeDesc:
-                Text("シリーズ → 巻数 ↓")
-            default:
-                Text("シリーズ → 巻数")
-            }
-        }
+        // 旧「シリーズ → 巻数」複合ソートは廃止。単一カラム「シリーズ」が
+        // リモート同様に同一シリーズ内を巻数順に並べる（sortedByColumn(.series)）。
     }
 }

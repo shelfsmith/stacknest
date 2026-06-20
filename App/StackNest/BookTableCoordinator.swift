@@ -602,29 +602,8 @@ extension BookTableCoordinator: NSMenuDelegate {
             }
             sortSubmenu.addItem(it)
         }
-        // 複合ソート「シリーズ → 巻数」(Fix 2.5c-a) — 昇順/降順 toggle
-        sortSubmenu.addItem(.separator())
-        let seriesVolumeItem = NSMenuItem(
-            title: String(localized: "シリーズ → 巻数"),
-            action: #selector(setSortModeSeriesVolume(_:)),
-            keyEquivalent: ""
-        )
-        seriesVolumeItem.target = self
-        switch settings.sortMode {
-        case .seriesVolumeAsc:
-            seriesVolumeItem.image = NSImage(
-                systemSymbolName: "chevron.up",
-                accessibilityDescription: nil
-            )
-        case .seriesVolumeDesc:
-            seriesVolumeItem.image = NSImage(
-                systemSymbolName: "chevron.down",
-                accessibilityDescription: nil
-            )
-        default:
-            break
-        }
-        sortSubmenu.addItem(seriesVolumeItem)
+        // 旧「シリーズ → 巻数」複合ソートは廃止。単一カラム「シリーズ」が
+        // リモート同様に同一シリーズ内を巻数順に並べる（sortedByColumn(.series)）。
         sortItem.submenu = sortSubmenu
         menu.addItem(sortItem)
     }
@@ -707,22 +686,7 @@ extension BookTableCoordinator: NSMenuDelegate {
             }
             sortSubmenu.addItem(it)
         }
-        sortSubmenu.addItem(.separator())
-        let seriesVolumeItem = NSMenuItem(
-            title: String(localized: "シリーズ → 巻数"),
-            action: #selector(setSortModeSeriesVolume(_:)),
-            keyEquivalent: ""
-        )
-        seriesVolumeItem.target = self
-        switch settings.sortMode {
-        case .seriesVolumeAsc:
-            seriesVolumeItem.image = NSImage(systemSymbolName: "chevron.up", accessibilityDescription: nil)
-        case .seriesVolumeDesc:
-            seriesVolumeItem.image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: nil)
-        default:
-            break
-        }
-        sortSubmenu.addItem(seriesVolumeItem)
+        // 旧「シリーズ → 巻数」複合ソートは廃止（単一カラム「シリーズ」が巻数順を内包）。
         sortItem.submenu = sortSubmenu
         menu.addItem(sortItem)
         return menu
@@ -816,19 +780,6 @@ extension BookTableCoordinator: NSMenuDelegate {
             settings.listViewSort = ColumnSort(column: col, ascending: !settings.listViewSort.ascending)
         } else {
             settings.listViewSort = ColumnSort(column: col, ascending: true)
-        }
-        appState.refreshSortedDisplayedBooks()
-    }
-
-    @objc private func setSortModeSeriesVolume(_ sender: NSMenuItem) {
-        // Toggle: 別 mode → .seriesVolumeAsc、Asc なら Desc、Desc なら Asc
-        switch settings.sortMode {
-        case .seriesVolumeAsc:
-            settings.sortMode = .seriesVolumeDesc
-        case .seriesVolumeDesc:
-            settings.sortMode = .seriesVolumeAsc
-        default:
-            settings.sortMode = .seriesVolumeAsc
         }
         appState.refreshSortedDisplayedBooks()
     }

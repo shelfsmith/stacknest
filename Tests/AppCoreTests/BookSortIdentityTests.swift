@@ -52,15 +52,42 @@ struct BookSortIdentityTests {
         #expect(Set(new.map(\.id)) == Set(books.map(\.id)))
     }
 
-    @Test func seriesAscMatchesReference() {
-        // .series は文字列列（numeric:false）として扱う — このルーティングのガード
+    @Test func seriesAscIsSeriesThenVolume() {
+        // 4.2c-4: .series はリモート同様「シリーズ名 → 巻数」の2段ソート。
+        // series は自然順(localizedStandardCompare)で非降順に並ぶ（タイブレーク非依存の不変条件）。
         var rng = SplitMix64(seed: 44)
         let books = (1...200).map { mk($0, randomString(&rng)) }
         let new = books.sortedByColumn(ColumnSort(column: .series, ascending: true))
         for i in 0..<(new.count - 1) {
-            #expect((new[i].series ?? "").localizedCaseInsensitiveCompare(new[i+1].series ?? "") != .orderedDescending)
+            #expect((new[i].series ?? "").localizedStandardCompare(new[i+1].series ?? "") != .orderedDescending)
         }
         #expect(Set(new.map(\.id)) == Set(books.map(\.id)))
+        #expect(new.count == books.count)
+    }
+
+    private func mkSV(_ id: Int, series: String, volume: Double?) -> BookRow {
+        BookRow(id: id, title: "t\(id)", author: nil, genre: nil, path: nil,
+                dateAdded: Date(timeIntervalSince1970: 0), playDate: nil, bookType: 0, fileType: 0,
+                pages: nil, rating: 0, unseen: true, keywordA: nil, keywordB: nil, keywordC: nil,
+                neta: nil, memo: nil, series: series, volume: volume, coverImageName: nil,
+                coverCropRect: nil, pageDirection: nil, contentHash: nil, fileSize: nil, fileMtime: nil)
+    }
+
+    @Test func seriesOrdersByVolumeWithinSeries() {
+        // 4.2c-4: 同一シリーズ内は巻数昇順、シリーズ間は自然順(A<B、巻数は 1<2<10)。
+        // 旧「シリーズ → 巻数」複合ソートを単一カラム「シリーズ」が内包する。
+        let books = [
+            mkSV(1, series: "B", volume: 1),
+            mkSV(2, series: "A", volume: 10),
+            mkSV(3, series: "A", volume: 2),
+            mkSV(4, series: "A", volume: 1),
+            mkSV(5, series: "B", volume: 2),
+        ]
+        let asc = books.sortedByColumn(ColumnSort(column: .series, ascending: true))
+        #expect(asc.map(\.id) == [4, 3, 2, 1, 5])   // A1, A2, A10, B1, B2
+        // 降順はリモート同様に全体を反転する。
+        let desc = books.sortedByColumn(ColumnSort(column: .series, ascending: false))
+        #expect(desc.map(\.id) == [5, 1, 2, 3, 4])
     }
 
     @Test func numericColumnUnchanged() {

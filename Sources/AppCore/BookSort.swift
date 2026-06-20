@@ -7,6 +7,14 @@ public extension Array where Element == BookRow {
     func sortedByColumn(_ sort: ColumnSort) -> [BookRow] {
         let asc = sort.ascending
 
+        // series 列はリモート(BookSortKey.series)と同じく「シリーズ名 → 巻数」の2段ソートにする。
+        // 単一カラム「シリーズ」を選ぶだけで同一シリーズ内が巻数順になるため、旧「シリーズ → 巻数」
+        // 複合ソート(.seriesVolume*)は不要になり UI から廃止した。降順はリモート同様に全体を反転する。
+        if sort.column == .series {
+            let bySeriesVolume = sortedBySeriesAndVolume()
+            return asc ? bySeriesVolume : Array(bySeriesVolume.reversed())
+        }
+
         // 文字列列は DSU（前計算キーのバイト比較）
         let stringValue: ((BookRow) -> String)?
         switch sort.column {
@@ -17,7 +25,6 @@ public extension Array where Element == BookRow {
         case .keywordA: stringValue = { $0.keywordA ?? "" }
         case .keywordB: stringValue = { $0.keywordB ?? "" }
         case .memo:     stringValue = { $0.memo ?? "" }
-        case .series:   stringValue = { $0.series ?? "" }
         default:        stringValue = nil
         }
         if let extract = stringValue {
