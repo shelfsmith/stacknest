@@ -319,3 +319,28 @@ public struct BookPatchDTO: Codable, Sendable {
         self.clearPageDirection = clearPageDirection
     }
 }
+
+// MARK: - 4.2c-6a: スタンプ定義同期＋一括スタンプ適用
+
+/// スタンプ定義マップ（dbColumn → 値配列）の搬送 DTO。
+public struct StampDefinitionsDTO: Codable, Sendable {
+    public var definitions: [String: [String]]
+    public init(definitions: [String: [String]]) { self.definitions = definitions }
+}
+
+/// 一括スタンプ適用リクエスト。value（apply=append）/ clear のいずれか。
+public struct StampApplyRequest: Codable, Sendable {
+    public var field: String
+    public var value: String?
+    public var clear: Bool?
+    public var bookIDs: [Int]
+    public init(field: String, value: String? = nil, clear: Bool? = nil, bookIDs: [Int]) {
+        self.field = field; self.value = value; self.clear = clear; self.bookIDs = bookIDs
+    }
+}
+
+/// 一括スタンプ適用レスポンス。
+public struct StampApplyReply: Codable, Sendable {
+    public var updated: Int
+    public init(updated: Int) { self.updated = updated }
+}

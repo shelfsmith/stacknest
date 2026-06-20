@@ -258,6 +258,50 @@ public struct LibraryServerCore: Sendable {
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
         }
+        // 4.2c-6a: スタンプ定義の取得（R）。配信バンドル設定DB の stamp_definitions を返す。
+        api.get("libraries/:lib/stamp-definitions") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+                throw HTTPError(.notFound)
+            }
+            let json = (try? lib.db.getLibrarySetting(key: "stamp_definitions")) ?? nil
+            let map: [String: [String]] = json
+                .flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:]
+            return StampDefinitionsDTO(definitions: map)
+        }
+        // 4.2c-6a: スタンプ定義の置換（RW）。許可カラムのみ採用しマップ全体を保存。
+        api.put("libraries/:lib/stamp-definitions") { request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+                throw HTTPError(.notFound)
+            }
+            let dto = try await request.decode(as: StampDefinitionsDTO.self, context: context)
+            let allowed: Set<String> = ["genre", "neta", "keyword_a", "keyword_b", "keyword_c"]
+            let filtered = dto.definitions.filter { allowed.contains($0.key) }
+            let data = try JSONEncoder().encode(filtered)
+            try lib.db.setLibrarySetting(key: "stamp_definitions", value: String(decoding: data, as: UTF8.self))
+            return StampDefinitionsDTO(definitions: filtered)
+        }
+        // 4.2c-6a: 一括スタンプ適用（RW・append/clear をサーバ側で MultiValueParser/clearBookField）。
+        api.post("libraries/:lib/books/stamp") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+                throw HTTPError(.notFound)
+            }
+            let body = try await request.decode(as: StampApplyRequest.self, context: context)
+            let updated: Int
+            do {
+                updated = try applyStampToBooks(db: lib.db, field: body.field, value: body.value,
+                                                clear: body.clear ?? false, bookIDs: body.bookIDs)
+            } catch is StampApplyError {
+                throw HTTPError(.badRequest)
+            }
+            for id in body.bookIDs { config.onBookChanged?(lib.uuid, id) }
+            return StampApplyReply(updated: updated)
+        }
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
         api.get("libraries/:lib/books/:id/adjacent") { request, context in

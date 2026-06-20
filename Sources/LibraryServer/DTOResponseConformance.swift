@@ -12,3 +12,5 @@ extension ShelfDTO: ResponseEncodable {}
 extension BookDetailDTO: ResponseEncodable {}
 extension AdjacentVolumeReply: ResponseEncodable {}
 extension MeReply: ResponseEncodable {}
+extension StampDefinitionsDTO: ResponseEncodable {}
+extension StampApplyReply: ResponseEncodable {}
