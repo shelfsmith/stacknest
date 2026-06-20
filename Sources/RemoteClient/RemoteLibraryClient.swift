@@ -251,4 +251,36 @@ public struct RemoteLibraryClient: Sendable {
                                           body: body, contentType: "application/json"))
         return try decode(BookDetailDTO.self, data)
     }
+
+    // MARK: - 4.2c-6a: スタンプ定義同期＋一括スタンプ適用
+
+    /// GET /stamp-definitions — スタンプ定義マップ（dbColumn→値配列）。
+    public func fetchStampDefinitions(libraryUUID: String, libraryToken: String?) async throws -> [String: [String]] {
+        let url = makeURL("libraries/\(libraryUUID)/stamp-definitions")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(StampDefinitionsDTO.self, data).definitions
+    }
+
+    /// PUT /stamp-definitions — マップ全体を置換し、保存後マップを返す（RW）。
+    @discardableResult
+    public func putStampDefinitions(_ defs: [String: [String]], libraryUUID: String,
+                                    libraryToken: String?) async throws -> [String: [String]] {
+        let body = try JSONEncoder().encode(StampDefinitionsDTO(definitions: defs))
+        let url = makeURL("libraries/\(libraryUUID)/stamp-definitions")
+        let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json"))
+        return try decode(StampDefinitionsDTO.self, data).definitions
+    }
+
+    /// POST /books/stamp — 一括スタンプ適用（append）/ clear（RW）。更新件数を返す。
+    @discardableResult
+    public func applyStamp(libraryUUID: String, field: String, value: String?, clear: Bool,
+                           bookIDs: [Int], libraryToken: String?) async throws -> Int {
+        let body = try JSONEncoder().encode(
+            StampApplyRequest(field: field, value: value, clear: clear, bookIDs: bookIDs))
+        let url = makeURL("libraries/\(libraryUUID)/books/stamp")
+        let data = try await send(request(url, method: "POST", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json"))
+        return try decode(StampApplyReply.self, data).updated
+    }
 }
