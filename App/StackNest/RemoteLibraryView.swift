@@ -28,12 +28,6 @@ struct RemoteLibraryView: View {
     /// 4.2b-1b-1: per TextField のフォーカス追跡（フォーカスを外したときに commitPerInput() を発火）。
     @FocusState private var perFieldFocused: Bool
 
-    /// Task 6: フィルタ popover の表示制御。
-    @State private var filterShown = false
-
-    /// B2: ファセットペイン表示制御（セッションスコープ）。
-    @State private var showFacets = true
-
     /// B2: サイドバー列表示制御（NavigationSplitView columnVisibility binding）。
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
 
@@ -55,6 +49,28 @@ struct RemoteLibraryView: View {
         // ネットワーク再取得を避ける）。× クリアで query="" → onChange → 全件再読込。
         .searchable(text: $state.query, placement: .toolbar, prompt: "検索")
         .onChange(of: state.query) { _, _ in state.scheduleSearchReload() }
+        // 4.2c-4 (smoke v4 自由記載): ツールバー配置をローカルブラウザに揃える。
+        // - grid/list 切替を中央(principal)に・順序を grid→list（ローカルと同一）。
+        // - フィルタボタン（= ユーザーの言う「ソートボタン」）を primaryAction に（ローカルと同部品）。
+        // - 上ペイン切替 [ブラウズ|スタンプ|隠す] をローカルから移植（スタンプは現状グレーアウト）。
+        //   「隠す」(eye.slash) でファセット（=カラム）ペインを非表示にする。
+        .toolbar {
+            if !(state.locked && state.libraryToken == nil) {
+                ToolbarItem(placement: .principal) {
+                    Picker("", selection: $state.isGrid) {
+                        Image(systemName: "square.grid.2x2").tag(true)
+                        Image(systemName: "list.bullet").tag(false)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    FilterToolbarButton(filter: $state.filterState, settings: settings)
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    RemoteTopPaneControl(settings: settings)
+                }
+            }
+        }
         // 4.2c-3 (Issue 4): 別ウィンドウ（オフラインビューア等）で DL/削除されたら、リモート一覧の
         // DL バッジを即時再評価する。downloadedVersion を bump → updateNSView 再走 → DL 列再描画。
         .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in
@@ -139,8 +155,9 @@ struct RemoteLibraryView: View {
                 banner(err)
             }
             Divider()
-            // Task 6 / B2: 共有ファセット pane（上端）。showFacets で表示切替可。
-            if showFacets {
+            // Task 6 / B2 / 4.2c-4: 共有ファセット pane（上端）。上ペイン切替が "browse" のとき表示。
+            // "hidden" で非表示。"stamp" はリモートでは未対応（グレーアウト）。
+            if settings.topPaneMode == "browse" {
                 BrowserPaneView(
                     browserPaneState: $state.browserPaneState,
                     labelFor: { defaultBrowseFieldLabel($0) },
@@ -182,8 +199,8 @@ struct RemoteLibraryView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            // 4.2c-4: 並び替えはリスト=ヘッダクリック / グリッド=セル右クリックに集約したため、
-            // ツールバーの「並び替え」Picker＋昇降ボタンは撤去（state.sortKey 共有で両者は同期）。
+            // 4.2c-4: フィルタ・上ペイン切替・grid/list 切替はネイティブツールバー（body の .toolbar）
+            // に移動しローカルと配置を揃えた。この行にはリモート固有のコントロールのみ残す。
             // Task 3: 表示モード（ページ表示 / 無限スクロール）。
             Picker("", selection: modeBinding) {
                 Text("ページ表示").tag(RemoteScrollMode.paged)
@@ -206,33 +223,6 @@ struct RemoteLibraryView: View {
             // 再評価されない（リストの DL リングは RemoteBookTable.updateNSView が downloadProgress を
             // 自前で購読しているため独立して更新される）。
             RemoteDownloadButton(state: state)
-
-            // Task 6: フィルタ popover（FilterPopoverView を再利用、data-agnostic）。
-            Button {
-                filterShown.toggle()
-            } label: {
-                Image(systemName: state.filterState.isEmpty
-                    ? "line.3.horizontal.decrease.circle"
-                    : "line.3.horizontal.decrease.circle.fill")
-            }
-            .help("フィルタ")
-            .popover(isPresented: $filterShown, arrowEdge: .bottom) {
-                FilterPopoverView(filter: $state.filterState)
-                    .frame(width: 280)
-            }
-
-            // B2: ファセットペイン表示切替ボタン。
-            Button { showFacets.toggle() } label: {
-                Image(systemName: showFacets ? "rectangle.split.3x1" : "rectangle")
-            }
-            .help(showFacets ? "ファセットを隠す" : "ファセットを表示")
-
-            Picker("", selection: $state.isGrid) {
-                Image(systemName: "list.bullet").tag(false)
-                Image(systemName: "square.grid.2x2").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .frame(width: 90)
         }
         .padding(8)
     }
@@ -579,6 +569,52 @@ struct RemoteLibraryView: View {
             Text("全 \(state.total) 件").font(.caption).foregroundStyle(.secondary)
         }
         .padding(8)
+    }
+}
+
+// MARK: - Top pane control (4.2c-4)
+
+/// 4.2c-4 (smoke v4 自由記載): ローカルの上ペイン切替 [ブラウズ|スタンプ|隠す] をリモートにも
+/// 移植したセグメント風コントロール。ローカルは native segmented Picker だが、リモートでは
+/// 「スタンプ」を将来機能（リモート RW ブラウザのスタンプ・別フェーズ）の placeholder として
+/// グレーアウト（無効）表示する必要があり、segmented Picker は個別 segment の無効化ができない
+/// ため、無効化可能な自前のセグメント風 HStack で実装する。
+/// - ブラウズ(rectangle.split.3x1): ファセットペインを表示。
+/// - スタンプ(tag): 現状グレーアウト（無効）。
+/// - 隠す(eye.slash): 上ペイン（ファセット=カラム）を非表示。ユーザー要望の「斜め線」。
+private struct RemoteTopPaneControl: View {
+    @Bindable var settings: LibrarySettings
+
+    private struct Item { let mode: String; let icon: String; let help: String; let enabled: Bool }
+    private static let items: [Item] = [
+        Item(mode: "browse", icon: "rectangle.split.3x1", help: "ブラウズ", enabled: true),
+        Item(mode: "stamp",  icon: "tag",                 help: "スタンプ（別フェーズで対応予定）", enabled: false),
+        Item(mode: "hidden", icon: "eye.slash",           help: "隠す", enabled: true),
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Self.items, id: \.mode) { item in
+                let selected = settings.topPaneMode == item.mode
+                Button {
+                    settings.topPaneMode = item.mode
+                } label: {
+                    Image(systemName: item.icon)
+                        .frame(width: 30, height: 22)
+                        .contentShape(Rectangle())
+                        .background(selected ? Color.accentColor.opacity(0.25) : Color.clear)
+                }
+                .buttonStyle(.borderless)
+                .disabled(!item.enabled)
+                .foregroundStyle(!item.enabled ? Color.secondary
+                                 : (selected ? Color.accentColor : Color.primary))
+                .help(item.help)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
+        // 過去設定で "stamp"（リモート無効）が残っていたら "browse" に矯正する。
+        .onAppear { if settings.topPaneMode == "stamp" { settings.topPaneMode = "browse" } }
     }
 }
 
