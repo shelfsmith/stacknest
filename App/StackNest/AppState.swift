@@ -1041,6 +1041,82 @@ final class AppState {
         try applyPatch(bookIDs: bookIDs, patch: patch, undoManager: undoManager)
     }
 
+    // MARK: - 4.2c-6a: StampColumnView 汎用化に伴う高レベル スタンプ操作
+
+    /// StampField → BookPatch の対応する String? WritableKeyPath。
+    private func stampPatchKeyPath(_ field: StampField) -> WritableKeyPath<BookPatch, String?> {
+        switch field {
+        case .genre:    return \BookPatch.genre
+        case .neta:     return \BookPatch.neta
+        case .keywordA: return \BookPatch.keywordA
+        case .keywordB: return \BookPatch.keywordB
+        case .keywordC: return \BookPatch.keywordC
+        }
+    }
+
+    /// 選択本へスタンプ値を append 適用（undo スナップショット込み）。
+    func applyStamp(field: StampField, value: String) {
+        guard let db = database else { return }
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        var currentValues: [Int: String?] = [:]
+        for id in ids {
+            if let row = displayedBooks.first(where: { $0.id == id }) {
+                switch field {
+                case .genre:    currentValues[id] = row.genre
+                case .neta:     currentValues[id] = row.neta
+                case .keywordA: currentValues[id] = row.keywordA
+                case .keywordB: currentValues[id] = row.keywordB
+                case .keywordC: currentValues[id] = row.keywordC
+                }
+            }
+        }
+        do {
+            try applyStampValue(value, patchKeyPath: stampPatchKeyPath(field), bookIDs: ids,
+                                database: db, currentValues: currentValues, undoManager: nil)
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// 選択本の当該スタンプフィールドを消去。
+    func clearStamp(field: StampField) {
+        let ids = Array(selectedBookIDs)
+        guard !ids.isEmpty else { return }
+        do {
+            try clearStampValue(patchKeyPath: stampPatchKeyPath(field), bookIDs: ids, undoManager: nil)
+        } catch {
+            self.error = .unexpected(error)
+        }
+    }
+
+    /// スタンプ定義（チップ候補値）を追加（重複 skip）。選択があれば併せて適用（既存挙動）。
+    func addStampDefinition(field: StampField, value: String) {
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        if let settings = librarySettings {
+            var defs = settings.stampDefinitions
+            var fieldDefs = defs[field.dbColumn] ?? []
+            if !fieldDefs.contains(trimmed) {
+                fieldDefs.append(trimmed)
+                defs[field.dbColumn] = fieldDefs
+                settings.stampDefinitions = defs
+            }
+        }
+        if !selectedBookIDs.isEmpty { applyStamp(field: field, value: trimmed) }
+    }
+
+    /// 4.2c-6a: スタンプ定義を削除する。ショートカット定義のみ除去し、既に本に付与済みの値は変更しない。
+    func deleteStampDefinition(field: StampField, value: String) {
+        guard let settings = librarySettings else { return }
+        var defs = settings.stampDefinitions
+        if var fieldDefs = defs[field.dbColumn], let i = fieldDefs.firstIndex(of: value) {
+            fieldDefs.remove(at: i)
+            defs[field.dbColumn] = fieldDefs
+            settings.stampDefinitions = defs
+        }
+    }
+
     // MARK: - Phase 2.5c spec a: UndoableCommand integration
 
     /// Executes an UndoableCommand and registers undo/redo handlers with the given UndoManager.
