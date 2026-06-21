@@ -15,3 +15,4 @@ extension MeReply: ResponseEncodable {}
 extension StampDefinitionsDTO: ResponseEncodable {}
 extension StampApplyReply: ResponseEncodable {}
 extension CoverCandidatesDTO: ResponseEncodable {}
+extension LabelSettingsDTO: ResponseEncodable {}

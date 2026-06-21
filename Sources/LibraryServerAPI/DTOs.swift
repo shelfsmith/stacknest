@@ -383,3 +383,17 @@ public struct CoverUpdateRequest: Codable, Sendable {
         self.coverCropRect = coverCropRect; self.setCoverCropRect = setCoverCropRect
     }
 }
+
+// MARK: - 4.2c-8: リモート ラベルカスタマイズ同期＋編集
+
+/// ライブラリのラベルカスタマイズ（GET 応答・PUT リクエスト共用）。
+/// customFieldLabels: key=dbColumn(genre/neta/keyword_a/keyword_b/keyword_c)。
+/// customBookTypeLabels: key="0".."5"。空文字値は含めない（サーバ側で除外）。
+public struct LabelSettingsDTO: Codable, Sendable {
+    public var customFieldLabels: [String: String]
+    public var customBookTypeLabels: [String: String]
+    public init(customFieldLabels: [String: String], customBookTypeLabels: [String: String]) {
+        self.customFieldLabels = customFieldLabels
+        self.customBookTypeLabels = customBookTypeLabels
+    }
+}

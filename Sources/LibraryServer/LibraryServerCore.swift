@@ -359,6 +359,46 @@ public struct LibraryServerCore: Sendable {
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
         }
+        // 4.2c-8: ラベルカスタマイズ取得（R 可）。未設定キーは空マップ。
+        api.get("libraries/:lib/label-settings") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(
+                uuid: uuid, libraryToken: libraryToken(from: request)
+            ) else {
+                throw HTTPError(.notFound)
+            }
+            func decodeMap(_ key: String) -> [String: String] {
+                guard let json = (try? lib.db.getLibrarySetting(key: key)) ?? nil,
+                      let data = json.data(using: .utf8),
+                      let map = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+                return map
+            }
+            return LabelSettingsDTO(
+                customFieldLabels: decodeMap("custom_field_labels"),
+                customBookTypeLabels: decodeMap("custom_book_type_labels"))
+        }
+        // 4.2c-8: ラベルカスタマイズ保存（RW 必須）。キー名・JSON 形式はローカル LibrarySettings と同一。
+        api.put("libraries/:lib/label-settings") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(
+                uuid: uuid, libraryToken: libraryToken(from: request)
+            ) else {
+                throw HTTPError(.notFound)
+            }
+            let body = try await request.decode(as: LabelSettingsDTO.self, context: context)
+            func encodeMap(_ map: [String: String]) -> String {
+                let cleaned = map.filter { !$0.value.isEmpty }
+                let data = (try? JSONEncoder().encode(cleaned)) ?? Data("{}".utf8)
+                return String(decoding: data, as: UTF8.self)
+            }
+            try lib.db.setLibrarySetting(key: "custom_field_labels", value: encodeMap(body.customFieldLabels))
+            try lib.db.setLibrarySetting(key: "custom_book_type_labels", value: encodeMap(body.customBookTypeLabels))
+            config.onLibrarySettingsChanged?(lib.uuid)
+            return LabelSettingsDTO(
+                customFieldLabels: body.customFieldLabels.filter { !$0.value.isEmpty },
+                customBookTypeLabels: body.customBookTypeLabels.filter { !$0.value.isEmpty })
+        }
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
         api.get("libraries/:lib/books/:id/adjacent") { request, context in
