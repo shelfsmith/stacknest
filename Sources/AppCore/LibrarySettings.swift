@@ -713,8 +713,8 @@ public final class LibrarySettings {
 
 public extension LibrarySettings {
     /// カスタマイズ対象フィールドの dbColumn 名。これ以外は常に正準ラベル。
-    /// - BookColumn: genre / neta / keyword_a / keyword_b（keywordC は BookColumn 未定義）
-    /// - StampField / BrowseField: 上記 + keyword_c も対象
+    /// - BookColumn / StampField / BrowseField いずれも genre / neta / keyword_a / keyword_b /
+    ///   keyword_c が対象（4.2c-6c で keywordC を BookColumn にも追加）。
     static let customizableFieldKeys: Set<String> =
         ["genre", "neta", "keyword_a", "keyword_b", "keyword_c"]
 

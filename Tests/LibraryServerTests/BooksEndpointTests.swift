@@ -285,6 +285,22 @@ struct BooksEndpointTests {
         }
     }
 
+    /// 4.2c-6c: keywordC が field/sort として HTTP で受理される（allowedFields＋BookSortKey の回帰ガード）。
+    @Test func keywordCFieldAndSortAccepted() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 3)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?fields=keywordC&sort=keywordC&order=asc&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)   // keywordC が未対応なら sort=keywordC で 400 になる
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                #expect(page.items.count <= 3)
+            }
+        }
+    }
+
     /// fields 指定なし → 追加フィールドは全て nil。
     @Test func noFieldsParamLeavesAllExtrasNil() async throws {
         let (fixture, app, uuid) = try makeApp(bookCount: 3)
