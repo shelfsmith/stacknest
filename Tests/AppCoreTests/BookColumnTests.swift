@@ -4,8 +4,10 @@ import Testing
 @testable import AppCore
 
 @Suite struct BookColumnTests {
-    @Test func allCasesContains14Columns() {
-        #expect(BookColumn.allCases.count == 14)
+    @Test func allCasesContains15Columns() {
+        // 4.2c-6c: keywordC を追加し 14→15。
+        #expect(BookColumn.allCases.count == 15)
+        #expect(BookColumn.allCases.contains(.keywordC))
     }
 
     @Test func titleAlwaysVisible() {

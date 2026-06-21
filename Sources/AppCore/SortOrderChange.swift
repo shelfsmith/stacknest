@@ -24,6 +24,7 @@ public func sortOrderAffected(
         case .neta:      return old.neta != new.neta
         case .keywordA:  return old.keywordA != new.keywordA
         case .keywordB:  return old.keywordB != new.keywordB
+        case .keywordC:  return old.keywordC != new.keywordC
         case .memo:      return old.memo != new.memo
         // 4.2c-4: .series 列は「シリーズ名 → 巻数」の2段ソート(sortedByColumn(.series))に
         // 変わったため、series 同値でも volume 変更で並び順が変わり得る。両方を見る

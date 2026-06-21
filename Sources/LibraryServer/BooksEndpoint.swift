@@ -12,14 +12,14 @@ enum SortOrder: String {
 /// `sort` は常に昇順（asc）で並べ、降順は呼び出し側で reverse する（order と直交させる）。
 enum BookSortKey: String {
     case title, series, dateAdded, lastRead
-    case author, rating, genre, unseen, bookType, volume, neta, keywordA, keywordB, memo
+    case author, rating, genre, unseen, bookType, volume, neta, keywordA, keywordB, keywordC, memo
 
     /// 明示 order が無いときの自然な既定方向。
-    /// テスト系（title/series/author/genre/neta/keywordA/keywordB/memo）=asc、
+    /// テスト系（title/series/author/genre/neta/keywordA/keywordB/keywordC/memo）=asc、
     /// 数値・日付・状態系（dateAdded/lastRead/rating/unseen/bookType/volume）=desc。
     var defaultOrder: SortOrder {
         switch self {
-        case .title, .series, .author, .genre, .neta, .keywordA, .keywordB, .memo:
+        case .title, .series, .author, .genre, .neta, .keywordA, .keywordB, .keywordC, .memo:
             return .asc
         case .dateAdded, .lastRead, .rating, .unseen, .bookType, .volume:
             return .desc
@@ -68,6 +68,10 @@ enum BookSortKey: String {
         case .keywordB:
             return books.sorted {
                 ($0.keywordB ?? "").localizedStandardCompare($1.keywordB ?? "") == .orderedAscending
+            }
+        case .keywordC:
+            return books.sorted {
+                ($0.keywordC ?? "").localizedStandardCompare($1.keywordC ?? "") == .orderedAscending
             }
         case .memo:
             return books.sorted {
@@ -150,7 +154,7 @@ struct BooksQuery {
                 hasCover: coverIDs.contains(row.id),
                 coverVersion: nil,   // スライス後に表紙ありの本のみ埋める
                 genre: row.genre, neta: row.neta,
-                keywordA: row.keywordA, keywordB: row.keywordB, memo: row.memo
+                keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC, memo: row.memo
             )
         }
         items = sort.sortedAscending(items)

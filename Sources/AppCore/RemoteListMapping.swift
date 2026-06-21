@@ -16,6 +16,7 @@ extension BookColumn {
         case .neta:      return "neta"
         case .keywordA:  return "keywordA"
         case .keywordB:  return "keywordB"
+        case .keywordC:  return "keywordC"
         case .memo:      return "memo"
         case .series:    return "series"
         case .volume:    return "volume"
@@ -29,6 +30,7 @@ extension BookColumn {
         case .neta:     return "neta"
         case .keywordA: return "keywordA"
         case .keywordB: return "keywordB"
+        case .keywordC: return "keywordC"
         case .memo:     return "memo"
         default:        return nil
         }

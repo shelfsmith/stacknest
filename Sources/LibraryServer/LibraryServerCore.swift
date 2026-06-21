@@ -156,7 +156,7 @@ public struct LibraryServerCore: Sendable {
             // ?browse=<URL-encoded JSON [[column,value]]> — 不正列名は 400（SQL injection 防御）。
             let browse = try decodeBrowseConstraintsValidated(from: qp.get("browse"))
             // ?fields=genre,neta,... — 応答に追加する任意フィールド（許可外は無視）。
-            let allowedFields: Set<String> = ["genre", "neta", "keywordA", "keywordB", "memo"]
+            let allowedFields: Set<String> = ["genre", "neta", "keywordA", "keywordB", "keywordC", "memo"]
             let extraFields = Set((qp.get("fields") ?? "")
                 .split(separator: ",").map(String.init)).intersection(allowedFields)
             let query = BooksQuery(

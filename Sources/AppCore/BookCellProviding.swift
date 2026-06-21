@@ -16,6 +16,7 @@ public protocol BookCellProviding {
     var neta: String? { get }
     var keywordA: String? { get }
     var keywordB: String? { get }
+    var keywordC: String? { get }
     var memo: String? { get }
     var series: String? { get }
     var volume: Double? { get }
@@ -41,6 +42,7 @@ public func bookCellView(_ col: BookColumn, provider p: BookCellProviding, setti
     case .neta: Text(p.neta ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
     case .keywordA: Text(p.keywordA ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
     case .keywordB: Text(p.keywordB ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
+    case .keywordC: Text(p.keywordC ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
     case .memo: Text((p.memo ?? "").replacingOccurrences(of: "\n", with: " ")).lineLimit(1).truncationMode(.tail).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
     case .series: Text(p.series ?? "").lineLimit(1).truncationMode(.tail).frame(maxWidth: .infinity, alignment: .leading)
     case .volume: Text(p.volume.map { vol -> String in let intVal = Int(vol); return vol == Double(intVal) ? "\(intVal)" : String(vol) } ?? "").monospacedDigit().frame(maxWidth: .infinity, alignment: .leading)

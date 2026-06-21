@@ -29,6 +29,7 @@ public struct BookListItemDTO: Codable, Sendable {
     public let neta: String?
     public let keywordA: String?
     public let keywordB: String?
+    public let keywordC: String?
     public let memo: String?
 
     public init(
@@ -47,7 +48,7 @@ public struct BookListItemDTO: Codable, Sendable {
         hasCover: Bool,
         coverVersion: String?,
         genre: String? = nil, neta: String? = nil,
-        keywordA: String? = nil, keywordB: String? = nil, memo: String? = nil
+        keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil, memo: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -64,7 +65,7 @@ public struct BookListItemDTO: Codable, Sendable {
         self.hasCover = hasCover
         self.coverVersion = coverVersion
         self.genre = genre; self.neta = neta
-        self.keywordA = keywordA; self.keywordB = keywordB; self.memo = memo
+        self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC; self.memo = memo
     }
 }
 
@@ -77,7 +78,7 @@ extension BookListItemDTO {
             rating: rating, unseen: unseen, bookType: bookType,
             pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: version,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo
         )
     }
 
@@ -92,6 +93,7 @@ extension BookListItemDTO {
             neta: fields.contains("neta") ? neta : nil,
             keywordA: fields.contains("keywordA") ? keywordA : nil,
             keywordB: fields.contains("keywordB") ? keywordB : nil,
+            keywordC: fields.contains("keywordC") ? keywordC : nil,
             memo: fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil)
     }
 
@@ -104,7 +106,7 @@ extension BookListItemDTO {
             rating: rating, unseen: unseen, bookType: bookType,
             pages: pages, lastPage: page, lastReadAt: lastReadAt,
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo
         )
     }
 
@@ -115,7 +117,7 @@ extension BookListItemDTO {
             rating: rating, unseen: v, bookType: bookType, pages: pages,
             lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
             hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo)
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo)
     }
 
     /// lastReadAt だけ差し替えた複製（リモート閲覧で最終閲覧日時を楽観的に更新するために使う）。
@@ -125,7 +127,7 @@ extension BookListItemDTO {
             rating: rating, unseen: unseen, bookType: bookType, pages: pages,
             lastPage: lastPage, lastReadAt: date, dateAdded: dateAdded,
             hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, memo: memo)
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo)
     }
 }
 

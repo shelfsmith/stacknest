@@ -24,6 +24,7 @@ public extension Array where Element == BookRow {
         case .neta:     stringValue = { $0.neta ?? "" }
         case .keywordA: stringValue = { $0.keywordA ?? "" }
         case .keywordB: stringValue = { $0.keywordB ?? "" }
+        case .keywordC: stringValue = { $0.keywordC ?? "" }
         case .memo:     stringValue = { $0.memo ?? "" }
         default:        stringValue = nil
         }

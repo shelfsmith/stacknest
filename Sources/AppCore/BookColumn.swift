@@ -14,6 +14,7 @@ public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
     case neta
     case keywordA = "keyword_a"
     case keywordB = "keyword_b"
+    case keywordC = "keyword_c"
     case memo
     case series
     case volume
@@ -42,6 +43,7 @@ public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
         case .neta:      return "関連"
         case .keywordA:  return "キーワード A"
         case .keywordB:  return "キーワード B"
+        case .keywordC:  return "キーワード C"
         case .memo:      return "メモ"
         case .series:    return "シリーズ"
         case .volume:    return "巻数"
@@ -63,6 +65,7 @@ public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
         case .neta:      return String(localized: "関連")
         case .keywordA:  return String(localized: "キーワード A")
         case .keywordB:  return String(localized: "キーワード B")
+        case .keywordC:  return String(localized: "キーワード C")
         case .memo:      return String(localized: "メモ")
         case .series:    return String(localized: "シリーズ")
         case .volume:    return String(localized: "巻数")
@@ -83,6 +86,7 @@ public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
         case .neta:      return 100
         case .keywordA:  return 100
         case .keywordB:  return 100
+        case .keywordC:  return 100
         case .memo:      return 200
         case .series:    return 120
         case .volume:    return 60

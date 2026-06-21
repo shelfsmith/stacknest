@@ -702,7 +702,7 @@ final class RemoteLibraryState {
             id: dto.id, title: dto.title, author: dto.author, genre: dto.genre, path: nil,
             dateAdded: dto.dateAdded, playDate: dto.lastReadAt, bookType: dto.bookType, fileType: 0,
             pages: dto.pages, rating: dto.rating, unseen: dto.unseen,
-            keywordA: dto.keywordA, keywordB: dto.keywordB, keywordC: nil, neta: dto.neta,
+            keywordA: dto.keywordA, keywordB: dto.keywordB, keywordC: dto.keywordC, neta: dto.neta,
             memo: dto.memo, series: dto.series, volume: dto.volume,
             coverImageName: nil, coverCropRect: nil, pageDirection: nil,
             contentHash: nil, fileSize: nil, fileMtime: nil)
