@@ -112,6 +112,14 @@ public final class LibrarySettings {
     public var customBookTypeLabels: [String: String] {
         didSet { persistCustomBookTypeLabels() }
     }
+    /// 4.2c-8: リモート表示用のラベルオーバーレイ（サーバ canonical）。**非永続**（didSet なし）。
+    /// nil ならローカルの customFieldLabels / customBookTypeLabels にフォールバックする。
+    /// リモートウィンドウが接続先サーバのラベルをここへセットし、label 解決メソッドが優先参照する。
+    public var remoteFieldLabelOverride: [String: String]?
+    public var remoteBookTypeLabelOverride: [String: String]?
+    /// ラベル解決で参照する実効マップ（override 優先・nil なら custom）。
+    private var activeFieldLabels: [String: String] { remoteFieldLabelOverride ?? customFieldLabels }
+    private var activeBookTypeLabels: [String: String] { remoteBookTypeLabelOverride ?? customBookTypeLabels }
     public var lockPasswordHash: String? {
         didSet { persistLockHash() }
     }
@@ -719,15 +727,16 @@ public extension LibrarySettings {
         ["genre", "neta", "keyword_a", "keyword_b", "keyword_c"]
 
     /// 列ラベル。対象フィールドのみカスタム、それ以外は正準（localizedTitleString）。
+    /// 4.2c-8: activeFieldLabels（remote override 優先）を参照。
     func label(for column: BookColumn) -> String {
         let key = column.rawValue   // BookColumn の rawValue は dbColumn と一致（genre/neta/keyword_a/keyword_b）
         guard Self.customizableFieldKeys.contains(key) else { return column.localizedTitleString }
-        return effectiveLabel(default: column.localizedTitleString, override: customFieldLabels[key])
+        return effectiveLabel(default: column.localizedTitleString, override: activeFieldLabels[key])
     }
 
     /// スタンプペインのフィールドラベル。
     func stampLabel(for field: StampField) -> String {
-        effectiveLabel(default: field.localizedTitle, override: customFieldLabels[field.dbColumn])
+        effectiveLabel(default: field.localizedTitle, override: activeFieldLabels[field.dbColumn])
     }
 
     /// ブラウズペインのフィールドラベル（String 版。SwiftUI では Text(_:) に渡す）。
@@ -735,12 +744,12 @@ public extension LibrarySettings {
         let key = field.sqlColumn
         let canonical = Self.browseDefaultString(field)
         guard Self.customizableFieldKeys.contains(key) else { return canonical }
-        return effectiveLabel(default: canonical, override: customFieldLabels[key])
+        return effectiveLabel(default: canonical, override: activeFieldLabels[key])
     }
 
     /// bookType ラベル（0..5）。
     func bookTypeLabel(_ raw: Int) -> String {
-        effectiveLabel(default: BookTypeLabel.canonicalLabel(for: raw), override: customBookTypeLabels[String(raw)])
+        effectiveLabel(default: BookTypeLabel.canonicalLabel(for: raw), override: activeBookTypeLabels[String(raw)])
     }
 
     /// ファイル名生成 `@type` 用の bookType カスタムラベル（Int キー・空値除外）。
