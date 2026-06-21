@@ -9,7 +9,7 @@ original [Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) library
 
 > ⚠️ **Compatibility note:** StackNest only **imports** Stackroom library XML (a one-way read). StackNest's own library format (`.stacknest`) is independent and is **not interoperable with Stackroom** (you cannot open or write it back in Stackroom). StackNest is also a **catalog**: a `.stacknest` holds metadata and cover thumbnails, while the actual image/book files stay outside the library (StackNest references their paths).
 
-> **Status:** Active development. Stackroom-compatible import plus browse / edit / search / built-in viewer / multi-library / lock / duplicate detection / label customization / DB preventive safety & repair (through Phase 2.9) all work. Remote viewing via server / client (Phase 4) is a future plan.
+> **Status:** Active development. Stackroom-compatible import plus browse / edit / search / built-in viewer / multi-library / lock / duplicate detection / label customization / DB preventive safety & repair (through Phase 2.9) all work. **Remote sharing / viewing / editing (Phase 4) also works** (sharing server + web browser / web reader, native client from another Mac, offline download; with an RW token you can edit metadata, stamps, and **cover page selection / crop** remotely).
 
 ![StackNest main window](docs/images/main-ui.png)
 
@@ -66,7 +66,7 @@ re-implemented from observation.
 - **First-run wizard**: on first launch, a paged wizard walks through "image-opening method (built-in / external viewer) → (if built-in) viewer initial settings → first library (create / open / import)". Re-showable anytime from Settings ▸ General
 - **Import**: migrate an existing Stackroom library XML into the SQLite database
 - **Remote sharing (server)**: serve a library over HTTP (token auth, QR / NIC selection / IPv6, downscaled delivery, locked-library unlock). Browse from a **web browser** (list / grid, FTS search, sort, paging) and read with the **web reader** (3-layer prefetch, spread / single-page, resume, two-way instant page-direction sync)
-- **Native remote client**: connect from StackNest on another Mac to a remote server (connect / history, **full browse** = sidebar / facets / filters / read-only detail pane, paged / infinite-scroll, built-in viewer, progress synced to the server)
+- **Native remote client**: connect from StackNest on another Mac to a remote server to browse and edit (connect / history, **full browse** = sidebar / facets / filters / grid / list / detail pane, paged / infinite-scroll, built-in viewer, progress synced to the server). **With an RW (editable) token, the detail pane supports editing** = single / multi-select batch metadata edits, stamp tagging / definition editing, **cover page selection / crop editing**, and reading-direction changes (an R token is read-only)
 - **Offline download**: download selected remote books to local storage and browse / read them **without a connection** (resume supported). Open from the title screen / File menu "Offline". **Multi-select for batch download / delete**
 - **Remote / offline volume navigation**: the built-in viewer's previous / next volume works for remote (adjacent volume streamed, even if not downloaded) and offline (consecutive downloaded volumes). For a half-read volume, choose "continue / from start"
 
@@ -201,7 +201,7 @@ The same StackNest acts as both a **server (sharing)** and a **client**. You can
 - Open the share URL on the connecting side to browse with list / grid, full-text search, sort, and paging; open a book to read in the web reader (prefetch, spread / single-page, resume, page-direction sync).
 
 **Native client (from StackNest on another Mac)**
-- Use **"Connect to a server…"** from the title screen (or File menu), enter the URL and token. You get full browse (sidebar / facets / filters / read-only detail pane) and the built-in viewer; reading progress is synced back to the server.
+- Use **"Connect to a server…"** from the title screen (or File menu), enter the URL and token. You get full browse (sidebar / facets / filters / detail pane) and the built-in viewer; reading progress is synced back to the server. **When you connect with an RW (editable) token, you can edit metadata (single / multi-select), stamps, cover page selection / crop, and reading direction remotely** (an R token is read-only).
 
 **Offline (read without a connection)**
 - While connected, **right-click a book → "Download"** to store it locally. **Multi-select mode → batch download** is also available (narrow to a series via facets / search, then "Select all").
@@ -245,7 +245,7 @@ Development proceeds in incremental phases. Summary:
 | 2.7 | Polish & performance (duplicate detection, field / bookType label customization, sort optimization, viewer key-rebinding UI, multiple naming-format presets) | ✅ Done |
 | **2.8** | **Library safety** (relink missing files, DB auto-backup + integrity check, NFC normalization fix) | ✅ Done |
 | **2.9** | **DB repair** (in-app `.recover` to salvage data from a corrupt DB, with recovered-count prompt) | ✅ Done |
-| 4.0 | Server / client (remote viewing, screen-size-aware image delivery) | 🔭 Future |
+| 4.0+ | Server / client (sharing server, web browser / reader, native client, offline download, **remote editing** [metadata / stamps / cover & crop], screen-size-aware image delivery) | 🔄 In progress |
 
 Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
 
