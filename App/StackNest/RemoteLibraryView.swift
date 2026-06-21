@@ -111,7 +111,7 @@ struct RemoteLibraryView: View {
     private var detailPane: some View {
         DetailPaneView(
             books: state.detailBookRows(),
-            librarySettings: nil,
+            librarySettings: settings,   // 4.2c-8: サーバ同期ラベルを詳細ペインにも反映
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
             canEdit: state.canEditServer,
@@ -177,13 +177,13 @@ struct RemoteLibraryView: View {
             if settings.topPaneMode == "browse" {
                 BrowserPaneView(
                     browserPaneState: $state.browserPaneState,
-                    labelFor: { defaultBrowseFieldLabel($0) },
+                    labelFor: { settings.browseLabel(for: $0) },   // 4.2c-8: サーバ同期ラベルを反映
                     refreshKey: state.facetRefreshKey,
                     facetValues: { col, upper in await state.facetValues(col, upper) }
                 )
                 Divider()
             } else if settings.topPaneMode == "stamp" {
-                RemoteStampPaneView(state: state)
+                RemoteStampPaneView(state: state, settings: settings)
                 Divider()
             }
             if state.isGrid {
