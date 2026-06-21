@@ -113,6 +113,8 @@ struct RemoteLibraryView: View {
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
             canEdit: state.canEditServer,
+            canShowFinder: false,   // リモートはローカルにファイルが無いため非表示
+            remoteFileExtension: state.detail?.fileExtension,
             directionEditable: true,
             onSetPageDirection: { id, dir in Task { await state.setRemoteDirection(bookID: id, direction: dir) } },
             onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },
@@ -788,7 +790,10 @@ private struct RemoteBookCell: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
-        .task(id: book.id) {
+        // 4.2c-6b smoke A4: 表紙差し替えで book.id は不変だが coverVersion（thumbnail
+        // mtime+size 由来）が変わる。id だけだと .task が再実行されずグリッドが古い表紙の
+        // まま残るため、coverVersion を複合キーに含めて再取得させる。
+        .task(id: "\(book.id)#\(book.coverVersion ?? "")") {
             if book.hasCover {
                 if let data = await state.cover(bookID: book.id) {
                     image = NSImage(data: data)

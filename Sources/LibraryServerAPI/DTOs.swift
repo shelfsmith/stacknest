@@ -265,12 +265,16 @@ public struct BookDetailDTO: Codable, Sendable {
     public let coverImageName: String?
     public let coverCropRectJSON: String?
     public let pageDirection: String?
+    /// 4.2c-6b: ファイル拡張子（"zip"/"rar"/""=フォルダ/nil=不明）。path は秘匿で返さないため、
+    /// リモート詳細ペインの「ファイル形式」表示用に拡張子だけを別途返す。
+    public let fileExtension: String?
     public init(id: Int, title: String, author: String?, genre: String?, path: String?,
                 dateAdded: Date, playDate: Date?, bookType: Int, fileType: Int, pages: Int?,
                 lastPage: Int? = nil,
                 rating: Int, unseen: Bool, keywordA: String?, keywordB: String?, keywordC: String?,
                 neta: String?, memo: String?, series: String?, volume: Double?,
-                coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?) {
+                coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?,
+                fileExtension: String? = nil) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate; self.bookType = bookType
         self.fileType = fileType; self.pages = pages; self.lastPage = lastPage
@@ -279,6 +283,7 @@ public struct BookDetailDTO: Codable, Sendable {
         self.neta = neta; self.memo = memo; self.series = series; self.volume = volume
         self.coverImageName = coverImageName; self.coverCropRectJSON = coverCropRectJSON
         self.pageDirection = pageDirection
+        self.fileExtension = fileExtension
     }
 }
 

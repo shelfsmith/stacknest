@@ -15,6 +15,11 @@ struct DetailPaneView: View {
     /// Defaults to nil — local callers omit this and stay on the `loader` path.
     let coverImage: ((Int) async -> NSImage?)?
     let canEdit: Bool                       // local = true
+    /// 「Finder で表示」ボタンの表示可否。リモートはローカルにファイルが無いため false。
+    var canShowFinder: Bool = true
+    /// リモートのファイル拡張子（"zip"/""=フォルダ/nil=不明）。path が秘匿のリモートで
+    /// 「ファイル形式」を表示するためサーバ由来の拡張子を注入する（ローカルは nil で path 由来）。
+    var remoteFileExtension: String? = nil
     /// 読む方向ピッカーの編集可否。canEdit と独立（R/O リモートでも /direction 経由で変更可）。
     let directionEditable: Bool
     /// 単一ブック時の読む方向変更を専用ルートへ流す closure（リモートは /direction へ）。
@@ -41,6 +46,8 @@ struct DetailPaneView: View {
         bundleURL: URL,
         loader: ThumbnailLoader?,
         canEdit: Bool,
+        canShowFinder: Bool = true,
+        remoteFileExtension: String? = nil,
         directionEditable: Bool = true,
         onSetPageDirection: ((Int, PageDirection?) -> Void)? = nil,
         onApplyPatch: @escaping (Int, BookPatch) -> Void,
@@ -59,6 +66,8 @@ struct DetailPaneView: View {
         self.bundleURL = bundleURL
         self.loader = loader
         self.canEdit = canEdit
+        self.canShowFinder = canShowFinder
+        self.remoteFileExtension = remoteFileExtension
         self.directionEditable = directionEditable
         self.onSetPageDirection = onSetPageDirection
         self.onApplyPatch = onApplyPatch
@@ -246,7 +255,7 @@ struct DetailPaneView: View {
             // Read-only metadata + Finder button (single only)
             if !snapshotIsMulti, let book = snapshotBooks.first {
                 readOnlyMetadata(book: book)
-                if canEdit {
+                if canEdit && canShowFinder {
                     Divider()
                     Button {
                         revealInFinder(book: book)
@@ -622,8 +631,15 @@ struct DetailPaneView: View {
     }
 
     private func fileFormatLabel(_ book: BookRow) -> String {
-        guard let path = book.path else { return "—" }
-        let ext = (path as NSString).pathExtension.lowercased()
+        // リモートは path が nil（秘匿）なのでサーバ由来の拡張子を優先。ローカルは path から算出。
+        let ext: String
+        if let remoteFileExtension {
+            ext = remoteFileExtension
+        } else if let path = book.path {
+            ext = (path as NSString).pathExtension.lowercased()
+        } else {
+            return "—"
+        }
         switch ext {
         case "zip": return String(localized: "Zip アーカイブ")
         case "rar": return String(localized: "RAR アーカイブ")

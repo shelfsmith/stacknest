@@ -68,6 +68,29 @@ struct RemoteBrowseEndpointsTests {
         }
     }
 
+    /// 4.2c-6b: detail は path を秘匿しつつ fileExtension（リモート「ファイル形式」表示用）を返す。
+    @Test func bookDetailReturnsFileExtension() async throws {
+        let fixture = try TestLibraryFixture(name: "Ext", bookCount: 0)
+        defer { fixture.cleanup() }
+        let id = try fixture.addRealBook(zipFixtureNamed: "three_pages")
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)/detail", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { resp in
+                #expect(resp.status == .ok)
+                let d = try dec().decode(BookDetailDTO.self, from: Data(buffer: resp.body))
+                #expect(d.fileExtension == "zip")
+                #expect(d.path == nil)   // path 自体は秘匿
+            }
+        }
+    }
+
     @Test func facetsReturnsDistinctGenres() async throws {
         let fixture = try TestLibraryFixture(name: "Fc", bookCount: 0)
         defer { fixture.cleanup() }
