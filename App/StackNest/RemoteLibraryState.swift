@@ -608,6 +608,23 @@ final class RemoteLibraryState {
             libraryUUID: libraryUUID, libraryToken: libraryToken)) ?? [:]
     }
 
+    // MARK: - 4.2c-8: ラベル同期
+
+    /// サーバのラベルカスタマイズを取得（失敗時は空）。View が settings の override にセットする。
+    func fetchLabels() async -> LabelSettingsDTO {
+        (try? await client.fetchLabelSettings(libraryUUID: libraryUUID, libraryToken: libraryToken))
+            ?? LabelSettingsDTO(customFieldLabels: [:], customBookTypeLabels: [:])
+    }
+
+    /// ラベルを保存（RW）。成功で保存後の DTO を返す。失敗は throws（呼び出し側でエラー表示）。
+    func saveLabels(customFieldLabels: [String: String], customBookTypeLabels: [String: String]) async throws -> LabelSettingsDTO {
+        try await client.putLabelSettings(
+            libraryUUID: libraryUUID,
+            customFieldLabels: customFieldLabels,
+            customBookTypeLabels: customBookTypeLabels,
+            libraryToken: libraryToken)
+    }
+
     /// 選択本へスタンプ値を append 適用（サーバ一括 API・単一リクエスト）。
     func applyStamp(field: StampField, value: String) {
         guard canEditServer, !multiSelection.isEmpty else { return }

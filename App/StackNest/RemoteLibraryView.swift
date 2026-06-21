@@ -200,7 +200,14 @@ struct RemoteLibraryView: View {
                 pager
             }
         }
-        .task { await state.reload(); await state.loadStampDefinitions() }
+        .task {
+            await state.reload()
+            await state.loadStampDefinitions()
+            // 4.2c-8: サーバのラベルカスタマイズを取得し、この per-window settings の override に反映。
+            let labels = await state.fetchLabels()
+            settings.remoteFieldLabelOverride = labels.customFieldLabels
+            settings.remoteBookTypeLabelOverride = labels.customBookTypeLabels
+        }
         .onAppear { perInput = String(state.per) }
         .onChange(of: state.per) { _, newValue in
             // setPer 経由などで per が変わったら TextField を同期。

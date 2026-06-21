@@ -16,15 +16,14 @@ import SwiftUI
 @MainActor
 enum RemoteLibrarySettingsProvider {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrarySettings")
-    private static var cached: LibrarySettings?
 
-    /// 共有インスタンス。初回アクセス時に DB を開いて（必要なら作成して）マイグレートする。
-    /// 失敗時はインメモリ DB にフォールバックする（設定は永続化されないが UI は動作する）。
-    static var shared: LibrarySettings {
-        if let cached { return cached }
-        let settings = makeSettings()
-        cached = settings
-        return settings
+    /// 4.2c-8: リモートウィンドウごとに新しい LibrarySettings を生成する。
+    /// ラベル（remoteFieldLabelOverride）はライブラリ固有・サーバ canonical のため、共有インスタンス
+    /// だと複数リモートウィンドウで混ざる。各ウィンドウが自分のインスタンスを持つ。列幅・grid 等の
+    /// クライアント好みは引き続き settings.db から読む（複数同時ウィンドウの即時共有のみ失われる）。
+    /// DB を開いて（必要なら作成して）マイグレートする。失敗時はインメモリ DB にフォールバックする。
+    static func make() -> LibrarySettings {
+        makeSettings()
     }
 
     private static func makeSettings() -> LibrarySettings {
@@ -72,11 +71,13 @@ struct RemoteLibraryWindowContainer: View {
 
     @State private var state: RemoteLibraryState?
     @State private var notFound = false
+    /// 4.2c-8: per-window LibrarySettings（ラベルはこのウィンドウのサーバ庫由来で上書きする）。
+    @State private var settings = RemoteLibrarySettingsProvider.make()
 
     var body: some View {
         Group {
             if let state {
-                RemoteLibraryView(state: state, settings: RemoteLibrarySettingsProvider.shared)
+                RemoteLibraryView(state: state, settings: settings)
             } else if notFound {
                 missingView
             } else {
