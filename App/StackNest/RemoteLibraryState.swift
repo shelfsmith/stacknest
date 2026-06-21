@@ -677,7 +677,8 @@ final class RemoteLibraryState {
             await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }
         } catch {
-            errorText = "表紙の更新に失敗しました"
+            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
+            else { errorText = "表紙の更新に失敗しました" }
         }
     }
 
