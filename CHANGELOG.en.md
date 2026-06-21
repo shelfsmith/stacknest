@@ -7,6 +7,30 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.11.0] - Unreleased — Remote sharing / native client / offline / remote editing (Phase 4.2)
+
+> Distributed as prereleases: `v0.11.0-rc.1` (2026-06-14, Phase 4.2b = viewing / offline foundation) and `v0.11.0-rc.2` (2026-06-21, Phase 4.2c = parity & remote editing).
+
+### Added
+- **Native remote client** (4.2b-1b-2b): connect from StackNest on another Mac to a sharing server and full-browse via sidebar / facets / filters / grid / list / detail pane plus the built-in viewer; reading progress synced to the server. Adds server `/shelves`, `/facets`, `/books/:id/detail`, and `/books` with `scope+filter+browse`.
+- **Offline download** (4.2b-2): save remote books locally (`OfflineStore` + `index.json`) and browse / read them **without a connection** (resume). Launch from the title screen / File menu "Offline (downloaded)".
+- **Batch download / delete** (4.2b-5, 4.2c-3): ⌘ / Shift multi-select on remote / offline for batch download / delete (unified on native multi-select).
+- **Remote / offline volume navigation** (4.2b-4, 4.2b-6): previous / next volume in the built-in viewer works on remote (adjacent-volume stream, may be un-downloaded) and offline (consecutive volumes). In-progress volumes offer "continue / from start".
+- **Remote search** (4.2c-3): toolbar search (live filter + 300 ms debounce + clear).
+- **Remote editing (RW token)** (4.2c-6a, 4.2c-6b): edit in the detail pane — single / multi-select batch metadata edits (progress N/M + cancel), stamp tagging / definition editing, **cover page selection / crop editing**, and reading-direction changes. Stamp definitions sync via a server-resident canonical store; covers regenerate the thumbnail server-side.
+- **Remote browser-state persistence** (4.2c-7): facets / sort / grid / filters / sidebar saved per (server, library) in UserDefaults (not propagated across libraries).
+- **keywordC as a full column** (4.2c-6c): added to local / remote list columns and sort (incl. current-value display in remote multi-select editing).
+
+### Changed
+- **Remote grid brought to local parity** (4.2c-4): ⌘ / Shift multi-select, size slider, right-click sort, and toolbar layout unified with local. Local "series" sort is now a two-level series→volume sort.
+- **Dual-sync of remote viewer progress** (4.2c-5): write-sync progress both ways between remote (downloaded) and offline, resolving to the max page on open.
+- Updated README (JA / EN) and the in-app Help to document remote sharing / client / offline / editing (RW editing supported).
+
+### Fixed
+- Many remote / offline UX fixes (single-click list selection, fixed detail-pane width, cancel / progress / selection-rewind during downloads, viewer resume, "last read" column updates, web search firing during IME composition, etc.).
+- Fixed remote grid keeping the old cover after a cover swap, and the remote grid not applying crop (added `coverVersion` / `coverCropRectJSON` to the list DTO).
+- Security: hide `path` from server responses (prevent leakage), hide "Reveal in Finder" in read-only mode, and allowlist facet / browse column identifiers (SQL injection mitigation).
+
 ## [0.10.0] - 2026-06-08 — Copy file name & release hardening (B24)
 
 ### Added
