@@ -314,4 +314,25 @@ public struct RemoteLibraryClient: Sendable {
                                           body: body, contentType: "application/json"))
         return try decode(BookDetailDTO.self, data)
     }
+
+    /// 4.2c-8: GET label-settings — ラベルカスタマイズ取得（表示用・R 可）。
+    public func fetchLabelSettings(libraryUUID: String, libraryToken: String?) async throws -> LabelSettingsDTO {
+        let url = makeURL("libraries/\(libraryUUID)/label-settings")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(LabelSettingsDTO.self, data)
+    }
+
+    /// 4.2c-8: PUT label-settings — ラベルカスタマイズ保存（RW）。保存後の DTO を返す。
+    @discardableResult
+    public func putLabelSettings(libraryUUID: String,
+                                 customFieldLabels: [String: String],
+                                 customBookTypeLabels: [String: String],
+                                 libraryToken: String?) async throws -> LabelSettingsDTO {
+        let body = try JSONEncoder().encode(LabelSettingsDTO(
+            customFieldLabels: customFieldLabels, customBookTypeLabels: customBookTypeLabels))
+        let url = makeURL("libraries/\(libraryUUID)/label-settings")
+        let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json"))
+        return try decode(LabelSettingsDTO.self, data)
+    }
 }
