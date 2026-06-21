@@ -32,6 +32,8 @@ struct RemoteLibraryView: View {
 
     /// B2: サイドバー列表示制御（NavigationSplitView columnVisibility binding）。
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+    /// 4.2c-8: ラベル編集シートの表示フラグ（RW のみ開ける）。
+    @State private var showLabelEditor = false
 
     /// 解錠フォーム（未解錠の保護ライブラリ）を表示中か。body の分岐と .toolbar の出し分けで共有する。
     private var isUnlockFormShown: Bool { state.locked && state.libraryToken == nil }
@@ -74,7 +76,21 @@ struct RemoteLibraryView: View {
                 ToolbarItem(placement: .primaryAction) {
                     RemoteTopPaneControl(settings: settings)
                 }
+                // 4.2c-8: RW のみラベル編集の開き口。
+                if state.canEditServer {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            showLabelEditor = true
+                        } label: {
+                            Label("ラベルを編集", systemImage: "tag")
+                        }
+                        .help("ラベル（見出し名）を編集")
+                    }
+                }
             }
+        }
+        .sheet(isPresented: $showLabelEditor) {
+            RemoteLabelEditorSheet(state: state, settings: settings)
         }
         // 4.2c-3 (Issue 4): 別ウィンドウ（オフラインビューア等）で DL/削除されたら、リモート一覧の
         // DL バッジを即時再評価する。downloadedVersion を bump → updateNSView 再走 → DL 列再描画。
