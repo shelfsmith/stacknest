@@ -222,9 +222,9 @@ struct RemoteLibraryView: View {
                 perControl
             }
 
-            // 4.2c-6a (smoke v2 自由記載): このリモート接続が編集可(RW)か閲覧のみ(R)かを一目で示す。
-            Label(state.canEditServer ? "RW" : "R",
-                  systemImage: state.canEditServer ? "pencil.circle" : "eye.circle")
+            // 4.2c-6a (smoke v2/v3 自由記載): このリモート接続が編集可か閲覧のみかを一目で示す。
+            Label(state.canEditServer ? "編集可" : "閲覧のみ",
+                  systemImage: state.canEditServer ? "pencil" : "eye")
                 .font(.caption)
                 .foregroundStyle(state.canEditServer ? Color.accentColor : .secondary)
                 .help(state.canEditServer ? "編集可能（RW トークン）" : "閲覧のみ（R トークン）")

@@ -151,6 +151,9 @@ struct StackNestApp: App {
             SharingSettingsView()
         }
         .windowResizability(.contentMinSize)
+        // 4.2c-6a (smoke v3 自由記載): 共有 ON で内容が下方向に広がるため、中央だと画面下に
+        // はみ出る。上部寄せにして下方向の拡張余地を確保する。
+        .defaultPosition(.top)
         .defaultLaunchBehavior(.suppressed)
         .commandsRemoved()
         .restorationBehavior(.disabled)
