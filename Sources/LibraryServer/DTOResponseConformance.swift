@@ -14,3 +14,4 @@ extension AdjacentVolumeReply: ResponseEncodable {}
 extension MeReply: ResponseEncodable {}
 extension StampDefinitionsDTO: ResponseEncodable {}
 extension StampApplyReply: ResponseEncodable {}
+extension CoverCandidatesDTO: ResponseEncodable {}

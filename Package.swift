@@ -69,6 +69,7 @@ let package = Package(
                 "LibraryServerAPI",
                 "LibraryStore",
                 "AppCore",
+                "ArchiveAdapter",
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
             path: "Sources/LibraryServer",

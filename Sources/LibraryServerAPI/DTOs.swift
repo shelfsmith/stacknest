@@ -346,3 +346,26 @@ public struct StampApplyReply: Codable, Sendable {
     public var updated: Int
     public init(updated: Int) { self.updated = updated }
 }
+
+// MARK: - 4.2c-6b: リモート表紙/クロップ編集
+
+/// 表紙候補（アーカイブのページ名一覧）＋現在の coverImageName。
+public struct CoverCandidatesDTO: Codable, Sendable {
+    public var entries: [String]
+    public var current: String?
+    public init(entries: [String], current: String?) { self.entries = entries; self.current = current }
+}
+
+/// 表紙更新リクエスト。setCoverImageName=true で coverImageName を更新(nil=自動先頭)＋thumbnail 再生成。
+/// setCoverCropRect=true で coverCropRect を更新(nil=クロップ解除)。
+public struct CoverUpdateRequest: Codable, Sendable {
+    public var coverImageName: String?
+    public var setCoverImageName: Bool
+    public var coverCropRect: String?
+    public var setCoverCropRect: Bool
+    public init(coverImageName: String? = nil, setCoverImageName: Bool = false,
+                coverCropRect: String? = nil, setCoverCropRect: Bool = false) {
+        self.coverImageName = coverImageName; self.setCoverImageName = setCoverImageName
+        self.coverCropRect = coverCropRect; self.setCoverCropRect = setCoverCropRect
+    }
+}

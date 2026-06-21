@@ -2,6 +2,7 @@
 import Foundation
 import AppCore
 import LibraryStore
+import ArchiveAdapter
 import Hummingbird
 import LibraryServerAPI
 
@@ -309,6 +310,53 @@ public struct LibraryServerCore: Sendable {
             for id in body.bookIDs { config.onBookChanged?(lib.uuid, id) }
             return StampApplyReply(updated: updated)
         }
+        // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
+        api.get("libraries/:lib/books/:id/cover-candidates") { request, context in
+            let (_, row) = try await resolver.resolveBook(request, context)
+            var entries: [String] = []
+            if let path = row.path, let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) {
+                entries = (try? await ex.listImageEntries(in: URL(fileURLWithPath: path))) ?? []
+            }
+            return CoverCandidatesDTO(entries: entries, current: row.coverImageName)
+        }
+        // 4.2c-6b: 選択ページ画像（クロップ編集プレビュー）。?name=<entry>&maxw=<px>。
+        api.get("libraries/:lib/books/:id/entry-image") { [config] request, context in
+            let (_, row) = try await resolver.resolveBook(request, context)
+            guard let name = request.uri.queryParameters.get("name"),
+                  let path = row.path,
+                  let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) else {
+                throw HTTPError(.notFound)
+            }
+            guard var data = try? await ex.extractCoverImage(from: URL(fileURLWithPath: path), preferredName: name) else {
+                throw HTTPError(.notFound)
+            }
+            let maxw = request.uri.queryParameters.get("maxw", as: Int.self)
+            if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
+            let etag = bookETag(for: row) + "-entry-" + String(name.hashValue)
+            if request.headers[.ifNoneMatch] == etag { return Response(status: .notModified) }
+            return cacheableImageResponse(data: data, etag: etag, request: request)
+        }
+        // 4.2c-6b: 表紙更新（RW）。coverImageName 更新時は thumbnail を再生成する。
+        api.put("libraries/:lib/books/:id/cover") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: CoverUpdateRequest.self, context: context)
+            if body.setCoverImageName {
+                var patch = BookPatch()
+                if let name = body.coverImageName { patch.coverImageName = name }
+                else { patch.clearCoverImageName = true }
+                try lib.db.updateBook(id: row.id, patch: patch)
+                try await Self.regenerateThumbnail(
+                    bookID: row.id, sourceURLPath: row.path, preferredName: body.coverImageName,
+                    bundleURL: lib.bundleURL)
+            }
+            if body.setCoverCropRect {
+                try lib.db.updateBookCoverCropRect(id: row.id, json: body.coverCropRect)
+            }
+            config.onBookChanged?(lib.uuid, row.id)
+            let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
+            return makeBookDetailDTO(from: updated)
+        }
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
         api.get("libraries/:lib/books/:id/adjacent") { request, context in
@@ -449,6 +497,19 @@ public struct LibraryServerCore: Sendable {
             router: router,
             configuration: .init(address: .hostname(config.host, port: config.port))
         )
+    }
+
+    /// 4.2c-6b: 選択ページから Thumbnails/<id>/thumbnail.jpg を再生成する（App の CoverRefresher 相当）。
+    /// preferredName=nil は自動先頭ページ。非対応/失敗は throws（呼び出し側で 500）。
+    static func regenerateThumbnail(bookID: Int, sourceURLPath: String?, preferredName: String?, bundleURL: URL) async throws {
+        guard let path = sourceURLPath, let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) else {
+            throw HTTPError(.internalServerError)
+        }
+        let data = try await ex.extractCoverImage(from: URL(fileURLWithPath: path), preferredName: preferredName)
+        let resized = CoverImageResizer.resizeJPEG(data, maxPixelSize: 1200)
+        let url = coverURL(bundleURL: bundleURL, bookID: bookID)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try resized.write(to: url)
     }
 }
 

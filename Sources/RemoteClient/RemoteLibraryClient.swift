@@ -283,4 +283,35 @@ public struct RemoteLibraryClient: Sendable {
                                           body: body, contentType: "application/json"))
         return try decode(StampApplyReply.self, data).updated
     }
+
+    // MARK: - 4.2c-6b: リモート表紙/クロップ編集
+
+    /// GET cover-candidates — ページ名一覧＋現 coverImageName。
+    public func fetchCoverCandidates(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> (entries: [String], current: String?) {
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover-candidates")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        let dto = try decode(CoverCandidatesDTO.self, data)
+        return (dto.entries, dto.current)
+    }
+
+    /// GET entry-image — 選択ページ画像（クロップ編集プレビュー）。
+    public func fetchEntryImage(libraryUUID: String, bookID: Int, name: String, maxw: Int?, libraryToken: String?) async throws -> Data {
+        var q = [URLQueryItem(name: "name", value: name)]
+        if let maxw { q.append(URLQueryItem(name: "maxw", value: String(maxw))) }
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/entry-image", query: q)
+        return try await send(request(url, method: "GET", libraryToken: libraryToken))
+    }
+
+    /// PUT cover — coverImageName/coverCropRect 更新（更新後 BookDetailDTO）。
+    @discardableResult
+    public func setRemoteCover(libraryUUID: String, bookID: Int, coverImageName: String?, setName: Bool,
+                               coverCropRectJSON: String?, setCrop: Bool, libraryToken: String?) async throws -> BookDetailDTO {
+        let body = try JSONEncoder().encode(CoverUpdateRequest(
+            coverImageName: coverImageName, setCoverImageName: setName,
+            coverCropRect: coverCropRectJSON, setCoverCropRect: setCrop))
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover")
+        let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json"))
+        return try decode(BookDetailDTO.self, data)
+    }
 }
