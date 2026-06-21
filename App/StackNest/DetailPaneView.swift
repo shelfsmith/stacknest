@@ -27,6 +27,9 @@ struct DetailPaneView: View {
     let onSetCrop: (Int, String) -> Void                // was updateBookCoverCropRect(id:json:<json>)+refresh
     let onJump: (DetailField, String) -> Void           // was jumpToFilterOrSearch(field:value:)
     let onError: (AppError) -> Void                     // was appState.error = <AppError>
+    /// 4.2c-6b: リモート表紙編集用の注入（nil=ローカル＝従来 CoverPickerSheet）。
+    var remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil
+    var remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
 
     /// 明示イニシャライザ。`coverImage` は inline default (`= nil`) を持つため
     /// 合成メモリワイズ init からは除外され、呼び出し側で渡せなくなる。
@@ -47,7 +50,9 @@ struct DetailPaneView: View {
         onSetCrop: @escaping (Int, String) -> Void,
         onJump: @escaping (DetailField, String) -> Void,
         onError: @escaping (AppError) -> Void,
-        coverImage: ((Int) async -> NSImage?)? = nil
+        coverImage: ((Int) async -> NSImage?)? = nil,
+        remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil,
+        remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
     ) {
         self.books = books
         self.librarySettings = librarySettings
@@ -64,6 +69,8 @@ struct DetailPaneView: View {
         self.onJump = onJump
         self.onError = onError
         self.coverImage = coverImage
+        self.remoteCoverCandidates = remoteCoverCandidates
+        self.remoteEntryImage = remoteEntryImage
     }
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
@@ -521,23 +528,30 @@ struct DetailPaneView: View {
                     .disabled(!isSingleSelection || !canEdit || (book.coverImageName == nil && book.coverCropRect == nil))
                 }
                 .sheet(isPresented: $showCoverPicker) {
-                    CoverPickerSheet(book: book, bundleURL: bundleURL) { entry, cropRect in
+                    // 選択確定の共通処理（cover write→crop write の atomicity はローカル/リモート共通）。
+                    let onPicked: (String, CGRect?) -> Void = { entry, cropRect in
                         Task {
-                            // Phase 2.5h A18-ext: cover_image_name 書き込みと crop rect 書き込み。
-                            // cover write が失敗したときは crop write をスキップして atomicity を保つ
-                            // (元の setCoverImageName の throw 伝搬と同じ制御フロー)。
                             do {
                                 try await onSetCover(entry, book.id)
                             } catch {
                                 return
                             }
-                            // cropRect == nil (=全体) のときは crop を NULL に戻す (onClearCrop)。
                             if let cropRect {
                                 onSetCrop(book.id, BookRow.encodeCoverCropRect(cropRect))
                             } else {
                                 onClearCrop(book.id)
                             }
                         }
+                    }
+                    // 4.2c-6b: remote プロバイダが注入されていればリモート用ピッカー、なければ従来ローカル。
+                    if let cand = remoteCoverCandidates, let img = remoteEntryImage {
+                        RemoteCoverPickerSheet(
+                            book: book,
+                            loadCandidates: { await cand(book.id) },
+                            loadEntryImage: { await img(book.id, $0) },
+                            onSelect: onPicked)
+                    } else {
+                        CoverPickerSheet(book: book, bundleURL: bundleURL, onSelect: onPicked)
                     }
                 }
             HStack(spacing: 6) {

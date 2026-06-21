@@ -25,4 +25,12 @@ public actor RemoteCoverCache {
         cache.setObject(data as NSData, forKey: key.string as NSString)
         return data
     }
+
+    /// 4.2c-6b: 表紙差し替え後に該当本のキャッシュを無効化する（再生成 thumbnail を再取得させる）。
+    /// 表紙の取得元は cover(maxw=300) と coverImage(maxw=600) の 2 サイズ。
+    public func invalidate(libraryUUID: String, bookID: Int) {
+        for w in [300, 600] {
+            cache.removeObject(forKey: Key(libraryUUID: libraryUUID, bookID: bookID, maxWidth: w).string as NSString)
+        }
+    }
 }

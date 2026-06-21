@@ -117,10 +117,20 @@ struct RemoteLibraryView: View {
             onSetPageDirection: { id, dir in Task { await state.setRemoteDirection(bookID: id, direction: dir) } },
             onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },
             onApplyPatchMulti: { ids, patch in state.startBatchEdit(ids: Set(ids), patch: patch) },
-            onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },
+            onSetCover: { name, id in
+                await state.setRemoteCover(bookID: id, coverImageName: name, setName: true, cropJSON: nil, setCrop: false)
+            },
+            onClearCrop: { id in
+                Task { await state.setRemoteCover(bookID: id, coverImageName: nil, setName: false, cropJSON: nil, setCrop: true) }
+            },
+            onSetCrop: { id, json in
+                Task { await state.setRemoteCover(bookID: id, coverImageName: nil, setName: false, cropJSON: json, setCrop: true) }
+            },
             onJump: { field, value in Task { await state.jumpToFilter(field: field, value: value) } },
             onError: { _ in },
-            coverImage: { id in await state.coverImage(id) }
+            coverImage: { id in await state.coverImage(id) },
+            remoteCoverCandidates: { id in await state.coverCandidates(bookID: id) },
+            remoteEntryImage: { id, name in await state.entryImage(bookID: id, name: name) }
         )
     }
 

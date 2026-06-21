@@ -651,6 +651,36 @@ final class RemoteLibraryState {
         if !multiSelection.isEmpty { applyStamp(field: field, value: trimmed) }
     }
 
+    // MARK: - 4.2c-6b: リモート表紙/クロップ編集
+
+    /// 表紙候補（アーカイブのページ名一覧）＋現 coverImageName。
+    func coverCandidates(bookID: Int) async -> (entries: [String], current: String?) {
+        (try? await client.fetchCoverCandidates(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken)) ?? ([], nil)
+    }
+
+    /// 選択ページのプレビュー画像（クロップ編集用・maxw=800）。
+    func entryImage(bookID: Int, name: String) async -> NSImage? {
+        guard let data = try? await client.fetchEntryImage(
+            libraryUUID: libraryUUID, bookID: bookID, name: name, maxw: 800, libraryToken: libraryToken) else { return nil }
+        return NSImage(data: data)
+    }
+
+    /// 表紙更新（coverImageName/coverCropRect）。成功後は表紙キャッシュ無効化＋再読込で反映。
+    func setRemoteCover(bookID: Int, coverImageName: String?, setName: Bool, cropJSON: String?, setCrop: Bool) async {
+        do {
+            _ = try await client.setRemoteCover(
+                libraryUUID: libraryUUID, bookID: bookID,
+                coverImageName: coverImageName, setName: setName,
+                coverCropRectJSON: cropJSON, setCrop: setCrop, libraryToken: libraryToken)
+            await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
+            downloadedVersion &+= 1   // grid/list セルの表紙再評価トリガ
+            await reload(clearFirst: false)
+            if selection == bookID { await selectBook(bookID) }
+        } catch {
+            errorText = "表紙の更新に失敗しました"
+        }
+    }
+
     /// スタンプ定義を削除 → サーバ PUT。ショートカット定義のみ除去（本メタは不変）。RW 必須。
     func deleteStampDefinition(field: StampField, value: String) {
         guard canEditServer else { return }
