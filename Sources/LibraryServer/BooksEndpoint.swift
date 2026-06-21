@@ -154,7 +154,8 @@ struct BooksQuery {
                 hasCover: coverIDs.contains(row.id),
                 coverVersion: nil,   // スライス後に表紙ありの本のみ埋める
                 genre: row.genre, neta: row.neta,
-                keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC, memo: row.memo
+                keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC, memo: row.memo,
+                coverCropRectJSON: row.coverCropRect.map(BookRow.encodeCoverCropRect)
             )
         }
         items = sort.sortedAscending(items)

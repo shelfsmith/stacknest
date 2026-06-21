@@ -24,6 +24,8 @@ public struct BookListItemDTO: Codable, Sendable {
     /// 表紙差し替えを Web の `?v=` で追跡するためのバージョン文字列（thumbnail.jpg の mtime+size 由来）。
     /// 表紙なしの本は nil。stat コスト抑制のためページスライス後の本のみ算出する（run 参照）。
     public let coverVersion: String?
+    /// 4.2c-6b: 表紙クロップ矩形 JSON（リモートグリッド/リストのクロップ適用用）。クロップ無しは nil。
+    public let coverCropRectJSON: String?
     // ── 動的フィールド（&fields= で要求された時のみ充填・既定 nil） ──
     public let genre: String?
     public let neta: String?
@@ -48,7 +50,8 @@ public struct BookListItemDTO: Codable, Sendable {
         hasCover: Bool,
         coverVersion: String?,
         genre: String? = nil, neta: String? = nil,
-        keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil, memo: String? = nil
+        keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil, memo: String? = nil,
+        coverCropRectJSON: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -66,6 +69,7 @@ public struct BookListItemDTO: Codable, Sendable {
         self.coverVersion = coverVersion
         self.genre = genre; self.neta = neta
         self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC; self.memo = memo
+        self.coverCropRectJSON = coverCropRectJSON
     }
 }
 
@@ -78,7 +82,8 @@ extension BookListItemDTO {
             rating: rating, unseen: unseen, bookType: bookType,
             pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: version,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
+            coverCropRectJSON: coverCropRectJSON
         )
     }
 
@@ -94,7 +99,8 @@ extension BookListItemDTO {
             keywordA: fields.contains("keywordA") ? keywordA : nil,
             keywordB: fields.contains("keywordB") ? keywordB : nil,
             keywordC: fields.contains("keywordC") ? keywordC : nil,
-            memo: fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil)
+            memo: fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil,
+            coverCropRectJSON: coverCropRectJSON)
     }
 
     /// lastPage を差し替えた複製（リモート閲覧の進捗をメモリ上の一覧へ反映し、
@@ -106,7 +112,8 @@ extension BookListItemDTO {
             rating: rating, unseen: unseen, bookType: bookType,
             pages: pages, lastPage: page, lastReadAt: lastReadAt,
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
+            coverCropRectJSON: coverCropRectJSON
         )
     }
 
@@ -117,7 +124,8 @@ extension BookListItemDTO {
             rating: rating, unseen: v, bookType: bookType, pages: pages,
             lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
             hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo)
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
+            coverCropRectJSON: coverCropRectJSON)
     }
 
     /// lastReadAt だけ差し替えた複製（リモート閲覧で最終閲覧日時を楽観的に更新するために使う）。
@@ -127,7 +135,8 @@ extension BookListItemDTO {
             rating: rating, unseen: unseen, bookType: bookType, pages: pages,
             lastPage: lastPage, lastReadAt: date, dateAdded: dateAdded,
             hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo)
+            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
+            coverCropRectJSON: coverCropRectJSON)
     }
 }
 

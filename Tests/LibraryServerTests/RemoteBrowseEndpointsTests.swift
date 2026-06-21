@@ -91,6 +91,31 @@ struct RemoteBrowseEndpointsTests {
         }
     }
 
+    /// 4.2c-6b R2: books 一覧は coverCropRectJSON を返す（リモートグリッドのクロップ適用用）。
+    @Test func booksListIncludesCoverCropRect() async throws {
+        let fixture = try TestLibraryFixture(name: "Crop", bookCount: 0)
+        defer { fixture.cleanup() }
+        let id = try fixture.addRealBook(zipFixtureNamed: "three_pages")
+        let json = BookRow.encodeCoverCropRect(CGRect(x: 0, y: 0, width: 0.5, height: 0.5))
+        try fixture.db.updateBookCoverCropRect(id: id, json: json)
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books?per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { resp in
+                #expect(resp.status == .ok)
+                let page = try dec().decode(BookPageDTO.self, from: Data(buffer: resp.body))
+                let item = page.items.first { $0.id == id }
+                #expect(item?.coverCropRectJSON != nil)
+            }
+        }
+    }
+
     @Test func facetsReturnsDistinctGenres() async throws {
         let fixture = try TestLibraryFixture(name: "Fc", bookCount: 0)
         defer { fixture.cleanup() }

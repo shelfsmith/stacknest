@@ -64,7 +64,8 @@ struct BookCell: View {
     /// Phase 2.5h A18-ext: 横長カバー対応。
     /// `rect` が nil または全体 (full image rect) なら元画像を返し、その他は CGImage を切り出す。
     /// CGImage.cropping(to:) は thumbnail cache を汚さないため、purge 不要。
-    private static func croppedImage(_ image: CGImage, rect: CGRect?) -> CGImage {
+    /// 4.2c-6b: リモートグリッド（RemoteBookCell）でも同一ロジックを使うため internal。
+    static func croppedImage(_ image: CGImage, rect: CGRect?) -> CGImage {
         guard let rect, rect != CGRect(x: 0, y: 0, width: 1, height: 1) else {
             return image
         }

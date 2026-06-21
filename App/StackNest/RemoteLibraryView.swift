@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
+import CoreGraphics
 import LibraryServerAPI
+import LibraryStore
 import RemoteClient
 import SwiftUI
 
@@ -738,15 +740,17 @@ private struct RemoteBookCell: View {
     /// Task 4: ダウンロード済みバッジ表示フラグ（親が downloadedVersion 参照込みで算出）。
     let downloaded: Bool
 
-    @State private var image: NSImage?
+    @State private var thumbnail: CGImage?
 
     var body: some View {
         VStack(spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.secondary.opacity(0.15))
-                if let image {
-                    Image(nsImage: image)
+                if let thumbnail {
+                    // 4.2c-6b smoke R2: ローカル BookCell と同じ croppedImage でクロップ適用。
+                    Image(decorative: BookCell.croppedImage(
+                        thumbnail, rect: BookRow.decodeCoverCropRect(json: book.coverCropRectJSON)), scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 } else {
@@ -790,13 +794,15 @@ private struct RemoteBookCell: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
         }
-        // 4.2c-6b smoke A4: 表紙差し替えで book.id は不変だが coverVersion（thumbnail
-        // mtime+size 由来）が変わる。id だけだと .task が再実行されずグリッドが古い表紙の
-        // まま残るため、coverVersion を複合キーに含めて再取得させる。
-        .task(id: "\(book.id)#\(book.coverVersion ?? "")") {
+        // 4.2c-6b smoke A4/R2: 表紙差し替えで book.id は不変だが coverVersion（thumbnail
+        // mtime+size 由来）が変わる。クロップのみの変更は coverVersion を変えない（thumbnail
+        // 非再生成）ため coverCropRectJSON も複合キーに含め、両方の変化で再取得・再クロップさせる。
+        .task(id: "\(book.id)#\(book.coverVersion ?? "")#\(book.coverCropRectJSON ?? "")") {
             if book.hasCover {
-                if let data = await state.cover(bookID: book.id) {
-                    image = NSImage(data: data)
+                if let data = await state.cover(bookID: book.id),
+                   let ns = NSImage(data: data),
+                   let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    thumbnail = cg
                 }
             }
         }
