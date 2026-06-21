@@ -222,6 +222,13 @@ struct RemoteLibraryView: View {
                 perControl
             }
 
+            // 4.2c-6a (smoke v2 自由記載): このリモート接続が編集可(RW)か閲覧のみ(R)かを一目で示す。
+            Label(state.canEditServer ? "RW" : "R",
+                  systemImage: state.canEditServer ? "pencil.circle" : "eye.circle")
+                .font(.caption)
+                .foregroundStyle(state.canEditServer ? Color.accentColor : .secondary)
+                .help(state.canEditServer ? "編集可能（RW トークン）" : "閲覧のみ（R トークン）")
+
             Spacer()
 
             // 4.2c-3 (v7 自由記載修正): ダウンロード進捗/中断ボタンは独立した子ビューに分離する。

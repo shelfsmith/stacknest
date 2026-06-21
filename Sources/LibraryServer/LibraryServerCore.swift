@@ -21,13 +21,17 @@ public struct LibraryServerConfig: Sendable {
     /// 本のメタデータをサーバ経由で変更したとき App に通知する（libraryUUID, bookID）。
     /// App は該当ライブラリのインメモリ本モデルを DB から更新して GUI（詳細ペイン等）へ反映する。
     public var onBookChanged: (@Sendable (String, Int) -> Void)?
+    /// 4.2c-6a: ライブラリ設定（スタンプ定義など）をサーバ経由で変更したとき App に通知する
+    /// （libraryUUID）。App は該当ライブラリのインメモリ設定を DB から再読込して GUI に反映する。
+    public var onLibrarySettingsChanged: (@Sendable (String) -> Void)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
                 editToken: String? = nil,
                 transcoder: any ImageTranscoding = PassthroughTranscoder(),
                 defaultPageDirection: PageDirection = .rightToLeft,
-                onBookChanged: (@Sendable (String, Int) -> Void)? = nil) {
+                onBookChanged: (@Sendable (String, Int) -> Void)? = nil,
+                onLibrarySettingsChanged: (@Sendable (String) -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -35,6 +39,7 @@ public struct LibraryServerConfig: Sendable {
         self.transcoder = transcoder
         self.defaultPageDirection = defaultPageDirection
         self.onBookChanged = onBookChanged
+        self.onLibrarySettingsChanged = onLibrarySettingsChanged
     }
 }
 
@@ -271,7 +276,7 @@ public struct LibraryServerCore: Sendable {
             return StampDefinitionsDTO(definitions: map)
         }
         // 4.2c-6a: スタンプ定義の置換（RW）。許可カラムのみ採用しマップ全体を保存。
-        api.put("libraries/:lib/stamp-definitions") { request, context in
+        api.put("libraries/:lib/stamp-definitions") { [config] request, context in
             guard context.role == .write else { throw HTTPError(.forbidden) }
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
@@ -282,6 +287,8 @@ public struct LibraryServerCore: Sendable {
             let filtered = dto.definitions.filter { allowed.contains($0.key) }
             let data = try JSONEncoder().encode(filtered)
             try lib.db.setLibrarySetting(key: "stamp_definitions", value: String(decoding: data, as: UTF8.self))
+            // ローカル(同バンドルを開いている AppState)のインメモリ設定を再読込させる（C1' ライブ反映）。
+            config.onLibrarySettingsChanged?(lib.uuid)
             return StampDefinitionsDTO(definitions: filtered)
         }
         // 4.2c-6a: 一括スタンプ適用（RW・append/clear をサーバ側で MultiValueParser/clearBookField）。

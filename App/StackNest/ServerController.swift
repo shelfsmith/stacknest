@@ -49,6 +49,16 @@ final class ServerController {
                         state.handleExternalBookChange(bookID: bookID)
                     }
                 }
+            },
+            onLibrarySettingsChanged: { uuid in
+                // 4.2c-6a (C1'): リモートがスタンプ定義を PUT したら、同バンドルを開いている
+                // ローカル AppState のインメモリ設定を DB から再読込してライブ反映する。
+                Task { @MainActor in
+                    for state in AppState.activeInstances.allObjects
+                    where state.librarySettings?.libraryUUID == uuid {
+                        state.librarySettings?.reloadStampDefinitions()
+                    }
+                }
             }
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())

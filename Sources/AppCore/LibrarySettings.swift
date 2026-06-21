@@ -621,6 +621,16 @@ public final class LibrarySettings {
         }
     }
 
+    /// 4.2c-6a: 外部（サーバ経由のリモート PUT 等）が DB の stamp_definitions を直接書き換えたとき、
+    /// DB から再読込してメモリ表現（@Observable）を更新する（ローカル UI へライブ反映）。
+    /// 失敗時は現状維持（誤って空に潰さない）。
+    public func reloadStampDefinitions() {
+        guard let json = (try? database.getLibrarySetting(key: Self.stampDefinitionsKey)) ?? nil,
+              let data = json.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else { return }
+        stampDefinitions = decoded
+    }
+
     private func persistIgnoredDuplicateKeys() {
         do {
             let data = try JSONEncoder().encode(ignoredDuplicateKeys)

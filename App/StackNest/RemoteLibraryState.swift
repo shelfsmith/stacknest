@@ -195,10 +195,12 @@ final class RemoteLibraryState {
     }
 
     /// 先頭から読み直す（query/sort/ascending/mode/per 変更時）。books を置換する。
-    func reload() async {
+    func reload(clearFirst: Bool = true) async {
         loadGeneration += 1
         page = 1
-        books = []
+        // clearFirst=false: 一括編集後の再取得などで、旧リストを保持したまま差し替える
+        // （books=[] による一瞬の空表示＝smoke A1 インラインを防ぐ）。
+        if clearFirst { books = [] }
         do {
             let result = try await fetchChunk(page: 1, size: fetchSize)
             books = result.items
@@ -587,7 +589,7 @@ final class RemoteLibraryState {
             editProgress = (i + 1, list.count)
         }
         editProgress = nil
-        await reload()
+        await reload(clearFirst: false)   // 旧リストを保持したまま差し替え（空表示防止）
         if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
         var parts = ["\(ok) 件更新"]
         if fail > 0 { parts.append("\(fail) 件失敗") }
@@ -613,7 +615,7 @@ final class RemoteLibraryState {
         Task {
             _ = try? await client.applyStamp(libraryUUID: libraryUUID, field: field.dbColumn,
                                              value: value, clear: false, bookIDs: ids, libraryToken: libraryToken)
-            await reload()
+            await reload(clearFirst: false)
             if let id = selection { await selectBook(id) }
         }
     }
@@ -625,7 +627,7 @@ final class RemoteLibraryState {
         Task {
             _ = try? await client.applyStamp(libraryUUID: libraryUUID, field: field.dbColumn,
                                              value: nil, clear: true, bookIDs: ids, libraryToken: libraryToken)
-            await reload()
+            await reload(clearFirst: false)
             if let id = selection { await selectBook(id) }
         }
     }
