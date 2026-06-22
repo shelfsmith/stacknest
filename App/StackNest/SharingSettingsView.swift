@@ -86,7 +86,7 @@ struct SharingSettingsView: View {
                 set: { wantRunning in
                     if wantRunning {
                         commitPortIfPossible()
-                        server.start()
+                        SharingWarning.confirmThenStart(server)   // 4.2c-10: 警告→同意で start
                     } else {
                         server.stop()
                     }
