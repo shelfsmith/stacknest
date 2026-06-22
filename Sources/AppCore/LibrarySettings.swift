@@ -173,6 +173,14 @@ public final class LibrarySettings {
     public var remoteSharingEnabled: Bool {
         didSet { persistRemoteSharingEnabled() }
     }
+    /// 監視フォルダ機能の有効/無効（per-library）。既定 OFF。
+    public var folderWatchEnabled: Bool {
+        didSet { persistFolderWatchEnabled() }
+    }
+    /// 監視フォルダ設定の一覧（per-library）。
+    public var watchedFolders: [WatchedFolder] {
+        didSet { persistWatchedFolders() }
+    }
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettings")
     private static let columnsKey = "listViewColumns"
@@ -202,6 +210,8 @@ public final class LibrarySettings {
     private static let backupEnabledKey = "backup_enabled"
     private static let backupGenerationsKey = "backup_generations"
     private static let remoteSharingEnabledKey = "remote_sharing_enabled"
+    private static let folderWatchEnabledKey = "folder_watch_enabled"
+    private static let watchedFoldersKey = "watched_folders"
     private static let defaultGridItemSize: Double = 160
     private static let defaultRecentDays: Int = 14
     private static let defaultSortMode: SortMode = .column
@@ -399,6 +409,20 @@ public final class LibrarySettings {
             self.remoteSharingEnabled = (str == "true")
         } else {
             self.remoteSharingEnabled = Self.defaultRemoteSharingEnabled
+        }
+        // Load folderWatchEnabled. Default: false.
+        if let v = try database.getLibrarySetting(key: Self.folderWatchEnabledKey) {
+            self.folderWatchEnabled = (v == "1" || v == "true")
+        } else {
+            self.folderWatchEnabled = false
+        }
+        // Load watchedFolders. Decode failure starts with empty array.
+        if let json = try database.getLibrarySetting(key: Self.watchedFoldersKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([WatchedFolder].self, from: data) {
+            self.watchedFolders = decoded
+        } else {
+            self.watchedFolders = []
         }
         // init 内の代入では didSet が発火しないため、移行で新規生成した場合は明示的に永続する。
         if didSeedPresets {
@@ -737,6 +761,30 @@ public final class LibrarySettings {
         } catch {
             Self.logger.error("Failed to persist remoteSharingEnabled: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    private func persistFolderWatchEnabled() {
+        do {
+            try database.setLibrarySetting(key: Self.folderWatchEnabledKey, value: folderWatchEnabled ? "1" : "0")
+        } catch {
+            Self.logger.error("Failed to persist folderWatchEnabled: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistWatchedFolders() {
+        do {
+            let data = try JSONEncoder().encode(watchedFolders)
+            try database.setLibrarySetting(key: Self.watchedFoldersKey, value: String(data: data, encoding: .utf8) ?? "[]")
+        } catch {
+            Self.logger.error("Failed to persist watchedFolders: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// 監視フォルダの取り込みに使うファイル名フォーマット raw 文字列を解決する。
+    /// presetID が nil または不明なら、ライブラリ既定の filenameFormat を返す。
+    public func resolvedFilenameFormatRaw(forPresetID id: String?) -> String {
+        if let id, let p = filenameFormatPresets.first(where: { $0.id == id }) { return p.format }
+        return filenameFormat
     }
 }
 
