@@ -82,6 +82,9 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         _ = state.downloadedVersion   // observe so updateNSView re-runs when DL state changes
         _ = state.downloadProgress?.fraction
+        // 4.2c-8: ラベル override（サーバ同期・編集保存）変更時に再走させ、列ヘッダを更新する。
+        _ = settings.remoteFieldLabelOverride
+        _ = settings.remoteBookTypeLabelOverride
         let coord = context.coordinator
         coord.state = state
         coord.settings = settings
@@ -222,7 +225,16 @@ final class RemoteBookTableCoordinator: NSObject {
             }
         }
         let current: [BookColumn] = table.tableColumns.compactMap { BookColumn(rawValue: $0.identifier.rawValue) }
-        if current != visibleColumns { installColumns(in: table) }
+        if current != visibleColumns {
+            installColumns(in: table)
+        } else {
+            // 4.2c-8: 列セット不変でも列ヘッダのラベルを更新する（override 変更を反映・A1/B2）。
+            for nsCol in table.tableColumns {
+                if let col = BookColumn(rawValue: nsCol.identifier.rawValue) {
+                    nsCol.title = settings.label(for: col)
+                }
+            }
+        }
         // ヘッダのソートインジケータ（▲▼）を現在のソートに合わせる。
         // state.sortKey は serverSortKey 文字列なので、それに一致する列の rawValue を
         // sortDescriptor の key にする（列ヘッダの identifier は col.rawValue のため）。

@@ -475,9 +475,11 @@ struct RemoteLibraryView: View {
                     }
                     Task { await state.reload() }
                 } label: {
+                    // 4.2c-8: サーバ同期ラベルを反映（A2）。
+                    let title = settings.label(for: col)
                     Text(state.sortKey == key
-                         ? "\(col.localizedTitleString) \(state.ascending ? "↑" : "↓")"
-                         : col.localizedTitleString)
+                         ? "\(title) \(state.ascending ? "↑" : "↓")"
+                         : title)
                 }
             }
         }
