@@ -765,7 +765,7 @@ public final class LibrarySettings {
 
     private func persistFolderWatchEnabled() {
         do {
-            try database.setLibrarySetting(key: Self.folderWatchEnabledKey, value: folderWatchEnabled ? "1" : "0")
+            try database.setLibrarySetting(key: Self.folderWatchEnabledKey, value: folderWatchEnabled ? "true" : "false")
         } catch {
             Self.logger.error("Failed to persist folderWatchEnabled: \(error.localizedDescription, privacy: .public)")
         }
