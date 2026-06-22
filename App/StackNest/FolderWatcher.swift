@@ -27,6 +27,10 @@ final class FolderWatcher {
         self.onImported = onImported
     }
 
+    // 注: ライフサイクルは AppState が管理し、closeBundle() で必ず stop()→nil する。
+    // deinit での安全網は Timer(非 Sendable) を nonisolated deinit から触れず Swift 6 隔離に
+    // 反するため設けない（将来 isolated deinit 採用時に再検討）。
+
     func start() {
         stop()
         guard settings.folderWatchEnabled else { return }

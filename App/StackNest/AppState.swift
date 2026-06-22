@@ -381,6 +381,7 @@ final class AppState {
         folderWatcher?.stop()
         folderWatcher = nil
         watchSummaryClearTask?.cancel()
+        watchSummaryClearTask = nil
         backupOnCloseIfNeeded()
         database?.close()
         database = nil
@@ -1410,9 +1411,9 @@ final class AppState {
         guard !parts.isEmpty else { return }
         watchImportSummary = parts.joined(separator: " / ")
         watchSummaryClearTask?.cancel()
-        watchSummaryClearTask = Task { @MainActor in
+        watchSummaryClearTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            self.watchImportSummary = nil
+            self?.watchImportSummary = nil
         }
     }
 
