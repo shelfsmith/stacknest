@@ -218,6 +218,13 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
 
+    /// 4.2c-9: レート更新（role 不問＝R でも可・共有評価）。
+    public func setRating(libraryUUID: String, bookID: Int, rating: Int, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(["rating": rating])
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/rating")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
     /// 読む方向をサーバへ POST する（/direction は R トークンでも許可）。
     /// direction: "rtl" / "ltr" / nil（クリア）。
     public func updatePageDirection(libraryUUID: String, bookID: Int, direction: String?, libraryToken: String?) async throws {

@@ -608,6 +608,26 @@ final class RemoteLibraryState {
             libraryUUID: libraryUUID, libraryToken: libraryToken)) ?? [:]
     }
 
+    // MARK: - 4.2c-9: レート（R 可・共有評価）
+
+    /// 指定本のレートを更新（R 可・共有評価）。成功後に一覧/詳細を更新。
+    func setRating(ids: [Int], _ stars: Int) {
+        guard !ids.isEmpty else { return }
+        Task {
+            for id in ids {
+                try? await client.setRating(libraryUUID: libraryUUID, bookID: id, rating: stars, libraryToken: libraryToken)
+            }
+            await reload(clearFirst: false)
+            if let sel = selection, ids.contains(sel) { await selectBook(sel) }
+        }
+    }
+
+    /// メニュー(⌘0–5)用。選択集合（multiSelection 優先・無ければ selection）へレート適用。
+    func setRatingForSelection(_ stars: Int) {
+        let ids: [Int] = multiSelection.isEmpty ? (selection.map { [$0] } ?? []) : Array(multiSelection)
+        setRating(ids: ids, stars)
+    }
+
     // MARK: - 4.2c-8: ラベル同期
 
     /// サーバのラベルカスタマイズを取得（失敗時は空）。View が settings の override にセットする。
