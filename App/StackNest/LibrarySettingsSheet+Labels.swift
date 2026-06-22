@@ -3,8 +3,16 @@ import SwiftUI
 import AppCore
 
 extension LibrarySettingsSheet {
-    // 4.2c-8 B1: ラベル編集はライブラリ設定シートから廃止し、ツールバーの LocalLabelEditorSheet へ移設。
-    // 行定義（static）はローカル/リモートの LabelEditorView 呼び出しで共用するため残す。
+    /// 4.2c-8: 共有 LabelEditorView へ委譲（リモート編集シートと UI 単一ソース化）。
+    /// ステージ状態（stagedFieldLabels / stagedBookTypeLabels）と保存（save()）の流れは不変。
+    @ViewBuilder
+    func labelSection() -> some View {
+        LabelEditorView(
+            fieldLabels: $stagedFieldLabels,
+            bookTypeLabels: $stagedBookTypeLabels,
+            fieldRows: Self.fieldLabelRows,
+            bookTypeRows: Self.bookTypeLabelRows)
+    }
 
     /// 内容系 5 フィールドの行（key=dbColumn, canonical=正準）。StampField を単一ソースにする。
     static var fieldLabelRows: [(key: String, canonical: String)] {

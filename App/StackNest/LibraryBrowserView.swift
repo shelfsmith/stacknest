@@ -19,8 +19,6 @@ struct LibraryBrowserView: View {
     @State private var showLibrarySettings = false
     @State private var showDuplicateScan = false
     @State private var showRelink = false
-    /// 4.2c-8 B1: ラベル編集シート（設定タブから移設・ツールバーの tag アイコンから開く）。
-    @State private var showLabelEditor = false
     @State private var renameSelection: BookRenameSelection?
     /// Task 5: 自 window への参照。openLibrarySettings 通知受信時に key window 判定に使用。
     @State private var hostWindow: NSWindow?
@@ -144,19 +142,6 @@ struct LibraryBrowserView: View {
                         Label("追加", systemImage: "plus")
                     }
                     .help("ファイルまたはフォルダを追加")
-                }
-                // 4.2c-8 B1: ラベル編集（設定タブから移設）。
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showLabelEditor = true } label: {
-                        Label("ラベルを編集", systemImage: "tag")
-                    }
-                    .help("ラベル（見出し名）を編集")
-                    .disabled(appState.librarySettings == nil)
-                }
-            }
-            .sheet(isPresented: $showLabelEditor) {
-                if let settings = appState.librarySettings {
-                    LocalLabelEditorSheet(settings: settings)
                 }
             }
             .onAppear { startModifierMonitor() }
