@@ -639,6 +639,8 @@ private struct SharingIndicatorButton: View {
 /// File menu commands for creating/opening/importing libraries.
 struct FileCommands: Commands {
     let openWindow: OpenWindowAction
+    // 4.2c-9: 設定/削除系をアクティブウィンドウ（ローカル/リモート）でルーティング・無効化する。
+    @FocusedValue(\.browserCommandTarget) private var target
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -714,39 +716,42 @@ struct FileCommands: Commands {
             Divider()
             // Task 6: context menu の keyboardShortcut 表記を削除するため、
             // main menu に同一ショートカットを定義して動作を維持する。
+            // 4.2c-9: ファイル実体が要る操作はリモートで無効化（canManageFiles=false）。
             Button("ファイル名を変更…") {
                 NotificationCenter.default.post(name: .renameSelectedBooks, object: nil)
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(!(target?.canManageFiles ?? false))
 
             Button("ファイルを移動…") {
                 NotificationCenter.default.post(name: .moveSelectedBooks, object: nil)
             }
             .keyboardShortcut("d", modifiers: .command)
+            .disabled(!(target?.canManageFiles ?? false))
 
             Button("リンク切れを検出…") {
                 NotificationCenter.default.post(name: .detectBrokenLinks, object: nil)
             }
+            .disabled(!(target?.canManageFiles ?? false))
 
             Divider()
             Button("ライブラリから削除") {
                 NotificationCenter.default.post(name: .stacknestDeleteFromLibraryRequest, object: nil)
             }
             .keyboardShortcut(.delete, modifiers: [])
+            .disabled(!(target?.canManageFiles ?? false))
 
             Button("ファイルをゴミ箱に移動…") {
                 NotificationCenter.default.post(name: .stacknestMoveToTrashRequest, object: nil)
             }
             .keyboardShortcut(.delete, modifiers: .command)
+            .disabled(!(target?.canManageFiles ?? false))
 
             Divider()
-            Button("このライブラリの設定…") {
-                NotificationCenter.default.post(
-                    name: .openLibrarySettings,
-                    object: nil
-                )
-            }
+            // 4.2c-9: 設定はアクティブに応じローカル/リモートのシートを開く。リモートは RW のみ（canEditMeta）。
+            Button("このライブラリの設定…") { target?.openSettings() }
             .keyboardShortcut(",", modifiers: [.command, .shift])
+            .disabled(target == nil || !(target?.canEditMeta ?? false))
         }
     }
 }
@@ -757,21 +762,20 @@ struct FileCommands: Commands {
 /// rating/unread toggles. Bound to the focused library window's AppState via @FocusedValue.
 struct WindowCommands: Commands {
     @FocusedValue(\.appState) private var appState
+    // 4.2c-9: 表示/上ペイン/レートはローカル/リモート共通の target 経由でルーティングする。
+    @FocusedValue(\.browserCommandTarget) private var target
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
-            Button("リスト/アイコン表示") {
-                appState?.viewMode = (appState?.viewMode == .grid ? .list : .grid)
-            }
+            Button("リスト/アイコン表示") { target?.toggleViewMode() }
             .keyboardShortcut("b", modifiers: .command)
-            .disabled(appState == nil)
+            .disabled(target == nil)
         }
 
         CommandGroup(after: .toolbar) {
-            Button("上ペイン: ブラウズ / スタンプ / 隠す を切替") {
-                NotificationCenter.default.post(name: .toggleTopPaneMode, object: nil)
-            }
+            Button("上ペイン: ブラウズ / スタンプ / 隠す を切替") { target?.cycleTopPane() }
             .keyboardShortcut("b", modifiers: [.option, .command])
+            .disabled(target == nil)
         }
 
         CommandGroup(after: .toolbar) {
@@ -871,21 +875,23 @@ struct WindowCommands: Commands {
         }
 
         CommandMenu("レート") {
-            Button("レートなし") { appState?.setRatingForSelected(0, undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("0", modifiers: .command)
-            Button("★") { appState?.setRatingForSelected(1, undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("1", modifiers: .command)
-            Button("★★") { appState?.setRatingForSelected(2, undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("2", modifiers: .command)
-            Button("★★★") { appState?.setRatingForSelected(3, undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("3", modifiers: .command)
-            Button("★★★★") { appState?.setRatingForSelected(4, undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("4", modifiers: .command)
-            Button("★★★★★") { appState?.setRatingForSelected(5, undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("5", modifiers: .command)
+            // 4.2c-9: レートは target 経由（リモートは R でも可＝共有評価・canRate）。
+            Button("レートなし") { target?.setRating(0) }
+                .keyboardShortcut("0", modifiers: .command).disabled(!(target?.canRate ?? false))
+            Button("★") { target?.setRating(1) }
+                .keyboardShortcut("1", modifiers: .command).disabled(!(target?.canRate ?? false))
+            Button("★★") { target?.setRating(2) }
+                .keyboardShortcut("2", modifiers: .command).disabled(!(target?.canRate ?? false))
+            Button("★★★") { target?.setRating(3) }
+                .keyboardShortcut("3", modifiers: .command).disabled(!(target?.canRate ?? false))
+            Button("★★★★") { target?.setRating(4) }
+                .keyboardShortcut("4", modifiers: .command).disabled(!(target?.canRate ?? false))
+            Button("★★★★★") { target?.setRating(5) }
+                .keyboardShortcut("5", modifiers: .command).disabled(!(target?.canRate ?? false))
             Divider()
+            // 未読チェックは RW 編集系（4.2c-9 スコープ外）。ローカルのみ有効（リモートでは無効）。
             Button("未読チェック") { appState?.toggleUnreadForSelected(undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("t", modifiers: .command)
+                .keyboardShortcut("t", modifiers: .command).disabled(appState == nil)
         }
     }
 }
