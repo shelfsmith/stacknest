@@ -503,6 +503,15 @@ public struct LibraryServerCore: Sendable {
             config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
+        // 4.2c-9: レート更新（role 不問＝R でも可・共有評価）。0–5 検証。本を mutate するので onBookChanged。
+        api.post("libraries/:lib/books/:id/rating") { [config] request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: RatingRequestBody.self, context: context)
+            guard (0...5).contains(body.rating) else { throw HTTPError(.badRequest) }
+            try lib.db.setRating(bookID: row.id, rating: body.rating)
+            config.onBookChanged?(lib.uuid, row.id)
+            return HTTPResponse.Status.ok
+        }
         // 原本ファイルの一括ダウンロード（4.2 オフライン機能の土台・ストリーミングは YAGNI）。
         api.get("libraries/:lib/books/:id/file") { request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
@@ -568,6 +577,11 @@ struct ProgressRequestBody: Decodable {
 /// 方向書き込みボディ（swiftc ASTMangler 対策でファイルスコープ）。
 struct DirectionRequestBody: Decodable {
     let direction: String?
+}
+
+/// 4.2c-9: レート更新リクエストボディ（ファイルスコープ）。role 不問（R でも可・共有評価）。
+struct RatingRequestBody: Decodable {
+    let rating: Int
 }
 
 /// ?filter=<URL-decoded JSON> から FilterState をデコードする。
