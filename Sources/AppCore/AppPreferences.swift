@@ -20,6 +20,14 @@ public enum AppPreferences {
         }
     }
 
+    public static let sharingWarningSuppressedKey = "sharing_warning_suppressed"
+
+    /// 4.2c-10: リモート共有の著作権警告を今後表示しないか（default: false = 表示する）。
+    public static var sharingWarningSuppressed: Bool {
+        get { UserDefaults.standard.bool(forKey: sharingWarningSuppressedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: sharingWarningSuppressedKey) }
+    }
+
     public static let hasCompletedFirstRunWizardKey = "stacknest.hasCompletedFirstRunWizard"
 
     /// 初回起動ウィザードを完了したか (default: false = 未完了 → 起動時にウィザード表示)。
