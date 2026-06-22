@@ -23,6 +23,11 @@ final class AppState {
     var error: AppError?
     let viewerSettings: ViewerSettings = .shared
 
+    /// 監視フォルダ自動取込の要約（バナー表示用・一定時間で自動クリア）。
+    var watchImportSummary: String?
+    private var folderWatcher: FolderWatcher?
+    private var watchSummaryClearTask: Task<Void, Never>?
+
     // v0.4a additions
     var selectedSidebarItem: SidebarItem? = .library
     var shelves: [PlaylistRow] = []  // kind != favorites のみ
@@ -270,6 +275,8 @@ final class AppState {
         // B22: セッションガードをリセットし、終了時バックアップ用に自身を登録する。
         self.didBackupThisSession = false
         Self.activeInstances.add(self)
+        // Phase 4.2d-1: 監視フォルダウォッチャーを起動する。
+        reloadFolderWatcher()
         // Phase 4.2c-2: ローカル resume 意図を 1 回だけ消費する。本ライブラリの bundlePath と
         // 一致し、対象 bookID が存在すれば続き確認なしで内蔵ビューワを開く（resumeDirect）。
         if let p = LocalResumeIntent.shared.pending, bundleURL.path == p.bundlePath,
@@ -371,6 +378,9 @@ final class AppState {
     }
 
     func closeBundle() {
+        folderWatcher?.stop()
+        folderWatcher = nil
+        watchSummaryClearTask?.cancel()
         backupOnCloseIfNeeded()
         database?.close()
         database = nil
@@ -1370,6 +1380,40 @@ final class AppState {
         let cmd = try PatchBooksCommand.prepare(patches: patches, database: db)
         try perform(cmd, undoManager: undoManager)
         return patches.count
+    }
+
+    // MARK: - Phase 4.2d-1: 監視フォルダ自動取込
+
+    /// 監視フォルダウォッチャーを（再）構成する。設定変更時にも呼ぶ。
+    func reloadFolderWatcher() {
+        guard let db = database, let settings = librarySettings else {
+            folderWatcher?.stop()
+            folderWatcher = nil
+            return
+        }
+        if folderWatcher == nil {
+            folderWatcher = FolderWatcher(database: db, bundleURL: bundleURL, settings: settings) { [weak self] result in
+                self?.presentWatchSummary(result)
+            }
+        }
+        folderWatcher?.reload()
+    }
+
+    func scanWatchedFoldersNow() { folderWatcher?.scanNow() }
+
+    private func presentWatchSummary(_ result: BookImporter.ImportResult) {
+        try? refreshDisplayedBooks()
+        var parts: [String] = []
+        if !result.addedIDs.isEmpty { parts.append("\(result.addedIDs.count) 件を自動追加") }
+        if !result.failed.isEmpty { parts.append("\(result.failed.count) 件失敗") }
+        if !result.coverFailures.isEmpty { parts.append("表紙なし \(result.coverFailures.count) 件") }
+        guard !parts.isEmpty else { return }
+        watchImportSummary = parts.joined(separator: " / ")
+        watchSummaryClearTask?.cancel()
+        watchSummaryClearTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(5))
+            self.watchImportSummary = nil
+        }
     }
 
     // MARK: - Phase 4.1c: external book change handler
