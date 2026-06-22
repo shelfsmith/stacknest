@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 import Foundation
-import AppCore
 import ArchiveAdapter
 
 /// 単一 book の thumbnail.jpg を抽出 + 保存する純粋ユーティリティ。
-/// - 新規 book 追加時 (BookAddCoordinator) 経路
+/// - 新規 book 追加時 (BookImporter / BookAddCoordinator) 経路
 /// - 既存 book の cover_image_name 変更時 (AppState.regenerateThumbnail) 経路
 /// の両方で再利用される。
 public enum CoverRefresher {
