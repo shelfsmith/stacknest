@@ -149,6 +149,8 @@ struct RemoteLibraryView: View {
             remoteFileExtension: state.detail?.fileExtension,
             ratingEditable: true,   // 4.2c-9: レートは R でも編集可（共有評価）
             onSetRating: { stars, ids in state.setRating(ids: ids, stars) },
+            unseenEditable: true,   // 4.2c-9: 未読も R でも編集可（共有閲覧状態）
+            onSetUnseen: { value, ids in state.setUnseen(ids: ids, value) },
             directionEditable: true,
             onSetPageDirection: { id, dir in Task { await state.setRemoteDirection(bookID: id, direction: dir) } },
             onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },

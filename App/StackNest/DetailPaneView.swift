@@ -24,6 +24,10 @@ struct DetailPaneView: View {
     var ratingEditable: Bool? = nil
     /// 4.2c-9: リモートのレート専用適用（R 可・(rating, bookIDs)）。nil ならローカル patch 経路。
     var onSetRating: ((Int, [Int]) -> Void)? = nil
+    /// 4.2c-9: 未読の編集可否（canEdit と分離・リモート R でも可＝共有閲覧状態）。nil なら canEdit 連動。
+    var unseenEditable: Bool? = nil
+    /// 4.2c-9: リモートの未読専用適用（R 可・(unseen, bookIDs)）。nil ならローカル patch 経路。
+    var onSetUnseen: ((Bool, [Int]) -> Void)? = nil
     /// 読む方向ピッカーの編集可否。canEdit と独立（R/O リモートでも /direction 経由で変更可）。
     let directionEditable: Bool
     /// 単一ブック時の読む方向変更を専用ルートへ流す closure（リモートは /direction へ）。
@@ -54,6 +58,8 @@ struct DetailPaneView: View {
         remoteFileExtension: String? = nil,
         ratingEditable: Bool? = nil,
         onSetRating: ((Int, [Int]) -> Void)? = nil,
+        unseenEditable: Bool? = nil,
+        onSetUnseen: ((Bool, [Int]) -> Void)? = nil,
         directionEditable: Bool = true,
         onSetPageDirection: ((Int, PageDirection?) -> Void)? = nil,
         onApplyPatch: @escaping (Int, BookPatch) -> Void,
@@ -76,6 +82,8 @@ struct DetailPaneView: View {
         self.remoteFileExtension = remoteFileExtension
         self.ratingEditable = ratingEditable
         self.onSetRating = onSetRating
+        self.unseenEditable = unseenEditable
+        self.onSetUnseen = onSetUnseen
         self.directionEditable = directionEditable
         self.onSetPageDirection = onSetPageDirection
         self.onApplyPatch = onApplyPatch
@@ -162,8 +170,13 @@ struct DetailPaneView: View {
                     book: book,
                     unseenState: MixedValueState.from(snapshotBooks.map(\.unseen)),
                     onUnseenCommit: { newValue in
-                        applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
-                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                        // 4.2c-9: リモートは未読専用 POST（R 可）、ローカルは patch 経路。
+                        if let onSetUnseen {
+                            onSetUnseen(newValue, snapshotIDs)
+                        } else {
+                            applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
+                                              isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                        }
                     }
                 )
                 Divider()
@@ -189,10 +202,15 @@ struct DetailPaneView: View {
                         UnseenIndicator(
                             state: MixedValueState.from(snapshotBooks.map(\.unseen))
                         ) { newValue in
-                            applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
-                                              isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                            // 4.2c-9: リモートは未読専用 POST（R 可）、ローカルは patch 経路。
+                            if let onSetUnseen {
+                                onSetUnseen(newValue, snapshotIDs)
+                            } else {
+                                applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
+                                                  isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                            }
                         }
-                        .disabled(!canEdit)
+                        .disabled(!(unseenEditable ?? canEdit))
                     }
                     Spacer()
                 }
@@ -578,7 +596,7 @@ struct DetailPaneView: View {
                 }
             HStack(spacing: 6) {
                 UnseenIndicator(state: unseenState, onCommit: onUnseenCommit)
-                    .disabled(!canEdit)
+                    .disabled(!(unseenEditable ?? canEdit))   // 4.2c-9: 未読は R でも可
                 if let pages = book.pages {
                     Text("\(pages) ページ")
                 }
