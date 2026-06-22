@@ -76,6 +76,9 @@ struct LibrarySettingsSheet: View {
                 ScrollView { lockSection().padding(16) }
                     .tabItem { Label("ロック", systemImage: "lock") }
                     .tag(3)
+                ScrollView { watchSection().padding(16) }
+                    .tabItem { Label("監視フォルダ", systemImage: "folder.badge.gearshape") }
+                    .tag(4)
             }
             .padding(.horizontal, 12)
 
@@ -480,6 +483,7 @@ struct LibrarySettingsSheet: View {
             }
         }
 
+        appState?.reloadFolderWatcher()
         dismiss()
     }
 
