@@ -639,6 +639,20 @@ public final class LibrarySettings {
         stampDefinitions = decoded
     }
 
+    /// 4.2c-8: 外部（リモート RW のライブラリ設定 PUT 等）が DB の custom_field_labels /
+    /// custom_book_type_labels を直接書き換えたとき、DB から再読込してメモリ（@Observable）へ反映する
+    /// （サーバ機ローカル UI へラベル変更をライブ反映）。未設定キーは空マップにフォールバック。
+    public func reloadCustomLabels() {
+        func decodeMap(_ key: String) -> [String: String] {
+            guard let json = (try? database.getLibrarySetting(key: key)) ?? nil,
+                  let data = json.data(using: .utf8),
+                  let map = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+            return map
+        }
+        customFieldLabels = decodeMap(Self.customFieldLabelsKey)
+        customBookTypeLabels = decodeMap(Self.customBookTypeLabelsKey)
+    }
+
     private func persistIgnoredDuplicateKeys() {
         do {
             let data = try JSONEncoder().encode(ignoredDuplicateKeys)

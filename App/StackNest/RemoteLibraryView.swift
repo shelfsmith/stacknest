@@ -85,15 +85,15 @@ struct RemoteLibraryView: View {
                     .frame(width: 120)
                     .help("上ペイン切替")
                 }
-                // 4.2c-8 B1(v2): ラベル編集は歯車「リモートライブラリ設定」（現状ラベルのみ・RW）。
+                // 4.2c-8 B1(v2): ラベル編集は歯車「ライブラリ設定」（現状ラベルのみ・RW）。
                 if state.canEditServer {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             showRemoteSettings = true
                         } label: {
-                            Label("リモートライブラリ設定", systemImage: "gearshape")
+                            Label("ライブラリ設定", systemImage: "gearshape")
                         }
-                        .help("リモートライブラリ設定")
+                        .help("ライブラリ設定")
                     }
                 }
             }

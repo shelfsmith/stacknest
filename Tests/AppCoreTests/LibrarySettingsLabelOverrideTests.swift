@@ -35,4 +35,19 @@ struct LibrarySettingsLabelOverrideTests {
         s.remoteFieldLabelOverride = nil
         #expect(s.label(for: .keywordC) == "カスタム")
     }
+
+    /// 4.2c-8: reloadCustomLabels は DB の外部変更（リモート PUT 相当）をメモリへ反映する。
+    @Test func reloadCustomLabelsPicksUpExternalDBChange() throws {
+        let db = try Database.openInMemory(); try db.migrate()
+        let s = try LibrarySettings(database: db)
+        #expect(s.label(for: .keywordC) == BookColumn.keywordC.localizedTitleString)  // 正準
+        // 外部（リモート PUT 相当）が DB を直接書き換える。
+        try db.setLibrarySetting(key: "custom_field_labels", value: #"{"keyword_c":"外部名"}"#)
+        s.reloadCustomLabels()
+        #expect(s.label(for: .keywordC) == "外部名")
+        // 空に戻す書き換えも反映される。
+        try db.setLibrarySetting(key: "custom_field_labels", value: "{}")
+        s.reloadCustomLabels()
+        #expect(s.label(for: .keywordC) == BookColumn.keywordC.localizedTitleString)
+    }
 }

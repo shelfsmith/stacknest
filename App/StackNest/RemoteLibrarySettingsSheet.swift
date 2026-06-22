@@ -3,7 +3,8 @@ import SwiftUI
 import AppCore
 import RemoteClient
 
-/// 4.2c-8 B1(v2): リモートライブラリ設定シート（RW）。ツールバーの歯車から開く。
+/// 4.2c-8 B1(v2): リモートから開く「ライブラリ設定」シート（RW）。ツールバーの歯車から開く。
+/// 実体は接続先（ローカル）ライブラリの設定をリモートで変更する UI なので呼称は「ライブラリ設定」。
 /// 現状はラベルカスタマイズのみ（ローカルと同じ LabelEditorView を再利用）。後々サーバ同期可能な
 /// 設定項目が増えたら、ここに GroupBox / タブを追加していく方針。
 /// 保存はサーバへ PUT → 成功で per-window settings の override を更新する。
@@ -19,7 +20,7 @@ struct RemoteLibrarySettingsSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("リモートライブラリ設定").font(.title2.bold())
+            Text("ライブラリ設定").font(.title2.bold())
             ScrollView {
                 // 現状はラベルのみ。将来の設定項目はこの VStack に追加する。
                 LabelEditorView(

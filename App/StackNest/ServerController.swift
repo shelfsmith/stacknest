@@ -53,10 +53,13 @@ final class ServerController {
             onLibrarySettingsChanged: { uuid in
                 // 4.2c-6a (C1'): リモートがスタンプ定義を PUT したら、同バンドルを開いている
                 // ローカル AppState のインメモリ設定を DB から再読込してライブ反映する。
+                // 4.2c-8: ラベルカスタマイズ（custom_field_labels / custom_book_type_labels）の
+                // リモート PUT もここでローカルへ即反映する。
                 Task { @MainActor in
                     for state in AppState.activeInstances.allObjects
                     where state.librarySettings?.libraryUUID == uuid {
                         state.librarySettings?.reloadStampDefinitions()
+                        state.librarySettings?.reloadCustomLabels()
                     }
                 }
             }
