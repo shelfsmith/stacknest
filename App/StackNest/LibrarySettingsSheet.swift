@@ -47,12 +47,9 @@ struct LibrarySettingsSheet: View {
     @State private var showRegenerationResult = false
     @State private var regenerationSavedMB: Double = 0
 
-    // Phase 2.7 ラベルカスタマイズ: 編集は一時状態にステージし、「保存」でのみ settings に反映する
-    // （ファイル名フォーマット・ロック設定と同じく「キャンセル」で破棄＝シートの挙動を統一）。
-    @State var stagedFieldLabels: [String: String] = [:]
-    @State var stagedBookTypeLabels: [String: String] = [:]
+    // 4.2c-8 B1: ラベルカスタマイズはこのシートから廃止し、ツールバーの LocalLabelEditorSheet へ移設。
 
-    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 2=ラベル / 3=ロック)。
+    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 2=ロック)。
     @State private var settingsTab = 0
 
     var body: some View {
@@ -70,12 +67,9 @@ struct LibrarySettingsSheet: View {
                 ScrollView { formatSection().padding(16) }
                     .tabItem { Label("フォーマット", systemImage: "textformat") }
                     .tag(1)
-                ScrollView { labelSection().padding(16) }
-                    .tabItem { Label("ラベル", systemImage: "tag") }
-                    .tag(2)
                 ScrollView { lockSection().padding(16) }
                     .tabItem { Label("ロック", systemImage: "lock") }
-                    .tag(3)
+                    .tag(2)
             }
             .padding(.horizontal, 12)
 
@@ -101,8 +95,6 @@ struct LibrarySettingsSheet: View {
             loadSelectedPreset()
             lockToggleOn = settings.lockPasswordHash != nil
             useBiometricInput = settings.useBiometric
-            stagedFieldLabels = settings.customFieldLabels
-            stagedBookTypeLabels = settings.customBookTypeLabels
         }
         .confirmationDialog(
             "表紙を圧縮します",
@@ -427,14 +419,6 @@ struct LibrarySettingsSheet: View {
         // B6: プリセットと既定を反映（filenameFormat は setDefaultPreset 内で同期される）
         settings.filenameFormatPresets = stagedPresets
         settings.setDefaultPreset(id: stagedDefaultID)
-
-        // ラベルカスタマイズ反映（ステージした内容を保存時のみ適用）
-        if settings.customFieldLabels != stagedFieldLabels {
-            settings.customFieldLabels = stagedFieldLabels
-        }
-        if settings.customBookTypeLabels != stagedBookTypeLabels {
-            settings.customBookTypeLabels = stagedBookTypeLabels
-        }
 
         // Lock 反映
         if !lockToggleOn {

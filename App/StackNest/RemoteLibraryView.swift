@@ -644,7 +644,8 @@ private struct RemoteTopPaneControl: View {
     private struct Item { let mode: String; let icon: String; let help: String; let enabled: Bool }
     private static let items: [Item] = [
         Item(mode: "browse", icon: "rectangle.split.3x1", help: "ブラウズ", enabled: true),
-        Item(mode: "stamp",  icon: "tag",                 help: "スタンプ", enabled: true),
+        // 4.2c-8 B1: スタンプはラベル編集(tag)と区別するため signature に変更。
+        Item(mode: "stamp",  icon: "signature",           help: "スタンプ", enabled: true),
         Item(mode: "hidden", icon: "eye.slash",           help: "隠す", enabled: true),
     ]
 
