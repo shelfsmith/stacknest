@@ -447,7 +447,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         const panel = el("div", { class: "reader-dialog" });
         panel.append(el("p", { class: "reader-dialog-title", text: "巻末です" }));
         const close = () => overlay.remove();
-        const nextBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "次の巻へ ›" });
+        const nextBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "次の巻へ" });
         nextBtn.addEventListener("click", async () => {
             close();
             let book = null;
