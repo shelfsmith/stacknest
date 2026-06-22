@@ -74,10 +74,17 @@ final class ServerController {
                 // graceful shutdown する。ポート使用中などの起動失敗もここで throw される。
                 try await app.runService()
             } catch {
-                await MainActor.run {
-                    let classified = ServerStartError.classify(error, port: portUsed)
-                    self.startError = classified
-                    self.lastError = classified.message
+                // stop() / restart() による cancel 由来の shutdown も runService() の throw
+                // （ServiceGroupError）として現れる。これは正常停止なので、起動失敗（ポート使用中
+                // など、cancel を伴わない throw）とだけ区別してエラーを表面化する。
+                // cancel 時に classify すると「操作を完了できませんでした(ServiceGroupError)」が
+                // lastError に乗り、停止のたびに誤エラー表示されていた（4.2c-10/11 smoke A5）。
+                if !Task.isCancelled {
+                    await MainActor.run {
+                        let classified = ServerStartError.classify(error, port: portUsed)
+                        self.startError = classified
+                        self.lastError = classified.message
+                    }
                 }
             }
             await MainActor.run { self.isRunning = false }
