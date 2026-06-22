@@ -35,6 +35,9 @@ extension LibrarySettingsSheet {
             }
             .padding(8)
         }
+        // 行削除・有効トグル・ON/OFF・プリセット変更を即 watcher へ反映（save() を待たない）。
+        .onChange(of: settings.folderWatchEnabled) { appState?.reloadFolderWatcher() }
+        .onChange(of: settings.watchedFolders) { appState?.reloadFolderWatcher() }
     }
 
     @ViewBuilder
