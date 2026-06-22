@@ -149,6 +149,8 @@ struct RemoteLibraryView: View {
             canEdit: state.canEditServer,
             canShowFinder: false,   // リモートはローカルにファイルが無いため非表示
             remoteFileExtension: state.detail?.fileExtension,
+            ratingEditable: true,   // 4.2c-9: レートは R でも編集可（共有評価）
+            onSetRating: { stars, ids in state.setRating(ids: ids, stars) },
             directionEditable: true,
             onSetPageDirection: { id, dir in Task { await state.setRemoteDirection(bookID: id, direction: dir) } },
             onApplyPatch: { id, patch in Task { await state.applyRemotePatch(bookID: id, patch: patch) } },

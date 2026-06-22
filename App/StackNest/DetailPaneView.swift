@@ -20,6 +20,10 @@ struct DetailPaneView: View {
     /// リモートのファイル拡張子（"zip"/""=フォルダ/nil=不明）。path が秘匿のリモートで
     /// 「ファイル形式」を表示するためサーバ由来の拡張子を注入する（ローカルは nil で path 由来）。
     var remoteFileExtension: String? = nil
+    /// 4.2c-9: レートの編集可否（canEdit と分離・リモート R でも可＝共有評価）。nil なら canEdit 連動。
+    var ratingEditable: Bool? = nil
+    /// 4.2c-9: リモートのレート専用適用（R 可・(rating, bookIDs)）。nil ならローカル patch 経路。
+    var onSetRating: ((Int, [Int]) -> Void)? = nil
     /// 読む方向ピッカーの編集可否。canEdit と独立（R/O リモートでも /direction 経由で変更可）。
     let directionEditable: Bool
     /// 単一ブック時の読む方向変更を専用ルートへ流す closure（リモートは /direction へ）。
@@ -48,6 +52,8 @@ struct DetailPaneView: View {
         canEdit: Bool,
         canShowFinder: Bool = true,
         remoteFileExtension: String? = nil,
+        ratingEditable: Bool? = nil,
+        onSetRating: ((Int, [Int]) -> Void)? = nil,
         directionEditable: Bool = true,
         onSetPageDirection: ((Int, PageDirection?) -> Void)? = nil,
         onApplyPatch: @escaping (Int, BookPatch) -> Void,
@@ -68,6 +74,8 @@ struct DetailPaneView: View {
         self.canEdit = canEdit
         self.canShowFinder = canShowFinder
         self.remoteFileExtension = remoteFileExtension
+        self.ratingEditable = ratingEditable
+        self.onSetRating = onSetRating
         self.directionEditable = directionEditable
         self.onSetPageDirection = onSetPageDirection
         self.onApplyPatch = onApplyPatch
@@ -168,10 +176,15 @@ struct DetailPaneView: View {
                 HStack(spacing: 12) {
                     Spacer()
                     StarRatingPicker(state: intState(\BookRow.rating)) { newValue in
-                        applyIntCaptured(newValue, patchKeyPath: \BookPatch.rating,
-                                         isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                        // 4.2c-9: リモートはレート専用 POST（R 可）、ローカルは従来の patch 経路。
+                        if let onSetRating {
+                            onSetRating(newValue, snapshotIDs)
+                        } else {
+                            applyIntCaptured(newValue, patchKeyPath: \BookPatch.rating,
+                                             isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                        }
                     }
-                    .disabled(!canEdit)
+                    .disabled(!(ratingEditable ?? canEdit))
                     if snapshotIsMulti {
                         UnseenIndicator(
                             state: MixedValueState.from(snapshotBooks.map(\.unseen))
