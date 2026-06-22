@@ -959,6 +959,13 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         StackNestAppDelegate.shared = self
     }
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // 4.2c-9 (#5): StackNest はウィンドウタブを使わないため標準タブバーを無効化する
+        //（「表示 ▸ タブバーを表示／すべてのタブを表示」メニューを消す）。allowsAutomaticWindowTabbing
+        // は NSWindow のクラスプロパティ。
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         // Mark that we received a launch URL. This fires BEFORE BridgeContent.onAppear.
         Self.hasLaunchURL = true
