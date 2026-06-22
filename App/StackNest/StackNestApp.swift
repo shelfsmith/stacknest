@@ -521,6 +521,8 @@ struct LibraryWindowContainer: View {
             .frame(minWidth: 1024, minHeight: 600)
             .environment(appState)
             .focusedSceneValue(\.appState, appState)
+            // 4.2c-9: メニューコマンドのルーティング用（ローカルターゲット）。
+            .focusedSceneValue(\.browserCommandTarget, appState as (any BrowserCommandTarget)?)
             } // end else (unlocked)
         } else if let error = error {
             ErrorView(error: error)
