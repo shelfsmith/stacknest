@@ -143,6 +143,14 @@ struct LibraryBrowserView: View {
                     }
                     .help("ファイルまたはフォルダを追加")
                 }
+                // 4.2c-8 B1(v2): ライブラリ設定（ラベル等）を歯車から開く（リモートと統一）。
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showLibrarySettings = true } label: {
+                        Label("ライブラリ設定", systemImage: "gearshape")
+                    }
+                    .help("このライブラリの設定")
+                    .disabled(appState.librarySettings == nil)
+                }
             }
             .onAppear { startModifierMonitor() }
             .onDisappear { stopModifierMonitor() }

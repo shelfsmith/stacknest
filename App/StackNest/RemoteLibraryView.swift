@@ -32,8 +32,8 @@ struct RemoteLibraryView: View {
 
     /// B2: サイドバー列表示制御（NavigationSplitView columnVisibility binding）。
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
-    /// 4.2c-8: ラベル編集シートの表示フラグ（RW のみ開ける）。
-    @State private var showLabelEditor = false
+    /// 4.2c-8 B1(v2): リモートライブラリ設定シート（現状ラベルのみ・RW）の表示フラグ。
+    @State private var showRemoteSettings = false
 
     /// 解錠フォーム（未解錠の保護ライブラリ）を表示中か。body の分岐と .toolbar の出し分けで共有する。
     private var isUnlockFormShown: Bool { state.locked && state.libraryToken == nil }
@@ -73,24 +73,33 @@ struct RemoteLibraryView: View {
                 ToolbarItem(placement: .primaryAction) {
                     FilterToolbarButton(filter: $state.filterState, settings: settings)
                 }
+                // 4.2c-8 B1(v2): 上ペイン切替をローカルと同じ Picker segmented に揃える
+                // （カスタム RemoteTopPaneControl のごちゃつきを解消・スタンプは tag のまま）。
                 ToolbarItem(placement: .primaryAction) {
-                    RemoteTopPaneControl(settings: settings)
+                    Picker("", selection: $settings.topPaneMode) {
+                        Image(systemName: "rectangle.split.3x1").tag("browse")
+                        Image(systemName: "tag").tag("stamp")
+                        Image(systemName: "eye.slash").tag("hidden")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 120)
+                    .help("上ペイン切替")
                 }
-                // 4.2c-8: RW のみラベル編集の開き口。
+                // 4.2c-8 B1(v2): ラベル編集は歯車「リモートライブラリ設定」（現状ラベルのみ・RW）。
                 if state.canEditServer {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
-                            showLabelEditor = true
+                            showRemoteSettings = true
                         } label: {
-                            Label("ラベルを編集", systemImage: "tag")
+                            Label("リモートライブラリ設定", systemImage: "gearshape")
                         }
-                        .help("ラベル（見出し名）を編集")
+                        .help("リモートライブラリ設定")
                     }
                 }
             }
         }
-        .sheet(isPresented: $showLabelEditor) {
-            RemoteLabelEditorSheet(state: state, settings: settings)
+        .sheet(isPresented: $showRemoteSettings) {
+            RemoteLibrarySettingsSheet(state: state, settings: settings)
         }
         // 4.2c-3 (Issue 4): 別ウィンドウ（オフラインビューア等）で DL/削除されたら、リモート一覧の
         // DL バッジを即時再評価する。downloadedVersion を bump → updateNSView 再走 → DL 列再描画。
@@ -625,55 +634,6 @@ struct RemoteLibraryView: View {
             Text("全 \(state.total) 件").font(.caption).foregroundStyle(.secondary)
         }
         .padding(8)
-    }
-}
-
-// MARK: - Top pane control (4.2c-4)
-
-/// 4.2c-4 (smoke v4 自由記載): ローカルの上ペイン切替 [ブラウズ|スタンプ|隠す] をリモートにも
-/// 移植したセグメント風コントロール。ローカルは native segmented Picker だが、リモートでは
-/// 「スタンプ」を将来機能（リモート RW ブラウザのスタンプ・別フェーズ）の placeholder として
-/// グレーアウト（無効）表示する必要があり、segmented Picker は個別 segment の無効化ができない
-/// ため、無効化可能な自前のセグメント風 HStack で実装する。
-/// - ブラウズ(rectangle.split.3x1): ファセットペインを表示。
-/// - スタンプ(tag): 現状グレーアウト（無効）。
-/// - 隠す(eye.slash): 上ペイン（ファセット=カラム）を非表示。ユーザー要望の「斜め線」。
-private struct RemoteTopPaneControl: View {
-    @Bindable var settings: LibrarySettings
-
-    private struct Item { let mode: String; let icon: String; let help: String; let enabled: Bool }
-    private static let items: [Item] = [
-        Item(mode: "browse", icon: "rectangle.split.3x1", help: "ブラウズ", enabled: true),
-        Item(mode: "stamp",  icon: "tag",                 help: "スタンプ", enabled: true),
-        Item(mode: "hidden", icon: "eye.slash",           help: "隠す", enabled: true),
-    ]
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(Self.items.enumerated()), id: \.element.mode) { index, item in
-                if index > 0 {
-                    Divider().frame(height: 16)
-                }
-                let selected = settings.topPaneMode == item.mode
-                Button {
-                    settings.topPaneMode = item.mode
-                } label: {
-                    Image(systemName: item.icon)
-                        .frame(width: 32, height: 22)
-                        .contentShape(Rectangle())
-                        .background(selected ? Color.accentColor.opacity(0.25) : Color.clear)
-                }
-                .buttonStyle(.borderless)
-                .disabled(!item.enabled)
-                .foregroundStyle(!item.enabled ? Color.secondary
-                                 : (selected ? Color.accentColor : Color.primary))
-                .help(item.help)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.secondary.opacity(0.3)))
-        // 注: "stamp"→"browse" の矯正は RemoteLibrarySettingsProvider.makeSettings() で
-        // ロード時に一度だけ行う（ビュー出現ごとの書込み・複数ウィンドウでの重複発火を避ける）。
     }
 }
 

@@ -3,9 +3,11 @@ import SwiftUI
 import AppCore
 import RemoteClient
 
-/// 4.2c-8: リモート（RW）のラベル編集シート。ローカルと同じ LabelEditorView を再利用し、
+/// 4.2c-8 B1(v2): リモートライブラリ設定シート（RW）。ツールバーの歯車から開く。
+/// 現状はラベルカスタマイズのみ（ローカルと同じ LabelEditorView を再利用）。後々サーバ同期可能な
+/// 設定項目が増えたら、ここに GroupBox / タブを追加していく方針。
 /// 保存はサーバへ PUT → 成功で per-window settings の override を更新する。
-struct RemoteLabelEditorSheet: View {
+struct RemoteLibrarySettingsSheet: View {
     let state: RemoteLibraryState
     @Bindable var settings: LibrarySettings
 
@@ -17,8 +19,9 @@ struct RemoteLabelEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("ラベルを編集").font(.title2.bold())
+            Text("リモートライブラリ設定").font(.title2.bold())
             ScrollView {
+                // 現状はラベルのみ。将来の設定項目はこの VStack に追加する。
                 LabelEditorView(
                     fieldLabels: $stagedFieldLabels,
                     bookTypeLabels: $stagedBookTypeLabels,
