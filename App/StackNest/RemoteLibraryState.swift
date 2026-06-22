@@ -610,15 +610,21 @@ final class RemoteLibraryState {
 
     // MARK: - 4.2c-9: レート（R 可・共有評価）
 
-    /// 指定本のレートを更新（R 可・共有評価）。成功後に一覧/詳細を更新。
+    /// 指定本のレートを更新（R 可・共有評価）。成功後に一覧/詳細を更新。失敗は errorText に出す。
     func setRating(ids: [Int], _ stars: Int) {
         guard !ids.isEmpty else { return }
         Task {
+            var failed = false
             for id in ids {
-                try? await client.setRating(libraryUUID: libraryUUID, bookID: id, rating: stars, libraryToken: libraryToken)
+                do {
+                    try await client.setRating(libraryUUID: libraryUUID, bookID: id, rating: stars, libraryToken: libraryToken)
+                } catch {
+                    failed = true
+                }
             }
             await reload(clearFirst: false)
             if let sel = selection, ids.contains(sel) { await selectBook(sel) }
+            if failed { errorText = "レートの更新に失敗しました" }
         }
     }
 

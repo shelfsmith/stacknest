@@ -63,16 +63,6 @@ struct LibraryBrowserView: View {
             .onDrop(of: [.fileURL], delegate: BookDropDelegate { urls in
                 handleAdd(urls: urls)
             })
-            .onReceive(NotificationCenter.default.publisher(for: .toggleTopPaneMode)) { _ in
-                guard let settings = appState.librarySettings else { return }
-                let next: String
-                switch settings.topPaneMode {
-                case "browse": next = "stamp"
-                case "stamp":  next = "hidden"
-                default:       next = "browse"
-                }
-                settings.topPaneMode = next
-            }
             .onReceive(NotificationCenter.default.publisher(for: .moveSelectedBooks)) { _ in
                 moveSelectedBooks()
             }

@@ -30,17 +30,15 @@ extension FocusedValues {
 @MainActor struct RemoteCommandTarget: BrowserCommandTarget {
     let state: RemoteLibraryState
     let settings: LibrarySettings
+    /// このリモートウィンドウの「ライブラリ設定」シートを開くアクション（per-window binding）。
+    /// 通知 broadcast を避け、focusedSceneValue が選んだアクティブウィンドウだけが開く。
+    let openSettingsAction: () -> Void
 
     func toggleViewMode() { state.isGrid.toggle() }
     func cycleTopPane() { settings.cycleTopPaneMode() }
     func setRating(_ stars: Int) { state.setRatingForSelection(stars) }
-    func openSettings() { NotificationCenter.default.post(name: .openRemoteLibrarySettings, object: nil) }
+    func openSettings() { openSettingsAction() }
     var canEditMeta: Bool { state.canEditServer }
     var canManageFiles: Bool { false }   // 将来ヘッドレス庫のリモート管理で true にする余地を残す
     var canRate: Bool { true }
-}
-
-extension Notification.Name {
-    /// 4.2c-9: リモートウィンドウで「ライブラリ設定」を開く通知。
-    static let openRemoteLibrarySettings = Notification.Name("stacknest.openRemoteLibrarySettings")
 }

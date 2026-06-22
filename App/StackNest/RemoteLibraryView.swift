@@ -101,13 +101,11 @@ struct RemoteLibraryView: View {
         .sheet(isPresented: $showRemoteSettings) {
             RemoteLibrarySettingsSheet(state: state, settings: settings)
         }
-        // 4.2c-9: メニューコマンドのルーティング用（リモートターゲット）。
-        .focusedSceneValue(\.browserCommandTarget, RemoteCommandTarget(state: state, settings: settings) as (any BrowserCommandTarget)?)
-        // 4.2c-9: メニュー「ライブラリ設定」からリモート設定シートを開く（RW のみ）。
-        .onReceive(NotificationCenter.default.publisher(for: .openRemoteLibrarySettings)) { _ in
-            guard state.canEditServer else { return }
-            showRemoteSettings = true
-        }
+        // 4.2c-9: メニューコマンドのルーティング用（リモートターゲット）。openSettingsAction は
+        // この per-window の設定シートを開く（focusedSceneValue が選んだアクティブウィンドウのみ）。
+        .focusedSceneValue(\.browserCommandTarget,
+            RemoteCommandTarget(state: state, settings: settings,
+                                openSettingsAction: { showRemoteSettings = true }) as (any BrowserCommandTarget)?)
         // 4.2c-3 (Issue 4): 別ウィンドウ（オフラインビューア等）で DL/削除されたら、リモート一覧の
         // DL バッジを即時再評価する。downloadedVersion を bump → updateNSView 再走 → DL 列再描画。
         .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in

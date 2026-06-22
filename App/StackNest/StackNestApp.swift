@@ -751,7 +751,7 @@ struct FileCommands: Commands {
             // 4.2c-9: 設定はアクティブに応じローカル/リモートのシートを開く。リモートは RW のみ（canEditMeta）。
             Button("このライブラリの設定…") { target?.openSettings() }
             .keyboardShortcut(",", modifiers: [.command, .shift])
-            .disabled(target == nil || !(target?.canEditMeta ?? false))
+            .disabled(!(target?.canEditMeta ?? false))
         }
     }
 }
@@ -1021,7 +1021,7 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let openLibrarySettings = Notification.Name("stacknest.openLibrarySettings")
     static let renameSelectedBooks = Notification.Name("stacknest.renameSelectedBooks")
-    static let toggleTopPaneMode = Notification.Name("stacknest.toggleTopPaneMode")
+    // 4.2c-9: toggleTopPaneMode 通知は cycleTopPane()(BrowserCommandTarget) 化で廃止。
     static let moveSelectedBooks = Notification.Name("stacknest.moveSelectedBooks")
     /// M2-2: Grid view 時に Edit menu「すべてを選択」が responder chain に届かない問題を回避。
     /// CommandGroup から Notification 経由で LibraryBrowserView に全選択を依頼する。
