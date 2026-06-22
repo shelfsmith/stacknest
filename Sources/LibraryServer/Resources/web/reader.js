@@ -441,6 +441,8 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 4.2c-11: 巻末（最終ページで次送り）の3択ダイアログ。次の巻へ / 先頭へ / 本を閉じる。
     function showEndOfBookDialog() {
+        // 多重表示ガード（タップ/キー連打で重ならないように）
+        if (readerEl.querySelector(".reader-dialog-overlay")) return;
         const overlay = el("div", { class: "reader-dialog-overlay" });
         const panel = el("div", { class: "reader-dialog" });
         panel.append(el("p", { class: "reader-dialog-title", text: "巻末です" }));
@@ -461,7 +463,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         panel.append(nextBtn, headBtn, closeBtn);
         overlay.append(panel);
         overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-        appEl.append(overlay);
+        readerEl.append(overlay);
     }
 
     // 4.2c-11: 次巻を開く。読みかけ(lastPage>0)なら「続き/最初」を選ばせる。
@@ -483,7 +485,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             panel.append(resumeBtn, startBtn);
             overlay.append(panel);
             overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
-            appEl.append(overlay);
+            readerEl.append(overlay);
         } else {
             gotoVolume(1);
         }
