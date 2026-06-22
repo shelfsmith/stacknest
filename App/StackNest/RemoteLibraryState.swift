@@ -634,6 +634,33 @@ final class RemoteLibraryState {
         setRating(ids: ids, stars)
     }
 
+    /// 指定本の未読(unseen)を更新（R 可・共有閲覧状態）。失敗は errorText に出す。
+    func setUnseen(ids: [Int], _ value: Bool) {
+        guard !ids.isEmpty else { return }
+        Task {
+            var failed = false
+            for id in ids {
+                do {
+                    try await client.setUnseen(libraryUUID: libraryUUID, bookID: id, unseen: value, libraryToken: libraryToken)
+                } catch {
+                    failed = true
+                }
+            }
+            await reload(clearFirst: false)
+            if let sel = selection, ids.contains(sel) { await selectBook(sel) }
+            if failed { errorText = "未読状態の更新に失敗しました" }
+        }
+    }
+
+    /// メニュー(⌘T)用。選択集合の先頭本の unseen を反転して全選択へ適用（ローカル同等）。
+    func toggleUnreadForSelection() {
+        let ids: [Int] = multiSelection.isEmpty ? (selection.map { [$0] } ?? []) : Array(multiSelection)
+        guard !ids.isEmpty else { return }
+        let first = books.first(where: { ids.contains($0.id) })
+        let newValue = first.map { !$0.unseen } ?? true
+        setUnseen(ids: ids, newValue)
+    }
+
     // MARK: - 4.2c-8: ラベル同期
 
     /// サーバのラベルカスタマイズを取得（失敗時は空）。View が settings の override にセットする。

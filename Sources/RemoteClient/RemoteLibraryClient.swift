@@ -225,6 +225,13 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
 
+    /// 4.2c-9: 未読(unseen)更新（role 不問＝R でも可・共有閲覧状態）。
+    public func setUnseen(libraryUUID: String, bookID: Int, unseen: Bool, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(["unseen": unseen])
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/unseen")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
     /// 読む方向をサーバへ POST する（/direction は R トークンでも許可）。
     /// direction: "rtl" / "ltr" / nil（クリア）。
     public func updatePageDirection(libraryUUID: String, bookID: Int, direction: String?, libraryToken: String?) async throws {

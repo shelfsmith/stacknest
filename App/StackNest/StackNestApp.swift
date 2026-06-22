@@ -780,7 +780,8 @@ struct WindowCommands: Commands {
 
         CommandGroup(after: .toolbar) {
             Menu("テーブル列") {
-                if let appState, let settings = appState.librarySettings {
+                // 4.2c-9: ローカル/リモートのアクティブウィンドウの settings で列トグル（リモートも対応）。
+                if let settings = target?.librarySettingsForColumns {
                     ForEach(BookColumn.allCases.filter { !$0.alwaysVisible }, id: \.self) { col in
                         Toggle(settings.label(for: col), isOn: Binding(
                             get: { settings.listViewColumns.contains(col) },
@@ -789,7 +790,7 @@ struct WindowCommands: Commands {
                     }
                 }
             }
-            .disabled(appState == nil)
+            .disabled(target?.librarySettingsForColumns == nil)
         }
 
         // Phase 2.7: 重複検出シートを開く。key window の LibraryBrowserView が通知を受ける。
@@ -889,9 +890,9 @@ struct WindowCommands: Commands {
             Button("★★★★★") { target?.setRating(5) }
                 .keyboardShortcut("5", modifiers: .command).disabled(!(target?.canRate ?? false))
             Divider()
-            // 未読チェックは RW 編集系（4.2c-9 スコープ外）。ローカルのみ有効（リモートでは無効）。
-            Button("未読チェック") { appState?.toggleUnreadForSelected(undoManager: NSApp.keyWindow?.undoManager) }
-                .keyboardShortcut("t", modifiers: .command).disabled(appState == nil)
+            // 4.2c-9: 未読チェックも target 経由（リモートは R でも可＝共有閲覧状態・canMarkUnread）。
+            Button("未読チェック") { target?.toggleUnread() }
+                .keyboardShortcut("t", modifiers: .command).disabled(!(target?.canMarkUnread ?? false))
         }
     }
 }

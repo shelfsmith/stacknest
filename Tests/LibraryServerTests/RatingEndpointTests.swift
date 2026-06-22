@@ -49,6 +49,23 @@ struct RatingEndpointTests {
         }
     }
 
+    /// 4.2c-9: 未読(unseen)も R トークンで更新できる（共有閲覧状態）。
+    @Test func unseenAllowedForRead() async throws {
+        let fixture = try TestLibraryFixture(name: "Unseen1", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(lib)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/1/unseen",
+                method: .post,
+                headers: [.authorization: "Bearer R", .contentType: "application/json"],
+                body: .init(string: #"{"unseen":true}"#)
+            ) { resp in #expect(resp.status == .ok) }
+        }
+        #expect(try fixture.db.fetchBook(id: 1)?.unseen == true)
+    }
+
     /// onBookChanged が発火する。
     @Test func ratingFiresBookChanged() async throws {
         let fixture = try TestLibraryFixture(name: "Rate3", bookCount: 1)

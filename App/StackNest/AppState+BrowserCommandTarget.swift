@@ -8,8 +8,11 @@ extension AppState: BrowserCommandTarget {
     func toggleViewMode() { viewMode = (viewMode == .grid ? .list : .grid) }
     func cycleTopPane() { librarySettings?.cycleTopPaneMode() }
     func setRating(_ stars: Int) { setRatingForSelected(stars, undoManager: undoManager) }
+    func toggleUnread() { toggleUnreadForSelected(undoManager: undoManager) }
     func openSettings() { NotificationCenter.default.post(name: .openLibrarySettings, object: nil) }
     var canEditMeta: Bool { true }
     var canManageFiles: Bool { true }
     var canRate: Bool { true }
+    var canMarkUnread: Bool { true }
+    var librarySettingsForColumns: LibrarySettings? { librarySettings }
 }

@@ -512,6 +512,16 @@ public struct LibraryServerCore: Sendable {
             config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
+        // 4.2c-9: 未読(unseen)更新（role 不問＝R でも可・共有閲覧状態）。
+        api.post("libraries/:lib/books/:id/unseen") { [config] request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: UnseenRequestBody.self, context: context)
+            var patch = BookPatch()
+            patch.unseen = body.unseen
+            try lib.db.updateBook(id: row.id, patch: patch)
+            config.onBookChanged?(lib.uuid, row.id)
+            return HTTPResponse.Status.ok
+        }
         // 原本ファイルの一括ダウンロード（4.2 オフライン機能の土台・ストリーミングは YAGNI）。
         api.get("libraries/:lib/books/:id/file") { request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
@@ -582,6 +592,11 @@ struct DirectionRequestBody: Decodable {
 /// 4.2c-9: レート更新リクエストボディ（ファイルスコープ）。role 不問（R でも可・共有評価）。
 struct RatingRequestBody: Decodable {
     let rating: Int
+}
+
+/// 4.2c-9: 未読(unseen)更新リクエストボディ（ファイルスコープ）。role 不問（R でも可・共有閲覧状態）。
+struct UnseenRequestBody: Decodable {
+    let unseen: Bool
 }
 
 /// ?filter=<URL-decoded JSON> から FilterState をデコードする。
