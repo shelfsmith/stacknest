@@ -56,7 +56,7 @@ let package = Package(
         ),
         .target(
             name: "AppCore",
-            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI"],
+            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI", "StackroomFormat"],
             path: "Sources/AppCore"
         ),
         .target(name: "LibraryServerAPI", path: "Sources/LibraryServerAPI"),
