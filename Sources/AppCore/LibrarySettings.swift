@@ -92,6 +92,15 @@ public final class LibrarySettings {
     public var topPaneMode: String {
         didSet { persistTopPaneMode() }
     }
+    /// 4.2c-9: 上ペイン表示を browse → stamp → hidden → browse の順で切り替える。
+    /// メニュー(⌥⌘B)とローカル/リモートの BrowserCommandTarget で共用。
+    public func cycleTopPaneMode() {
+        switch topPaneMode {
+        case "browse": topPaneMode = "stamp"
+        case "stamp":  topPaneMode = "hidden"
+        default:        topPaneMode = "browse"
+        }
+    }
     /// User-defined stamp values per field column.
     /// key: StampField.dbColumn (e.g. "genre", "neta", "keyword_a")
     /// value: user-added values shown as chips in the stamp pane

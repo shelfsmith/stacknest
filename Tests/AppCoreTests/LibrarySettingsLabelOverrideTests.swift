@@ -36,6 +36,14 @@ struct LibrarySettingsLabelOverrideTests {
         #expect(s.label(for: .keywordC) == "カスタム")
     }
 
+    /// 4.2c-9: cycleTopPaneMode は browse→stamp→hidden→browse を巡回する。
+    @Test func cycleTopPaneModeRotates() throws {
+        let s = try makeSettings()
+        s.topPaneMode = "browse"; s.cycleTopPaneMode(); #expect(s.topPaneMode == "stamp")
+        s.cycleTopPaneMode(); #expect(s.topPaneMode == "hidden")
+        s.cycleTopPaneMode(); #expect(s.topPaneMode == "browse")
+    }
+
     /// 4.2c-8: reloadCustomLabels は DB の外部変更（リモート PUT 相当）をメモリへ反映する。
     @Test func reloadCustomLabelsPicksUpExternalDBChange() throws {
         let db = try Database.openInMemory(); try db.migrate()
