@@ -806,6 +806,49 @@ body {
   text-align: center;
 }
 
+/* ---- 4.2c-11: 巻末ナビゲーションダイアログ（次の巻へ / 先頭へ / 本を閉じる） ---- */
+.reader-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 11;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reader-dialog {
+  background: var(--card-bg, #1c1c1e);
+  color: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  width: min(320px, 86vw);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reader-dialog-title {
+  font-size: 1.05rem;
+  margin: 0 0 4px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.reader-dialog-btn {
+  width: 100%;
+  text-align: center;
+  min-height: 44px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background: #2c2c2e;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.reader-dialog-btn:hover { background: #3a3a3c; }
+
 /* ============================================================
    column-facet UI（セグメント制御 / カラム / ステッパー / パンくず）
    ============================================================ */

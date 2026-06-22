@@ -76,6 +76,14 @@ export function fetchManifest(uuid, bookId) {
     return apiJSON(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/manifest`, { libraryUUID: uuid });
 }
 
+/// 4.2c-11: 隣接巻（dir="next"|"prev"）。該当なしは reply.book が null。
+export async function fetchAdjacent(uuid, bookId, dir) {
+    const reply = await apiJSON(
+        `/libraries/${encodeURIComponent(uuid)}/books/${bookId}/adjacent?dir=${dir}`,
+        { libraryUUID: uuid });
+    return reply.book; // BookListItemDTO | null
+}
+
 /// ページ画像を Blob で取得（apiIndex は 0 始まり・maxw 省略時は原寸）。
 /// AbortError は素通し（中断は正常系）。それ以外の !ok は status 付き Error。
 export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal) {

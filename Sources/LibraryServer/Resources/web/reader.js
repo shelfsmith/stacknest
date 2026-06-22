@@ -2,7 +2,7 @@
 // StackNest Web — リーダー画面（タップ/スワイプ/キーボードナビ、見開き、progress 書き戻し）。
 // Task R4。
 
-import { fetchManifest, fetchPageBlob, postProgress, postDirection, UnauthorizedError, NetworkError } from "./api.js";
+import { fetchManifest, fetchPageBlob, postProgress, postDirection, fetchAdjacent, UnauthorizedError, NetworkError } from "./api.js";
 import { deleteBook, clearAll } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
@@ -224,7 +224,13 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 10. ナビゲーション
     function go(dir) {
-        show(step(cur, dir, spread, pageCount));
+        const next = step(cur, dir, spread, pageCount);
+        // 4.2c-11: 最終ページで次方向(dir>0)に進めない＝巻末。3択ダイアログを出す。
+        if (next === cur && dir > 0) {
+            showEndOfBookDialog();
+            return;
+        }
+        show(next);
     }
 
     // 11. 描画トークン（非同期描画の連打ガード）
@@ -431,6 +437,56 @@ export async function renderReader(uuid, bookId, query, deps) {
     function goBack() {
         teardown();   // teardown 内で flushProgress(cur) を実行
         location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+    }
+
+    // 4.2c-11: 巻末（最終ページで次送り）の3択ダイアログ。次の巻へ / 先頭へ / 本を閉じる。
+    function showEndOfBookDialog() {
+        const overlay = el("div", { class: "reader-dialog-overlay" });
+        const panel = el("div", { class: "reader-dialog" });
+        panel.append(el("p", { class: "reader-dialog-title", text: "巻末です" }));
+        const close = () => overlay.remove();
+        const nextBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "次の巻へ ›" });
+        nextBtn.addEventListener("click", async () => {
+            close();
+            let book = null;
+            try { book = await fetchAdjacent(uuid, bookId, "next"); }
+            catch { toast("次の巻を取得できませんでした"); return; }
+            if (!book) { toast("これが最後の巻です"); return; }
+            openVolume(book);
+        });
+        const headBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "先頭へ" });
+        headBtn.addEventListener("click", () => { close(); show(0); });
+        const closeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "本を閉じる" });
+        closeBtn.addEventListener("click", () => { close(); goBack(); });
+        panel.append(nextBtn, headBtn, closeBtn);
+        overlay.append(panel);
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+        appEl.append(overlay);
+    }
+
+    // 4.2c-11: 次巻を開く。読みかけ(lastPage>0)なら「続き/最初」を選ばせる。
+    // lastPage は API index(0始まり)なので、続きの UI ページは lastPage+1。最初は 1。
+    function openVolume(book) {
+        const last = book.lastPage ?? 0;
+        const gotoVolume = (p) => {
+            teardown();
+            location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${p}`;
+        };
+        if (last > 0) {
+            const overlay = el("div", { class: "reader-dialog-overlay" });
+            const panel = el("div", { class: "reader-dialog" });
+            panel.append(el("p", { class: "reader-dialog-title", text: `「${book.title}」は読みかけです` }));
+            const resumeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "続きから" });
+            resumeBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(last + 1); });
+            const startBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "最初から" });
+            startBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(1); });
+            panel.append(resumeBtn, startBtn);
+            overlay.append(panel);
+            overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+            appEl.append(overlay);
+        } else {
+            gotoVolume(1);
+        }
     }
 
     // 19. 設定シート（R6）
