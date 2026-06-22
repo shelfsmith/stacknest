@@ -1402,6 +1402,23 @@ final class AppState {
 
     func scanWatchedFoldersNow() { folderWatcher?.scanNow() }
 
+    /// 初回プレビューで「取り込む」を押した既存候補を即時取り込む。
+    /// FolderWatcher のサイズ安定化デバウンス（2 スキャン必要）を待たず、ユーザー確定済みの
+    /// 完結ファイルを直ちに登録する（クリック→即反映の UX）。
+    func importWatchedCandidatesNow(_ urls: [URL], presetID: String?) {
+        guard !urls.isEmpty, let db = database, let settings = librarySettings else { return }
+        let raw = settings.resolvedFilenameFormatRaw(forPresetID: presetID)
+        let format = (try? FilenameFormat(raw: raw)) ?? (try! FilenameFormat(raw: "@title"))
+        Task { @MainActor in
+            let importer = BookImporter(database: db, bundleURL: bundleURL, format: format)
+            let result = await importer.add(
+                urls: urls,
+                autoClassifyEnabled: ViewerSettings.shared.autoClassifyEnabled,
+                thickThreshold: ViewerSettings.shared.thickBookThreshold)
+            presentWatchSummary(result)
+        }
+    }
+
     private func presentWatchSummary(_ result: BookImporter.ImportResult) {
         try? refreshDisplayedBooks()
         var parts: [String] = []

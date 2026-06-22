@@ -100,7 +100,9 @@ extension LibrarySettingsSheet {
                     settings.watchedFolders.append(WatchedFolder(
                         id: UUID().uuidString, path: dir.path, baseline: candidates.map { $0.path }))
                 } else {
+                    // 「取り込む」: フォルダ登録＋確定済み候補を即時取込（デバウンス待ちしない）。
                     settings.watchedFolders.append(WatchedFolder(id: UUID().uuidString, path: dir.path))
+                    appState?.importWatchedCandidatesNow(candidates, presetID: nil)
                 }
             }
         }
