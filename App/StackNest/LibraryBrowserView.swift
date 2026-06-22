@@ -36,6 +36,19 @@ struct LibraryBrowserView: View {
                 guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
                 showRelink = true
             }
+            .overlay(alignment: .top) {
+                if let summary = appState.watchImportSummary {
+                    Text(summary)
+                        .font(.callout)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(.thinMaterial, in: Capsule())
+                        .overlay(Capsule().stroke(.secondary.opacity(0.3)))
+                        .padding(.top, 10)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .shadow(radius: 4)
+                }
+            }
+            .animation(.easeInOut, value: appState.watchImportSummary)
     }
 
     /// body の modifier chain を A/B に分割して Swift type-checker のタイムアウトを回避する。
