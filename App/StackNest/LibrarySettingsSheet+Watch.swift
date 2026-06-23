@@ -9,6 +9,7 @@ extension LibrarySettingsSheet {
         GroupBox("監視フォルダ") {
             VStack(alignment: .leading, spacing: 12) {
                 Toggle("自動追加を有効にする", isOn: $settings.folderWatchEnabled)
+                    .toggleStyle(.switch)   // 機能全体の ON/OFF。下のフォルダ毎チェックボックスと区別
                     .font(.headline)
 
                 Group {
@@ -50,7 +51,11 @@ extension LibrarySettingsSheet {
                     .help(folder.wrappedValue.path)
                 Spacer()
                 Button(role: .destructive) {
-                    settings.watchedFolders.removeAll { $0.id == folder.wrappedValue.id }
+                    // id を mutation 前にローカルへ退避。removeAll(where:) の inout 排他アクセス中に
+                    // 述語が folder.wrappedValue（= settings.watchedFolders への要素 Binding 読取）へ
+                    // 触れると排他アクセス違反で abort する（smoke v1 E2 クラッシュの根本原因）。
+                    let removingID = folder.wrappedValue.id
+                    settings.watchedFolders.removeAll { $0.id == removingID }
                 } label: { Image(systemName: "trash") }
                 .buttonStyle(.borderless)
             }

@@ -17,6 +17,8 @@ final class FolderWatcher {
     private var timer: Timer?
     private var lastSizes: [String: Int64] = [:]
     private var scanning = false
+    private var settleScheduled = false   // pending 候補の短時間 settle 再スキャンが予約済みか
+    private static let settleInterval: TimeInterval = 3   // vnode 検知後にサイズ安定を確認する間隔
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FolderWatcher")
 
     init(database: Database, bundleURL: URL, settings: LibrarySettings,
@@ -94,6 +96,10 @@ final class FolderWatcher {
             let decision = WatchFolderScanner.decideStable(previous: lastSizes, current: currentSizes)
             lastSizes = decision.pending
 
+            // pending（前回サイズ未確定＝直近で出現/書き込み中の候補）が残るなら、60 秒タイマを待たず
+            // 短時間で再スキャンして安定確認する。これにより vnode 検知 → 数秒で取込（実質リアルタイム）。
+            if !decision.pending.isEmpty { scheduleSettleScan() }
+
             var grouped: [String: [URL]] = [:]
             var formatByKey: [String: FilenameFormat] = [:]
             for path in decision.stable {
@@ -120,6 +126,19 @@ final class FolderWatcher {
                 total.failed += r.failed
             }
             if !total.addedIDs.isEmpty || !total.failed.isEmpty { onImported(total) }
+        }
+    }
+
+    /// pending 候補があるとき、60 秒タイマを待たず settleInterval 秒後に再スキャンして安定確認する。
+    /// 多重予約は settleScheduled でガード。停止後（self 解放）は weak self で no-op。
+    private func scheduleSettleScan() {
+        guard !settleScheduled else { return }
+        settleScheduled = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(Self.settleInterval))
+            guard let self else { return }
+            self.settleScheduled = false
+            self.scanAll()
         }
     }
 
