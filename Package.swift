@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "RemoteClient", targets: ["RemoteClient"]),
         .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
+        .executable(name: "stacknest", targets: ["StackNestCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -84,6 +85,19 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/StackroomImportCLI"
+        ),
+        .executableTarget(
+            name: "StackNestCLI",
+            dependencies: [
+                "LibraryServerAPI",
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            ],
+            path: "Sources/StackNestCLI"
+        ),
+        .testTarget(
+            name: "StackNestCLITests",
+            dependencies: ["StackNestCLI"],
+            path: "Tests/StackNestCLITests"
         ),
         .testTarget(
             name: "StackroomFormatTests",
