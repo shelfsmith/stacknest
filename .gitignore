@@ -64,3 +64,8 @@ dist/
 
 # Stray root-level xcodebuild output (reviewers using relative -derivedDataPath)
 /build/
+
+# Python (mcp-stacknest)
+mcp-stacknest/.venv/
+__pycache__/
+.pytest_cache/
