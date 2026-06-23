@@ -92,7 +92,7 @@ struct Libraries: ParsableCommand {
 
     func run() throws {
         let ep = try resolveEndpoint(common: common)
-        let client = APIClient(baseURL: ep.baseURL, token: ep.token)
+        let client = APIClient(endpoint: ep)
         let data = try client.libraries()
         if common.json {
             print(String(data: data, encoding: .utf8) ?? "")
@@ -120,7 +120,7 @@ struct List: ParsableCommand {
 
     func run() throws {
         let ep = try resolveEndpoint(common: common)
-        let client = APIClient(baseURL: ep.baseURL, token: ep.token)
+        let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         let data = try client.listBooks(uuid: lib.id, query: query)
         if common.json {
@@ -152,9 +152,13 @@ struct Add: ParsableCommand {
 
     func run() throws {
         let ep = try resolveEndpoint(common: common)
-        let client = APIClient(baseURL: ep.baseURL, token: ep.token)
+        let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        let req = AddBooksRequestDTO(paths: paths, presetID: preset)
+        // I-1: CLI の CWD を基準に相対パスを絶対パスに変換する（サーバの CWD は無関係）
+        let absolutePaths = paths.map { path in
+            URL(fileURLWithPath: path).standardizedFileURL.path
+        }
+        let req = AddBooksRequestDTO(paths: absolutePaths, presetID: preset)
         let reply = try client.add(uuid: lib.id, req: req)
         if common.json {
             let encoder = JSONEncoder()
@@ -181,18 +185,31 @@ struct Rm: ParsableCommand {
         abstract: "書籍をライブラリから削除する"
     )
     @OptionGroup var common: CommonOptions
-    @Argument(help: "削除する書籍の ID")
-    var id: Int
+    // I-2: 複数 ID 対応
+    @Argument(help: "削除する書籍の ID（複数可）")
+    var ids: [Int]
     @Flag(name: .long, help: "ゴミ箱に移動する（既定: DB から削除のみ）")
     var trash: Bool = false
 
     func run() throws {
         let ep = try resolveEndpoint(common: common)
-        let client = APIClient(baseURL: ep.baseURL, token: ep.token)
+        let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.remove(uuid: lib.id, id: id, trash: trash)
-        if !common.json {
-            print("削除しました (id=\(id))")
+
+        var failedIDs: [Int] = []
+        for id in ids {
+            do {
+                try client.remove(uuid: lib.id, id: id, trash: trash)
+                if !common.json {
+                    print("削除しました (id=\(id))")
+                }
+            } catch {
+                fputs("エラー (id=\(id)): \(error)\n", stderr)
+                failedIDs.append(id)
+            }
+        }
+        if !failedIDs.isEmpty {
+            throw ExitCode(1)
         }
     }
 }
@@ -207,27 +224,45 @@ struct Set: ParsableCommand {
     @OptionGroup var common: CommonOptions
     @Argument(help: "対象書籍の ID")
     var id: Int
+    // I-3: spec §3.4 の全メタ文字列/数値フィールドを追加（unseen は除外）
     @Option(name: .long, help: "タイトル")
     var title: String?
     @Option(name: .long, help: "著者")
     var author: String?
+    @Option(name: .long, help: "シリーズ名")
+    var series: String?
+    @Option(name: .long, help: "巻番号")
+    var volume: Int?
     @Option(name: .long, help: "ジャンル")
     var genre: String?
+    @Option(name: [.customLong("keyword-a")], help: "キーワード A")
+    var keywordA: String?
+    @Option(name: [.customLong("keyword-b")], help: "キーワード B")
+    var keywordB: String?
+    @Option(name: .long, help: "メモ")
+    var memo: String?
+    @Option(name: .long, help: "ネタ")
+    var neta: String?
     @Option(name: .long, help: "レーティング (0-5)")
     var rating: Int?
-    @Flag(name: .long, help: "未読フラグを立てる")
-    var unseen: Bool = false
 
     func run() throws {
         let ep = try resolveEndpoint(common: common)
-        let client = APIClient(baseURL: ep.baseURL, token: ep.token)
+        let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
+        // volume: CLI は Int? で受け取り、BookPatchDTO は Double? なので変換
+        let volumeDouble: Double? = volume.map { Double($0) }
         let patch = BookPatchDTO(
             title: title,
             author: author,
             genre: genre,
+            neta: neta,
+            memo: memo,
+            keywordA: keywordA,
+            keywordB: keywordB,
             rating: rating,
-            unseen: unseen ? true : nil
+            series: series,
+            volume: volumeDouble
         )
         try client.patch(uuid: lib.id, id: id, body: patch)
         if !common.json {

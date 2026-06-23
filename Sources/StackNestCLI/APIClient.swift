@@ -24,8 +24,17 @@ enum APIError: Error, CustomStringConvertible {
 
 /// URLSession 同期ラッパ（DispatchSemaphore）。CLI は短命なので sync で問題ない。
 struct APIClient {
-    let baseURL: String   // 末尾スラッシュ無し
-    let token: String
+    let endpoint: ResolvedEndpoint
+
+    /// /api/v1 プレフィックスを付与した API ベース URL（末尾スラッシュ無し）
+    private var apiBase: String { endpoint.baseURL + "/api/v1" }
+
+    var token: String { endpoint.token }
+
+    /// テスト可能な URL 構築ヘルパ。path は先頭スラッシュあり（例: "/libraries"）。
+    func makeURL(_ path: String) -> URL {
+        URL(string: apiBase + path)!
+    }
 
     private var decoder: JSONDecoder {
         let d = JSONDecoder()
@@ -41,11 +50,8 @@ struct APIClient {
 
     // MARK: - Sync request helpers
 
-    private func request(_ urlStr: String, method: String = "GET",
+    private func request(_ url: URL, method: String = "GET",
                          body: Data? = nil) throws -> Data {
-        guard let url = URL(string: urlStr) else {
-            throw APIError.network(URLError(.badURL))
-        }
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -77,25 +83,25 @@ struct APIClient {
 
     // MARK: - Public API
 
-    /// GET /libraries → JSON Data
+    /// GET /api/v1/libraries → JSON Data
     func libraries() throws -> Data {
-        try request("\(baseURL)/libraries")
+        try request(makeURL("/libraries"))
     }
 
-    /// GET /libraries/:uuid/books → JSON Data（BookPageDTO）
+    /// GET /api/v1/libraries/:uuid/books → JSON Data（BookPageDTO）
     func listBooks(uuid: String, query: String?) throws -> Data {
-        var url = "\(baseURL)/libraries/\(uuid)/books"
+        var urlStr = apiBase + "/libraries/\(uuid)/books"
         if let q = query, !q.isEmpty {
             let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
-            url += "?q=\(enc)"
+            urlStr += "?q=\(enc)"
         }
-        return try request(url)
+        return try request(URL(string: urlStr)!)
     }
 
-    /// POST /libraries/:uuid/books → AddBooksReplyDTO
+    /// POST /api/v1/libraries/:uuid/books → AddBooksReplyDTO
     func add(uuid: String, req: AddBooksRequestDTO) throws -> AddBooksReplyDTO {
         let body = try encoder.encode(req)
-        let data = try request("\(baseURL)/libraries/\(uuid)/books", method: "POST", body: body)
+        let data = try request(makeURL("/libraries/\(uuid)/books"), method: "POST", body: body)
         do {
             return try decoder.decode(AddBooksReplyDTO.self, from: data)
         } catch {
@@ -103,16 +109,16 @@ struct APIClient {
         }
     }
 
-    /// DELETE /libraries/:uuid/books/:id
+    /// DELETE /api/v1/libraries/:uuid/books/:id
     func remove(uuid: String, id: Int, trash: Bool) throws {
-        var url = "\(baseURL)/libraries/\(uuid)/books/\(id)"
-        if trash { url += "?trash=1" }
-        _ = try request(url, method: "DELETE")
+        var urlStr = apiBase + "/libraries/\(uuid)/books/\(id)"
+        if trash { urlStr += "?trash=1" }
+        _ = try request(URL(string: urlStr)!, method: "DELETE")
     }
 
-    /// PATCH /libraries/:uuid/books/:id
+    /// PATCH /api/v1/libraries/:uuid/books/:id
     func patch(uuid: String, id: Int, body: BookPatchDTO) throws {
         let data = try encoder.encode(body)
-        _ = try request("\(baseURL)/libraries/\(uuid)/books/\(id)", method: "PATCH", body: data)
+        _ = try request(makeURL("/libraries/\(uuid)/books/\(id)"), method: "PATCH", body: data)
     }
 }
