@@ -58,5 +58,18 @@ final class LocalControlController {
         isRunning = false
     }
 
-    func reload() { stop(); startIfEnabled() }
+    /// 設定変更（有効/無効・トークン再生成）後の再構成。
+    /// 旧 serverTask の graceful shutdown（runService の return = ポート解放）を待ってから
+    /// 起動し直す。stop(); start() を即時に呼ぶと旧サーバがポート解放前に同ポートへ再 bind して
+    /// IOError になる（ServerController.restart() と同じ対策・4.1b smoke A5）。
+    func reload() {
+        let old = serverTask
+        serverTask?.cancel()
+        serverTask = nil
+        isRunning = false
+        Task {   // @MainActor を継承
+            _ = await old?.value
+            startIfEnabled()
+        }
+    }
 }

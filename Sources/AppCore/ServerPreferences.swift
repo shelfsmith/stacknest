@@ -87,39 +87,40 @@ public enum ServerPreferences {
     private static let localAutomationEnabledKey = "local_automation_enabled"
 
     /// ローカル制御エンドポイントのポート。未設定なら乱数生成して確定保存する。
-    public static func localControlPort() -> Int {
-        let v = UserDefaults.standard.integer(forKey: localControlPortKey)
+    public static func localControlPort(defaults: UserDefaults = .standard) -> Int {
+        let v = defaults.integer(forKey: localControlPortKey)
         if v > 0 { return v }
         let p = randomPort()
-        UserDefaults.standard.set(p, forKey: localControlPortKey)
+        defaults.set(p, forKey: localControlPortKey)
         return p
     }
 
-    /// ローカル制御エンドポイントの RW トークン。未設定なら UUID を生成して確定保存する。
-    public static func localControlToken() -> String {
-        if let t = UserDefaults.standard.string(forKey: localControlTokenKey), !t.isEmpty { return t }
-        let t = UUID().uuidString
-        UserDefaults.standard.set(t, forKey: localControlTokenKey)
+    /// ローカル制御エンドポイントの RW トークン。未設定なら 256bit CSPRNG で生成して確定保存する
+    /// （R/RW 共通の generateToken に統一・loopback 専用だが品質を揃える）。
+    public static func localControlToken(defaults: UserDefaults = .standard) -> String {
+        if let t = defaults.string(forKey: localControlTokenKey), !t.isEmpty { return t }
+        let t = generateToken()
+        defaults.set(t, forKey: localControlTokenKey)
         return t
     }
 
     /// ローカル制御エンドポイントの RW トークンを再生成して保存・返す。
     @discardableResult
-    public static func regenerateLocalControlToken() -> String {
-        let t = UUID().uuidString
-        UserDefaults.standard.set(t, forKey: localControlTokenKey)
+    public static func regenerateLocalControlToken(defaults: UserDefaults = .standard) -> String {
+        let t = generateToken()
+        defaults.set(t, forKey: localControlTokenKey)
         return t
     }
 
     /// ローカル自動化エンドポイントの有効フラグ（未設定なら true）。
-    public static func localAutomationEnabled() -> Bool {
-        if UserDefaults.standard.object(forKey: localAutomationEnabledKey) == nil { return true }
-        return UserDefaults.standard.bool(forKey: localAutomationEnabledKey)
+    public static func localAutomationEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: localAutomationEnabledKey) == nil { return true }
+        return defaults.bool(forKey: localAutomationEnabledKey)
     }
 
     /// ローカル自動化エンドポイントの有効フラグを設定する。
-    public static func setLocalAutomationEnabled(_ on: Bool) {
-        UserDefaults.standard.set(on, forKey: localAutomationEnabledKey)
+    public static func setLocalAutomationEnabled(_ on: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(on, forKey: localAutomationEnabledKey)
     }
 
     // MARK: - 共通トークン生成
