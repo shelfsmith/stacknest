@@ -41,7 +41,7 @@ struct SharingSettingsView: View {
     /// LocalControlController を @State で保持して observation に載せる。
     @State private var localControl = LocalControlController.shared
 
-    /// ローカル自動化 Toggle / 再生成 後の body 再評価用トークン。
+    /// ローカルアクセス Toggle / 再生成 後の body 再評価用トークン。
     @State private var localControlRefresh = UUID()
 
     /// startError の portInUse 変化を検出するためのトークン。
@@ -392,14 +392,14 @@ struct SharingSettingsView: View {
         }
     }
 
-    // MARK: - ローカル自動化セクション（CLI / MCP）
+    // MARK: - ローカルアクセスセクション（CLI / MCP）
 
     @ViewBuilder
     private var localAutomationSection: some View {
         // localControlRefresh を body で読むことで、Toggle/再生成後の UUID 更新で再評価される。
         let _ = localControlRefresh
-        Section("ローカル自動化（CLI / MCP）") {
-            Toggle("ローカル自動化を許可（127.0.0.1）", isOn: Binding(
+        Section("ローカルアクセス（CLI / MCP）") {
+            Toggle("ローカルアクセスを許可（127.0.0.1）", isOn: Binding(
                 get: { ServerPreferences.localAutomationEnabled() },
                 set: { on in
                     ServerPreferences.setLocalAutomationEnabled(on)

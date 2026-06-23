@@ -120,13 +120,13 @@ public enum ServerPreferences {
         return t
     }
 
-    /// ローカル自動化エンドポイントの有効フラグ（未設定なら true）。
+    /// ローカルアクセスエンドポイントの有効フラグ（未設定なら true）。
     public static func localAutomationEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: localAutomationEnabledKey) == nil { return true }
         return defaults.bool(forKey: localAutomationEnabledKey)
     }
 
-    /// ローカル自動化エンドポイントの有効フラグを設定する。
+    /// ローカルアクセスエンドポイントの有効フラグを設定する。
     public static func setLocalAutomationEnabled(_ on: Bool, defaults: UserDefaults = .standard) {
         defaults.set(on, forKey: localAutomationEnabledKey)
     }

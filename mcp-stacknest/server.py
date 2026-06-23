@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: MIT
 """StackNest MCP サーバ。stacknest CLI をラップして MCP ツールとして公開する。
-接続は CLI が同一 Mac の UserDefaults から自動検出（StackNest 起動＋ローカル自動化 ON が前提）。"""
+接続は CLI が同一 Mac の UserDefaults から自動検出（StackNest 起動＋ローカルアクセス ON が前提）。"""
 from __future__ import annotations
 
 import os

@@ -41,13 +41,13 @@ extension ParsableCommand {
         } catch let e as APIError {
             switch e {
             case .http(let s) where s == 401 || s == 403:
-                fputs("エラー: 認証に失敗しました（HTTP \(s)）。トークンを確認してください（設定 ▸ 共有 ▸ ローカル自動化 ▸ 再生成、または --token で指定）。\n", stderr)
+                fputs("エラー: 認証に失敗しました（HTTP \(s)）。トークンを確認してください（設定 ▸ 共有 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n", stderr)
             case .notFound:
                 fputs("エラー: 対象が見つかりません（HTTP 404）。\n", stderr)
             case .http(let s):
                 fputs("エラー: サーバが HTTP \(s) を返しました。\n", stderr)
             case .network:
-                fputs("エラー: サーバに接続できません。\nStackNest を起動し「ローカル自動化を許可」が ON か確認してください（または --url / --token）。\n", stderr)
+                fputs("エラー: サーバに接続できません。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください（または --url / --token）。\n", stderr)
             case .decode:
                 fputs("エラー: サーバ応答を解釈できませんでした。\n", stderr)
             }
@@ -69,7 +69,7 @@ extension ParsableCommand {
             defaultsPort: AppDefaults.localPort(),
             defaultsToken: AppDefaults.localToken()
         ) else {
-            fputs("エラー: 接続先を解決できませんでした。\nStackNest を起動し「ローカル自動化を許可」が ON か確認してください。\n--url / --token で明示指定することもできます。\n", stderr)
+            fputs("エラー: 接続先を解決できませんでした。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください。\n--url / --token で明示指定することもできます。\n", stderr)
             throw ExitCode(2)
         }
         return ep

@@ -1,7 +1,7 @@
 # stacknest MCP サーバ
 
 StackNest ライブラリを MCP 経由で操作する（`stacknest` CLI を subprocess ラップ）。
-StackNest.app を起動し「設定 ▸ 共有 ▸ ローカル自動化」が ON である必要がある。
+StackNest.app を起動し「設定 ▸ 共有 ▸ ローカルアクセス」が ON である必要がある。
 
 ## セットアップ
 
