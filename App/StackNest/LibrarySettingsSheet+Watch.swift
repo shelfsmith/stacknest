@@ -6,13 +6,25 @@ import AppCore
 extension LibrarySettingsSheet {
     @ViewBuilder
     func watchSection() -> some View {
-        GroupBox("監視フォルダ") {
-            VStack(alignment: .leading, spacing: 12) {
-                Toggle("自動追加を有効にする", isOn: $settings.folderWatchEnabled)
-                    .toggleStyle(.switch)   // 機能全体の ON/OFF。下のフォルダ毎チェックボックスと区別
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 16) {
+            // 上段: 機能 ON/OFF（独立した背景）
+            GroupBox {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("自動追加を有効にする").font(.headline)
+                        Text("監視フォルダ直下に入った本を自動でライブラリに追加します。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $settings.folderWatchEnabled)
+                        .toggleStyle(.switch).labelsHidden()
+                }
+                .padding(8)
+            }
 
-                Group {
+            // 下段: 監視フォルダ管理（独立した背景・OFF 時はグレーアウト）
+            GroupBox("監視フォルダ") {
+                VStack(alignment: .leading, spacing: 12) {
                     if settings.watchedFolders.isEmpty {
                         Text("監視フォルダが未設定です。「フォルダを追加…」で指定してください。")
                             .font(.caption).foregroundStyle(.secondary)
@@ -27,14 +39,14 @@ extension LibrarySettingsSheet {
                             .disabled(settings.watchedFolders.isEmpty)
                         Spacer()
                     }
-                }
-                .disabled(!settings.folderWatchEnabled)
-                .opacity(settings.folderWatchEnabled ? 1 : 0.4)
 
-                Text("監視フォルダ直下に入った本（アーカイブ/PDF/画像/フォルダ）を自動でライブラリに追加します（移動せずその場所を参照・追加のみ・サブフォルダは対象外）。NAS など共有ボリュームでは最大 60 秒で反映されます。")
-                    .font(.caption).foregroundStyle(.secondary)
+                    Text("本（アーカイブ/PDF/画像/フォルダ）を移動せずその場所を参照して追加します（追加のみ・サブフォルダは対象外）。NAS など共有ボリュームでは最大 60 秒で反映されます。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(8)
             }
-            .padding(8)
+            .disabled(!settings.folderWatchEnabled)
+            .opacity(settings.folderWatchEnabled ? 1 : 0.4)
         }
         // 行削除・有効トグル・ON/OFF・プリセット変更を即 watcher へ反映（save() を待たない）。
         .onChange(of: settings.folderWatchEnabled) { appState?.reloadFolderWatcher() }
