@@ -80,6 +80,50 @@ public enum ServerPreferences {
         return t
     }
 
+    // MARK: - ローカル制御エンドポイント設定（127.0.0.1 専用・CLI/MCP 用）
+
+    private static let localControlPortKey = "local_control_port"
+    private static let localControlTokenKey = "local_control_token"
+    private static let localAutomationEnabledKey = "local_automation_enabled"
+
+    /// ローカル制御エンドポイントのポート。未設定なら乱数生成して確定保存する。
+    public static func localControlPort() -> Int {
+        let v = UserDefaults.standard.integer(forKey: localControlPortKey)
+        if v > 0 { return v }
+        let p = randomPort()
+        UserDefaults.standard.set(p, forKey: localControlPortKey)
+        return p
+    }
+
+    /// ローカル制御エンドポイントの RW トークン。未設定なら UUID を生成して確定保存する。
+    public static func localControlToken() -> String {
+        if let t = UserDefaults.standard.string(forKey: localControlTokenKey), !t.isEmpty { return t }
+        let t = UUID().uuidString
+        UserDefaults.standard.set(t, forKey: localControlTokenKey)
+        return t
+    }
+
+    /// ローカル制御エンドポイントの RW トークンを再生成して保存・返す。
+    @discardableResult
+    public static func regenerateLocalControlToken() -> String {
+        let t = UUID().uuidString
+        UserDefaults.standard.set(t, forKey: localControlTokenKey)
+        return t
+    }
+
+    /// ローカル自動化エンドポイントの有効フラグ（未設定なら true）。
+    public static func localAutomationEnabled() -> Bool {
+        if UserDefaults.standard.object(forKey: localAutomationEnabledKey) == nil { return true }
+        return UserDefaults.standard.bool(forKey: localAutomationEnabledKey)
+    }
+
+    /// ローカル自動化エンドポイントの有効フラグを設定する。
+    public static func setLocalAutomationEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: localAutomationEnabledKey)
+    }
+
+    // MARK: - 共通トークン生成
+
     /// 256bit 乱数を base64url で生成する（R/RW トークン共通）。
     static func generateToken() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
