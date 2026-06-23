@@ -965,6 +965,8 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         //（「表示 ▸ タブバーを表示／すべてのタブを表示」メニューを消す）。allowsAutomaticWindowTabbing
         // は NSWindow のクラスプロパティ。
         NSWindow.allowsAutomaticWindowTabbing = false
+        // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを起動する（isRunning ガードで冪等）。
+        LocalControlController.shared.startIfEnabled()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -1012,6 +1014,8 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         }
         // 4.1b: 内蔵リモート共有サーバを graceful に停止する。
         ServerController.shared.stop()
+        // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを停止する。
+        LocalControlController.shared.stop()
         LibraryOpenLockManager.shared.releaseAll()
     }
 }
