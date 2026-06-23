@@ -325,6 +325,47 @@ public struct LibraryServerCore: Sendable {
             for id in body.bookIDs { config.onBookChanged?(lib.uuid, id) }
             return StampApplyReply(updated: updated)
         }
+        // 4.2d-2: ローカルパスのファイルをライブラリに追加（in-place・RW）。
+        api.post("libraries/:lib/books") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+                throw HTTPError(.notFound)
+            }
+            let body = try await request.decode(as: AddBooksRequestDTO.self, context: context)
+            let raw = FilenameFormatResolver.resolveRaw(database: lib.db, presetID: body.presetID)
+            let format = (try? FilenameFormat(raw: raw)) ?? (try! FilenameFormat(raw: "@title"))
+            let importer = BookImporter(database: lib.db, bundleURL: lib.bundleURL, format: format)
+            let urls = body.paths.map { URL(fileURLWithPath: $0) }
+            let result = await importer.add(
+                urls: urls,
+                autoClassifyEnabled: config.autoClassifyEnabled,
+                thickThreshold: config.thickThreshold)
+            for id in result.addedIDs { config.onBookChanged?(lib.uuid, id) }
+            return AddBooksReplyDTO(
+                addedIDs: result.addedIDs,
+                alreadyPresent: result.alreadyPresent.map { $0.path },
+                failed: result.failed.map { $0.0.path })
+        }
+        // 4.2d-2: 本をライブラリから削除（エントリ＋サムネ・RW）。?trash=true で実ファイルを
+        // ゴミ箱へ（config.trashFile 注入時のみ・失敗は 500＝DB 不変・完全削除はしない）。
+        api.delete("libraries/:lib/books/:id") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let wantTrash = request.uri.queryParameters.get("trash").map { $0 == "true" || $0 == "1" } ?? false
+            if wantTrash {
+                guard let trashFile = config.trashFile else { throw HTTPError(.notImplemented) }
+                if let p = row.path {
+                    do { try trashFile(URL(fileURLWithPath: p)) }
+                    catch { throw HTTPError(.internalServerError) }
+                }
+            }
+            try lib.db.deleteBook(id: row.id)
+            let thumbDir = lib.bundleURL.appendingPathComponent("Thumbnails").appendingPathComponent(String(row.id))
+            try? FileManager.default.removeItem(at: thumbDir)
+            config.onBookChanged?(lib.uuid, row.id)
+            return Response(status: .noContent)
+        }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
         api.get("libraries/:lib/books/:id/cover-candidates") { request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
