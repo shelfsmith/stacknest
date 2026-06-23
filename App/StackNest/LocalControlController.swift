@@ -41,7 +41,15 @@ final class LocalControlController {
             },
             autoClassifyEnabled: ViewerSettings.shared.autoClassifyEnabled,
             thickThreshold: ViewerSettings.shared.thickBookThreshold,
-            trashFile: { url in try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+            trashFile: { url in try FileManager.default.trashItem(at: url, resultingItemURL: nil) },
+            onLibraryStructureChanged: { uuid in
+                Task { @MainActor in
+                    for state in AppState.activeInstances.allObjects
+                    where state.librarySettings?.libraryUUID == uuid {
+                        try? state.refreshDisplayedBooks()
+                    }
+                }
+            }
         )
         let core = LibraryServerCore(config: config, dataSource: AllOpenLibrariesDataSource())
         let app = core.buildApplication()

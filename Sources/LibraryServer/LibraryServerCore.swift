@@ -32,6 +32,9 @@ public struct LibraryServerConfig: Sendable {
     /// 実ファイルをゴミ箱へ送る注入関数（macOS は FileManager.trashItem を注入）。
     /// nil のとき DELETE ?trash=true は拒否（Linux/ヘッドレス portable のため core は直接 trash しない）。
     public var trashFile: (@Sendable (URL) throws -> Void)?
+    /// 本の追加/削除など行集合が変わったとき App に通知する（libraryUUID）。App は該当ライブラリの
+    /// 表示リストを全リロードする（onBookChanged はメタ更新用で行の挿入/削除は反映できないため）。
+    public var onLibraryStructureChanged: (@Sendable (String) -> Void)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -42,7 +45,8 @@ public struct LibraryServerConfig: Sendable {
                 onLibrarySettingsChanged: (@Sendable (String) -> Void)? = nil,
                 autoClassifyEnabled: Bool = false,
                 thickThreshold: Int = 0,
-                trashFile: (@Sendable (URL) throws -> Void)? = nil) {
+                trashFile: (@Sendable (URL) throws -> Void)? = nil,
+                onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -54,6 +58,7 @@ public struct LibraryServerConfig: Sendable {
         self.autoClassifyEnabled = autoClassifyEnabled
         self.thickThreshold = thickThreshold
         self.trashFile = trashFile
+        self.onLibraryStructureChanged = onLibraryStructureChanged
     }
 }
 
@@ -341,7 +346,8 @@ public struct LibraryServerCore: Sendable {
                 urls: urls,
                 autoClassifyEnabled: config.autoClassifyEnabled,
                 thickThreshold: config.thickThreshold)
-            for id in result.addedIDs { config.onBookChanged?(lib.uuid, id) }
+            // 行が増えるので全リロード通知（onBookChanged はメタ更新用で新規行に効かない）。
+            if !result.addedIDs.isEmpty { config.onLibraryStructureChanged?(lib.uuid) }
             return AddBooksReplyDTO(
                 addedIDs: result.addedIDs,
                 alreadyPresent: result.alreadyPresent.map { $0.path },
@@ -363,7 +369,8 @@ public struct LibraryServerCore: Sendable {
             try lib.db.deleteBook(id: row.id)
             let thumbDir = lib.bundleURL.appendingPathComponent("Thumbnails").appendingPathComponent(String(row.id))
             try? FileManager.default.removeItem(at: thumbDir)
-            config.onBookChanged?(lib.uuid, row.id)
+            // 行が消えるので全リロード通知（削除済み本は onBookChanged で扱えない）。
+            config.onLibraryStructureChanged?(lib.uuid)
             return Response(status: .noContent)
         }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。

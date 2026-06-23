@@ -62,6 +62,15 @@ final class ServerController {
                         state.librarySettings?.reloadCustomLabels()
                     }
                 }
+            },
+            onLibraryStructureChanged: { uuid in
+                // 4.2d-2: リモート RW での add/delete（行集合の変化）を該当ライブラリへ全リロード反映。
+                Task { @MainActor in
+                    for state in AppState.activeInstances.allObjects
+                    where state.librarySettings?.libraryUUID == uuid {
+                        try? state.refreshDisplayedBooks()
+                    }
+                }
             }
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
