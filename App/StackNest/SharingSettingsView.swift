@@ -38,6 +38,12 @@ struct SharingSettingsView: View {
     /// ポート使用不可（起動失敗）アラートの表示制御。
     @State private var showPortInUseAlert = false
 
+    /// LocalControlController を @State で保持して observation に載せる。
+    @State private var localControl = LocalControlController.shared
+
+    /// ローカル自動化 Toggle / 再生成 後の body 再評価用トークン。
+    @State private var localControlRefresh = UUID()
+
     /// startError の portInUse 変化を検出するためのトークン。
     private var portInUseToken: String {
         if case .portInUse(let p) = server.startError { return "inuse-\(p)" }
@@ -53,6 +59,7 @@ struct SharingSettingsView: View {
             tokenSection
             editTokenSection
             librariesSection
+            localAutomationSection
         }
         .formStyle(.grouped)
         .onChange(of: portInUseToken) { _, _ in
@@ -381,6 +388,48 @@ struct SharingSettingsView: View {
                         .foregroundStyle(.secondary)
                         .help("ロック庫")
                 }
+            }
+        }
+    }
+
+    // MARK: - ローカル自動化セクション（CLI / MCP）
+
+    @ViewBuilder
+    private var localAutomationSection: some View {
+        // localControlRefresh を body で読むことで、Toggle/再生成後の UUID 更新で再評価される。
+        let _ = localControlRefresh
+        Section("ローカル自動化（CLI / MCP）") {
+            Toggle("ローカル自動化を許可（127.0.0.1）", isOn: Binding(
+                get: { ServerPreferences.localAutomationEnabled() },
+                set: { on in
+                    ServerPreferences.setLocalAutomationEnabled(on)
+                    localControl.reload()
+                    localControlRefresh = UUID()
+                }))
+            if ServerPreferences.localAutomationEnabled() {
+                HStack {
+                    Text("ポート")
+                    Spacer()
+                    Text(String(ServerPreferences.localControlPort())).monospacedDigit().foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("トークン")
+                    Spacer()
+                    Text(ServerPreferences.localControlToken())
+                        .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                        .foregroundStyle(.secondary)
+                    Button("コピー") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(ServerPreferences.localControlToken(), forType: .string)
+                    }
+                    Button("再生成") {
+                        _ = ServerPreferences.regenerateLocalControlToken()
+                        localControl.reload()
+                        localControlRefresh = UUID()
+                    }
+                }
+                Text("同じ Mac の CLI `stacknest` は自動接続します。ネットワークには公開されません。")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
