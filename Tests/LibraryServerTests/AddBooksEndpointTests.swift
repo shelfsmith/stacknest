@@ -81,4 +81,46 @@ struct AddBooksEndpointTests {
             }
         }
     }
+
+    // MARK: - 重複追加
+
+    /// 同一パスを2回 POST → 1回目は addedIDs.count==1、2回目は addedIDs が空で alreadyPresent にパスが入る。
+    @Test func addSamePathTwiceReturnsAlreadyPresent() async throws {
+        let fixture = try TestLibraryFixture(name: "AddDup", bookCount: 0)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+        let pngURL = try writeTempPNG()
+        defer { try? FileManager.default.removeItem(at: pngURL) }
+
+        try await app.test(.router) { client in
+            let body = try JSONEncoder().encode(AddBooksRequestDTO(paths: [pngURL.path]))
+
+            // 1回目 → 追加成功
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { response in
+                #expect(response.status == .ok)
+                let reply = try decodeReply(response.body)
+                #expect(reply.addedIDs.count == 1)
+                #expect(reply.alreadyPresent.isEmpty)
+            }
+
+            // 2回目 → alreadyPresent に同パスが入り、addedIDs は空
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { response in
+                #expect(response.status == .ok)
+                let reply = try decodeReply(response.body)
+                #expect(reply.addedIDs.isEmpty)
+                #expect(reply.alreadyPresent.contains(pngURL.path))
+            }
+        }
+    }
 }

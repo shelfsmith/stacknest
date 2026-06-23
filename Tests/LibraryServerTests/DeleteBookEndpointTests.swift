@@ -85,6 +85,78 @@ struct DeleteBookEndpointTests {
         }
     }
 
+    // MARK: - trash 安全不変条件
+
+    /// trashFile が nil のとき ?trash=true → 501 かつ DB 不変。
+    @Test func trashWithoutTrashFileReturns501AndDBUnchanged() async throws {
+        let fixture = try TestLibraryFixture(name: "TrashNo501", bookCount: 0)
+        defer { fixture.cleanup() }
+
+        // path 付きの本を挿入
+        let pngPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trash-nil-\(UUID().uuidString).png").path
+        FileManager.default.createFile(atPath: pngPath, contents: Data())
+        defer { try? FileManager.default.removeItem(atPath: pngPath) }
+
+        let bookID = try fixture.db.insertBookReturningID(BookRecord(
+            id: 0, title: "TrashNil", path: pngPath, dateAdded: Date()
+        ))
+
+        let lib = fixture.servedLibrary()
+        // trashFile を注入しない（nil のまま）
+        let app = makeApp(fixture: fixture)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)?trash=true",
+                method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .notImplemented)
+            }
+        }
+        // DB は変わっていないこと
+        let after = try fixture.db.fetchAllBooks()
+        #expect(after.count == 1)
+    }
+
+    /// trashFile が throw するとき ?trash=true → 500 かつ DB 不変。
+    @Test func trashWithThrowingTrashFileReturns500AndDBUnchanged() async throws {
+        let fixture = try TestLibraryFixture(name: "Trash500", bookCount: 0)
+        defer { fixture.cleanup() }
+
+        // path 付きの本を挿入
+        let pngPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trash-throw-\(UUID().uuidString).png").path
+        FileManager.default.createFile(atPath: pngPath, contents: Data())
+        defer { try? FileManager.default.removeItem(atPath: pngPath) }
+
+        let bookID = try fixture.db.insertBookReturningID(BookRecord(
+            id: 0, title: "TrashThrow", path: pngPath, dateAdded: Date()
+        ))
+
+        let lib = fixture.servedLibrary()
+        struct TrashError: Error {}
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "R", editToken: "W",
+                          trashFile: { _ in throw TrashError() }),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)?trash=true",
+                method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .internalServerError)
+            }
+        }
+        // DB は変わっていないこと
+        let after = try fixture.db.fetchAllBooks()
+        #expect(after.count == 1)
+    }
+
     // MARK: - trash 経路（任意）
 
     /// trashFile が注入されているとき ?trash=true → closure が呼ばれ 204。
