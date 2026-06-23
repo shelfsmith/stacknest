@@ -37,6 +37,16 @@ def test_build_argv_add_paths():
     assert argv[-2:] == ["/a.cbz", "/b.zip"]
 
 
+def test_build_argv_double_dash_blocks_flag_smuggling():
+    # `--trash` のような危険な値の path も `--` の後＝位置引数として扱われ、フラグ誤解釈を防ぐ
+    argv = cli.build_argv("add", library="M", paths=["--trash", "/x.cbz"])
+    sep = argv.index("--")
+    assert argv[sep + 1:] == ["--trash", "/x.cbz"]
+    # `--` はオプション群（--library/--json 等）の後にあること
+    assert argv.index("--library") < sep
+    assert argv.index("--json") < sep
+
+
 def test_run_raises_on_nonzero(monkeypatch):
     class FakeProc:
         returncode = 2

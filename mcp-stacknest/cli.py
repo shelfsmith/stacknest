@@ -47,12 +47,18 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
         argv.append("--trash")
     if json_output:
         argv.append("--json")
+    # 位置引数は `--`（オプション終端）の後ろに置く。`--trash` のような値の path/id を
+    # CLI がフラグと誤解釈する argv フラグ・スマグリングを防ぐ（Swift ArgumentParser は `--` 対応）。
+    positionals: list[str] = []
     if book_id is not None:
-        argv.append(str(book_id))
+        positionals.append(str(book_id))
     if paths:
-        argv += [str(p) for p in paths]
+        positionals += [str(p) for p in paths]
     if ids:
-        argv += [str(i) for i in ids]
+        positionals += [str(i) for i in ids]
+    if positionals:
+        argv.append("--")
+        argv += positionals
     return argv
 
 
