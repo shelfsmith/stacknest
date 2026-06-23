@@ -5,6 +5,12 @@ import ArchiveAdapter
 import StackroomFormat
 import OSLog
 
+/// 取り込み時のエラー。
+public enum BookImportError: Error, Equatable {
+    /// 指定パスにファイル/フォルダが存在しない（CLI/API から任意パスを渡せるため検証する）。
+    case fileNotFound
+}
+
 /// headless 取り込みコア。GUI / CLI / サーバ / MCP から再利用できる純粋な Sendable 型。
 /// ViewerSettings・AppKit・SwiftUI への依存を持たない。
 public struct BookImporter: Sendable {
@@ -51,6 +57,11 @@ public struct BookImporter: Sendable {
         for url in urls {
             if existingPaths.contains(url.path) {
                 result.alreadyPresent.append(url)
+                continue
+            }
+            // 存在しないパスをレコード化しない（CLI/API から任意パスを渡せるため検証）。
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                result.failed.append((url, BookImportError.fileNotFound))
                 continue
             }
             do {

@@ -32,6 +32,16 @@ struct BookImporterTests {
         #expect(try db.fetchAllBooks().count == 1)
     }
 
+    @Test func nonexistentPathIsFailedNotAdded() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let ghost = dir.appendingPathComponent("does-not-exist.cbz")
+        let r = await importer.add(urls: [ghost], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r.addedIDs.isEmpty)
+        #expect(r.failed.count == 1)
+        #expect(r.failed.first?.0 == ghost)
+        #expect(try db.fetchAllBooks().count == 0)
+    }
+
     private static func onePixelPNG() -> Data {
         Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC")!
     }
