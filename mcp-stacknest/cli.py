@@ -62,14 +62,19 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
     return argv
 
 
-def run(argv: list[str], *, timeout: int = 60) -> str:
+def _exec(argv: list[str], *, timeout: int = 60) -> subprocess.CompletedProcess:
+    """subprocess 実行（バイナリ不在/タイムアウトは StacknestError へ）。非0でも raise しない。"""
     cli = cli_path()
     try:
-        proc = subprocess.run([cli, *argv], capture_output=True, text=True, timeout=timeout)
+        return subprocess.run([cli, *argv], capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError:
         raise StacknestError(127, f"stacknest CLI が見つかりません: {cli}（環境変数 STACKNEST_CLI を確認）")
     except subprocess.TimeoutExpired:
         raise StacknestError(124, f"stacknest CLI がタイムアウトしました（{timeout}s）")
+
+
+def run(argv: list[str], *, timeout: int = 60) -> str:
+    proc = _exec(argv, timeout=timeout)
     if proc.returncode != 0:
         raise StacknestError(proc.returncode, proc.stderr or proc.stdout)
     return proc.stdout
@@ -86,8 +91,18 @@ def list_books(library: str, query: str | None = None, limit: int | None = None)
 
 
 def add(library: str, paths: list[str], preset: str | None = None) -> Any:
-    out = run(build_argv("add", library=library, paths=paths, preset=preset))
-    return json.loads(out) if out.strip() else {}
+    # CLI add は failed が1件でもあると exit 1（reply JSON は stdout）。部分成功も
+    # 構造化結果（addedIDs/alreadyPresent/failed）として返し、LLM が成否を正しく扱えるようにする。
+    # 接続/認証など exit>=2、または stdout が解釈不能のときだけ例外にする。
+    proc = _exec(build_argv("add", library=library, paths=paths, preset=preset))
+    if proc.returncode in (0, 1) and proc.stdout.strip():
+        try:
+            return json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            pass
+    if proc.returncode != 0:
+        raise StacknestError(proc.returncode, proc.stderr or proc.stdout)
+    return {}
 
 
 def set_meta(library: str, book_id: int, **fields: Any) -> None:

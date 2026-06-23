@@ -78,6 +78,30 @@ def test_libraries_parses_json(monkeypatch):
     assert result[0]["name"] == "Manga"
 
 
+def test_add_partial_failure_returns_reply_not_raise(monkeypatch):
+    # exit 1（一部 failed）でも reply を返す＝addedIDs を構造化結果として扱える（Option A）
+    class FakeProc:
+        returncode = 1
+        stdout = json.dumps({"addedIDs": [8], "alreadyPresent": [], "failed": ["/bad.cbz"]})
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    reply = cli.add("M", ["/ok.cbz", "/bad.cbz"])
+    assert reply["addedIDs"] == [8]
+    assert reply["failed"] == ["/bad.cbz"]
+
+
+def test_add_fatal_exit_raises(monkeypatch):
+    # exit 2（接続/認証）は例外（stdout 空・stderr にメッセージ）
+    class FakeProc:
+        returncode = 2
+        stdout = ""
+        stderr = "サーバに接続できません"
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    with pytest.raises(cli.StacknestError) as e:
+        cli.add("M", ["/ok.cbz"])
+    assert e.value.exit_code == 2
+
+
 def test_set_empty_stdout_ok(monkeypatch):
     class FakeProc:
         returncode = 0
