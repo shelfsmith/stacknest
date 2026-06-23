@@ -46,6 +46,7 @@ public actor ThumbnailLoader {
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
                   kCGImageSourceShouldCacheImmediately: true,
+                  kCGImageSourceCreateThumbnailWithTransform: true,  // EXIF orientation を反映
               ] as CFDictionary)
         else { return nil }
         let cost = cgImage.bytesPerRow * cgImage.height

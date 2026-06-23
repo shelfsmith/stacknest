@@ -408,6 +408,13 @@ struct SharingSettingsView: View {
                 }))
             if ServerPreferences.localAutomationEnabled() {
                 HStack {
+                    Circle()
+                        .fill(localControl.isRunning ? .green : .secondary)
+                        .frame(width: 8, height: 8)
+                    Text(localControl.isRunning ? "稼働中（127.0.0.1）" : "停止中")
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
                     Text("ポート")
                     Spacer()
                     Text(String(ServerPreferences.localControlPort())).monospacedDigit().foregroundStyle(.secondary)

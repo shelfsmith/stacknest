@@ -55,12 +55,19 @@ extension LibrarySettingsSheet {
 
     @ViewBuilder
     private func watchRow(_ folder: Binding<WatchedFolder>) -> some View {
+        let exists = FileManager.default.fileExists(atPath: folder.wrappedValue.path)
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Toggle("", isOn: folder.enabled).labelsHidden()
                 Text(folder.wrappedValue.path)
                     .lineLimit(1).truncationMode(.middle)
                     .help(folder.wrappedValue.path)
+                    .foregroundStyle(exists ? Color.primary : Color.red)   // パス不在は赤表示（4.2d-1 §6）
+                if !exists {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .help("フォルダが見つかりません（アクセス不可/未マウント）。スキャンはスキップされます。")
+                }
                 Spacer()
                 Button(role: .destructive) {
                     // id を mutation 前にローカルへ退避。removeAll(where:) の inout 排他アクセス中に

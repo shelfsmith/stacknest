@@ -283,6 +283,7 @@ private struct CoverPickerThumbnail: View {
                       kCGImageSourceCreateThumbnailFromImageAlways: true,
                       kCGImageSourceShouldCacheImmediately: true,
                       kCGImageSourceThumbnailMaxPixelSize: 200,
+                      kCGImageSourceCreateThumbnailWithTransform: true,  // EXIF orientation を反映
                   ] as CFDictionary) else {
                 await MainActor.run { self.loadFailed = true }
                 return

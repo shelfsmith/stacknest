@@ -95,6 +95,14 @@ public enum ServerPreferences {
         return p
     }
 
+    /// ローカル制御ポートを再採番して保存・返す（ポート競合時の自動回復用）。
+    @discardableResult
+    public static func regenerateLocalControlPort(defaults: UserDefaults = .standard) -> Int {
+        let p = randomPort()
+        defaults.set(p, forKey: localControlPortKey)
+        return p
+    }
+
     /// ローカル制御エンドポイントの RW トークン。未設定なら 256bit CSPRNG で生成して確定保存する
     /// （R/RW 共通の generateToken に統一・loopback 専用だが品質を揃える）。
     public static func localControlToken(defaults: UserDefaults = .standard) -> String {

@@ -11,13 +11,16 @@ final class LocalControlController {
     static let shared = LocalControlController()
     private(set) var isRunning = false
     private var serverTask: Task<Void, Never>?
+    private var portRetries = 0
+    private static let maxPortRetries = 2
 
     func startIfEnabled() {
         guard ServerPreferences.localAutomationEnabled() else { return }
         guard !isRunning else { return }
+        let usedPort = ServerPreferences.localControlPort()
         let config = LibraryServerConfig(
             host: "127.0.0.1",
-            port: ServerPreferences.localControlPort(),
+            port: usedPort,
             token: UUID().uuidString,                          // 使い捨て read（誰も使わない）
             editToken: ServerPreferences.localControlToken(),  // CLI が提示する RW
             transcoder: ImageIOTranscoder(),
@@ -55,7 +58,24 @@ final class LocalControlController {
         let app = core.buildApplication()
         isRunning = true
         serverTask = Task {
-            do { try await app.runService() } catch { /* loopback shutdown は無視 */ }
+            do {
+                try await app.runService()
+            } catch {
+                // 起動失敗（ポート競合等）。cancel 由来の正常停止は除外。
+                // ポート競合なら別ポートへ再採番して 1〜2 回まで自動リトライ（loopback ランダム高位ポート）。
+                if !Task.isCancelled,
+                   case .portInUse = ServerStartError.classify(error, port: usedPort),
+                   Self.maxPortRetries > 0 {
+                    await MainActor.run {
+                        guard self.portRetries < Self.maxPortRetries else { self.isRunning = false; return }
+                        self.portRetries += 1
+                        _ = ServerPreferences.regenerateLocalControlPort()
+                        self.isRunning = false
+                        self.startIfEnabled()   // 新ポートで再起動
+                    }
+                    return
+                }
+            }
             await MainActor.run { self.isRunning = false }
         }
     }
@@ -64,6 +84,7 @@ final class LocalControlController {
         serverTask?.cancel()
         serverTask = nil
         isRunning = false
+        portRetries = 0
     }
 
     /// 設定変更（有効/無効・トークン再生成）後の再構成。
@@ -75,6 +96,7 @@ final class LocalControlController {
         serverTask?.cancel()
         serverTask = nil
         isRunning = false
+        portRetries = 0
         Task {   // @MainActor を継承
             _ = await old?.value
             startIfEnabled()
