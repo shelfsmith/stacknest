@@ -25,6 +25,13 @@ public struct LibraryServerConfig: Sendable {
     /// 4.2c-6a: ライブラリ設定（スタンプ定義など）をサーバ経由で変更したとき App に通知する
     /// （libraryUUID）。App は該当ライブラリのインメモリ設定を DB から再読込して GUI に反映する。
     public var onLibrarySettingsChanged: (@Sendable (String) -> Void)?
+    /// 取り込み時の自動分類設定（POST /books が BookImporter に渡す）。アプリは ViewerSettings から、
+    /// 将来のヘッドレスは自前の値から注入する（global を読まない）。
+    public var autoClassifyEnabled: Bool
+    public var thickThreshold: Int
+    /// 実ファイルをゴミ箱へ送る注入関数（macOS は FileManager.trashItem を注入）。
+    /// nil のとき DELETE ?trash=true は拒否（Linux/ヘッドレス portable のため core は直接 trash しない）。
+    public var trashFile: (@Sendable (URL) throws -> Void)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -32,7 +39,10 @@ public struct LibraryServerConfig: Sendable {
                 transcoder: any ImageTranscoding = PassthroughTranscoder(),
                 defaultPageDirection: PageDirection = .rightToLeft,
                 onBookChanged: (@Sendable (String, Int) -> Void)? = nil,
-                onLibrarySettingsChanged: (@Sendable (String) -> Void)? = nil) {
+                onLibrarySettingsChanged: (@Sendable (String) -> Void)? = nil,
+                autoClassifyEnabled: Bool = false,
+                thickThreshold: Int = 0,
+                trashFile: (@Sendable (URL) throws -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -41,6 +51,9 @@ public struct LibraryServerConfig: Sendable {
         self.defaultPageDirection = defaultPageDirection
         self.onBookChanged = onBookChanged
         self.onLibrarySettingsChanged = onLibrarySettingsChanged
+        self.autoClassifyEnabled = autoClassifyEnabled
+        self.thickThreshold = thickThreshold
+        self.trashFile = trashFile
     }
 }
 
