@@ -89,12 +89,15 @@ struct APIClient {
     }
 
     /// GET /api/v1/libraries/:uuid/books → JSON Data（BookPageDTO）
-    func listBooks(uuid: String, query: String?) throws -> Data {
-        var urlStr = apiBase + "/libraries/\(uuid)/books"
+    /// limit はサーバの per（1ページ件数・サーバ側で 1...500 にクランプ）。
+    func listBooks(uuid: String, query: String?, limit: Int?) throws -> Data {
+        var items: [String] = []
         if let q = query, !q.isEmpty {
             let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
-            urlStr += "?q=\(enc)"
+            items.append("q=\(enc)")
         }
+        if let limit { items.append("per=\(limit)") }
+        let urlStr = apiBase + "/libraries/\(uuid)/books" + (items.isEmpty ? "" : "?" + items.joined(separator: "&"))
         return try request(URL(string: urlStr)!)
     }
 
