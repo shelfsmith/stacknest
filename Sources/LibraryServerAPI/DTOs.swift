@@ -397,3 +397,27 @@ public struct LabelSettingsDTO: Codable, Sendable {
         self.customBookTypeLabels = customBookTypeLabels
     }
 }
+
+// MARK: - 4.2d-2: ヘッドレス write API — add/delete DTO
+
+/// POST /libraries/:lib/books のリクエスト。サーバローカルの絶対パスを追加する。
+public struct AddBooksRequestDTO: Codable, Sendable {
+    public var paths: [String]
+    public var presetID: String?
+    public init(paths: [String], presetID: String? = nil) {
+        self.paths = paths
+        self.presetID = presetID
+    }
+}
+
+/// POST /libraries/:lib/books のレスポンス。BookImporter.ImportResult の DTO 表現。
+public struct AddBooksReplyDTO: Codable, Sendable {
+    public var addedIDs: [Int]
+    public var alreadyPresent: [String]
+    public var failed: [String]
+    public init(addedIDs: [Int], alreadyPresent: [String], failed: [String]) {
+        self.addedIDs = addedIDs
+        self.alreadyPresent = alreadyPresent
+        self.failed = failed
+    }
+}
