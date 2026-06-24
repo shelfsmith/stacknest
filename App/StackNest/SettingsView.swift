@@ -4,6 +4,7 @@ import AppKit
 import UniformTypeIdentifiers
 import AppCore
 import LibraryStore
+import LibraryServer
 
 struct SettingsView: View {
     @Bindable var settings: ViewerSettings
@@ -32,6 +33,12 @@ struct SettingsView: View {
     /// window 高さが追従しないため、@Observable な ServerController を観察し、isRunning を
     /// SettingsWindowFixedSize の trigger に絡めて updateNSView を再発火させる。
     @State private var server = ServerController.shared
+
+    /// LocalControlController を @State で保持して observation に載せる（ローカルアクセスタブ用）。
+    @State private var localControl = LocalControlController.shared
+
+    /// ローカルアクセス Toggle / 再生成後の body 再評価用トークン。
+    @State private var localControlRefresh = UUID()
 
     /// 各 row の左端ラベル幅 (px)。caption の indent もこの値+spacing で揃える。
     /// 「指定ライブラリ」(7文字) 等の最長ラベルを 1 行に収める想定で 110pt。
@@ -191,17 +198,69 @@ struct SettingsView: View {
                     Label("キー", systemImage: "keyboard")
                 }
                 .tag(3)
+
+            // MARK: - Tab 5: ローカルアクセス（CLI / MCP）
+            Form {
+                // localControlRefresh を body で読むことで、Toggle/再生成後の UUID 更新で再評価される。
+                let _ = localControlRefresh
+                Section("ローカルアクセス（CLI / MCP）") {
+                    Toggle("ローカルアクセスを許可（127.0.0.1）", isOn: Binding(
+                        get: { ServerPreferences.localAutomationEnabled() },
+                        set: { on in
+                            ServerPreferences.setLocalAutomationEnabled(on)
+                            localControl.reload()
+                            localControlRefresh = UUID()
+                        }))
+                    if ServerPreferences.localAutomationEnabled() {
+                        HStack {
+                            Circle()
+                                .fill(localControl.isRunning ? .green : .secondary)
+                                .frame(width: 8, height: 8)
+                            Text(localControl.isRunning ? "稼働中（127.0.0.1）" : "停止中")
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text("ポート")
+                            Spacer()
+                            Text(String(ServerPreferences.localControlPort())).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text("トークン")
+                            Spacer()
+                            Text(ServerPreferences.localControlToken())
+                                .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                                .foregroundStyle(.secondary)
+                            Button("コピー") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(ServerPreferences.localControlToken(), forType: .string)
+                            }
+                            Button("再生成") {
+                                _ = ServerPreferences.regenerateLocalControlToken()
+                                localControl.reload()
+                                localControlRefresh = UUID()
+                            }
+                        }
+                        Text("同じ Mac の CLI `stacknest` は自動接続します。ネットワークには公開されません。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem {
+                Label("ローカルアクセス", systemImage: "terminal")
+            }
+            .tag(4)
         }
         // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。
         // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
         // tab: settingsTab を渡すことで、タブ切替時に updateNSView が再発火する。
-        // contentRevision: 共有タブで server.isRunning が変化すると値が変わり、
-        //   接続/QR セクションの増減に合わせて updateNSView が再発火 → 高さが追従する（自由記載）。
+        // contentRevision: ローカルアクセスタブで localControlRefresh が変化すると値が変わり、
+        //   セクション増減に合わせて updateNSView が再発火 → 高さが追従する。
         .frame(width: 600)
         .background(SettingsWindowFixedSize(
             tabBarPadding: 32,
             tab: settingsTab,
-            contentRevision: settingsTab == 4 ? (server.isRunning ? 1 : 0) : 0
+            contentRevision: settingsTab == 4 ? (localControl.isRunning ? 1 : 0) : 0
         ))
     }
 
