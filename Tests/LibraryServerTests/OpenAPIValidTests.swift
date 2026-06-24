@@ -26,13 +26,13 @@ struct OpenAPIValidTests {
         }
     }
 
-    /// Redoc docs.html がバンドルに含まれ、HTTP 経由（認証なし）で取得できること。
+    /// Redoc docs がバンドルに含まれ、HTTP 経由（認証なし）で取得できること（4.2f: /docs.html → /docs）。
     @Test func redocAssetBundled() async throws {
         try await makeApp().test(.router) { client in
-            try await client.execute(uri: "/docs.html", method: .get) { response in
+            try await client.execute(uri: "/docs", method: .get) { response in
                 #expect(response.status == .ok)
                 let text = String(buffer: response.body)
-                #expect(text.contains("redoc"))
+                #expect(text.lowercased().contains("redoc"))
             }
         }
     }

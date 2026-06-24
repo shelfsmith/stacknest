@@ -35,6 +35,8 @@ public struct LibraryServerConfig: Sendable {
     /// 本の追加/削除など行集合が変わったとき App に通知する（libraryUUID）。App は該当ライブラリの
     /// 表示リストを全リロードする（onBookChanged はメタ更新用で行の挿入/削除は反映できないため）。
     public var onLibraryStructureChanged: (@Sendable (String) -> Void)?
+    /// true でアプリ Web UI を配信せず /docs（Redoc）を / に出す（ローカルエンドポイント用）。
+    public var apiOnly: Bool
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -46,7 +48,8 @@ public struct LibraryServerConfig: Sendable {
                 autoClassifyEnabled: Bool = false,
                 thickThreshold: Int = 0,
                 trashFile: (@Sendable (URL) throws -> Void)? = nil,
-                onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil) {
+                onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil,
+                apiOnly: Bool = false) {
         self.host = host
         self.port = port
         self.token = token
@@ -59,6 +62,7 @@ public struct LibraryServerConfig: Sendable {
         self.thickThreshold = thickThreshold
         self.trashFile = trashFile
         self.onLibraryStructureChanged = onLibraryStructureChanged
+        self.apiOnly = apiOnly
     }
 }
 
@@ -605,7 +609,7 @@ public struct LibraryServerCore: Sendable {
         //   登録すること。router 直登録は無警告の認証バイパスになる（4.1a 最終レビュー指摘(3)）。
         // ★book を mutate する API は DB 書き込み成功後に config.onBookChanged?(lib.uuid, row.id) を
         //   呼ぶこと（リモート変更を Mac UI / 将来のクライアントへ即時反映するため・4.2a）。
-        if let webRoot = Bundle.module.url(forResource: "web", withExtension: nil)?.path {
+        if !config.apiOnly, let webRoot = Bundle.module.url(forResource: "web", withExtension: nil)?.path {
             // Web シェル（html/js/css）は `Cache-Control: no-cache` で毎回再検証させる
             // （ETag で 304/200）。これが無いとブラウザのヒューリスティックキャッシュにより
             // アプリ更新後も古い JS が使われ続け、変更が反映されない（4.2c smoke で顕在化）。
@@ -628,8 +632,12 @@ public struct LibraryServerCore: Sendable {
                 }
             }
             router.get("openapi.yaml", use: serveFile(openapiDir.appendingPathComponent("openapi.yaml"), contentType: "application/yaml"))
-            router.get("docs.html", use: serveFile(openapiDir.appendingPathComponent("docs.html"), contentType: "text/html; charset=utf-8"))
+            router.get("docs", use: serveFile(openapiDir.appendingPathComponent("docs.html"), contentType: "text/html; charset=utf-8"))
             router.get("redoc.standalone.js", use: serveFile(openapiDir.appendingPathComponent("redoc.standalone.js"), contentType: "application/javascript"))
+            if config.apiOnly {
+                // API 専用エンドポイント: ルートで Redoc ドキュメントを返す（Web UI は載せない）。
+                router.get("/", use: serveFile(openapiDir.appendingPathComponent("docs.html"), contentType: "text/html; charset=utf-8"))
+            }
         }
         return Application(
             router: router,
