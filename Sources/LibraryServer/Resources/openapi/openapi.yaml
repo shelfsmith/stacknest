@@ -1,0 +1,1630 @@
+openapi: 3.1.0
+info:
+  title: StackNest API
+  version: "1"
+  description: |
+    StackNest 画像ライブラリ管理サーバの HTTP API 仕様。
+
+    **認証:**
+    - すべての API エンドポイント（`/api/v1/server/info` を除く）は `Authorization: Bearer <token>` が必要。
+    - クエリパラメータ `?token=<token>` によるフォールバック認証も可。
+    - ロック庫へのアクセスは `X-Library-Token` ヘッダが追加で必要（`POST /libraries/:lib/unlock` で取得）。
+    - **読み取り（R）トークン:** 一覧・詳細・画像・評価・未読状態の更新が可能。
+    - **編集（RW）トークン:** R の全操作に加え、メタデータ編集・書籍追加/削除・表紙更新などが可能。
+
+    **ネットワーク:**
+    - LAN 内共有アクセスおよびローカルアクセス（API 専用）の両方に対応。
+    - 本ドキュメント（`/docs`）および `/openapi.yaml` は認証不要で公開されるが、ライブラリのコンテンツは含まない。
+
+    **日時フォーマット:** ISO 8601（例: `2024-01-15T10:30:00Z`）。
+
+servers:
+  - url: /api/v1
+    description: StackNest API v1
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        読み取り（R）または編集（RW）ロールのトークン。
+        クエリパラメータ `?token=<token>` によるフォールバックも可。
+    libraryToken:
+      type: apiKey
+      in: header
+      name: X-Library-Token
+      description: |
+        ロック庫へのアクセスに必要な短命トークン。
+        `POST /libraries/:lib/unlock` で取得する。
+
+  schemas:
+    ServerCapabilities:
+      type: object
+      description: サーバの機能情報（/server/info レスポンス）
+      required: [version, fileOps, transcode, formats]
+      properties:
+        version:
+          type: string
+          description: API バージョン文字列
+          example: "1"
+        fileOps:
+          type: boolean
+          description: ファイル操作（書籍追加・削除）が可能か
+        transcode:
+          type: boolean
+          description: 画像縮小（maxw パラメータ）が可能か
+        formats:
+          type: array
+          items:
+            type: string
+          description: サポートするファイル形式
+          example: ["zip", "rar", "7z", "folder", "image", "pdf"]
+
+    MeReply:
+      type: object
+      description: トークンのロール情報
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [read, write]
+          description: 提示トークンのロール（read=R / write=RW）
+
+    LibraryDTO:
+      type: object
+      description: ライブラリ一覧の 1 件
+      required: [id, name, locked, bookCount]
+      properties:
+        id:
+          type: string
+          description: ライブラリ UUID
+        name:
+          type: string
+          description: ライブラリ名
+        locked:
+          type: boolean
+          description: パスワードロックされているか
+        bookCount:
+          type: integer
+          description: 書籍数
+
+    UnlockReply:
+      type: object
+      description: ロック庫解錠レスポンス（短命ライブラリトークン）
+      required: [libraryToken]
+      properties:
+        libraryToken:
+          type: string
+          description: ロック庫アクセス用の短命トークン（再起動で失効）
+
+    BookListItemDTO:
+      type: object
+      description: 書籍一覧の 1 件
+      required: [id, title, rating, unseen, bookType, dateAdded, hasCover]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        author:
+          type: string
+          nullable: true
+        series:
+          type: string
+          nullable: true
+        volume:
+          type: number
+          format: double
+          nullable: true
+        rating:
+          type: integer
+          minimum: 0
+          maximum: 5
+        unseen:
+          type: boolean
+        bookType:
+          type: integer
+          description: 書籍種別コード（0-5）
+        pages:
+          type: integer
+          nullable: true
+        lastPage:
+          type: integer
+          nullable: true
+          description: 最終閲覧ページ（未読は null）
+        lastReadAt:
+          type: string
+          format: date-time
+          nullable: true
+        dateAdded:
+          type: string
+          format: date-time
+        hasCover:
+          type: boolean
+        coverVersion:
+          type: string
+          nullable: true
+          description: 表紙差し替え追跡用バージョン文字列（mtime+size 由来）
+        coverCropRectJSON:
+          type: string
+          nullable: true
+          description: 表紙クロップ矩形 JSON（クロップ無しは null）
+        genre:
+          type: string
+          nullable: true
+          description: "&fields=genre 要求時のみ返る"
+        neta:
+          type: string
+          nullable: true
+          description: "&fields=neta 要求時のみ返る"
+        keywordA:
+          type: string
+          nullable: true
+          description: "&fields=keywordA 要求時のみ返る"
+        keywordB:
+          type: string
+          nullable: true
+          description: "&fields=keywordB 要求時のみ返る"
+        keywordC:
+          type: string
+          nullable: true
+          description: "&fields=keywordC 要求時のみ返る"
+        memo:
+          type: string
+          nullable: true
+          description: "&fields=memo 要求時のみ返る（先頭 200 字に切詰）"
+
+    BookPageDTO:
+      type: object
+      description: 書籍一覧のページングレスポンス
+      required: [items, total, page, perPage]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BookListItemDTO'
+        total:
+          type: integer
+          description: 総件数
+        page:
+          type: integer
+          description: 現在ページ（1 始まり）
+        perPage:
+          type: integer
+          description: 1 ページあたりの件数
+
+    ShelfDTO:
+      type: object
+      description: 棚（ユーザー棚・スマート棚）の 1 件
+      required: [id, title, kind, isSmart]
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        kind:
+          type: string
+        isSmart:
+          type: boolean
+
+    BookDetailDTO:
+      type: object
+      description: 書籍詳細（フルメタデータ）
+      required: [id, title, rating, unseen, bookType, fileType, dateAdded]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        author:
+          type: string
+          nullable: true
+        genre:
+          type: string
+          nullable: true
+        path:
+          type: string
+          nullable: true
+          description: 常に null（パスはサーバ秘匿）
+        dateAdded:
+          type: string
+          format: date-time
+        playDate:
+          type: string
+          format: date-time
+          nullable: true
+        bookType:
+          type: integer
+        fileType:
+          type: integer
+        pages:
+          type: integer
+          nullable: true
+        lastPage:
+          type: integer
+          nullable: true
+        rating:
+          type: integer
+          minimum: 0
+          maximum: 5
+        unseen:
+          type: boolean
+        keywordA:
+          type: string
+          nullable: true
+        keywordB:
+          type: string
+          nullable: true
+        keywordC:
+          type: string
+          nullable: true
+        neta:
+          type: string
+          nullable: true
+        memo:
+          type: string
+          nullable: true
+        series:
+          type: string
+          nullable: true
+        volume:
+          type: number
+          format: double
+          nullable: true
+        coverImageName:
+          type: string
+          nullable: true
+        coverCropRectJSON:
+          type: string
+          nullable: true
+        pageDirection:
+          type: string
+          nullable: true
+          enum: [rtl, ltr, null]
+          description: '"rtl" | "ltr" | null（本ごと未設定時は null）'
+        fileExtension:
+          type: string
+          nullable: true
+          description: ファイル拡張子（"zip"/"rar"/"pdf"/"" など）。パス秘匿のため拡張子のみ返す。
+
+    BookPatchDTO:
+      type: object
+      description: PATCH /books/:id のリクエスト（null フィールドは変更しない）
+      properties:
+        title:
+          type: string
+          nullable: true
+        author:
+          type: string
+          nullable: true
+        genre:
+          type: string
+          nullable: true
+        neta:
+          type: string
+          nullable: true
+        memo:
+          type: string
+          nullable: true
+        keywordA:
+          type: string
+          nullable: true
+        keywordB:
+          type: string
+          nullable: true
+        keywordC:
+          type: string
+          nullable: true
+        rating:
+          type: integer
+          nullable: true
+          minimum: 0
+          maximum: 5
+        unseen:
+          type: boolean
+          nullable: true
+        series:
+          type: string
+          nullable: true
+        volume:
+          type: number
+          format: double
+          nullable: true
+        bookType:
+          type: integer
+          nullable: true
+        pageDirection:
+          type: string
+          nullable: true
+          description: '"rtl" | "ltr" | null（変更しない場合は省略）'
+        clearSeries:
+          type: boolean
+          default: false
+          description: true で series を NULL 化
+        clearVolume:
+          type: boolean
+          default: false
+          description: true で volume を NULL 化
+        clearPageDirection:
+          type: boolean
+          default: false
+          description: true で pageDirection を NULL 化（本ごと設定を消してライブラリ既定に戻す）
+
+    StampDefinitionsDTO:
+      type: object
+      description: スタンプ定義マップ（dbColumn → 値配列）
+      required: [definitions]
+      properties:
+        definitions:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          description: |
+            キーは DB カラム名（genre / neta / keyword_a / keyword_b / keyword_c）、
+            値はスタンプ候補文字列の配列。
+
+    StampApplyRequest:
+      type: object
+      description: 一括スタンプ適用リクエスト
+      required: [field, bookIDs]
+      properties:
+        field:
+          type: string
+          description: 対象フィールド（genre / neta / keyword_a / keyword_b / keyword_c）
+        value:
+          type: string
+          nullable: true
+          description: 適用する値（append モード）
+        clear:
+          type: boolean
+          nullable: true
+          description: true でフィールドを空にクリア
+        bookIDs:
+          type: array
+          items:
+            type: integer
+          description: 対象書籍 ID リスト
+
+    StampApplyReply:
+      type: object
+      description: 一括スタンプ適用レスポンス
+      required: [updated]
+      properties:
+        updated:
+          type: integer
+          description: 更新された書籍数
+
+    CoverCandidatesDTO:
+      type: object
+      description: 表紙候補（アーカイブのページ名一覧）
+      required: [entries]
+      properties:
+        entries:
+          type: array
+          items:
+            type: string
+          description: アーカイブ内の画像エントリ名一覧
+        current:
+          type: string
+          nullable: true
+          description: 現在の coverImageName（未設定は null）
+
+    CoverUpdateRequest:
+      type: object
+      description: 表紙更新リクエスト
+      properties:
+        coverImageName:
+          type: string
+          nullable: true
+          description: 設定する表紙エントリ名（null = 自動先頭ページ）
+        setCoverImageName:
+          type: boolean
+          default: false
+          description: true で coverImageName を更新＋サムネイル再生成
+        coverCropRect:
+          type: string
+          nullable: true
+          description: クロップ矩形 JSON（null = クロップ解除）
+        setCoverCropRect:
+          type: boolean
+          default: false
+          description: true で coverCropRect を更新
+
+    LabelSettingsDTO:
+      type: object
+      description: ラベルカスタマイズ設定（GET 応答・PUT リクエスト共用）
+      required: [customFieldLabels, customBookTypeLabels]
+      properties:
+        customFieldLabels:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            キーは DB カラム名（genre / neta / keyword_a / keyword_b / keyword_c）、
+            値はカスタムラベル文字列。空文字値は除外される。
+        customBookTypeLabels:
+          type: object
+          additionalProperties:
+            type: string
+          description: |
+            キーは bookType コード文字列（"0".."5"）、値はカスタムラベル。空文字値は除外される。
+
+    AdjacentVolumeReply:
+      type: object
+      description: 隣接巻レスポンス（該当なしは book=null）
+      required: [book]
+      properties:
+        book:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/BookListItemDTO'
+
+    ManifestDTO:
+      type: object
+      description: 書籍マニフェスト（ページ数・方向・形式・ETag）
+      required: [pageCount, direction, format, etag]
+      properties:
+        pageCount:
+          type: integer
+        direction:
+          type: string
+          enum: [rtl, ltr]
+          description: 実効ページ方向（null は返さない・ライブラリ既定を適用済み）
+        format:
+          type: string
+          description: アーカイブ形式（archive / image / folder / video / text）
+        etag:
+          type: string
+
+    AddBooksRequestDTO:
+      type: object
+      description: POST /books のリクエスト（サーバローカルの絶対パスを追加）
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          items:
+            type: string
+          description: 追加するファイルのサーバローカル絶対パス一覧
+        presetID:
+          type: string
+          nullable: true
+          description: ファイル名フォーマットプリセット ID（省略時は既定フォーマット）
+
+    AddBooksReplyDTO:
+      type: object
+      description: POST /books のレスポンス
+      required: [addedIDs, alreadyPresent, failed]
+      properties:
+        addedIDs:
+          type: array
+          items:
+            type: integer
+          description: 新規追加された書籍 ID 一覧
+        alreadyPresent:
+          type: array
+          items:
+            type: string
+          description: 既にライブラリに存在したファイルのパス
+        failed:
+          type: array
+          items:
+            type: string
+          description: 追加に失敗したファイルのパス
+
+paths:
+  /server/info:
+    get:
+      summary: サーバ情報・機能取得（認証不要）
+      description: |
+        ペアリング前の到達性確認用。認証なしでアクセス可能。
+        サーバのバージョン・対応フォーマット・トランスコード可否を返す。
+      security: []
+      tags: [Server]
+      responses:
+        '200':
+          description: サーバ機能情報
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServerCapabilities'
+
+  /me:
+    get:
+      summary: トークンのロール確認
+      description: 提示した Bearer トークンのロール（read / write）を返す。RW ゲート編集前の確認に使う。
+      tags: [Auth]
+      responses:
+        '200':
+          description: トークンロール
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeReply'
+        '401':
+          description: 未認証
+
+  /libraries:
+    get:
+      summary: 配信中ライブラリ一覧
+      description: サーバが配信しているライブラリの一覧を返す。ロック庫も含む（locked=true）。
+      tags: [Libraries]
+      responses:
+        '200':
+          description: ライブラリ一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LibraryDTO'
+        '401':
+          description: 未認証
+
+  /libraries/{lib}/unlock:
+    post:
+      summary: ロック庫の解錠（ライブラリトークン取得）
+      description: |
+        パスワードを送信してロック庫を解錠し、短命なライブラリトークンを取得する。
+        取得したトークンを `X-Library-Token` ヘッダに付けることでロック庫の API にアクセスできる。
+        トークンはサーバ再起動で失効する。
+      tags: [Libraries]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ライブラリ UUID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+      responses:
+        '200':
+          description: 解錠成功・ライブラリトークン発行
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnlockReply'
+        '401':
+          description: 未認証
+        '403':
+          description: パスワード不正
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/books:
+    parameters:
+      - name: lib
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ライブラリ UUID
+    get:
+      summary: 書籍一覧（ページング・検索・ソート・フィルタ）
+      description: |
+        ライブラリの書籍一覧をページング形式で返す。
+        ロック庫は `X-Library-Token` ヘッダが必要。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: 全文検索クエリ
+        - name: sort
+          in: query
+          schema:
+            type: string
+            default: title
+          description: ソートキー（title / author / dateAdded / playDate / rating / pages など）
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+          description: ソート順（省略時はソートキーの既定順）
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: per
+          in: query
+          schema:
+            type: integer
+            default: 100
+            minimum: 1
+            maximum: 500
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [library, favorites, recent, shelf, smartShelf]
+          description: サイドバースコープ（省略時は library 全体）
+        - name: scopeId
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: scope=favorites/shelf/smartShelf 時のプレイリスト ID
+        - name: recentDays
+          in: query
+          schema:
+            type: integer
+          description: scope=recent 時の対象日数（既定 7）
+        - name: filter
+          in: query
+          schema:
+            type: string
+          description: URL エンコードされた FilterState JSON（不正値はフォールバック）
+        - name: browse
+          in: query
+          schema:
+            type: string
+          description: |
+            URL エンコードされた BrowseConstraint 配列 JSON。
+            形式: `[{"column":"genre","value":"アクション"}]`
+            列名は許可リスト外は 400。
+        - name: fields
+          in: query
+          schema:
+            type: string
+          description: |
+            カンマ区切りの追加フィールド名（genre / neta / keywordA / keywordB / keywordC / memo）。
+            指定フィールドのみ応答に含まれる。
+      responses:
+        '200':
+          description: 書籍一覧（ページング）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookPageDTO'
+        '400':
+          description: 不正なクエリパラメータ（不正ソートキー・不正 browse 列名など）
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリ不在
+    post:
+      summary: 書籍を追加（サーバローカルパス・in-place・RW 必須）
+      description: |
+        サーバローカルの絶対パスのファイルをライブラリに追加する（in-place。コピーはしない）。
+        **RW トークンが必要。** ロック庫は `X-Library-Token` ヘッダも必要。
+        追加後は `onLibraryStructureChanged` コールバックが発火する。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddBooksRequestDTO'
+      responses:
+        '200':
+          description: 追加結果
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AddBooksReplyDTO'
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/shelves:
+    get:
+      summary: 棚一覧（ユーザー棚・スマート棚）
+      description: |
+        ライブラリの棚（ユーザー棚・スマート棚）一覧を返す。
+        ロック庫は `X-Library-Token` ヘッダが必要。
+      tags: [Libraries]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+          description: ライブラリ UUID
+      responses:
+        '200':
+          description: 棚一覧
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ShelfDTO'
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/facets/{field}:
+    get:
+      summary: ファセット値一覧（列の distinct 値）
+      description: |
+        指定フィールドの distinct 値リストを返す。ブラウズ UI 用。
+        ロック庫は `X-Library-Token` ヘッダが必要。
+        `field` は許可リスト（genre / neta / keyword_a / keyword_b / keyword_c など）に限定。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: field
+          in: path
+          required: true
+          schema:
+            type: string
+          description: フィールド名（許可リスト外は 400）
+        - name: q
+          in: query
+          schema:
+            type: string
+          description: 検索クエリ（ファセット対象を絞り込む）
+        - name: scope
+          in: query
+          schema:
+            type: string
+          description: サイドバースコープ
+        - name: scopeId
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: recentDays
+          in: query
+          schema:
+            type: integer
+        - name: filter
+          in: query
+          schema:
+            type: string
+          description: URL エンコードされた FilterState JSON
+        - name: browse
+          in: query
+          schema:
+            type: string
+          description: URL エンコードされた BrowseConstraint 配列 JSON
+      responses:
+        '200':
+          description: distinct 値の配列
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '400':
+          description: 不正フィールド名（許可リスト外）
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/books/{id}/detail:
+    get:
+      summary: 書籍詳細（フルメタデータ）
+      description: |
+        書籍のフルメタデータを返す。ロック庫は `X-Library-Token` ヘッダが必要。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 書籍詳細
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetailDTO'
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}:
+    patch:
+      summary: 書籍メタデータ更新（RW 必須）
+      description: |
+        書籍のメタデータを部分更新する。null フィールドは変更しない。
+        `clear*` フラグが true のフィールドは NULL 化する。
+        **RW トークンが必要。**
+        更新後は `onBookChanged` コールバックが発火し Mac UI がリアルタイム反映される。
+      tags: [Books]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookPatchDTO'
+      responses:
+        '200':
+          description: 更新後の書籍詳細
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetailDTO'
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリまたは書籍不在
+    delete:
+      summary: 書籍削除（エントリ＋サムネ・RW 必須）
+      description: |
+        書籍エントリとサムネイルを削除する。
+        `?trash=true` を付けると実ファイルをゴミ箱に送る（サーバが trashFile をサポートしている場合のみ）。
+        **RW トークンが必要。**
+        削除後は `onLibraryStructureChanged` コールバックが発火する。
+      tags: [Books]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: trash
+          in: query
+          schema:
+            type: boolean
+          description: true で実ファイルをゴミ箱へ（サーバサポート外は 501）
+      responses:
+        '204':
+          description: 削除成功
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリまたは書籍不在
+        '501':
+          description: ゴミ箱機能が未サポート（Linux/ヘッドレス環境）
+
+  /libraries/{lib}/stamp-definitions:
+    get:
+      summary: スタンプ定義取得（R 可）
+      description: |
+        ライブラリのスタンプ定義マップを返す。
+        ロック庫は `X-Library-Token` ヘッダが必要。
+      tags: [Stamps]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: スタンプ定義マップ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StampDefinitionsDTO'
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリ不在
+    put:
+      summary: スタンプ定義置換（RW 必須）
+      description: |
+        スタンプ定義マップ全体を置換する。
+        許可カラム（genre / neta / keyword_a / keyword_b / keyword_c）のみ保存。
+        **RW トークンが必要。**
+        変更後は `onLibrarySettingsChanged` コールバックが発火する。
+      tags: [Stamps]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StampDefinitionsDTO'
+      responses:
+        '200':
+          description: 保存後のスタンプ定義マップ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StampDefinitionsDTO'
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/books/stamp:
+    post:
+      summary: 一括スタンプ適用（RW 必須）
+      description: |
+        指定書籍 ID リストに対して、指定フィールドへ値を append またはクリアする。
+        **RW トークンが必要。**
+        変更後は各書籍の `onBookChanged` コールバックが発火する。
+      tags: [Stamps]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StampApplyRequest'
+      responses:
+        '200':
+          description: 更新件数
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StampApplyReply'
+        '400':
+          description: 不正なフィールド名
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/books/{id}/cover-candidates:
+    get:
+      summary: 表紙候補一覧（アーカイブのページ名）
+      description: |
+        書籍アーカイブ内の画像エントリ名一覧と現在の coverImageName を返す。
+        表紙選択 UI 用。
+      tags: [Cover]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 表紙候補一覧
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CoverCandidatesDTO'
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/entry-image:
+    get:
+      summary: 指定エントリ画像取得（クロップ編集プレビュー用）
+      description: |
+        アーカイブ内の指定エントリ名の画像バイナリを返す。
+        表紙選択・クロップ編集のプレビュー用。
+        `?maxw=<px>` で縮小返却（サーバが transcode をサポートしている場合）。
+      tags: [Cover]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: name
+          in: query
+          required: true
+          schema:
+            type: string
+          description: エントリ名
+        - name: maxw
+          in: query
+          schema:
+            type: integer
+          description: 最大幅（px）。指定時は縮小して返す。
+      responses:
+        '200':
+          description: 画像バイナリ
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: 変更なし（If-None-Match 一致）
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリ・書籍・エントリ不在
+
+  /libraries/{lib}/books/{id}/cover:
+    get:
+      summary: 表紙画像取得（ETag キャッシュ対応）
+      description: |
+        書籍のサムネイル画像を返す。ETag による If-None-Match で 304 を返す。
+        `?maxw=<px>` で縮小返却。ETag に幅を織り込むため幅ごとに独立したキャッシュになる。
+      tags: [Cover]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: maxw
+          in: query
+          schema:
+            type: integer
+          description: 最大幅（px）
+      responses:
+        '200':
+          description: 表紙画像バイナリ
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: 変更なし（If-None-Match 一致）
+        '401':
+          description: 未認証
+        '404':
+          description: 表紙なし
+    put:
+      summary: 表紙更新（coverImageName / cropRect・RW 必須）
+      description: |
+        表紙画像エントリ名またはクロップ矩形を更新する。
+        `setCoverImageName=true` のとき coverImageName を更新してサムネイルを再生成する。
+        `setCoverCropRect=true` のとき coverCropRect を更新する。
+        **RW トークンが必要。**
+        変更後は `onBookChanged` コールバックが発火する。
+      tags: [Cover]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CoverUpdateRequest'
+      responses:
+        '200':
+          description: 更新後の書籍詳細
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BookDetailDTO'
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/label-settings:
+    get:
+      summary: ラベルカスタマイズ取得（R 可）
+      description: |
+        ライブラリのフィールドラベル・bookType ラベルのカスタマイズ設定を返す。
+        未設定キーは空マップ。ロック庫は `X-Library-Token` ヘッダが必要。
+      tags: [Labels]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ラベルカスタマイズ設定
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSettingsDTO'
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリ不在
+    put:
+      summary: ラベルカスタマイズ保存（RW 必須）
+      description: |
+        フィールドラベル・bookType ラベルのカスタマイズ設定を保存する。
+        空文字値は除外される。**RW トークンが必要。**
+        変更後は `onLibrarySettingsChanged` コールバックが発火する。
+      tags: [Labels]
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabelSettingsDTO'
+      responses:
+        '200':
+          description: 保存後のラベルカスタマイズ設定（空文字値除外済み）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSettingsDTO'
+        '401':
+          description: 未認証
+        '403':
+          description: RW 権限なし
+        '404':
+          description: ライブラリ不在
+
+  /libraries/{lib}/books/{id}/adjacent:
+    get:
+      summary: 隣接巻取得（同一シリーズの次/前巻）
+      description: |
+        同一シリーズの隣接巻を返す。サーバが全カタログを持つので未ダウンロード巻も真の隣接が得られる。
+        該当なしの場合は `book: null`（常に 200）。
+        `?dir=next` で次巻、`?dir=prev` で前巻。省略・不正値は 400。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: dir
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [next, prev]
+          description: 方向（next=次巻 / prev=前巻）
+      responses:
+        '200':
+          description: 隣接巻（該当なしは book=null）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdjacentVolumeReply'
+        '400':
+          description: dir パラメータが不正
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/manifest:
+    get:
+      summary: 書籍マニフェスト（ページ数・方向・ETag）
+      description: |
+        書籍のページ数・実効ページ方向・フォーマット・ETag を返す。
+        direction は本ごと override があればその値、なければサーバの既定方向（null は返さない）。
+      tags: [Viewer]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 書籍マニフェスト
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManifestDTO'
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/pages/{n}:
+    get:
+      summary: ページ画像取得（ETag キャッシュ対応）
+      description: |
+        書籍の指定ページ（0 始まり）の画像バイナリを返す。
+        ハンドルキャッシュ経由でアーカイブの再オープンを抑制。
+        ETag による If-None-Match で 304 を返す。`?maxw=<px>` で縮小返却。
+        範囲外は 404、描画失敗は 500。
+      tags: [Viewer]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: 'n'
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ページインデックス（0 始まり）
+        - name: maxw
+          in: query
+          schema:
+            type: integer
+          description: 最大幅（px）
+      responses:
+        '200':
+          description: ページ画像バイナリ
+          content:
+            image/*:
+              schema:
+                type: string
+                format: binary
+        '304':
+          description: 変更なし（If-None-Match 一致）
+        '401':
+          description: 未認証
+        '404':
+          description: ページ範囲外またはライブラリ・書籍不在
+        '500':
+          description: 描画失敗
+
+  /libraries/{lib}/books/{id}/progress:
+    post:
+      summary: 閲覧進行状況の書き込み（lastPage・mark-as-read）
+      description: |
+        閲覧進行状況（last_page）を書き込み、mark-as-read（unseen=false / play_date=now）を実行する。
+        **認証ロールは R でも可（共有閲覧状態の更新）。**
+        変更後は `onBookChanged` コールバックが発火し Mac UI がリアルタイム反映される。
+      tags: [Viewer]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [page]
+              properties:
+                page:
+                  type: integer
+                  minimum: 0
+                  description: 最終閲覧ページ（0 始まり）
+      responses:
+        '200':
+          description: 書き込み成功
+        '400':
+          description: page が負数
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/direction:
+    post:
+      summary: ページ方向の書き戻し（本ごと DB 反映）
+      description: |
+        Web リーダーでの方向変更を本ごとの DB に反映する。
+        `direction: null` または空文字で本ごと設定をクリア（ライブラリ既定に戻る）。
+        **認証ロールは R でも可。**
+        変更後は `onBookChanged` コールバックが発火する。
+      tags: [Viewer]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                direction:
+                  type: string
+                  nullable: true
+                  enum: [rtl, ltr, null]
+                  description: '"rtl" | "ltr" | null（null/空でクリア）'
+      responses:
+        '200':
+          description: 書き込み成功
+        '400':
+          description: 不正な direction 値
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/rating:
+    post:
+      summary: 評価（rating）更新（R でも可）
+      description: |
+        書籍の評価（0–5）を更新する。
+        **認証ロールは R でも可（共有評価）。**
+        変更後は `onBookChanged` コールバックが発火する。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rating]
+              properties:
+                rating:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+      responses:
+        '200':
+          description: 更新成功
+        '400':
+          description: rating が 0–5 の範囲外
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/unseen:
+    post:
+      summary: 未読(unseen)フラグ更新（R でも可）
+      description: |
+        書籍の未読フラグを更新する。
+        **認証ロールは R でも可（共有閲覧状態）。**
+        変更後は `onBookChanged` コールバックが発火する。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unseen]
+              properties:
+                unseen:
+                  type: boolean
+      responses:
+        '200':
+          description: 更新成功
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
+  /libraries/{lib}/books/{id}/file:
+    get:
+      summary: 原本ファイルダウンロード（octet-stream）
+      description: |
+        書籍の原本ファイルをバイナリで返す（オフラインダウンロード用）。
+        ETag 付き。ファイルが存在しない場合は 404。
+      tags: [Books]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: 原本ファイルバイナリ
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: 未認証
+        '404':
+          description: ファイル不在
+
+tags:
+  - name: Server
+    description: サーバ情報（認証不要）
+  - name: Auth
+    description: 認証・ロール確認
+  - name: Libraries
+    description: ライブラリ一覧・棚・解錠
+  - name: Books
+    description: 書籍一覧・詳細・追加・削除・メタデータ編集
+  - name: Cover
+    description: 表紙画像・表紙編集
+  - name: Stamps
+    description: スタンプ定義・一括スタンプ適用
+  - name: Labels
+    description: ラベルカスタマイズ
+  - name: Viewer
+    description: ビューワ（マニフェスト・ページ画像・進行状況・方向）

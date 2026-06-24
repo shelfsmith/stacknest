@@ -615,6 +615,22 @@ public struct LibraryServerCore: Sendable {
                 cacheControl: .init([(MediaType(type: .any), [.noCache])]),
                 searchForIndexHtml: true))
         }
+        // OpenAPI 仕様 + Redoc アセット配信（認証不要・ライブラリデータを含まない公開仕様）。
+        // /openapi.yaml, /docs.html, /redoc.standalone.js を直接ルート登録し認証バイパスを明示。
+        if let openapiDir = Bundle.module.url(forResource: "openapi", withExtension: nil) {
+            @Sendable func serveFile(_ fileURL: URL, contentType: String) -> @Sendable (Request, LibraryRequestContext) async throws -> Response {
+                { _, _ in
+                    guard let data = try? Data(contentsOf: fileURL) else { throw HTTPError(.notFound) }
+                    var headers = HTTPFields()
+                    headers[.contentType] = contentType
+                    headers[values: .cacheControl] = ["no-cache"]
+                    return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
+                }
+            }
+            router.get("openapi.yaml", use: serveFile(openapiDir.appendingPathComponent("openapi.yaml"), contentType: "application/yaml"))
+            router.get("docs.html", use: serveFile(openapiDir.appendingPathComponent("docs.html"), contentType: "text/html; charset=utf-8"))
+            router.get("redoc.standalone.js", use: serveFile(openapiDir.appendingPathComponent("redoc.standalone.js"), contentType: "application/javascript"))
+        }
         return Application(
             router: router,
             configuration: .init(address: .hostname(config.host, port: config.port))

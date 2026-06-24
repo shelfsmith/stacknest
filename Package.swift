@@ -74,7 +74,7 @@ let package = Package(
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
             path: "Sources/LibraryServer",
-            resources: [.copy("Resources/web")]
+            resources: [.copy("Resources/web"), .copy("Resources/openapi")]
         ),
         .executableTarget(
             name: "StackroomImportCLI",
