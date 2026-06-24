@@ -8,7 +8,7 @@ import LibraryServerAPI
 @main
 struct Stacknest: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "stacknest",
+        commandName: "stacknest-cli",
         abstract: "StackNest ライブラリ操作 CLI",
         subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self]
     )

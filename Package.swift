@@ -16,7 +16,7 @@ let package = Package(
         .library(name: "RemoteClient", targets: ["RemoteClient"]),
         .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
-        .executable(name: "stacknest", targets: ["StackNestCLI"]),
+        .executable(name: "stacknest-cli", targets: ["StackNestCLI"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
