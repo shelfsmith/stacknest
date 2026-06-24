@@ -245,12 +245,14 @@ struct SettingsView: View {
             }
             .tag(4)
         }
-        // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。
+        // 横は 720pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない最小 600pt に加え、
+        // macOS 26 の新タブバーで 5 タブ（一般/表示/取り込み/キー/ローカルアクセス）が折り畳まれず
+        // 1 列に収まる幅を確保。600pt 固定だとタブが ">>"(Navigation Tab Bar) に collapse する・4.2f）。
         // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
         // tab: settingsTab を渡すことで、タブ切替時に updateNSView が再発火する。
         // contentRevision: ローカルアクセスタブで localControlRefresh が変化すると値が変わり、
         //   セクション増減に合わせて updateNSView が再発火 → 高さが追従する。
-        .frame(width: 600)
+        .frame(width: 720)
         .background(SettingsWindowFixedSize(
             tabBarPadding: 32,
             tab: settingsTab,
@@ -390,7 +392,7 @@ struct SettingsView: View {
 /// **grow / shrink 両方向** で snap する (最初のタブ高さに固定すると、より高いタブで clip し
 /// scrollbar が出る / より低いタブで余白が出る)。
 struct SettingsWindowFixedSize: NSViewRepresentable {
-    private let fixedWidth: CGFloat = 600
+    private let fixedWidth: CGFloat = 720
     private let minHeight: CGFloat = 240
     /// documentView.frame.height に加える余裕。
     /// 24pt では smoke v13 でわずかに scrollbar が残ったため 48pt に増量。
