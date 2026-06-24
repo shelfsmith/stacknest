@@ -109,3 +109,20 @@ def test_set_empty_stdout_ok(monkeypatch):
         stderr = ""
     monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
     cli.set_meta("M", 12, title="新題")   # 例外が出なければ成功
+
+
+def test_cli_path_prefers_env(monkeypatch):
+    monkeypatch.setenv("STACKNEST_CLI", "/env/stacknest-cli")
+    assert cli.cli_path() == "/env/stacknest-cli"
+
+
+def test_cli_path_reads_defaults(monkeypatch):
+    monkeypatch.delenv("STACKNEST_CLI", raising=False)
+    monkeypatch.setattr(cli, "_read_default_cli_path", lambda: "/bundled/stacknest-cli")
+    assert cli.cli_path() == "/bundled/stacknest-cli"
+
+
+def test_cli_path_falls_back_to_name(monkeypatch):
+    monkeypatch.delenv("STACKNEST_CLI", raising=False)
+    monkeypatch.setattr(cli, "_read_default_cli_path", lambda: None)
+    assert cli.cli_path() == "stacknest-cli"

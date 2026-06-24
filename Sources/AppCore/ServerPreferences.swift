@@ -131,6 +131,20 @@ public enum ServerPreferences {
         defaults.set(on, forKey: localAutomationEnabledKey)
     }
 
+    // MARK: - 同梱 CLI パス（MCP の自動解決用）
+
+    private static let cliPathKey = "cli_path"
+
+    /// 同梱 stacknest-cli の絶対パス（アプリ起動時に記録・MCP が自動解決に使う）。未記録は nil。
+    public static func cliPath(defaults: UserDefaults = .standard) -> String? {
+        let v = defaults.string(forKey: cliPathKey)
+        return (v?.isEmpty == false) ? v : nil
+    }
+    public static func setCLIPath(_ path: String?, defaults: UserDefaults = .standard) {
+        if let path, !path.isEmpty { defaults.set(path, forKey: cliPathKey) }
+        else { defaults.removeObject(forKey: cliPathKey) }
+    }
+
     // MARK: - 共通トークン生成
 
     /// 256bit 乱数を base64url で生成する（R/RW トークン共通）。

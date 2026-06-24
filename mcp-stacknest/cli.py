@@ -20,8 +20,24 @@ class StacknestError(Exception):
         super().__init__(f"stacknest CLI error (exit {exit_code}): {stderr.strip()}")
 
 
+def _read_default_cli_path() -> str | None:
+    """アプリが記録した同梱 CLI パスを macOS defaults から読む（未記録/失敗は None）。"""
+    try:
+        proc = subprocess.run(
+            ["defaults", "read", "app.shelfsmith.stacknest", "cli_path"],
+            capture_output=True, text=True, timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    out = proc.stdout.strip()
+    return out if (proc.returncode == 0 and out) else None
+
+
 def cli_path() -> str:
-    return os.environ.get("STACKNEST_CLI", "stacknest")
+    # env 明示 > アプリ記録(defaults cli_path) > PATH の stacknest-cli
+    env = os.environ.get("STACKNEST_CLI")
+    if env:
+        return env
+    return _read_default_cli_path() or "stacknest-cli"
 
 
 def _opt(flag: str, value: Any) -> list[str]:

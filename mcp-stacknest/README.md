@@ -18,12 +18,31 @@ python3 -m venv .venv
 "stacknest": {
   "type": "stdio",
   "command": "<repo>/mcp-stacknest/.venv/bin/python",
-  "args": ["<repo>/mcp-stacknest/server.py"],
-  "env": { "STACKNEST_CLI": "<repo>/dist/stacknest" }
+  "args": ["<repo>/mcp-stacknest/server.py"]
 }
 ```
 
-`<repo>` は `.../homelab/stacknest`。`STACKNEST_CLI` 未指定時は PATH の `stacknest` を使う。
+`<repo>` は `.../homelab/stacknest`。
+
+`STACKNEST_CLI` は**任意**（通常は不要）。
+MCP は起動時に次の順で `stacknest-cli` を自動解決する:
+
+1. 環境変数 `STACKNEST_CLI` が設定されていればその値を使う
+2. StackNest.app が起動時に `app.shelfsmith.stacknest` → `cli_path` へ記録した同梱 CLI の絶対パスを使う（`StackNest.app/Contents/Helpers/stacknest-cli`）
+3. PATH 上の `stacknest-cli` にフォールバック
+
+通常は StackNest.app を一度起動するだけで同梱 CLI が自動解決されるため、`STACKNEST_CLI` の設定は不要。
+カスタムパスを使いたい場合のみ `env.STACKNEST_CLI` を指定する:
+
+```json
+"stacknest": {
+  "type": "stdio",
+  "command": "<repo>/mcp-stacknest/.venv/bin/python",
+  "args": ["<repo>/mcp-stacknest/server.py"],
+  "env": { "STACKNEST_CLI": "/path/to/stacknest-cli" }
+}
+```
+
 登録後は Claude Code を再起動して MCP を読み込む。
 
 ## ツール

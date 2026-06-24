@@ -967,6 +967,9 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         NSWindow.allowsAutomaticWindowTabbing = false
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを起動する（isRunning ガードで冪等）。
         LocalControlController.shared.startIfEnabled()
+        // 4.2f: 同梱 CLI（Contents/Helpers/stacknest-cli）の絶対パスを記録（MCP の自動解決用）。
+        let cliURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/stacknest-cli")
+        ServerPreferences.setCLIPath(FileManager.default.fileExists(atPath: cliURL.path) ? cliURL.path : nil)
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
