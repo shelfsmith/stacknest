@@ -26,7 +26,9 @@ def _read_default_cli_path() -> str | None:
         proc = subprocess.run(
             ["defaults", "read", "app.shelfsmith.stacknest", "cli_path"],
             capture_output=True, text=True, timeout=5)
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired):
+        # OSError は FileNotFoundError/PermissionError 等を包含。defaults 不在/実行不可でも
+        # 静かに PATH フォールバックさせ、全 MCP ツールがクラッシュしないようにする。
         return None
     out = proc.stdout.strip()
     return out if (proc.returncode == 0 and out) else None

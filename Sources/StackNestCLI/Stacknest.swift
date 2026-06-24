@@ -41,7 +41,7 @@ extension ParsableCommand {
         } catch let e as APIError {
             switch e {
             case .http(let s) where s == 401 || s == 403:
-                fputs("エラー: 認証に失敗しました（HTTP \(s)）。トークンを確認してください（設定 ▸ 共有 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n", stderr)
+                fputs("エラー: 認証に失敗しました（HTTP \(s)）。トークンを確認してください（設定 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n", stderr)
             case .notFound:
                 fputs("エラー: 対象が見つかりません（HTTP 404）。\n", stderr)
             case .http(let s):

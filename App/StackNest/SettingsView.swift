@@ -28,12 +28,6 @@ struct SettingsView: View {
     /// DEFAULT-OPEN = 一般 tab (tag=0)。
     @State private var settingsTab = 0
 
-    /// 共有タブの動的コンテンツ高さ追従用（自由記載 smoke NG）。
-    /// サーバ ON で接続/QR セクションが増減しても SettingsWindowFixedSize が再計測しないと
-    /// window 高さが追従しないため、@Observable な ServerController を観察し、isRunning を
-    /// SettingsWindowFixedSize の trigger に絡めて updateNSView を再発火させる。
-    @State private var server = ServerController.shared
-
     /// LocalControlController を @State で保持して observation に載せる（ローカルアクセスタブ用）。
     @State private var localControl = LocalControlController.shared
 
@@ -240,7 +234,7 @@ struct SettingsView: View {
                                 localControlRefresh = UUID()
                             }
                         }
-                        Text("同じ Mac の CLI `stacknest` は自動接続します。ネットワークには公開されません。")
+                        Text("同じ Mac の CLI `stacknest-cli` は自動接続します。ネットワークには公開されません。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

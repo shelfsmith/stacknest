@@ -968,8 +968,12 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを起動する（isRunning ガードで冪等）。
         LocalControlController.shared.startIfEnabled()
         // 4.2f: 同梱 CLI（Contents/Helpers/stacknest-cli）の絶対パスを記録（MCP の自動解決用）。
+        // 同梱が存在するときだけ記録する。非バンドル起動（dev の swift run 等）では既存値を
+        // 消さない（Release 版が記録したパスを dev 起動で破壊しないため）。
         let cliURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/stacknest-cli")
-        ServerPreferences.setCLIPath(FileManager.default.fileExists(atPath: cliURL.path) ? cliURL.path : nil)
+        if FileManager.default.fileExists(atPath: cliURL.path) {
+            ServerPreferences.setCLIPath(cliURL.path)
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
