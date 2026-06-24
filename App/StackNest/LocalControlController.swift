@@ -52,7 +52,8 @@ final class LocalControlController {
                         try? state.refreshDisplayedBooks()
                     }
                 }
-            }
+            },
+            apiOnly: true   // ローカルエンドポイントはアプリ Web UI を載せず API ドキュメント(Redoc)のみ
         )
         let core = LibraryServerCore(config: config, dataSource: AllOpenLibrariesDataSource())
         let app = core.buildApplication()
