@@ -102,6 +102,8 @@ struct StackNestApp: App {
             SettingsView(settings: .shared)
         }
         .windowResizability(.contentMinSize)  // AppKit min/max を尊重しつつ縦方向のみ user resize 可能にする
+        // 4.2f: サーバ設定ウィンドウ（"sharing-settings"）と同じ初期位置（横中央・縦上寄り 0.2）で開く。
+        .defaultPosition(UnitPoint(x: 0.5, y: 0.2))
         .defaultLaunchBehavior(.suppressed)   // 起動時は開かず、⌘, からのみ開く
         .commandsRemoved()                    // Window menu に出さない
         .restorationBehavior(.disabled)       // 過去 session の window size を復元しない (= 毎回 content size で開く)

@@ -40,8 +40,10 @@ struct SettingsView: View {
 
     var body: some View {
         TabView(selection: $settingsTab) {
-            // MARK: - Tab 1: 一般
+            // MARK: - Tab 1: 一般（ローカルコントロールを統合）
             Form {
+                // localControlRefresh を body で読むことで、Toggle/再生成後の UUID 更新で再評価される。
+                let _ = localControlRefresh
                 Section("起動時") {
                     let startupMode = StartupMode(rawValue: startupRaw) ?? .default
                     Picker(selection: Binding(
@@ -82,6 +84,48 @@ struct SettingsView: View {
                         openWindow(id: "wizard")
                     }
                 }
+
+                Section("ローカルコントロール（CLI / MCP）") {
+                    Toggle("ローカルコントロールを許可（127.0.0.1）", isOn: Binding(
+                        get: { ServerPreferences.localAutomationEnabled() },
+                        set: { on in
+                            ServerPreferences.setLocalAutomationEnabled(on)
+                            localControl.reload()
+                            localControlRefresh = UUID()
+                        }))
+                    if ServerPreferences.localAutomationEnabled() {
+                        HStack {
+                            Circle()
+                                .fill(localControl.isRunning ? .green : .secondary)
+                                .frame(width: 8, height: 8)
+                            Text(localControl.isRunning ? "稼働中（127.0.0.1）" : "停止中")
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text("ポート")
+                            Spacer()
+                            Text(String(ServerPreferences.localControlPort())).monospacedDigit().foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Text("トークン")
+                            Spacer()
+                            Text(ServerPreferences.localControlToken())
+                                .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                                .foregroundStyle(.secondary)
+                            Button("コピー") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(ServerPreferences.localControlToken(), forType: .string)
+                            }
+                            Button("再生成") {
+                                _ = ServerPreferences.regenerateLocalControlToken()
+                                localControl.reload()
+                                localControlRefresh = UUID()
+                            }
+                        }
+                        Text("同じ Mac の CLI `stacknest-cli` は自動接続します。ネットワークには公開されません。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
             }
             .formStyle(.grouped)
             .tabItem {
@@ -89,53 +133,7 @@ struct SettingsView: View {
             }
             .tag(0)
 
-            // MARK: - Tab 2: 表示
-            Form {
-                Section("画像ビューワ") {
-                    // D5: section header "画像ビューワ", label "ビューワ", caption row
-                    Picker("ビューワ", selection: $settings.useBuiltInViewer) {
-                        Text("内蔵ビューワ").tag(true)
-                        Text("外部ビューワ").tag(false)
-                    }
-                    .pickerStyle(.radioGroup)
-
-                    Text("内蔵ビューワはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    BuiltInViewerSettingsForm(settings: settings)
-                }
-
-                Section("外部ビューワ") {
-                    viewerSettingsRow(
-                        label: "デフォルト",
-                        caption: "各種類別ビューワが未設定の book はこの設定で開かれます。",
-                        path: settings.externalViewerAppPath,
-                        onChoose: { chooseDefaultViewer() },
-                        onReset: settings.externalViewerAppPath != nil
-                            ? { settings.externalViewerAppPath = nil }
-                            : nil
-                    )
-                    ForEach(BookCategory.allCases, id: \.self) { category in
-                        viewerSettingsRow(
-                            label: category.displayName,
-                            caption: category.extensionsHint,
-                            path: settings.categoryViewerPaths[category],
-                            onChoose: { chooseCategoryViewer(category) },
-                            onReset: settings.categoryViewerPaths[category] != nil
-                                ? { settings.categoryViewerPaths.removeValue(forKey: category) }
-                                : nil
-                        )
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .tabItem {
-                Label("表示", systemImage: "eye")
-            }
-            .tag(1)
-
-            // MARK: - Tab 3: 取り込み
+            // MARK: - Tab 2: 取り込み
             Form {
                 Section("書籍追加時の挙動") {
                     Toggle("本の種類を自動分類する", isOn: $settings.autoClassifyEnabled)
@@ -186,77 +184,75 @@ struct SettingsView: View {
             }
             .tag(2)
 
-            // MARK: - Tab 4: キー（キー設定は内蔵ビューワ専用。外部選択時はグレーアウト）
-            KeyBindingsSettingsView(enabled: settings.useBuiltInViewer)
-                .tabItem {
-                    Label("キー", systemImage: "keyboard")
-                }
-                .tag(3)
-
-            // MARK: - Tab 5: ローカルアクセス（CLI / MCP）
+            // MARK: - Tab 3: 表示
             Form {
-                // localControlRefresh を body で読むことで、Toggle/再生成後の UUID 更新で再評価される。
-                let _ = localControlRefresh
-                Section("ローカルアクセス（CLI / MCP）") {
-                    Toggle("ローカルアクセスを許可（127.0.0.1）", isOn: Binding(
-                        get: { ServerPreferences.localAutomationEnabled() },
-                        set: { on in
-                            ServerPreferences.setLocalAutomationEnabled(on)
-                            localControl.reload()
-                            localControlRefresh = UUID()
-                        }))
-                    if ServerPreferences.localAutomationEnabled() {
-                        HStack {
-                            Circle()
-                                .fill(localControl.isRunning ? .green : .secondary)
-                                .frame(width: 8, height: 8)
-                            Text(localControl.isRunning ? "稼働中（127.0.0.1）" : "停止中")
-                                .foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Text("ポート")
-                            Spacer()
-                            Text(String(ServerPreferences.localControlPort())).monospacedDigit().foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Text("トークン")
-                            Spacer()
-                            Text(ServerPreferences.localControlToken())
-                                .font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
-                                .foregroundStyle(.secondary)
-                            Button("コピー") {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(ServerPreferences.localControlToken(), forType: .string)
-                            }
-                            Button("再生成") {
-                                _ = ServerPreferences.regenerateLocalControlToken()
-                                localControl.reload()
-                                localControlRefresh = UUID()
-                            }
-                        }
-                        Text("同じ Mac の CLI `stacknest-cli` は自動接続します。ネットワークには公開されません。")
-                            .font(.caption).foregroundStyle(.secondary)
+                Section("画像ビューワ") {
+                    // D5: section header "画像ビューワ", label "ビューワ", caption row
+                    Picker("ビューワ", selection: $settings.useBuiltInViewer) {
+                        Text("内蔵ビューワ").tag(true)
+                        Text("外部ビューワ").tag(false)
+                    }
+                    .pickerStyle(.radioGroup)
+
+                    Text("内蔵ビューワはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("リモート共有・オフライン閲覧は、外部ビューワ設定に関わらず常に内蔵ビューワで表示されます（このためキー設定は常時有効）。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    BuiltInViewerSettingsForm(settings: settings)
+                }
+
+                Section("外部ビューワ") {
+                    viewerSettingsRow(
+                        label: "デフォルト",
+                        caption: "各種類別ビューワが未設定の book はこの設定で開かれます。",
+                        path: settings.externalViewerAppPath,
+                        onChoose: { chooseDefaultViewer() },
+                        onReset: settings.externalViewerAppPath != nil
+                            ? { settings.externalViewerAppPath = nil }
+                            : nil
+                    )
+                    ForEach(BookCategory.allCases, id: \.self) { category in
+                        viewerSettingsRow(
+                            label: category.displayName,
+                            caption: category.extensionsHint,
+                            path: settings.categoryViewerPaths[category],
+                            onChoose: { chooseCategoryViewer(category) },
+                            onReset: settings.categoryViewerPaths[category] != nil
+                                ? { settings.categoryViewerPaths.removeValue(forKey: category) }
+                                : nil
+                        )
                     }
                 }
             }
             .formStyle(.grouped)
             .tabItem {
-                Label("ローカルアクセス", systemImage: "terminal")
+                Label("表示", systemImage: "eye")
             }
-            .tag(4)
+            .tag(1)
+
+            // MARK: - Tab 4: ビューアキー（内蔵ビューワのキー設定。リモート/オフラインでも内蔵
+            // ビューワが必ず使われるため、外部ビューワ選択時もグレーアウトせず常時有効。）
+            KeyBindingsSettingsView(enabled: true)
+                .tabItem {
+                    Label("ビューアキー", systemImage: "keyboard")
+                }
+                .tag(3)
         }
-        // 横は 720pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない最小 600pt に加え、
-        // macOS 26 の新タブバーで 5 タブ（一般/表示/取り込み/キー/ローカルアクセス）が折り畳まれず
-        // 1 列に収まる幅を確保。600pt 固定だとタブが ">>"(Navigation Tab Bar) に collapse する・4.2f）。
+        // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。4 タブなので
+        // この幅でタブバーは折り畳まれない（5 タブ時は ">>"(Navigation Tab Bar) に collapse した・4.2f）。
         // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
         // tab: settingsTab を渡すことで、タブ切替時に updateNSView が再発火する。
-        // contentRevision: ローカルアクセスタブで localControlRefresh が変化すると値が変わり、
-        //   セクション増減に合わせて updateNSView が再発火 → 高さが追従する。
-        .frame(width: 720)
+        // contentRevision: 一般タブ（ローカルコントロール統合）でトグル ON/OFF によりセクションが
+        //   増減するため、その有効状態を版数に絡めて updateNSView を再発火 → 高さが追従する。
+        .frame(width: 600)
         .background(SettingsWindowFixedSize(
             tabBarPadding: 32,
             tab: settingsTab,
-            contentRevision: settingsTab == 4 ? (localControl.isRunning ? 1 : 0) : 0
+            contentRevision: settingsTab == 0 ? (ServerPreferences.localAutomationEnabled() ? 1 : 0) : 0
         ))
     }
 
@@ -392,7 +388,7 @@ struct SettingsView: View {
 /// **grow / shrink 両方向** で snap する (最初のタブ高さに固定すると、より高いタブで clip し
 /// scrollbar が出る / より低いタブで余白が出る)。
 struct SettingsWindowFixedSize: NSViewRepresentable {
-    private let fixedWidth: CGFloat = 720
+    private let fixedWidth: CGFloat = 600
     private let minHeight: CGFloat = 240
     /// documentView.frame.height に加える余裕。
     /// 24pt では smoke v13 でわずかに scrollbar が残ったため 48pt に増量。
