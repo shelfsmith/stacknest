@@ -124,4 +124,25 @@ struct APIClient {
         let data = try encoder.encode(body)
         _ = try request(makeURL("/libraries/\(uuid)/books/\(id)"), method: "PATCH", body: data)
     }
+
+    /// GET /api/v1/libraries/:uuid/books/:id/detail → JSON Data（BookDetailDTO）
+    func detail(uuid: String, id: Int) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/books/\(id)/detail"))
+    }
+
+    /// GET /api/v1/libraries/:uuid/facets/:field → JSON Data（[String]）
+    func facets(uuid: String, field: String) throws -> Data {
+        let enc = field.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? field
+        return try request(makeURL("/libraries/\(uuid)/facets/\(enc)"))
+    }
+
+    /// GET /api/v1/libraries/:uuid/shelves → JSON Data（[ShelfDTO]）
+    func shelves(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/shelves"))
+    }
+
+    /// GET /api/v1/me → JSON Data（MeReply）
+    func me() throws -> Data {
+        try request(makeURL("/me"))
+    }
 }

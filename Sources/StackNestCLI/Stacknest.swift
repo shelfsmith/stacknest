@@ -10,7 +10,8 @@ struct Stacknest: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "stacknest-cli",
         abstract: "StackNest ライブラリ操作 CLI",
-        subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self]
+        subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self,
+                      Detail.self, Facets.self, Shelves.self, Me.self]
     )
 }
 
@@ -281,6 +282,12 @@ struct Set: ParsableCommand {
     var neta: String?
     @Option(name: .long, help: "レーティング (0-5)")
     var rating: Int?
+    @Option(name: .long, help: "未読フラグ (true/false)")
+    var unseen: Bool?
+    @Option(name: [.customLong("book-type")], help: "本の種類 (整数)")
+    var bookType: Int?
+    @Option(name: .long, help: "読み方向 (ltr/rtl/clear)")
+    var direction: String?
 
     func run() throws {
         try mappingAPIErrors {
@@ -289,7 +296,7 @@ struct Set: ParsableCommand {
             let lib = try resolveLibrary(client: client, libArg: common.library)
             // volume: CLI は Int? で受け取り、BookPatchDTO は Double? なので変換
             let volumeDouble: Double? = volume.map { Double($0) }
-            let patch = BookPatchDTO(
+            var patch = BookPatchDTO(
                 title: title,
                 author: author,
                 genre: genre,
@@ -301,10 +308,140 @@ struct Set: ParsableCommand {
                 series: series,
                 volume: volumeDouble
             )
+            if let unseen { patch.unseen = unseen }
+            if let bookType { patch.bookType = bookType }
+            if let direction {
+                if direction == "clear" { patch.clearPageDirection = true } else { patch.pageDirection = direction }
+            }
             try client.patch(uuid: lib.id, id: id, body: patch)
             if !common.json {
                 print("更新しました (id=\(id))")
             }
+        }
+    }
+}
+
+// MARK: - detail
+
+struct Detail: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "detail",
+        abstract: "書籍の詳細情報を表示する"
+    )
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "書籍 ID")
+    var id: Int
+
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let data = try client.detail(uuid: lib.id, id: id)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let book = try decoder.decode(BookDetailDTO.self, from: data)
+            print("id:       \(book.id)")
+            print("title:    \(book.title)")
+            if let v = book.author   { print("author:   \(v)") }
+            if let v = book.series   { print("series:   \(v)") }
+            if let v = book.volume   { print("volume:   \(v)") }
+            if let v = book.genre    { print("genre:    \(v)") }
+            if let v = book.neta     { print("neta:     \(v)") }
+            if let v = book.memo     { print("memo:     \(v)") }
+            if let v = book.keywordA { print("keywordA: \(v)") }
+            if let v = book.keywordB { print("keywordB: \(v)") }
+            print("rating:   \(book.rating)")
+            print("unseen:   \(book.unseen)")
+            print("bookType: \(book.bookType)")
+            if let v = book.pages    { print("pages:    \(v)") }
+            if let v = book.lastPage { print("lastPage: \(v)") }
+            if let v = book.pageDirection { print("direction:\(v)") }
+        }
+    }
+}
+
+// MARK: - facets
+
+struct Facets: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "facets",
+        abstract: "指定フィールドの distinct 値一覧を表示する"
+    )
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "フィールド名（例: author, genre, series）")
+    var field: String
+
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let data = try client.facets(uuid: lib.id, field: field)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let decoder = JSONDecoder()
+            if let values = try? decoder.decode([String].self, from: data) {
+                for v in values { print(v) }
+                print("--- \(values.count) 件 ---")
+            } else {
+                // デコード失敗時は生データを表示
+                print(String(data: data, encoding: .utf8) ?? "")
+            }
+        }
+    }
+}
+
+// MARK: - shelves
+
+struct Shelves: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shelves",
+        abstract: "ライブラリの棚一覧を表示する"
+    )
+    @OptionGroup var common: CommonOptions
+
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let data = try client.shelves(uuid: lib.id)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let decoder = JSONDecoder()
+            let shelfList = try decoder.decode([ShelfDTO].self, from: data)
+            for shelf in shelfList {
+                let kind = shelf.isSmart ? "smart" : "user"
+                print("\(shelf.id)\t\(shelf.title)\t[\(kind)]")
+            }
+        }
+    }
+}
+
+// MARK: - me
+
+struct Me: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "me",
+        abstract: "現在のトークンの権限情報を表示する"
+    )
+    @OptionGroup var common: CommonOptions
+
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let data = try client.me()
+            print(String(data: data, encoding: .utf8) ?? "")
         }
     }
 }
