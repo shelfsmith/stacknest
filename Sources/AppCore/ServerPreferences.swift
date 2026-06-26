@@ -148,7 +148,7 @@ public enum ServerPreferences {
     // MARK: - 共通トークン生成
 
     /// 256bit 乱数を base64url で生成する（R/RW トークン共通）。
-    static func generateToken() -> String {
+    public static func generateToken() -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         if status != errSecSuccess {

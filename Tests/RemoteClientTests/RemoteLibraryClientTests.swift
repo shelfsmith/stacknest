@@ -160,7 +160,7 @@ struct StubBackedRemoteClientTests {
         }
 
         @Test func meReturnsRole() async throws {
-            let reply = MeReply(tier: .edit)   // edit tier → role=.write（互換）
+            let reply = MeReply(tier: .edit, scope: .all)   // edit tier → role=.write（互換）
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(reply))
             let role = try await makeClient().me(libraryToken: "LT")
             #expect(role == .write)

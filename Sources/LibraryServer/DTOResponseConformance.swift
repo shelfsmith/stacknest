@@ -23,3 +23,4 @@ extension WatchConfigDTO: ResponseEncodable {}
 extension ImportConfigDTO: ResponseEncodable {}
 extension GlobalImportConfigDTO: ResponseEncodable {}
 extension DuplicateScanReply: ResponseEncodable {}
+extension GrantDTO: ResponseEncodable {}

@@ -176,14 +176,39 @@ public enum GrantScope: Codable, Sendable, Equatable {
     public func allows(_ uuid: String) -> Bool {
         switch self { case .all: return true; case .libraries(let s): return s.contains(uuid) }
     }
+
+    // カスタム Codable: .all → {} (空オブジェクト), .libraries(uuids) → {"libraries":[...]}
+    // （Swift 合成 Codable のフォーマットはワイヤー互換性が低いため独自実装）
+    private enum GrantScopeCodingKeys: String, CodingKey { case libraries }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: GrantScopeCodingKeys.self)
+        if let uuids = try container.decodeIfPresent([String].self, forKey: .libraries) {
+            self = .libraries(uuids)
+        } else {
+            self = .all
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: GrantScopeCodingKeys.self)
+        switch self {
+        case .all:
+            break   // 空オブジェクト {} として encode
+        case .libraries(let uuids):
+            try container.encode(uuids, forKey: .libraries)
+        }
+    }
 }
 
-/// GET /me の応答。提示トークンの tier と role（互換）を返す。
+/// GET /me の応答。提示トークンの tier と role（互換）、スコープを返す。
 public struct MeReply: Codable, Sendable {
     public let role: TokenRole   // 互換: admin/edit→.write, read→.read
     public let tier: AccessTier
-    public init(tier: AccessTier) {
+    public let scope: GrantScope
+    public init(tier: AccessTier, scope: GrantScope) {
         self.tier = tier
+        self.scope = scope
         self.role = (tier == .read) ? .read : .write
     }
 }
@@ -548,4 +573,32 @@ public struct DuplicateScanReply: Codable, Sendable {
         self.exact = exact; self.possible = possible
         self.candidateCount = candidateCount; self.hashedCount = hashedCount; self.missingCount = missingCount
     }
+}
+
+// MARK: - B2b: グラント CRUD DTO
+
+/// グラント 1 件の応答 DTO（token は作成時のみ全文字列を返す・一覧は将来マスクする）。
+public struct GrantDTO: Codable, Sendable {
+    public let id: String
+    public let label: String
+    public let token: String
+    public let tier: AccessTier
+    public let scope: GrantScope
+    public init(id: String, label: String, token: String, tier: AccessTier, scope: GrantScope) {
+        self.id = id; self.label = label; self.token = token; self.tier = tier; self.scope = scope
+    }
+}
+
+/// POST /api/v1/grants リクエスト。
+public struct GrantCreateRequest: Codable, Sendable {
+    public var label: String
+    public var tier: AccessTier
+    public var scope: GrantScope
+}
+
+/// PATCH /api/v1/grants/:id リクエスト。nil = 変更しない。
+public struct GrantUpdateRequest: Codable, Sendable {
+    public var label: String?
+    public var tier: AccessTier?
+    public var scope: GrantScope?
 }

@@ -156,9 +156,46 @@ public struct LibraryServerCore: Sendable {
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
-        // 提示トークンの tier（read/edit/admin）と role（互換）を返す（4.2b-3・B1）。
+        // 提示トークンの tier（read/edit/admin）と role（互換）、スコープを返す（4.2b-3・B1・B2b）。
         api.get("me") { _, context in
-            MeReply(tier: context.tier)
+            MeReply(tier: context.tier, scope: context.scope)
+        }
+        // B2b: グラント CRUD（admin 専用）。
+        // 注: CRUD は GrantStore(UserDefaults.standard) を更新。稼働中サーバへの即時反映は
+        // config スナップショットのため次回起動（Phase C で GUI ライブ反映予定）。
+        api.get("grants") { _, context in
+            try context.requireAdmin()
+            return GrantStore.list().map {
+                GrantDTO(id: $0.id, label: $0.label, token: $0.token, tier: $0.tier, scope: $0.scope)
+            }
+        }
+        api.post("grants") { request, context in
+            try context.requireAdmin()
+            let req = try await request.decode(as: GrantCreateRequest.self, context: context)
+            let g = Grant(id: UUID().uuidString, label: req.label,
+                          token: ServerPreferences.generateToken(),
+                          tier: req.tier, scope: req.scope, createdAt: Date())
+            GrantStore.add(g)
+            return GrantDTO(id: g.id, label: g.label, token: g.token, tier: g.tier, scope: g.scope)
+        }
+        api.patch("grants/:id") { request, context in
+            try context.requireAdmin()
+            let id = try context.parameters.require("id")
+            guard var g = GrantStore.list().first(where: { $0.id == id }) else {
+                throw HTTPError(.notFound)
+            }
+            let req = try await request.decode(as: GrantUpdateRequest.self, context: context)
+            if let l = req.label { g.label = l }
+            if let t = req.tier  { g.tier  = t }
+            if let s = req.scope { g.scope = s }
+            GrantStore.update(g)
+            return GrantDTO(id: g.id, label: g.label, token: g.token, tier: g.tier, scope: g.scope)
+        }
+        api.delete("grants/:id") { _, context in
+            try context.requireAdmin()
+            let id = try context.parameters.require("id")
+            GrantStore.delete(id: id)
+            return HTTPResponse.Status.noContent
         }
         api.get("libraries") { _, context in
             let libs = await dataSource.servedLibraries().filter { context.scope.allows($0.uuid) }
