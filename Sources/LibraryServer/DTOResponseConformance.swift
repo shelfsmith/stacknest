@@ -20,3 +20,5 @@ extension LabelSettingsDTO: ResponseEncodable {}
 extension AddBooksReplyDTO: ResponseEncodable {}
 extension SmartShelfConditions: ResponseEncodable {}
 extension WatchConfigDTO: ResponseEncodable {}
+extension ImportConfigDTO: ResponseEncodable {}
+extension GlobalImportConfigDTO: ResponseEncodable {}
