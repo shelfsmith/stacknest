@@ -236,15 +236,19 @@ public struct LibraryServerCore: Sendable {
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: ShelfUpdateRequest.self, context: context)
+            // 先に全ガードを検証（partial-write 防止）。
+            if body.conditions != nil, !row.isSmart { throw HTTPError(.conflict) }
+            if body.title != nil, row.kind == "favorites" { throw HTTPError(.conflict) }
+            var changed = false
             if let conditions = body.conditions {
-                guard row.isSmart else { throw HTTPError(.conflict) }
                 try lib.db.updateSmartShelfConditions(id: shelfID, conditions: conditions)
+                changed = true
             }
             if let title = body.title {
-                if row.kind == "favorites" { throw HTTPError(.conflict) }
                 try lib.db.renameShelf(id: shelfID, title: title)
+                changed = true
             }
-            config.onLibrarySettingsChanged?(lib.uuid)
+            if changed { config.onLibrarySettingsChanged?(lib.uuid) }
             let updated = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID })
             return updated.map { ShelfDTO(id: $0.id, title: $0.title, kind: $0.kind, isSmart: $0.isSmart) }
                 ?? ShelfDTO(id: shelfID, title: body.title ?? row.title, kind: row.kind, isSmart: row.isSmart)

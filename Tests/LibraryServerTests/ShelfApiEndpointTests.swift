@@ -306,6 +306,55 @@ struct ShelfApiEndpointTests {
         }
     }
 
+    // MARK: - ⑦-new 追加テスト（Minor-4 / Nit-5 対応）
+
+    /// PATCH お気に入り棚の改名 → 409（favorites は改名禁止）。
+    @Test func patchFavoritesRenameReturns409() async throws {
+        let fixture = try TestLibraryFixture(name: "ShelfFavPatch", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let favID = try fixture.db.ensureFavoritesShelf()
+        let app = makeApp(fixture: fixture)
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/shelves/\(favID)", method: .patch,
+                                     headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                                     body: ByteBuffer(string: #"{"title":"改名禁止"}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+        }
+    }
+
+    /// 無トークンで POST /shelves → 401。
+    @Test func noTokenReturns401() async throws {
+        let fixture = try TestLibraryFixture(name: "ShelfNoToken", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/shelves", method: .post,
+                                     headers: [.contentType: "application/json"],
+                                     body: ByteBuffer(string: #"{"title":"X","isSmart":false}"#)) { res in
+                #expect(res.status == .unauthorized)
+            }
+        }
+    }
+
+    /// 手動棚に PUT conditions → 409（手動棚は conditions を持てない）。
+    @Test func putConditionsOnManualReturns409() async throws {
+        let fixture = try TestLibraryFixture(name: "ShelfManualCond", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let manualID = try fixture.db.createUserShelf(title: "手動")
+        let app = makeApp(fixture: fixture)
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/shelves/\(manualID)/conditions", method: .put,
+                                     headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                                     body: ByteBuffer(string: #"{"version":1,"match":"all","rules":[]}"#)) { res in
+                #expect(res.status == .conflict)
+            }
+        }
+    }
+
     // MARK: - ⑦ membership（所属追加/除去）
 
     /// 追加 204 → GET /books?scope=shelf&scopeId=N で total=2 →
