@@ -608,11 +608,22 @@ struct Lock: ParsableCommand {
 struct LockSet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "set", abstract: "パスワードロックを設定する")
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "パスワード") var password: String
+    @Option(name: .long, help: "パスワード（argv に残るため自動化では --password-stdin 推奨）") var password: String?
+    @Flag(name: [.customLong("password-stdin")], help: "パスワードを標準入力から読む（argv 非露出）") var passwordStdin: Bool = false
     func run() throws { try mappingAPIErrors {
+        let pw: String
+        if passwordStdin {
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            pw = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if let password {
+            pw = password
+        } else {
+            throw ValidationError("--password または --password-stdin を指定してください")
+        }
+        guard !pw.isEmpty else { throw ValidationError("パスワードが空です") }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.lockSet(uuid: lib.id, password: password); print("ロックを設定しました")
+        try client.lockSet(uuid: lib.id, password: pw); print("ロックを設定しました")
     } }
 }
 struct LockClear: ParsableCommand {
