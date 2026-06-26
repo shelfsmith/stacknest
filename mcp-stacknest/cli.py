@@ -49,7 +49,8 @@ def _opt(flag: str, value: Any) -> list[str]:
 def build_argv(subcommand: str, *, library: str | None = None, query: str | None = None,
                limit: int | None = None, preset: str | None = None, trash: bool = False,
                paths: list[str] | None = None, ids: list[int] | None = None,
-               book_id: int | None = None, fields: dict[str, Any] | None = None,
+               book_id: int | None = None, field: str | None = None,
+               fields: dict[str, Any] | None = None,
                json_output: bool = True) -> list[str]:
     argv: list[str] = [subcommand]
     argv += _opt("--library", library)
@@ -61,6 +62,13 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
             val = fields.get(key)
             if val is not None:
                 argv += [f"--{key.replace('_', '-')}", str(val)]
+        # set 拡張フィールド: unseen(bool)/book_type(int)/direction(str)
+        if "unseen" in fields and fields["unseen"] is not None:
+            argv += ["--unseen", "true" if fields["unseen"] else "false"]
+        if "book_type" in fields and fields["book_type"] is not None:
+            argv += ["--book-type", str(fields["book_type"])]
+        if "direction" in fields and fields["direction"] is not None:
+            argv += ["--direction", str(fields["direction"])]
     if trash:
         argv.append("--trash")
     if json_output:
@@ -70,6 +78,8 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
     positionals: list[str] = []
     if book_id is not None:
         positionals.append(str(book_id))
+    if field is not None:
+        positionals.append(field)
     if paths:
         positionals += [str(p) for p in paths]
     if ids:
@@ -129,3 +139,19 @@ def set_meta(library: str, book_id: int, **fields: Any) -> None:
 
 def remove(library: str, ids: list[int], trash: bool = False) -> None:
     run(build_argv("rm", library=library, ids=ids, trash=trash))
+
+
+def detail(library: str, book_id: int) -> Any:
+    return json.loads(run(build_argv("detail", library=library, book_id=book_id)))
+
+
+def facets(library: str, field: str) -> Any:
+    return json.loads(run(build_argv("facets", library=library, field=field)))
+
+
+def shelves(library: str) -> Any:
+    return json.loads(run(build_argv("shelves", library=library)))
+
+
+def me() -> Any:
+    return json.loads(run(build_argv("me")))

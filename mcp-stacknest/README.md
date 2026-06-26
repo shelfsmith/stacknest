@@ -49,11 +49,15 @@ MCP は起動時に次の順で `stacknest-cli` を自動解決する:
 
 - `stacknest_libraries()` — ライブラリ一覧（id/name/bookCount/locked）。
 - `stacknest_list(library, query?, limit?)` — 書籍一覧（items に id＋メタ、total に総数。limit 最大 500）。
+- `stacknest_detail(library, id)` — 書籍 1 件の全メタデータ。
+- `stacknest_facets(library, field)` — 指定フィールド（author/genre 等）の distinct 値一覧。
+- `stacknest_shelves(library)` — 棚（スマート棚・手動棚）一覧。
+- `stacknest_me()` — 接続トークンの権限情報（role/tier/scope）。
 - `stacknest_add(library, paths[], preset?)` — サーバローカルのパスを追加（in-place）。
-- `stacknest_set(library, id, title?/author?/series?/volume?/genre?/keyword_a?/keyword_b?/memo?/neta?/rating?)` — メタ編集。
+- `stacknest_set(library, id, title?/author?/series?/volume?/genre?/keyword_a?/keyword_b?/memo?/neta?/rating?/unseen?/book_type?/direction?)` — メタ編集。`unseen` は bool、`book_type` は整数、`direction` は `ltr`/`rtl`。
 - `stacknest_remove(library, ids[], trash?)` — 削除（破壊的・`trash=True` で実ファイルを macOS ゴミ箱へ）。
 
-`library` はライブラリ名または UUID（`stacknest_libraries` で確認）。`id` は `stacknest_list` で取得。
+`library` はライブラリ名または UUID（`stacknest_libraries` で確認）。`id` は `stacknest_list`/`stacknest_detail` で取得。
 
 ## 接続先
 

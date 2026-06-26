@@ -39,11 +39,15 @@ def stacknest_add(library: str, paths: list[str], preset: str | None = None) -> 
 def stacknest_set(library: str, id: int, title: str | None = None, author: str | None = None,
                   series: str | None = None, volume: int | None = None, genre: str | None = None,
                   keyword_a: str | None = None, keyword_b: str | None = None,
-                  memo: str | None = None, neta: str | None = None, rating: int | None = None) -> str:
-    """書籍のメタデータを更新する（指定したフィールドのみ）。id は stacknest_list で取得する。"""
+                  memo: str | None = None, neta: str | None = None, rating: int | None = None,
+                  unseen: bool | None = None, book_type: int | None = None,
+                  direction: str | None = None) -> str:
+    """書籍のメタデータを更新する（指定したフィールドのみ）。id は stacknest_list で取得する。
+    unseen: 未読フラグ（true/false）。book_type: 本の種別（整数）。direction: 読み方向（ltr/rtl）。"""
     cli.set_meta(library, id, title=title, author=author, series=series, volume=volume,
                  genre=genre, keyword_a=keyword_a, keyword_b=keyword_b,
-                 memo=memo, neta=neta, rating=rating)
+                 memo=memo, neta=neta, rating=rating,
+                 unseen=unseen, book_type=book_type, direction=direction)
     return f"updated book {id}"
 
 
@@ -53,6 +57,30 @@ def stacknest_remove(library: str, ids: list[int], trash: bool = False) -> str:
     trash=True で実ファイルを macOS ゴミ箱へ移動（復元可）。id は stacknest_list で取得する。"""
     cli.remove(library, ids, trash=trash)
     return f"removed {len(ids)} book(s)"
+
+
+@mcp.tool()
+def stacknest_detail(library: str, id: int) -> Any:
+    """書籍 1 件の全メタデータを返す。id は stacknest_list で取得する。"""
+    return cli.detail(library, id)
+
+
+@mcp.tool()
+def stacknest_facets(library: str, field: str) -> Any:
+    """指定フィールド（author/genre 等）の distinct 値一覧を返す。"""
+    return cli.facets(library, field)
+
+
+@mcp.tool()
+def stacknest_shelves(library: str) -> Any:
+    """ライブラリの棚（スマート棚・手動棚）一覧を返す。"""
+    return cli.shelves(library)
+
+
+@mcp.tool()
+def stacknest_me() -> Any:
+    """接続トークンの権限情報（role/tier/scope）を返す。"""
+    return cli.me()
 
 
 if __name__ == "__main__":

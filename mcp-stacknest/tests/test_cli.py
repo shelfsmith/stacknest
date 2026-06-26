@@ -126,3 +126,36 @@ def test_cli_path_falls_back_to_name(monkeypatch):
     monkeypatch.delenv("STACKNEST_CLI", raising=False)
     monkeypatch.setattr(cli, "_read_default_cli_path", lambda: None)
     assert cli.cli_path() == "stacknest-cli"
+
+
+# --- 新コマンド ---
+
+def test_build_argv_detail():
+    argv = cli.build_argv("detail", library="M", book_id=12)
+    assert argv[:3] == ["detail", "--library", "M"]
+    assert argv[-1] == "12"
+    assert "--json" in argv
+
+
+def test_build_argv_facets():
+    argv = cli.build_argv("facets", library="M", field="author")
+    assert argv[:3] == ["facets", "--library", "M"]
+    assert argv[-1] == "author"
+
+
+def test_build_argv_shelves():
+    argv = cli.build_argv("shelves", library="M")
+    assert argv[:3] == ["shelves", "--library", "M"]
+
+
+def test_build_argv_me():
+    argv = cli.build_argv("me")
+    assert argv[0] == "me"
+
+
+def test_build_argv_set_extended_fields():
+    argv = cli.build_argv("set", library="M", book_id=3,
+                          fields={"unseen": False, "book_type": 1, "direction": "rtl"})
+    assert "--unseen" in argv and "false" in argv
+    assert "--book-type" in argv and "1" in argv
+    assert "--direction" in argv and "rtl" in argv
