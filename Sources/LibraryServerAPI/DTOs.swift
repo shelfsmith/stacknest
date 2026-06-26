@@ -449,3 +449,80 @@ public struct ShelfBooksRequest: Codable, Sendable {
     public var bookIDs: [Int]
     public init(bookIDs: [Int]) { self.bookIDs = bookIDs }
 }
+
+// MARK: - A2: ライブラリ管理 DTO ミラー
+
+/// 監視フォルダ 1 件の DTO（per-library）。
+public struct WatchedFolderDTO: Codable, Sendable {
+    public var id: String
+    public var path: String
+    public var enabled: Bool
+    public var presetID: String?
+    public var baseline: [String]
+    public init(id: String, path: String, enabled: Bool, presetID: String? = nil, baseline: [String] = []) {
+        self.id = id; self.path = path; self.enabled = enabled; self.presetID = presetID; self.baseline = baseline
+    }
+}
+
+/// 監視フォルダ設定全体の DTO（enabled フラグ＋フォルダ一覧）。
+public struct WatchConfigDTO: Codable, Sendable {
+    public var enabled: Bool
+    public var folders: [WatchedFolderDTO]
+    public init(enabled: Bool, folders: [WatchedFolderDTO]) {
+        self.enabled = enabled; self.folders = folders
+    }
+}
+
+/// ライブラリロック設定リクエスト（パスワード設定）。
+public struct LockRequest: Codable, Sendable {
+    public var password: String
+    public init(password: String) { self.password = password }
+}
+
+/// ライブラリ取り込み設定 DTO（per-library override 用。nil = グローバル既定に委譲）。
+public struct ImportConfigDTO: Codable, Sendable {
+    public var autoClassifyEnabled: Bool?
+    public var thickBookThreshold: Int?
+    public init(autoClassifyEnabled: Bool? = nil, thickBookThreshold: Int? = nil) {
+        self.autoClassifyEnabled = autoClassifyEnabled; self.thickBookThreshold = thickBookThreshold
+    }
+}
+
+/// グローバル取り込み設定 DTO（nil なし・サーバ canonical）。
+public struct GlobalImportConfigDTO: Codable, Sendable {
+    public var autoClassifyEnabled: Bool
+    public var thickBookThreshold: Int
+    public init(autoClassifyEnabled: Bool, thickBookThreshold: Int) {
+        self.autoClassifyEnabled = autoClassifyEnabled; self.thickBookThreshold = thickBookThreshold
+    }
+}
+
+/// ライブラリパス再リンクリクエスト。
+public struct RelinkRequest: Codable, Sendable {
+    public var newPath: String
+    public init(newPath: String) { self.newPath = newPath }
+}
+
+/// 重複グループ 1 件 DTO（kind: "exact"/"possible"）。
+public struct DuplicateGroupDTO: Codable, Sendable {
+    public var kind: String
+    public var key: String
+    public var members: [BookListItemDTO]
+    public init(kind: String, key: String, members: [BookListItemDTO]) {
+        self.kind = kind; self.key = key; self.members = members
+    }
+}
+
+/// 重複スキャン結果 DTO（exact/possible グループ一覧 + 統計）。
+public struct DuplicateScanReply: Codable, Sendable {
+    public var exact: [DuplicateGroupDTO]
+    public var possible: [DuplicateGroupDTO]
+    public var candidateCount: Int
+    public var hashedCount: Int
+    public var missingCount: Int
+    public init(exact: [DuplicateGroupDTO], possible: [DuplicateGroupDTO],
+                candidateCount: Int, hashedCount: Int, missingCount: Int) {
+        self.exact = exact; self.possible = possible
+        self.candidateCount = candidateCount; self.hashedCount = hashedCount; self.missingCount = missingCount
+    }
+}
