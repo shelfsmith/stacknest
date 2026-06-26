@@ -503,7 +503,7 @@ public struct RelinkRequest: Codable, Sendable {
     public init(newPath: String) { self.newPath = newPath }
 }
 
-/// 重複グループ 1 件 DTO（kind: "exact"/"possible"）。
+/// 重複グループ 1 件 DTO（kind: "exact"/"possibleSeriesVolume"）。
 public struct DuplicateGroupDTO: Codable, Sendable {
     public var kind: String
     public var key: String

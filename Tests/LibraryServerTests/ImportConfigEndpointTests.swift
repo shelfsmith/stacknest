@@ -194,5 +194,10 @@ struct ImportConfigEndpointTests {
                 #expect(reply.addedIDs.count == 1)
             }
         }
+        // override=false（自動分類 OFF）が実際に解決へ反映されたことを検証:
+        // BookImporter は autoClassify OFF 時、ファイルを未分類(bookType=0)で登録する。
+        let books = try fixture.db.fetchAllBooks()
+        #expect(books.count == 1)
+        #expect(books.first?.bookType == 0)
     }
 }
