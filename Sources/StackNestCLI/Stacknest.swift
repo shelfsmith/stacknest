@@ -311,6 +311,9 @@ struct Set: ParsableCommand {
             if let unseen { patch.unseen = unseen }
             if let bookType { patch.bookType = bookType }
             if let direction {
+                guard ["ltr", "rtl", "clear"].contains(direction) else {
+                    throw ValidationError("--direction は ltr / rtl / clear のいずれかを指定してください")
+                }
                 if direction == "clear" { patch.clearPageDirection = true } else { patch.pageDirection = direction }
             }
             try client.patch(uuid: lib.id, id: id, body: patch)
@@ -441,7 +444,14 @@ struct Me: ParsableCommand {
             let ep = try resolveEndpoint(common: common)
             let client = APIClient(endpoint: ep)
             let data = try client.me()
-            print(String(data: data, encoding: .utf8) ?? "")
+            if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
+            let me = try JSONDecoder().decode(MeReply.self, from: data)
+            let scopeStr: String
+            switch me.scope {
+            case .all: scopeStr = "all（全ライブラリ）"
+            case .libraries(let ids): scopeStr = "\(ids.count) ライブラリ: \(ids.joined(separator: ", "))"
+            }
+            print("role: \(me.role.rawValue)\ntier: \(me.tier.rawValue)\nscope: \(scopeStr)")
         }
     }
 }

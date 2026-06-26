@@ -159,3 +159,39 @@ def test_build_argv_set_extended_fields():
     assert "--unseen" in argv and "false" in argv
     assert "--book-type" in argv and "1" in argv
     assert "--direction" in argv and "rtl" in argv
+
+
+def test_detail_parses_json(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"id": 5, "title": "T", "bookType": 1})
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    assert cli.detail("M", 5)["title"] == "T"
+
+
+def test_facets_parses_json(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps(["佐藤", "鈴木"])
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    assert cli.facets("M", "author") == ["佐藤", "鈴木"]
+
+
+def test_shelves_parses_json(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps([{"id": 1, "title": "棚", "kind": "user", "isSmart": False}])
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    assert cli.shelves("M")[0]["title"] == "棚"
+
+
+def test_me_parses_json(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"role": "write", "tier": "admin", "scope": "all"})
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    assert cli.me()["tier"] == "admin"
