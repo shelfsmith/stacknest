@@ -66,13 +66,17 @@ components:
 
     MeReply:
       type: object
-      description: トークンのロール情報
-      required: [role]
+      description: トークンのロール/能力情報
+      required: [role, tier]
       properties:
         role:
           type: string
           enum: [read, write]
-          description: 提示トークンのロール（read=R / write=RW）
+          description: 提示トークンのロール（read=R / write=RW・後方互換。admin/edit→write）
+        tier:
+          type: string
+          enum: [read, edit, admin]
+          description: 能力 tier（B1）。read < edit < admin。admin はローカルコントロール（loopback）でのみ付与
 
     LibraryDTO:
       type: object

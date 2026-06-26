@@ -106,8 +106,8 @@ extension LibraryRequestContext: RoleHoldingContext {}
 extension RoleHoldingContext {
     /// .edit 以上の tier でなければ 403 を投げる。
     public func requireEdit() throws { guard tier >= .edit else { throw HTTPError(.forbidden) } }
-    /// .admin tier でなければ 403 を投げる。
-    public func requireAdmin() throws { guard tier == .admin else { throw HTTPError(.forbidden) } }
+    /// .admin tier（最高位）でなければ 403 を投げる。`>=` は将来 tier 追加時の安全側既定。
+    public func requireAdmin() throws { guard tier >= .admin else { throw HTTPError(.forbidden) } }
 }
 
 /// ファセット / ブラウズで受け付ける列名の許可リスト（SQL injection 防御・4.2b-1b-2b）。
@@ -498,9 +498,10 @@ public struct LibraryServerCore: Sendable {
         // 4.2d-2: 本をライブラリから削除（エントリ＋サムネ）。?trash=true は admin 専用・edit は DB 削除のみ。
         // ?trash=true で実ファイルをゴミ箱へ（config.trashFile 注入時のみ・失敗は 500＝DB 不変・完全削除はしない）。
         api.delete("libraries/:lib/books/:id") { [config] request, context in
-            let (lib, row) = try await resolver.resolveBook(request, context)
+            // tier ゲートは解決より前（PATCH と一貫・read ユーザーへ存在情報を漏らさない）。
             let wantTrash = request.uri.queryParameters.get("trash").map { $0 == "true" || $0 == "1" } ?? false
             if wantTrash { try context.requireAdmin() } else { try context.requireEdit() }
+            let (lib, row) = try await resolver.resolveBook(request, context)
             if wantTrash {
                 guard let trashFile = config.trashFile else { throw HTTPError(.notImplemented) }
                 if let p = row.path {
