@@ -43,8 +43,9 @@ final class ServerController {
                                      editToken: ServerPreferences.editToken(), now: Date())
         // B2b: ヘッドレス起動の最初の admin を env から投入（GUI はローカルコントロール=admin で足りる）。
         if let adminToken = ProcessInfo.processInfo.environment["STACKNEST_ADMIN_TOKEN"], !adminToken.isEmpty {
-            let existing = GrantStore.list().first { $0.label == "(env) admin" }
-            let g = Grant(id: existing?.id ?? UUID().uuidString, label: "(env) admin", token: adminToken,
+            // 固定 ID（label 変更で重複生成しない）。
+            let existing = GrantStore.list().first { $0.id == "env-admin" }
+            let g = Grant(id: "env-admin", label: existing?.label ?? "(env) admin", token: adminToken,
                           tier: .admin, scope: .all, createdAt: existing?.createdAt ?? Date())
             if existing != nil { GrantStore.update(g) } else { GrantStore.add(g) }
         }
