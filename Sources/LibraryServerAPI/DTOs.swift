@@ -169,6 +169,15 @@ public enum AccessTier: String, Codable, Sendable, Comparable {
     public static func < (l: AccessTier, r: AccessTier) -> Bool { l.rank < r.rank }
 }
 
+/// グラントが有効なライブラリスコープ（all = 全ライブラリ、libraries = UUID リスト）。
+public enum GrantScope: Codable, Sendable, Equatable {
+    case all
+    case libraries([String])
+    public func allows(_ uuid: String) -> Bool {
+        switch self { case .all: return true; case .libraries(let s): return s.contains(uuid) }
+    }
+}
+
 /// GET /me の応答。提示トークンの tier と role（互換）を返す。
 public struct MeReply: Codable, Sendable {
     public let role: TokenRole   // 互換: admin/edit→.write, read→.read
