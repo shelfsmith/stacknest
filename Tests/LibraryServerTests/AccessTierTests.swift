@@ -36,4 +36,42 @@ struct AccessTierTests {
         #expect(AccessTier.read < AccessTier.edit)
         #expect(AccessTier.edit < AccessTier.admin)
     }
+    @Test func networkEditCannotDoAdminOps() async throws {
+        let f = try TestLibraryFixture(name: "TierGate", bookCount: 1); defer { f.cleanup() }
+        let lib = f.servedLibrary()
+        try await makeApp(admin: false, f).test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/lock", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"password":"x"}"#)) { r in #expect(r.status == .forbidden) }
+            try await client.execute(uri: "/api/v1/import-config", method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"autoClassifyEnabled":true,"thickBookThreshold":20}"#)) { r in #expect(r.status == .forbidden) }
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/watch-config", method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"enabled":false,"folders":[]}"#)) { r in #expect(r.status == .ok) }
+        }
+    }
+    @Test func adminEndpointAllowsAdminOps() async throws {
+        let f = try TestLibraryFixture(name: "TierAdmin", bookCount: 1); defer { f.cleanup() }
+        let lib = f.servedLibrary()
+        try await makeApp(admin: true, f).test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/lock", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"password":"x"}"#)) { r in #expect(r.status == .noContent) }
+        }
+    }
+    @Test func deleteTrashRequiresAdmin() async throws {
+        let f = try TestLibraryFixture(name: "TierTrash", bookCount: 1); defer { f.cleanup() }
+        let lib = f.servedLibrary()
+        try await makeApp(admin: false, f).test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/books/1?trash=true", method: .delete,
+                headers: [.authorization: "Bearer W"]) { r in #expect(r.status == .forbidden) }
+        }
+        let f2 = try TestLibraryFixture(name: "TierDBdel", bookCount: 1); defer { f2.cleanup() }
+        let lib2 = f2.servedLibrary()
+        try await makeApp(admin: false, f2).test(.router) { client in
+            try await client.execute(uri: "/api/v1/libraries/\(lib2.uuid)/books/1", method: .delete,
+                headers: [.authorization: "Bearer W"]) { r in #expect(r.status == .noContent) }
+        }
+    }
 }

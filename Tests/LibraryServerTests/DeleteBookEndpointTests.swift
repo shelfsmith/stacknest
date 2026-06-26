@@ -12,9 +12,9 @@ import StackroomFormat
 struct DeleteBookEndpointTests {
     // MARK: - helpers
 
-    private func makeApp(fixture: TestLibraryFixture, trashFile: (@Sendable (URL) throws -> Void)? = nil) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, trashFile: (@Sendable (URL) throws -> Void)? = nil, adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W", trashFile: trashFile),
+            config: .init(port: 0, token: "R", editToken: "W", trashFile: trashFile, adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -104,7 +104,7 @@ struct DeleteBookEndpointTests {
 
         let lib = fixture.servedLibrary()
         // trashFile を注入しない（nil のまま）
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
 
         try await app.test(.router) { client in
             try await client.execute(
@@ -139,7 +139,7 @@ struct DeleteBookEndpointTests {
         struct TrashError: Error {}
         let app = LibraryServerCore(
             config: .init(port: 0, token: "R", editToken: "W",
-                          trashFile: { _ in throw TrashError() }),
+                          trashFile: { _ in throw TrashError() }, adminTier: true),
             dataSource: StaticLibraryDataSource(libraries: [lib])
         ).buildApplication()
 
@@ -178,7 +178,7 @@ struct DeleteBookEndpointTests {
         nonisolated(unsafe) var trashedPaths: [String] = []
         let app = LibraryServerCore(
             config: .init(port: 0, token: "R", editToken: "W",
-                          trashFile: { url in trashedPaths.append(url.path) }),
+                          trashFile: { url in trashedPaths.append(url.path) }, adminTier: true),
             dataSource: StaticLibraryDataSource(libraries: [lib])
         ).buildApplication()
 

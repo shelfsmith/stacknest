@@ -224,7 +224,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: 棚の作成（RW・手動 or スマート）。
         api.post("libraries/:lib/shelves") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: ShelfCreateRequest.self, context: context)
@@ -243,7 +243,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: 棚の更新（RW・改名＋スマート条件更新）。
         api.patch("libraries/:lib/shelves/:id") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
@@ -268,7 +268,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: 棚の削除（RW・お気に入り棚は 409 で保護）。
         api.delete("libraries/:lib/shelves/:id") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
@@ -290,7 +290,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: スマート棚の条件更新（RW）。
         api.put("libraries/:lib/shelves/:id/conditions") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
@@ -303,7 +303,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: 手動棚への所属追加（RW・スマート棚は 409）。
         api.post("libraries/:lib/shelves/:id/books") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
@@ -316,7 +316,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: 手動棚からの所属除去（RW・スマート棚は 409）。
         api.delete("libraries/:lib/shelves/:id/books") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
@@ -390,7 +390,7 @@ public struct LibraryServerCore: Sendable {
         // 書籍メタデータ更新（RW トークン専用・表紙フィールドは対象外）。
         // role=write でなければ 403、resolve で 404/401 を返す既存ルーティングを再利用。
         api.patch("libraries/:lib/books/:id") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
             let dto = try await request.decode(as: BookPatchDTO.self, context: context)
             var patch = BookPatch()
@@ -436,7 +436,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2c-6a: スタンプ定義の置換（RW）。許可カラムのみ採用しマップ全体を保存。
         api.put("libraries/:lib/stamp-definitions") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
                 throw HTTPError(.notFound)
@@ -452,7 +452,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2c-6a: 一括スタンプ適用（RW・append/clear をサーバ側で MultiValueParser/clearBookField）。
         api.post("libraries/:lib/books/stamp") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
                 throw HTTPError(.notFound)
@@ -468,9 +468,9 @@ public struct LibraryServerCore: Sendable {
             for id in body.bookIDs { config.onBookChanged?(lib.uuid, id) }
             return StampApplyReply(updated: updated)
         }
-        // 4.2d-2: ローカルパスのファイルをライブラリに追加（in-place・RW）。
+        // 4.2d-2: ローカルパスのファイルをライブラリに追加（in-place・admin）。
         api.post("libraries/:lib/books") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
                 throw HTTPError(.notFound)
@@ -495,12 +495,12 @@ public struct LibraryServerCore: Sendable {
                 alreadyPresent: result.alreadyPresent.map { $0.path },
                 failed: result.failed.map { $0.0.path })
         }
-        // 4.2d-2: 本をライブラリから削除（エントリ＋サムネ・RW）。?trash=true で実ファイルを
-        // ゴミ箱へ（config.trashFile 注入時のみ・失敗は 500＝DB 不変・完全削除はしない）。
+        // 4.2d-2: 本をライブラリから削除（エントリ＋サムネ）。?trash=true は admin 専用・edit は DB 削除のみ。
+        // ?trash=true で実ファイルをゴミ箱へ（config.trashFile 注入時のみ・失敗は 500＝DB 不変・完全削除はしない）。
         api.delete("libraries/:lib/books/:id") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
             let (lib, row) = try await resolver.resolveBook(request, context)
             let wantTrash = request.uri.queryParameters.get("trash").map { $0 == "true" || $0 == "1" } ?? false
+            if wantTrash { try context.requireAdmin() } else { try context.requireEdit() }
             if wantTrash {
                 guard let trashFile = config.trashFile else { throw HTTPError(.notImplemented) }
                 if let p = row.path {
@@ -543,7 +543,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2c-6b: 表紙更新（RW）。coverImageName 更新時は thumbnail を再生成する。
         api.put("libraries/:lib/books/:id/cover") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: CoverUpdateRequest.self, context: context)
             if body.setCoverImageName {
@@ -582,7 +582,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2c-8: ラベルカスタマイズ保存（RW 必須）。キー名・JSON 形式はローカル LibrarySettings と同一。
         api.put("libraries/:lib/label-settings") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
                 uuid: uuid, libraryToken: libraryToken(from: request)
@@ -613,7 +613,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: 監視フォルダ設定の更新（RW）。
         api.put("libraries/:lib/watch-config") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: WatchConfigDTO.self, context: context)
@@ -624,9 +624,9 @@ public struct LibraryServerCore: Sendable {
             config.onLibrarySettingsChanged?(lib.uuid)
             return dto
         }
-        // A2: ライブラリロック設定（RW）。パスワードを salt+hash で DB に保存。
+        // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
         api.post("libraries/:lib/lock") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: LockRequest.self, context: context)
@@ -638,9 +638,9 @@ public struct LibraryServerCore: Sendable {
             config.onLibrarySettingsChanged?(lib.uuid)
             return HTTPResponse.Status.noContent
         }
-        // A2: ライブラリロック解除（RW）。hash と salt を削除。
+        // A2: ライブラリロック解除（admin）。hash と salt を削除。
         api.delete("libraries/:lib/lock") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             try lib.db.deleteLibrarySetting(key: "lock_password_hash")
@@ -658,7 +658,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: per-library 取り込み設定の更新（RW）。nil 指定は override 削除（= グローバル既定へ戻す）。
         api.put("libraries/:lib/import-config") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: ImportConfigDTO.self, context: context)
@@ -671,9 +671,9 @@ public struct LibraryServerCore: Sendable {
         api.get("import-config") { _, _ in
             GlobalImportConfigDTO(autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold())
         }
-        // A2: グローバル取り込み既定の更新（庫非依存・RW）。
+        // A2: グローバル取り込み既定の更新（庫非依存・admin）。
         api.put("import-config") { request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireAdmin()
             let dto = try await request.decode(as: GlobalImportConfigDTO.self, context: context)
             ImportDefaults.setGlobalAutoClassify(dto.autoClassifyEnabled)
             ImportDefaults.setGlobalThickThreshold(dto.thickBookThreshold)
@@ -681,7 +681,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: 本のパス再リンク（RW）。relinkBook で path 更新＋ハッシュ NULL 化。
         api.post("libraries/:lib/books/:id/relink") { [config] request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let bookID = try context.parameters.require("id", as: Int.self)
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
@@ -694,7 +694,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: 重複スキャン（RW・content_hash を計算/キャッシュしグループ返却）。
         api.post("libraries/:lib/duplicates/scan") { request, context in
-            guard context.role == .write else { throw HTTPError(.forbidden) }
+            try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
             let books = (try? lib.db.fetchAllBooks()) ?? []

@@ -9,9 +9,9 @@ import LibraryServerAPI
 @Suite("POST/DELETE /lock endpoint")
 struct LockEndpointTests {
 
-    private func makeApp(fixture: TestLibraryFixture) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W"),
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -21,7 +21,7 @@ struct LockEndpointTests {
         let fixture = try TestLibraryFixture(name: "LockSet", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let bodyData = try JSONEncoder().encode(LockRequest(password: "secret123"))
         try await app.test(.router) { client in
             try await client.execute(
@@ -49,7 +49,7 @@ struct LockEndpointTests {
         let fixture = try TestLibraryFixture(name: "LockDel", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let lockBody = try JSONEncoder().encode(LockRequest(password: "secret123"))
         try await app.test(.router) { client in
             // First set a lock via POST.
@@ -100,7 +100,7 @@ struct LockEndpointTests {
         let fixture = try TestLibraryFixture(name: "LockEmpty", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let bodyData = try JSONEncoder().encode(LockRequest(password: ""))
         try await app.test(.router) { client in
             try await client.execute(

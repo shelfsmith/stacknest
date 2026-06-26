@@ -13,9 +13,9 @@ import AppCore
 @Suite("import-config endpoint", .serialized)
 struct ImportConfigEndpointTests {
 
-    private func makeApp(fixture: TestLibraryFixture) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W"),
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -123,7 +123,7 @@ struct ImportConfigEndpointTests {
         }
         let fixture = try TestLibraryFixture(name: "ICGlobal", bookCount: 0)
         defer { fixture.cleanup() }
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let body = try JSONEncoder().encode(GlobalImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: 35))
         try await app.test(.router) { client in
             try await client.execute(
@@ -174,7 +174,7 @@ struct ImportConfigEndpointTests {
         // autoClassify=false を per-library override として設定。
         try fixture.db.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: "false")
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         // 最小 PNG を一時ファイルに書く。
         let b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
         let pngURL = FileManager.default.temporaryDirectory

@@ -10,9 +10,9 @@ import LibraryServerAPI
 struct AddBooksEndpointTests {
     // MARK: - helpers
 
-    private func makeApp(fixture: TestLibraryFixture, editToken: String? = "W") -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, editToken: String? = "W", adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: editToken),
+            config: .init(port: 0, token: "R", editToken: editToken, adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -61,7 +61,7 @@ struct AddBooksEndpointTests {
         let fixture = try TestLibraryFixture(name: "AddOK", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let pngURL = try writeTempPNG()
         defer { try? FileManager.default.removeItem(at: pngURL) }
 
@@ -89,7 +89,7 @@ struct AddBooksEndpointTests {
         let fixture = try TestLibraryFixture(name: "AddDup", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let pngURL = try writeTempPNG()
         defer { try? FileManager.default.removeItem(at: pngURL) }
 

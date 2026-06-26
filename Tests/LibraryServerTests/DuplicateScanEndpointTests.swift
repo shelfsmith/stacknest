@@ -10,9 +10,9 @@ import LibraryServerAPI
 struct DuplicateScanEndpointTests {
     // MARK: - helpers
 
-    private func makeApp(fixture: TestLibraryFixture) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W"),
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -38,7 +38,7 @@ struct DuplicateScanEndpointTests {
         let fixture = try TestLibraryFixture(name: "DupScan", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
 
         // 同一内容 (minimalPNG) の 2 ファイルを異なるパスに生成
         let urlA = try writeTempPNG(suffix: "-a")
