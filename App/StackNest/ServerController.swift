@@ -35,6 +35,17 @@ final class ServerController {
         guard !isRunning else { return }
         lastError = nil
         startError = nil
+        // B2: 既存 token/editToken を既定グラント(read/all, edit/all)へ移行（冪等）。
+        GrantStore.migrateIfNeeded(readToken: ServerPreferences.token(),
+                                   editToken: ServerPreferences.editToken(), now: Date())
+        // B2b: ヘッドレス起動の最初の admin を env から投入（GUI はローカルコントロール=admin で足りる）。
+        if let adminToken = ProcessInfo.processInfo.environment["STACKNEST_ADMIN_TOKEN"], !adminToken.isEmpty {
+            let existing = GrantStore.list().first { $0.label == "(env) admin" }
+            let g = Grant(id: existing?.id ?? UUID().uuidString, label: "(env) admin", token: adminToken,
+                          tier: .admin, scope: .all, createdAt: existing?.createdAt ?? Date())
+            if existing != nil { GrantStore.update(g) } else { GrantStore.add(g) }
+        }
+        let grants = GrantStore.list()
         let config = LibraryServerConfig(
             host: "::",                      // dual-stack（IPv4/IPv6 両対応）
             port: ServerPreferences.port(),
@@ -71,7 +82,8 @@ final class ServerController {
                         try? state.refreshDisplayedBooks()
                     }
                 }
-            }
+            },
+            grants: grants   // B2: ネットワーク共有は grant 解決（tier×scope）。起動時スナップショット
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         let app = core.buildApplication()
