@@ -181,6 +181,14 @@ public final class LibrarySettings {
     public var watchedFolders: [WatchedFolder] {
         didSet { persistWatchedFolders() }
     }
+    /// 取り込み時の自動分類（per-library override）。nil = グローバル既定に委譲。
+    public var importAutoClassify: Bool? {
+        didSet { persistImportAutoClassify() }
+    }
+    /// 取り込み時の厚本閾値（per-library override）。nil = グローバル既定に委譲。
+    public var importThickThreshold: Int? {
+        didSet { persistImportThickThreshold() }
+    }
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettings")
     private static let columnsKey = "listViewColumns"
@@ -423,6 +431,18 @@ public final class LibrarySettings {
             self.watchedFolders = decoded
         } else {
             self.watchedFolders = []
+        }
+        // Load importAutoClassify per-library override. Absent key = nil (use global).
+        if let v = try? database.getLibrarySetting(key: ImportDefaults.libAutoClassifyKey) {
+            self.importAutoClassify = (v == "1" || v == "true")
+        } else {
+            self.importAutoClassify = nil
+        }
+        // Load importThickThreshold per-library override. Absent key = nil (use global).
+        if let v = try? database.getLibrarySetting(key: ImportDefaults.libThickThresholdKey), let n = Int(v) {
+            self.importThickThreshold = n
+        } else {
+            self.importThickThreshold = nil
         }
         // init 内の代入では didSet が発火しないため、移行で新規生成した場合は明示的に永続する。
         if didSeedPresets {
@@ -777,6 +797,30 @@ public final class LibrarySettings {
             try database.setLibrarySetting(key: Self.watchedFoldersKey, value: String(data: data, encoding: .utf8) ?? "[]")
         } catch {
             Self.logger.error("Failed to persist watchedFolders: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistImportAutoClassify() {
+        do {
+            if let v = importAutoClassify {
+                try database.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: v ? "true" : "false")
+            } else {
+                try database.deleteLibrarySetting(key: ImportDefaults.libAutoClassifyKey)
+            }
+        } catch {
+            Self.logger.error("persist importAutoClassify failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func persistImportThickThreshold() {
+        do {
+            if let v = importThickThreshold {
+                try database.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: String(v))
+            } else {
+                try database.deleteLibrarySetting(key: ImportDefaults.libThickThresholdKey)
+            }
+        } catch {
+            Self.logger.error("persist importThickThreshold failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 
