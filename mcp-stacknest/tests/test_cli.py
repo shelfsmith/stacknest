@@ -195,3 +195,39 @@ def test_me_parses_json(monkeypatch):
         stderr = ""
     monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
     assert cli.me()["tier"] == "admin"
+
+
+# --- 棚グループ / watch / lock / relink / dedup ---
+
+def test_build_argv_group_shelf_create():
+    argv = cli.build_argv("shelf", sub="create", library="M",
+                          flags={"title": "棚", "conditions-json": '{"version":1,"match":"all","rules":[]}'}, smart=True)
+    assert argv[:2] == ["shelf", "create"]
+    assert "--library" in argv and "--title" in argv and "--smart" in argv and "--conditions-json" in argv
+
+
+def test_build_argv_group_shelf_add_books():
+    argv = cli.build_argv("shelf", sub="add-books", library="M", book_id=5, ids=[1, 2])
+    assert argv[:2] == ["shelf", "add-books"]
+    sep = argv.index("--")
+    assert argv[sep + 1:] == ["5", "1", "2"]
+
+
+def test_build_argv_group_watch_set():
+    argv = cli.build_argv("watch", sub="set", library="M", flags={"config-json": "{}"})
+    assert argv[:2] == ["watch", "set"]
+    assert "--config-json" in argv
+
+
+def test_build_argv_relink():
+    argv = cli.build_argv("relink", library="M", book_id=7, flags={"new-path": "/x.zip"})
+    assert argv[0] == "relink"
+    assert "--new-path" in argv and "/x.zip" in argv
+    assert argv[-1] == "7"
+
+
+def test_build_argv_lock_set_uses_stdin_flag():
+    argv = cli.build_argv("lock", sub="set", library="M", flags={"password-stdin": True})
+    assert argv[:2] == ["lock", "set"]
+    assert "--password-stdin" in argv
+    assert "--password" not in argv

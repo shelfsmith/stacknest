@@ -51,8 +51,13 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
                paths: list[str] | None = None, ids: list[int] | None = None,
                book_id: int | None = None, field: str | None = None,
                fields: dict[str, Any] | None = None,
-               json_output: bool = True) -> list[str]:
+               json_output: bool = True,
+               sub: str | None = None,
+               flags: dict[str, Any] | None = None,
+               smart: bool = False) -> list[str]:
     argv: list[str] = [subcommand]
+    if sub is not None:
+        argv.append(sub)
     argv += _opt("--library", library)
     argv += _opt("--query", query)
     argv += _opt("--limit", limit)
@@ -69,8 +74,21 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
             argv += ["--book-type", str(fields["book_type"])]
         if "direction" in fields and fields["direction"] is not None:
             argv += ["--direction", str(fields["direction"])]
+    # flags: bool True → 値なしフラグ（--k）、bool False → スキップ、その他 → --k str(v)
+    if flags:
+        for k, v in flags.items():
+            if v is None:
+                continue
+            elif isinstance(v, bool):
+                if v:
+                    argv.append(f"--{k}")
+                # False → skip
+            else:
+                argv += [f"--{k}", str(v)]
     if trash:
         argv.append("--trash")
+    if smart:
+        argv.append("--smart")
     if json_output:
         argv.append("--json")
     # 位置引数は `--`（オプション終端）の後ろに置く。`--trash` のような値の path/id を
@@ -80,29 +98,30 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
         positionals.append(str(book_id))
     if field is not None:
         positionals.append(field)
-    if paths:
-        positionals += [str(p) for p in paths]
     if ids:
         positionals += [str(i) for i in ids]
+    if paths:
+        positionals += [str(p) for p in paths]
     if positionals:
         argv.append("--")
         argv += positionals
     return argv
 
 
-def _exec(argv: list[str], *, timeout: int = 60) -> subprocess.CompletedProcess:
+def _exec(argv: list[str], *, timeout: int = 60, input: str | None = None) -> subprocess.CompletedProcess:
     """subprocess 実行（バイナリ不在/タイムアウトは StacknestError へ）。非0でも raise しない。"""
     cli = cli_path()
     try:
-        return subprocess.run([cli, *argv], capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            [cli, *argv], capture_output=True, text=True, timeout=timeout, input=input)
     except FileNotFoundError:
         raise StacknestError(127, f"stacknest CLI が見つかりません: {cli}（環境変数 STACKNEST_CLI を確認）")
     except subprocess.TimeoutExpired:
         raise StacknestError(124, f"stacknest CLI がタイムアウトしました（{timeout}s）")
 
 
-def run(argv: list[str], *, timeout: int = 60) -> str:
-    proc = _exec(argv, timeout=timeout)
+def run(argv: list[str], *, timeout: int = 60, input: str | None = None) -> str:
+    proc = _exec(argv, timeout=timeout, input=input)
     if proc.returncode != 0:
         raise StacknestError(proc.returncode, proc.stderr or proc.stdout)
     return proc.stdout
@@ -155,3 +174,138 @@ def shelves(library: str) -> Any:
 
 def me() -> Any:
     return json.loads(run(build_argv("me")))
+
+
+# --- 棚（shelf）CRUD ---
+
+def shelf_create(library: str, title: str, *,
+                 smart: bool = False, conditions: dict | None = None) -> Any:
+    """棚を作成する。smart=True でスマート棚、conditions で条件 JSON を渡す。"""
+    flags: dict[str, Any] = {"title": title}
+    if conditions is not None:
+        flags["conditions-json"] = json.dumps(conditions)
+    return json.loads(run(build_argv(
+        "shelf", sub="create", library=library, flags=flags, smart=smart)))
+
+
+def shelf_delete(library: str, shelf_id: int) -> None:
+    """棚を削除する。"""
+    run(build_argv("shelf", sub="delete", library=library,
+                   book_id=shelf_id, json_output=False))
+
+
+def shelf_rename(library: str, shelf_id: int, title: str) -> None:
+    """棚をリネームする。"""
+    run(build_argv("shelf", sub="rename", library=library, book_id=shelf_id,
+                   flags={"title": title}, json_output=False))
+
+
+def shelf_conditions_get(library: str, shelf_id: int) -> Any:
+    """スマート棚の条件 JSON を取得する。"""
+    return json.loads(run(build_argv(
+        "shelf", sub="conditions-get", library=library, book_id=shelf_id)))
+
+
+def shelf_conditions_set(library: str, shelf_id: int, conditions: dict) -> None:
+    """スマート棚の条件 JSON を更新する。"""
+    run(build_argv("shelf", sub="conditions-set", library=library, book_id=shelf_id,
+                   flags={"conditions-json": json.dumps(conditions)}, json_output=False))
+
+
+def shelf_add_books(library: str, shelf_id: int, ids: list[int]) -> None:
+    """手動棚に本を追加する。"""
+    run(build_argv("shelf", sub="add-books", library=library,
+                   book_id=shelf_id, ids=ids, json_output=False))
+
+
+def shelf_remove_books(library: str, shelf_id: int, ids: list[int]) -> None:
+    """手動棚から本を除く。"""
+    run(build_argv("shelf", sub="remove-books", library=library,
+                   book_id=shelf_id, ids=ids, json_output=False))
+
+
+# --- フォルダ監視（watch）---
+
+def watch_get(library: str) -> Any:
+    """ライブラリの watch 設定を取得する。"""
+    return json.loads(run(build_argv("watch", sub="get", library=library)))
+
+
+def watch_set(library: str, config: dict) -> None:
+    """ライブラリの watch 設定を更新する。"""
+    run(build_argv("watch", sub="set", library=library,
+                   flags={"config-json": json.dumps(config)}, json_output=False))
+
+
+# --- ロック（lock）---
+
+def lock_set(library: str, password: str) -> None:
+    """ライブラリにパスワードロックを設定する（パスワードは stdin 経由で渡す）。"""
+    run(build_argv("lock", sub="set", library=library,
+                   flags={"password-stdin": True}, json_output=False),
+        input=password)
+
+
+def lock_clear(library: str) -> None:
+    """ライブラリのパスワードロックを解除する。"""
+    run(build_argv("lock", sub="clear", library=library, json_output=False))
+
+
+# --- インポート設定（import-config）---
+
+def import_config_get(library: str) -> Any:
+    """ライブラリのインポート設定を取得する。"""
+    return json.loads(run(build_argv("import-config", sub="get", library=library)))
+
+
+def import_config_set(library: str, *,
+                      auto_classify: bool | None = None,
+                      thick: int | None = None,
+                      preset: str | None = None) -> None:
+    """ライブラリのインポート設定を更新する。
+    auto_classify は bool（文字列 "true"/"false" として CLI へ）、thick は整数。"""
+    flags: dict[str, Any] = {}
+    if auto_classify is not None:
+        flags["auto-classify"] = "true" if auto_classify else "false"
+    if thick is not None:
+        flags["thick"] = thick
+    if preset is not None:
+        flags["preset"] = preset
+    run(build_argv("import-config", sub="set", library=library,
+                   flags=flags, json_output=False))
+
+
+def import_config_global_get() -> Any:
+    """グローバルインポート設定を取得する。"""
+    return json.loads(run(build_argv("import-config", sub="global-get")))
+
+
+def import_config_global_set(*,
+                             auto_classify: bool | None = None,
+                             thick: int | None = None,
+                             preset: str | None = None) -> None:
+    """グローバルインポート設定を更新する。"""
+    flags: dict[str, Any] = {}
+    if auto_classify is not None:
+        flags["auto-classify"] = "true" if auto_classify else "false"
+    if thick is not None:
+        flags["thick"] = thick
+    if preset is not None:
+        flags["preset"] = preset
+    run(build_argv("import-config", sub="global-set", flags=flags, json_output=False))
+
+
+# --- リンク修復（relink）---
+
+def relink(library: str, book_id: int, new_path: str) -> None:
+    """本のファイルパスを新しいパスに更新する（ファイル移動後のリンク修復）。"""
+    run(build_argv("relink", library=library, book_id=book_id,
+                   flags={"new-path": new_path}, json_output=False))
+
+
+# --- 重複検出（dedup）---
+
+def dedup_scan(library: str, query: str | None = None) -> Any:
+    """ライブラリ内の重複候補を検出してリストを返す。"""
+    return json.loads(run(build_argv(
+        "dedup", sub="scan", library=library, query=query)))
