@@ -14,7 +14,7 @@ struct Stacknest: ParsableCommand {
         subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self,
                       Detail.self, Facets.self, Shelves.self, Me.self,
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
-                      ImportConfigGlobal.self, Relink.self, Dedup.self]
+                      ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self]
     )
 }
 
@@ -694,6 +694,36 @@ struct ImportGlobalSet: ParsableCommand {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let body = GlobalImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick)
         print(String(data: try client.importGlobalPut(body: body), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - unlock
+
+struct Unlock: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "unlock",
+        abstract: "ロック庫を解錠し短命ライブラリトークンを取得する（以後 env STACKNEST_LIBRARY_TOKEN に設定して使う）")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "パスワード（argv に残るため自動化では --password-stdin 推奨）") var password: String?
+    @Flag(name: [.customLong("password-stdin")], help: "パスワードを標準入力から読む（argv 非露出）") var passwordStdin: Bool = false
+    func run() throws { try mappingAPIErrors {
+        let pw: String
+        if passwordStdin {
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            pw = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if let password {
+            pw = password
+        } else {
+            throw ValidationError("--password または --password-stdin を指定してください")
+        }
+        guard !pw.isEmpty else { throw ValidationError("パスワードが空です") }
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        let data = try client.unlock(uuid: lib.id, password: pw)
+        if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
+        let reply = try JSONDecoder().decode(UnlockReply.self, from: data)
+        // トークンのみ stdout（`STACKNEST_LIBRARY_TOKEN=$(... unlock ...)` で受けられるよう余計な装飾を出さない）
+        print(reply.libraryToken)
     } }
 }
 

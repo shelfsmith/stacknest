@@ -149,6 +149,13 @@ struct APIClient {
         try request(makeURL("/me"))
     }
 
+    /// POST /api/v1/libraries/:uuid/unlock → JSON Data（UnlockReply）
+    /// body は {"password": ...}（LockRequest と同一 wire 形を再利用）。
+    func unlock(uuid: String, password: String) throws -> Data {
+        let body = try encoder.encode(LockRequest(password: password))
+        return try request(makeURL("/libraries/\(uuid)/unlock"), method: "POST", body: body)
+    }
+
     // MARK: - 棚 CRUD
 
     func shelfCreate(uuid: String, body: ShelfCreateRequest) throws -> Data {
