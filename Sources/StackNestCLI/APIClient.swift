@@ -55,6 +55,9 @@ struct APIClient {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if !endpoint.libraryToken.isEmpty {
+            req.setValue(endpoint.libraryToken, forHTTPHeaderField: "X-Library-Token")
+        }
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")

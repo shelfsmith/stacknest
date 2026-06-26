@@ -43,19 +43,28 @@ extension ParsableCommand {
         do {
             return try body()
         } catch let e as APIError {
+            let code: Int32
             switch e {
-            case .http(let s) where s == 401 || s == 403:
-                fputs("エラー: 認証に失敗しました（HTTP \(s)）。トークンを確認してください（設定 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n", stderr)
+            case .http(let s) where s == 403:
+                fputs("エラー: アクセスが拒否されました（HTTP 403）。ロック庫の場合はライブラリトークン（env STACKNEST_LIBRARY_TOKEN）が失効している可能性があります。unlock で再取得してください。\n", stderr)
+                code = 3
+            case .http(let s) where s == 401:
+                fputs("エラー: 認証に失敗しました（HTTP 401）。トークンを確認してください（設定 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n", stderr)
+                code = 2
             case .notFound:
                 fputs("エラー: 対象が見つかりません（HTTP 404）。\n", stderr)
+                code = 2
             case .http(let s):
                 fputs("エラー: サーバが HTTP \(s) を返しました。\n", stderr)
+                code = 2
             case .network:
                 fputs("エラー: サーバに接続できません。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください（または --url / --token）。\n", stderr)
+                code = 2
             case .decode:
                 fputs("エラー: サーバ応答を解釈できませんでした。\n", stderr)
+                code = 2
             }
-            throw ExitCode(2)
+            throw ExitCode(code)
         }
     }
 }

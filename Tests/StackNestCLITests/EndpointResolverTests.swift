@@ -23,4 +23,14 @@ struct EndpointResolverTests {
         let r = EndpointResolver.resolve(urlArg: nil, tokenArg: nil, env: [:], defaultsPort: 0, defaultsToken: "")
         #expect(r == nil)
     }
+    @Test func libraryTokenReadFromEnv() {
+        let r = EndpointResolver.resolve(urlArg: "http://h:1", tokenArg: "T",
+            env: ["STACKNEST_LIBRARY_TOKEN": "LT"], defaultsPort: 0, defaultsToken: "")
+        #expect(r?.libraryToken == "LT")
+    }
+    @Test func libraryTokenEmptyWhenAbsent() {
+        let r = EndpointResolver.resolve(urlArg: "http://h:1", tokenArg: "T",
+            env: [:], defaultsPort: 0, defaultsToken: "")
+        #expect(r?.libraryToken == "")
+    }
 }
