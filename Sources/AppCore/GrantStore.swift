@@ -47,4 +47,25 @@ public enum GrantStore {
         if let editToken { grants.append(Grant(id: "default-edit", label: "(既定) 編集", token: editToken, tier: .edit, scope: .all, createdAt: now)) }
         save(grants, defaults: defaults)
     }
+
+    /// 既定グラント(default-read / default-edit)のトークンを現在の ServerPreferences 値へ同期する。
+    /// トークン再生成・編集トークン無効化を grant 認可へ反映し、**旧トークンを失効**させる（rotation/revocation 修復）。
+    /// ユーザーが作成したカスタムグラントは触らない。サーバ起動(start)毎に呼ぶ。
+    public static func syncDefaultGrants(readToken: String, editToken: String?, now: Date = Date(timeIntervalSince1970: 0), defaults: UserDefaults = .standard) {
+        var arr = list(defaults: defaults)
+        var changed = false
+        if let i = arr.firstIndex(where: { $0.id == "default-read" }), arr[i].token != readToken {
+            arr[i].token = readToken; changed = true
+        }
+        if let editToken {
+            if let i = arr.firstIndex(where: { $0.id == "default-edit" }) {
+                if arr[i].token != editToken { arr[i].token = editToken; changed = true }
+            } else {
+                arr.append(Grant(id: "default-edit", label: "(既定) 編集", token: editToken, tier: .edit, scope: .all, createdAt: now)); changed = true
+            }
+        } else if arr.contains(where: { $0.id == "default-edit" }) {
+            arr.removeAll { $0.id == "default-edit" }; changed = true   // 編集トークン無効化を反映
+        }
+        if changed { save(arr, defaults: defaults) }
+    }
 }

@@ -7,6 +7,28 @@ import LibraryServerAPI
 @Suite("GrantStore", .serialized)
 struct GrantStoreTests {
     private func suite() -> UserDefaults { UserDefaults(suiteName: "grant-\(UUID().uuidString)")! }
+
+    /// トークン再生成・編集トークン無効化が既定グラントへ反映され旧トークンが失効する（rotation 修復）。
+    @Test func syncDefaultGrantsRotatesAndRevokes() {
+        let d = suite()
+        GrantStore.migrateIfNeeded(readToken: "R-old", editToken: "W-old", defaults: d)
+        // R トークン再生成 → 旧 R 失効・新 R 有効
+        GrantStore.syncDefaultGrants(readToken: "R-new", editToken: "W-old", defaults: d)
+        #expect(GrantStore.find(token: "R-old", defaults: d) == nil)
+        #expect(GrantStore.find(token: "R-new", defaults: d)?.tier == .read)
+        // 編集トークン無効化 → default-edit 消滅（W 失効）
+        GrantStore.syncDefaultGrants(readToken: "R-new", editToken: nil, defaults: d)
+        #expect(GrantStore.find(token: "W-old", defaults: d) == nil)
+        #expect(GrantStore.list(defaults: d).contains { $0.id == "default-edit" } == false)
+        // 編集トークン再生成 → default-edit 復活
+        GrantStore.syncDefaultGrants(readToken: "R-new", editToken: "W-new", defaults: d)
+        #expect(GrantStore.find(token: "W-new", defaults: d)?.tier == .edit)
+        // カスタムグラントは不変
+        GrantStore.add(Grant(id: "fam", label: "家族", token: "FAM", tier: .read, scope: .libraries(["A"]), createdAt: Date(timeIntervalSince1970: 0)), defaults: d)
+        GrantStore.syncDefaultGrants(readToken: "R-new2", editToken: "W-new", defaults: d)
+        #expect(GrantStore.find(token: "FAM", defaults: d)?.id == "fam")
+    }
+
     @Test func addFindDelete() {
         let d = suite()
         let g = Grant(id: "g1", label: "家族", token: "T1", tier: .read, scope: .libraries(["A"]), createdAt: Date(timeIntervalSince1970: 0))

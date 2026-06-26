@@ -38,6 +38,9 @@ final class ServerController {
         // B2: 既存 token/editToken を既定グラント(read/all, edit/all)へ移行（冪等）。
         GrantStore.migrateIfNeeded(readToken: ServerPreferences.token(),
                                    editToken: ServerPreferences.editToken(), now: Date())
+        // 既定グラントのトークンを現在値へ同期（トークン再生成/編集トークン無効化を反映＝旧トークン失効）。
+        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
+                                     editToken: ServerPreferences.editToken(), now: Date())
         // B2b: ヘッドレス起動の最初の admin を env から投入（GUI はローカルコントロール=admin で足りる）。
         if let adminToken = ProcessInfo.processInfo.environment["STACKNEST_ADMIN_TOKEN"], !adminToken.isEmpty {
             let existing = GrantStore.list().first { $0.label == "(env) admin" }
