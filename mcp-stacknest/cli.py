@@ -190,7 +190,7 @@ def shelf_create(library: str, title: str, *,
 
 def shelf_delete(library: str, shelf_id: int) -> None:
     """棚を削除する。"""
-    run(build_argv("shelf", sub="delete", library=library,
+    run(build_argv("shelf", sub="rm", library=library,
                    book_id=shelf_id, json_output=False))
 
 
@@ -260,39 +260,30 @@ def import_config_get(library: str) -> Any:
 
 def import_config_set(library: str, *,
                       auto_classify: bool | None = None,
-                      thick: int | None = None,
-                      preset: str | None = None) -> None:
-    """ライブラリのインポート設定を更新する。
+                      thick: int | None = None) -> None:
+    """ライブラリのインポート設定 override を更新する（指定分のみ）。
     auto_classify は bool（文字列 "true"/"false" として CLI へ）、thick は整数。"""
     flags: dict[str, Any] = {}
     if auto_classify is not None:
         flags["auto-classify"] = "true" if auto_classify else "false"
     if thick is not None:
         flags["thick"] = thick
-    if preset is not None:
-        flags["preset"] = preset
     run(build_argv("import-config", sub="set", library=library,
                    flags=flags, json_output=False))
 
 
 def import_config_global_get() -> Any:
     """グローバルインポート設定を取得する。"""
-    return json.loads(run(build_argv("import-config", sub="global-get")))
+    return json.loads(run(build_argv("import-config-global", sub="get")))
 
 
-def import_config_global_set(*,
-                             auto_classify: bool | None = None,
-                             thick: int | None = None,
-                             preset: str | None = None) -> None:
-    """グローバルインポート設定を更新する。"""
-    flags: dict[str, Any] = {}
-    if auto_classify is not None:
-        flags["auto-classify"] = "true" if auto_classify else "false"
-    if thick is not None:
-        flags["thick"] = thick
-    if preset is not None:
-        flags["preset"] = preset
-    run(build_argv("import-config", sub="global-set", flags=flags, json_output=False))
+def import_config_global_set(auto_classify: bool, thick: int) -> None:
+    """グローバルインポート設定を更新する（両値必須・CLI が必須オプション）。"""
+    flags: dict[str, Any] = {
+        "auto-classify": "true" if auto_classify else "false",
+        "thick": thick,
+    }
+    run(build_argv("import-config-global", sub="set", flags=flags, json_output=False))
 
 
 # --- リンク修復（relink）---
@@ -305,7 +296,6 @@ def relink(library: str, book_id: int, new_path: str) -> None:
 
 # --- 重複検出（dedup）---
 
-def dedup_scan(library: str, query: str | None = None) -> Any:
-    """ライブラリ内の重複候補を検出してリストを返す。"""
-    return json.loads(run(build_argv(
-        "dedup", sub="scan", library=library, query=query)))
+def dedup_scan(library: str) -> Any:
+    """ライブラリ内の重複候補を検出して結果を返す。"""
+    return json.loads(run(build_argv("dedup", library=library)))

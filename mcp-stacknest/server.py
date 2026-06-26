@@ -179,11 +179,10 @@ def stacknest_import_config_get(library: str) -> Any:
 @mcp.tool()
 def stacknest_import_config_set(library: str,
                                 auto_classify: bool | None = None,
-                                thick: int | None = None,
-                                preset: str | None = None) -> str:
-    """ライブラリのインポート設定を更新する。
-    auto_classify: 自動ジャンル分類 ON/OFF。thick: 厚み検出閾値（ページ数）。preset: デフォルトプリセット名。"""
-    cli.import_config_set(library, auto_classify=auto_classify, thick=thick, preset=preset)
+                                thick: int | None = None) -> str:
+    """ライブラリのインポート設定 override を更新する（指定分のみ）。
+    auto_classify: 自動ジャンル分類 ON/OFF。thick: 厚み検出閾値（ページ数）。"""
+    cli.import_config_set(library, auto_classify=auto_classify, thick=thick)
     return f"import config updated for library {library!r}"
 
 
@@ -194,11 +193,9 @@ def stacknest_import_config_global_get() -> Any:
 
 
 @mcp.tool()
-def stacknest_import_config_global_set(auto_classify: bool | None = None,
-                                       thick: int | None = None,
-                                       preset: str | None = None) -> str:
-    """グローバルインポート設定を更新する。"""
-    cli.import_config_global_set(auto_classify=auto_classify, thick=thick, preset=preset)
+def stacknest_import_config_global_set(auto_classify: bool, thick: int) -> str:
+    """グローバルインポート設定を更新する（両値必須・全ライブラリ共通の既定・admin）。"""
+    cli.import_config_global_set(auto_classify, thick)
     return "global import config updated"
 
 
@@ -215,10 +212,9 @@ def stacknest_relink(library: str, id: int, new_path: str) -> str:
 # --- 重複検出（dedup）---
 
 @mcp.tool()
-def stacknest_dedup_scan(library: str, query: str | None = None) -> Any:
-    """ライブラリ内の重複候補を検出してリストを返す。
-    query で検索範囲を絞り込める。返り値の groups 配列の各要素が重複セット。"""
-    return cli.dedup_scan(library, query=query)
+def stacknest_dedup_scan(library: str) -> Any:
+    """ライブラリ内の重複候補を検出して結果を返す（exact/possible グループ＋統計）。"""
+    return cli.dedup_scan(library)
 
 
 if __name__ == "__main__":

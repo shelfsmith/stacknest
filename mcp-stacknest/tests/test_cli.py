@@ -231,3 +231,49 @@ def test_build_argv_lock_set_uses_stdin_flag():
     assert argv[:2] == ["lock", "set"]
     assert "--password-stdin" in argv
     assert "--password" not in argv
+
+
+def test_high_level_shelf_delete_uses_rm(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(cli, "run", lambda argv, **k: captured.setdefault("argv", argv) or "")
+    cli.shelf_delete("M", 9)
+    assert captured["argv"][:2] == ["shelf", "rm"]
+
+
+def test_high_level_global_get_path(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.import_config_global_get()
+    assert captured["argv"][:2] == ["import-config-global", "get"]
+
+
+def test_high_level_global_set_path(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(cli, "run", lambda argv, **k: captured.setdefault("argv", argv) or "{}")
+    cli.import_config_global_set(False, 30)
+    assert captured["argv"][:2] == ["import-config-global", "set"]
+    assert "--auto-classify" in captured["argv"] and "false" in captured["argv"]
+    assert "--thick" in captured["argv"] and "30" in captured["argv"]
+
+
+def test_high_level_dedup_no_sub(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.dedup_scan("M")
+    assert captured["argv"][0] == "dedup"
+    assert "scan" not in captured["argv"]
+
+
+def test_high_level_lock_set_passes_stdin(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; captured["input"] = k.get("input"); return ""
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.lock_set("M", "secret")
+    assert "--password-stdin" in captured["argv"]
+    assert "--password" not in captured["argv"]
+    assert captured["input"] == "secret"
