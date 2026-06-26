@@ -5,6 +5,7 @@ import LibraryStore
 import ArchiveAdapter
 import Hummingbird
 import LibraryServerAPI
+import StackroomFormat
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -207,6 +208,107 @@ public struct LibraryServerCore: Sendable {
             return rows.map { row in
                 ShelfDTO(id: row.id, title: row.title, kind: row.kind, isSmart: row.isSmart)
             }
+        }
+        // A1: 棚の作成（RW・手動 or スマート）。
+        api.post("libraries/:lib/shelves") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            let body = try await request.decode(as: ShelfCreateRequest.self, context: context)
+            let newID: Int64
+            if body.isSmart {
+                guard let conditions = body.conditions else { throw HTTPError(.badRequest) }
+                newID = try lib.db.createSmartShelf(title: body.title, conditions: conditions)
+            } else {
+                if body.conditions != nil { throw HTTPError(.conflict) }
+                newID = try lib.db.createUserShelf(title: body.title)
+            }
+            config.onLibrarySettingsChanged?(lib.uuid)
+            let row = try lib.db.fetchAllShelves().first(where: { $0.id == newID })
+            return row.map { ShelfDTO(id: $0.id, title: $0.title, kind: $0.kind, isSmart: $0.isSmart) }
+                ?? ShelfDTO(id: newID, title: body.title, kind: "user", isSmart: body.isSmart)
+        }
+        // A1: 棚の更新（RW・改名＋スマート条件更新）。
+        api.patch("libraries/:lib/shelves/:id") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            let shelfID = try context.parameters.require("id", as: Int64.self)
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
+            let body = try await request.decode(as: ShelfUpdateRequest.self, context: context)
+            if let conditions = body.conditions {
+                guard row.isSmart else { throw HTTPError(.conflict) }
+                try lib.db.updateSmartShelfConditions(id: shelfID, conditions: conditions)
+            }
+            if let title = body.title {
+                if row.kind == "favorites" { throw HTTPError(.conflict) }
+                try lib.db.renameShelf(id: shelfID, title: title)
+            }
+            config.onLibrarySettingsChanged?(lib.uuid)
+            let updated = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID })
+            return updated.map { ShelfDTO(id: $0.id, title: $0.title, kind: $0.kind, isSmart: $0.isSmart) }
+                ?? ShelfDTO(id: shelfID, title: body.title ?? row.title, kind: row.kind, isSmart: row.isSmart)
+        }
+        // A1: 棚の削除（RW・お気に入り棚は 409 で保護）。
+        api.delete("libraries/:lib/shelves/:id") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            let shelfID = try context.parameters.require("id", as: Int64.self)
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
+            if row.kind == "favorites" { throw HTTPError(.conflict) }
+            try lib.db.deleteShelf(id: shelfID)
+            config.onLibrarySettingsChanged?(lib.uuid)
+            return Response(status: .noContent)
+        }
+        // A1: スマート棚の条件取得（read）。
+        api.get("libraries/:lib/shelves/:id/conditions") { request, context in
+            let uuid = try context.parameters.require("lib")
+            let shelfID = try context.parameters.require("id", as: Int64.self)
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
+            guard row.isSmart else { throw HTTPError(.conflict) }
+            guard let conditions = try lib.db.fetchSmartShelfConditions(id: shelfID) else { throw HTTPError(.notFound) }
+            return conditions
+        }
+        // A1: スマート棚の条件更新（RW）。
+        api.put("libraries/:lib/shelves/:id/conditions") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            let shelfID = try context.parameters.require("id", as: Int64.self)
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
+            guard row.isSmart else { throw HTTPError(.conflict) }
+            let conditions = try await request.decode(as: SmartShelfConditions.self, context: context)
+            try lib.db.updateSmartShelfConditions(id: shelfID, conditions: conditions)
+            config.onLibrarySettingsChanged?(lib.uuid)
+            return conditions
+        }
+        // A1: 手動棚への所属追加（RW・スマート棚は 409）。
+        api.post("libraries/:lib/shelves/:id/books") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            let shelfID = try context.parameters.require("id", as: Int64.self)
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
+            guard !row.isSmart else { throw HTTPError(.conflict) }
+            let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
+            try lib.db.appendBooksToShelf(playlistID: shelfID, bookIDs: body.bookIDs)
+            config.onLibraryStructureChanged?(lib.uuid)
+            return Response(status: .noContent)
+        }
+        // A1: 手動棚からの所属除去（RW・スマート棚は 409）。
+        api.delete("libraries/:lib/shelves/:id/books") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            let shelfID = try context.parameters.require("id", as: Int64.self)
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
+            guard !row.isSmart else { throw HTTPError(.conflict) }
+            let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
+            try lib.db.removeBooksFromShelf(playlistID: shelfID, bookIDs: body.bookIDs)
+            config.onLibraryStructureChanged?(lib.uuid)
+            return Response(status: .noContent)
         }
         // ファセット（列の distinct 値リスト）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/facets/:field") { request, context in

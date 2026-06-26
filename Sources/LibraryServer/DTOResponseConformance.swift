@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Hummingbird
 import LibraryServerAPI
+import StackroomFormat
 
 // 共有 DTO（Foundation のみ）にサーバ側でのみ Hummingbird ResponseEncodable を付与する。
 extension BookPageDTO: ResponseEncodable {}
@@ -17,3 +18,4 @@ extension StampApplyReply: ResponseEncodable {}
 extension CoverCandidatesDTO: ResponseEncodable {}
 extension LabelSettingsDTO: ResponseEncodable {}
 extension AddBooksReplyDTO: ResponseEncodable {}
+extension SmartShelfConditions: ResponseEncodable {}
