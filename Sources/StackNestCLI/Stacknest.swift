@@ -15,7 +15,7 @@ struct Stacknest: ParsableCommand {
                       Detail.self, Facets.self, Shelves.self, Me.self,
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
                       ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self,
-                      Grant.self]
+                      Grant.self, Stamp.self, StampDefinitions.self, Label.self]
     )
 }
 
@@ -843,5 +843,89 @@ struct GrantRm: ParsableCommand {
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         try client.grantDelete(id: id); print("削除しました (grant=\(id))")
+    } }
+}
+
+// MARK: - stamp（一括スタンプ適用・edit）
+
+struct Stamp: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "stamp", abstract: "複数の本に値を一括スタンプ（追記）/クリアする")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "対象フィールド（例: genre, keyword_a）") var field: String
+    @Option(name: .long, help: "追記する値（--clear と排他）") var value: String?
+    @Flag(name: .long, help: "値をクリアする（--value と排他）") var clear: Bool = false
+    @Argument(help: "対象書籍 ID（複数可）") var bookIDs: [Int]
+    func run() throws { try mappingAPIErrors {
+        if (value == nil) == (clear == false) {
+            throw ValidationError("--value または --clear のいずれか一方を指定してください")
+        }
+        guard !bookIDs.isEmpty else { throw ValidationError("対象書籍 ID を 1 件以上指定してください") }
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        let body = StampApplyRequest(field: field, value: value, clear: clear ? true : nil, bookIDs: bookIDs)
+        let data = try client.stampApply(uuid: lib.id, body: body)
+        if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
+        let reply = try JSONDecoder().decode(StampApplyReply.self, from: data)
+        print("更新: \(reply.updated) 冊")
+    } }
+}
+
+// MARK: - stamp-definitions（スタンプ定義の取得/全置換・edit）
+
+struct StampDefinitions: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "stamp-definitions", abstract: "スタンプ定義を取得/更新する",
+        subcommands: [StampDefinitionsGet.self, StampDefinitionsSet.self])
+}
+struct StampDefinitionsGet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "get")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.stampDefinitionsGet(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+struct StampDefinitionsSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "スタンプ定義を全置換する")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "StampDefinitionsDTO の JSON") var json: String
+    func run() throws { try mappingAPIErrors {
+        // 妥当性のためデコードしてから再エンコード（不正 JSON は早期に弾く）
+        let dto = try JSONDecoder().decode(StampDefinitionsDTO.self, from: Data(json.utf8))
+        let body = try JSONEncoder().encode(dto)
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.stampDefinitionsPut(uuid: lib.id, json: body), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - label（ラベルカスタマイズの取得/更新・edit）
+
+struct Label: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "label", abstract: "ラベルカスタマイズを取得/更新する",
+        subcommands: [LabelGet.self, LabelSet.self])
+}
+struct LabelGet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "get")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.labelGet(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+struct LabelSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "ラベルカスタマイズを更新する")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "LabelSettingsDTO の JSON ({customFieldLabels,customBookTypeLabels})") var json: String
+    func run() throws { try mappingAPIErrors {
+        let dto = try JSONDecoder().decode(LabelSettingsDTO.self, from: Data(json.utf8))
+        let body = try JSONEncoder().encode(dto)
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.labelPut(uuid: lib.id, json: body), encoding: .utf8) ?? "")
     } }
 }

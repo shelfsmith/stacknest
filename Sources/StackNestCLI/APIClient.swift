@@ -227,4 +227,27 @@ struct APIClient {
         let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
         _ = try request(makeURL("/grants/\(enc)"), method: "DELETE")
     }
+
+    // MARK: - stamp / label（per-library）
+
+    /// POST /api/v1/libraries/:uuid/books/stamp → JSON Data（StampApplyReply）
+    func stampApply(uuid: String, body: StampApplyRequest) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/books/stamp"), method: "POST", body: try encoder.encode(body))
+    }
+    /// GET /api/v1/libraries/:uuid/stamp-definitions → JSON Data（StampDefinitionsDTO）
+    func stampDefinitionsGet(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/stamp-definitions"))
+    }
+    /// PUT /api/v1/libraries/:uuid/stamp-definitions（body は StampDefinitionsDTO の JSON）
+    func stampDefinitionsPut(uuid: String, json: Data) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/stamp-definitions"), method: "PUT", body: json)
+    }
+    /// GET /api/v1/libraries/:uuid/label-settings → JSON Data（LabelSettingsDTO）
+    func labelGet(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/label-settings"))
+    }
+    /// PUT /api/v1/libraries/:uuid/label-settings（body は LabelSettingsDTO の JSON）
+    func labelPut(uuid: String, json: Data) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/label-settings"), method: "PUT", body: json)
+    }
 }
