@@ -594,6 +594,9 @@ public struct GrantCreateRequest: Codable, Sendable {
     public var label: String
     public var tier: AccessTier
     public var scope: GrantScope
+    public init(label: String, tier: AccessTier, scope: GrantScope) {
+        self.label = label; self.tier = tier; self.scope = scope
+    }
 }
 
 /// PATCH /api/v1/grants/:id リクエスト。nil = 変更しない。
@@ -601,4 +604,7 @@ public struct GrantUpdateRequest: Codable, Sendable {
     public var label: String?
     public var tier: AccessTier?
     public var scope: GrantScope?
+    public init(label: String? = nil, tier: AccessTier? = nil, scope: GrantScope? = nil) {
+        self.label = label; self.tier = tier; self.scope = scope
+    }
 }

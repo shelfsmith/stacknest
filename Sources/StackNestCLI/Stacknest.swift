@@ -14,7 +14,8 @@ struct Stacknest: ParsableCommand {
         subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self,
                       Detail.self, Facets.self, Shelves.self, Me.self,
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
-                      ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self]
+                      ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self,
+                      Grant.self]
     )
 }
 
@@ -747,5 +748,100 @@ struct Dedup: ParsableCommand {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         print(String(data: try client.dedup(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - grant グループ（admin）
+
+/// --scope / --scope-libraries / --scope-json から GrantScope を解決する共通ヘルパ。
+/// いずれも未指定なら nil（update では「変更しない」、create では呼び出し側が .all 既定にする）。
+enum GrantScopeArg {
+    static func resolve(scope: String?, scopeLibraries: String?, scopeJSON: String?) throws -> GrantScope? {
+        let specified = [scope, scopeLibraries, scopeJSON].compactMap { $0 }
+        if specified.count > 1 {
+            throw ValidationError("--scope / --scope-libraries / --scope-json は同時指定できません")
+        }
+        if let scopeJSON {
+            return try JSONDecoder().decode(GrantScope.self, from: Data(scopeJSON.utf8))
+        }
+        if let scopeLibraries {
+            let ids = scopeLibraries.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return .libraries(ids)
+        }
+        if let scope {
+            guard scope == "all" else { throw ValidationError("--scope は all のみ指定可能（個別指定は --scope-libraries）") }
+            return .all
+        }
+        return nil
+    }
+}
+
+struct Grant: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "grant", abstract: "アクセスグラントを管理する (admin)",
+        subcommands: [GrantList.self, GrantCreate.self, GrantUpdate.self, GrantRm.self])
+}
+struct GrantList: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "list", abstract: "グラント一覧を表示する")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let data = try client.grantList()
+        if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
+        let grants = try JSONDecoder().decode([GrantDTO].self, from: data)
+        for g in grants {
+            let scopeStr: String
+            switch g.scope {
+            case .all: scopeStr = "all"
+            case .libraries(let ids): scopeStr = ids.joined(separator: ",")
+            }
+            print("\(g.id)\t\(g.tier.rawValue)\t\(g.label)\t[\(scopeStr)]")
+        }
+    } }
+}
+struct GrantCreate: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "create", abstract: "グラントを作成する（token を返す）")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "ラベル") var label: String
+    @Option(name: .long, help: "権限階層 (read/edit/admin)") var tier: String
+    @Option(name: .long, help: "スコープ all（全ライブラリ）") var scope: String?
+    @Option(name: [.customLong("scope-libraries")], help: "対象ライブラリ UUID をカンマ区切りで指定") var scopeLibraries: String?
+    @Option(name: [.customLong("scope-json")], help: "GrantScope の JSON を直接指定") var scopeJSON: String?
+    func run() throws { try mappingAPIErrors {
+        guard let t = AccessTier(rawValue: tier) else { throw ValidationError("--tier は read / edit / admin のいずれか") }
+        let resolved = try GrantScopeArg.resolve(scope: scope, scopeLibraries: scopeLibraries, scopeJSON: scopeJSON)
+        let body = GrantCreateRequest(label: label, tier: t, scope: resolved ?? .all)
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        print(String(data: try client.grantCreate(body: body), encoding: .utf8) ?? "")
+    } }
+}
+struct GrantUpdate: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "update", abstract: "グラントを更新する（指定分のみ）")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "グラント ID") var id: String
+    @Option(name: .long, help: "ラベル") var label: String?
+    @Option(name: .long, help: "権限階層 (read/edit/admin)") var tier: String?
+    @Option(name: .long, help: "スコープ all") var scope: String?
+    @Option(name: [.customLong("scope-libraries")], help: "対象ライブラリ UUID をカンマ区切り") var scopeLibraries: String?
+    @Option(name: [.customLong("scope-json")], help: "GrantScope の JSON") var scopeJSON: String?
+    func run() throws { try mappingAPIErrors {
+        var t: AccessTier?
+        if let tier {
+            guard let parsed = AccessTier(rawValue: tier) else { throw ValidationError("--tier は read / edit / admin のいずれか") }
+            t = parsed
+        }
+        let resolved = try GrantScopeArg.resolve(scope: scope, scopeLibraries: scopeLibraries, scopeJSON: scopeJSON)
+        let body = GrantUpdateRequest(label: label, tier: t, scope: resolved)
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        print(String(data: try client.grantUpdate(id: id, body: body), encoding: .utf8) ?? "")
+    } }
+}
+struct GrantRm: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "rm", abstract: "グラントを削除する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "グラント ID") var id: String
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        try client.grantDelete(id: id); print("削除しました (grant=\(id))")
     } }
 }

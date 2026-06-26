@@ -208,4 +208,23 @@ struct APIClient {
     func dedup(uuid: String) throws -> Data {
         try request(makeURL("/libraries/\(uuid)/duplicates/scan"), method: "POST")
     }
+
+    // MARK: - グラント CRUD（admin）
+
+    /// GET /api/v1/grants → JSON Data（[GrantDTO]）
+    func grantList() throws -> Data { try request(makeURL("/grants")) }
+    /// POST /api/v1/grants → JSON Data（GrantDTO・token を含む）
+    func grantCreate(body: GrantCreateRequest) throws -> Data {
+        try request(makeURL("/grants"), method: "POST", body: try encoder.encode(body))
+    }
+    /// PATCH /api/v1/grants/:id → JSON Data（GrantDTO）
+    func grantUpdate(id: String, body: GrantUpdateRequest) throws -> Data {
+        let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        return try request(makeURL("/grants/\(enc)"), method: "PATCH", body: try encoder.encode(body))
+    }
+    /// DELETE /api/v1/grants/:id
+    func grantDelete(id: String) throws {
+        let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+        _ = try request(makeURL("/grants/\(enc)"), method: "DELETE")
+    }
 }
