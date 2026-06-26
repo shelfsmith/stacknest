@@ -353,6 +353,21 @@ public struct LibraryServerCore: Sendable {
             )
         }
 
+        // BookRow → BookListItemDTO 変換ヘルパ（adjacent / duplicate scan 等で共用）。
+        // lastPage は DB アクセスが必要なため nil 固定。呼び出し側で .withLastPage(...) を付与する。
+        @Sendable func makeBookListItemDTO(from row: BookRow) -> BookListItemDTO {
+            BookListItemDTO(
+                id: row.id, title: row.title, author: row.author,
+                series: row.series, volume: row.volume,
+                rating: row.rating, unseen: row.unseen, bookType: row.bookType,
+                pages: row.pages,
+                lastPage: nil,
+                lastReadAt: nil,
+                dateAdded: row.dateAdded,
+                hasCover: false, coverVersion: nil
+            )
+        }
+
         // 書籍詳細（フル BookRow の全フィールドを BookDetailDTO として返す）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books/:id/detail") { request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
@@ -664,6 +679,54 @@ public struct LibraryServerCore: Sendable {
             config.onLibraryStructureChanged?(lib.uuid)
             return HTTPResponse.Status.noContent
         }
+        // A2: 重複スキャン（RW・content_hash を計算/キャッシュしグループ返却）。
+        api.post("libraries/:lib/duplicates/scan") { request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            let books = (try? lib.db.fetchAllBooks()) ?? []
+            let fm = FileManager.default
+            var sizes: [(id: Int, size: Int64)] = []
+            var meta: [Int: (url: URL, size: Int64, mtime: Double)] = [:]
+            var missingCount = 0
+            for b in books {
+                guard let p = b.path else { continue }
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: p, isDirectory: &isDir) else { missingCount += 1; continue }
+                if isDir.boolValue { continue }
+                let attrs = try? fm.attributesOfItem(atPath: p)
+                let size = (attrs?[.size] as? NSNumber)?.int64Value ?? 0
+                let mtime = (attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+                sizes.append((b.id, size)); meta[b.id] = (URL(fileURLWithPath: p), size, mtime)
+            }
+            let candidateCount = sizes.count
+            let need = DuplicateFinder.idsNeedingHash(sizes: sizes)
+            let byID = Dictionary(uniqueKeysWithValues: books.map { ($0.id, $0) })
+            var toHash: [Int] = []
+            for id in need {
+                guard let m = meta[id], let b = byID[id] else { continue }
+                if let h = b.contentHash, !h.isEmpty, b.fileSize == m.size, b.fileMtime == m.mtime { continue }
+                toHash.append(id)
+            }
+            var hashedCount = 0
+            for id in toHash {
+                guard let m = meta[id] else { continue }
+                if let hash = try? ContentHasher.sha256(ofFileAt: m.url) {
+                    try? lib.db.updateBookContentHash(id: id, hash: hash, size: m.size, mtime: m.mtime)
+                    hashedCount += 1
+                }
+            }
+            let fresh = (try? lib.db.fetchAllBooks()) ?? books
+            let g = DuplicateFinder.groups(fresh, ignoring: [])
+            func toDTO(_ groups: [DuplicateGroup]) -> [DuplicateGroupDTO] {
+                groups.map { grp in
+                    DuplicateGroupDTO(kind: grp.kind == .exact ? "exact" : "possibleSeriesVolume",
+                                      key: grp.key, members: grp.members.map { makeBookListItemDTO(from: $0) })
+                }
+            }
+            return DuplicateScanReply(exact: toDTO(g.exact), possible: toDTO(g.possible),
+                                      candidateCount: candidateCount, hashedCount: hashedCount, missingCount: missingCount)
+        }
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
         api.get("libraries/:lib/books/:id/adjacent") { request, context in
@@ -676,16 +739,8 @@ public struct LibraryServerCore: Sendable {
             default: throw HTTPError(.badRequest)
             }
             let dto = sibling.map { s in
-                BookListItemDTO(
-                    id: s.id, title: s.title, author: s.author,
-                    series: s.series, volume: s.volume,
-                    rating: s.rating, unseen: s.unseen, bookType: s.bookType,
-                    pages: s.pages,
-                    lastPage: (try? lib.db.loadViewerState(bookID: s.id))?.lastPage,
-                    lastReadAt: nil,
-                    dateAdded: s.dateAdded,
-                    hasCover: false, coverVersion: nil
-                )
+                makeBookListItemDTO(from: s)
+                    .withLastPage((try? lib.db.loadViewerState(bookID: s.id))?.lastPage)
             }
             return AdjacentVolumeReply(book: dto)
         }
