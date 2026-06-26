@@ -2,6 +2,7 @@
 import Foundation
 import ArgumentParser
 import LibraryServerAPI
+import StackroomFormat
 
 // MARK: - Entry Point
 
@@ -11,7 +12,9 @@ struct Stacknest: ParsableCommand {
         commandName: "stacknest-cli",
         abstract: "StackNest ライブラリ操作 CLI",
         subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self,
-                      Detail.self, Facets.self, Shelves.self, Me.self]
+                      Detail.self, Facets.self, Shelves.self, Me.self,
+                      Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
+                      ImportConfigGlobal.self, Relink.self, Dedup.self]
     )
 }
 
@@ -454,4 +457,245 @@ struct Me: ParsableCommand {
             print("role: \(me.role.rawValue)\ntier: \(me.tier.rawValue)\nscope: \(scopeStr)")
         }
     }
+}
+
+// MARK: - shelf グループ
+
+struct Shelf: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "shelf", abstract: "棚（スマート/手動）を管理する",
+        subcommands: [ShelfCreate.self, ShelfRm.self, ShelfRename.self,
+                      ShelfConditionsGet.self, ShelfConditionsSet.self,
+                      ShelfAddBooks.self, ShelfRemoveBooks.self])
+}
+struct ShelfCreate: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "create", abstract: "棚を作成する")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "棚名") var title: String
+    @Flag(name: .long, help: "スマート棚にする") var smart: Bool = false
+    @Option(name: [.customLong("conditions-json")], help: "スマート棚条件 JSON (SmartShelfConditions)") var conditionsJSON: String?
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            var conditions: SmartShelfConditions?
+            if let conditionsJSON {
+                conditions = try JSONDecoder().decode(SmartShelfConditions.self, from: Data(conditionsJSON.utf8))
+            }
+            if smart && conditions == nil { throw ValidationError("--smart 時は --conditions-json が必要です") }
+            let body = ShelfCreateRequest(title: title, isSmart: smart, conditions: conditions)
+            let data = try client.shelfCreate(uuid: lib.id, body: body)
+            print(String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+}
+struct ShelfRm: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "rm", abstract: "棚を削除する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "棚 ID") var id: Int64
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            try client.shelfDelete(uuid: lib.id, id: id)
+            print("削除しました (shelf=\(id))")
+        }
+    }
+}
+struct ShelfRename: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "rename", abstract: "棚を改名する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "棚 ID") var id: Int64
+    @Option(name: .long, help: "新しい棚名") var title: String
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let data = try client.shelfPatch(uuid: lib.id, id: id, body: ShelfUpdateRequest(title: title))
+            print(String(data: data, encoding: .utf8) ?? "")
+        }
+    }
+}
+struct ShelfConditionsGet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "conditions-get", abstract: "スマート棚の条件を表示する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "棚 ID") var id: Int64
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            print(String(data: try client.shelfConditionsGet(uuid: lib.id, id: id), encoding: .utf8) ?? "")
+        }
+    }
+}
+struct ShelfConditionsSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "conditions-set", abstract: "スマート棚の条件を更新する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "棚 ID") var id: Int64
+    @Option(name: .long, help: "条件 JSON (SmartShelfConditions)") var json: String
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            // 妥当性のためデコードしてから再エンコード（不正 JSON は早期に弾く）
+            let cond = try JSONDecoder().decode(SmartShelfConditions.self, from: Data(json.utf8))
+            let body = try JSONEncoder().encode(cond)
+            print(String(data: try client.shelfConditionsPut(uuid: lib.id, id: id, conditionsJSON: body), encoding: .utf8) ?? "")
+        }
+    }
+}
+struct ShelfAddBooks: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "add-books", abstract: "手動棚に本を追加する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "棚 ID") var id: Int64
+    @Argument(help: "追加する書籍 ID（複数可）") var bookIDs: [Int]
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            try client.shelfBooksAdd(uuid: lib.id, id: id, bookIDs: bookIDs)
+            print("追加しました (shelf=\(id), books=\(bookIDs.count))")
+        }
+    }
+}
+struct ShelfRemoveBooks: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "remove-books", abstract: "手動棚から本を除去する")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "棚 ID") var id: Int64
+    @Argument(help: "除去する書籍 ID（複数可）") var bookIDs: [Int]
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            try client.shelfBooksRemove(uuid: lib.id, id: id, bookIDs: bookIDs)
+            print("除去しました (shelf=\(id), books=\(bookIDs.count))")
+        }
+    }
+}
+
+// MARK: - watch グループ
+
+struct Watch: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "watch", abstract: "監視フォルダ設定", subcommands: [WatchGet.self, WatchSet.self])
+}
+struct WatchGet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "get")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.watchGet(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+struct WatchSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "監視設定を全置換する")
+    @OptionGroup var common: CommonOptions
+    @Option(name: [.customLong("config-json")], help: "WatchConfigDTO の JSON") var configJSON: String
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        let cfg = try JSONDecoder().decode(WatchConfigDTO.self, from: Data(configJSON.utf8))
+        let body = try JSONEncoder().encode(cfg)
+        print(String(data: try client.watchPut(uuid: lib.id, configJSON: body), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - lock グループ
+
+struct Lock: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "lock", abstract: "庫ロック (admin)", subcommands: [LockSet.self, LockClear.self])
+}
+struct LockSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "パスワードロックを設定する")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "パスワード") var password: String
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        try client.lockSet(uuid: lib.id, password: password); print("ロックを設定しました")
+    } }
+}
+struct LockClear: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "clear", abstract: "ロックを解除する")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        try client.lockClear(uuid: lib.id); print("ロックを解除しました")
+    } }
+}
+
+// MARK: - import-config グループ（per-library）
+
+struct ImportConfigCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "import-config", abstract: "取り込み設定 (per-library override)", subcommands: [ImportGet.self, ImportSet.self])
+}
+struct ImportGet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "get")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.importGet(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+struct ImportSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set", abstract: "override を設定する（指定分のみ）")
+    @OptionGroup var common: CommonOptions
+    @Option(name: [.customLong("auto-classify")], help: "自動分類 (true/false)") var autoClassify: Bool?
+    @Option(name: .long, help: "厚い本判定閾値") var thick: Int?
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        let body = ImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick)
+        print(String(data: try client.importPut(uuid: lib.id, body: body), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - import-config-global グループ（admin）
+
+struct ImportConfigGlobal: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "import-config-global", abstract: "取り込みグローバル既定 (admin)", subcommands: [ImportGlobalGet.self, ImportGlobalSet.self])
+}
+struct ImportGlobalGet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "get")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        print(String(data: try client.importGlobalGet(), encoding: .utf8) ?? "")
+    } }
+}
+struct ImportGlobalSet: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "set")
+    @OptionGroup var common: CommonOptions
+    @Option(name: [.customLong("auto-classify")], help: "自動分類 (true/false)") var autoClassify: Bool
+    @Option(name: .long, help: "厚い本判定閾値") var thick: Int
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let body = GlobalImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick)
+        print(String(data: try client.importGlobalPut(body: body), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - relink / dedup
+
+struct Relink: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "relink", abstract: "本のパスを再リンクする")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "書籍 ID") var id: Int
+    @Option(name: [.customLong("new-path")], help: "新しいパス") var newPath: String
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        try client.relink(uuid: lib.id, id: id, newPath: newPath); print("再リンクしました (id=\(id))")
+    } }
+}
+struct Dedup: ParsableCommand {
+    static let configuration = CommandConfiguration(commandName: "dedup", abstract: "重複スキャンを実行する")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.dedup(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
 }

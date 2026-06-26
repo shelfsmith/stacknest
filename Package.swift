@@ -90,6 +90,7 @@ let package = Package(
             name: "StackNestCLI",
             dependencies: [
                 "LibraryServerAPI",
+                "StackroomFormat",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/StackNestCLI"
