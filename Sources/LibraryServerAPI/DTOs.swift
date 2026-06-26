@@ -159,10 +159,24 @@ public struct BookPageDTO: Codable, Sendable {
 /// 提示されたトークンに対応するロール（read = R / write = RW）。
 public enum TokenRole: String, Codable, Sendable { case read, write }
 
-/// GET /me の応答。提示トークンのロールを返す。
+/// アクセス階層（read < edit < admin の 3 段）。
+/// - read: R トークン（読み取り専用）
+/// - edit: W トークン（通常の編集権限・adminTier=false 時）
+/// - admin: W または R トークン（adminTier=true のサーバでは全トークンが admin に昇格）
+public enum AccessTier: String, Codable, Sendable, Comparable {
+    case read, edit, admin
+    private var rank: Int { switch self { case .read: return 0; case .edit: return 1; case .admin: return 2 } }
+    public static func < (l: AccessTier, r: AccessTier) -> Bool { l.rank < r.rank }
+}
+
+/// GET /me の応答。提示トークンの tier と role（互換）を返す。
 public struct MeReply: Codable, Sendable {
-    public let role: TokenRole
-    public init(role: TokenRole) { self.role = role }
+    public let role: TokenRole   // 互換: admin/edit→.write, read→.read
+    public let tier: AccessTier
+    public init(tier: AccessTier) {
+        self.tier = tier
+        self.role = (tier == .read) ? .read : .write
+    }
 }
 
 /// /libraries の一覧 1 件分（spec §3.3）。

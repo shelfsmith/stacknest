@@ -5,7 +5,10 @@ import LibraryServerAPI
 
 /// Bearer トークン認証。比較は定数時間（タイミング攻撃対策・spec §4）。
 /// R トークン（読み取り）と RW トークン（編集）の双方を受理し、提示トークンに応じて
-/// context.role を read / write に刻む（RW ゲートは下流ハンドラが role を見て判断する・4.2b-3）。
+/// context.role / context.tier を刻む（RW ゲートは下流ハンドラが role/tier を見て判断する・4.2b-3・B1）。
+///
+/// adminTier=true のとき: R/W いずれのトークンも admin tier（role=write）として扱う（LAN 信頼環境向け）。
+/// adminTier=false のとき: R → read tier、W → edit tier。
 ///
 /// セキュリティ注記: `Authorization: Bearer` ヘッダが無い場合に限り `?token=<t>` クエリを
 /// fallback として受理する。`<img>`/`<video>` はカスタムヘッダを送れないための妥協で、
@@ -14,6 +17,7 @@ import LibraryServerAPI
 struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: RouterMiddleware {
     let token: String
     let editToken: String?
+    let adminTier: Bool
 
     func handle(
         _ request: Request, context: Context,
@@ -27,10 +31,15 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
         }
         guard let presented else { throw HTTPError(.unauthorized) }
         var ctx = context
-        if constantTimeEquals(presented, token) {
-            ctx.role = .read
+        if adminTier {
+            // adminTier モード: R/W いずれかのトークンが一致すれば admin 昇格。
+            if constantTimeEquals(presented, token) || (editToken.map { constantTimeEquals(presented, $0) } ?? false) {
+                ctx.role = .write; ctx.tier = .admin
+            } else { throw HTTPError(.unauthorized) }
+        } else if constantTimeEquals(presented, token) {
+            ctx.role = .read; ctx.tier = .read
         } else if let editToken, constantTimeEquals(presented, editToken) {
-            ctx.role = .write
+            ctx.role = .write; ctx.tier = .edit
         } else {
             throw HTTPError(.unauthorized)
         }

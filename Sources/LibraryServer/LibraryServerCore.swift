@@ -38,6 +38,8 @@ public struct LibraryServerConfig: Sendable {
     public var onLibraryStructureChanged: (@Sendable (String) -> Void)?
     /// true でアプリ Web UI を配信せず /docs（Redoc）を / に出す（ローカルエンドポイント用）。
     public var apiOnly: Bool
+    /// true のとき、提示トークン（R/W いずれも）を admin tier として扱う（LAN 信頼環境向け）。
+    public var adminTier: Bool
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -50,7 +52,8 @@ public struct LibraryServerConfig: Sendable {
                 thickThreshold: Int = 0,
                 trashFile: (@Sendable (URL) throws -> Void)? = nil,
                 onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil,
-                apiOnly: Bool = false) {
+                apiOnly: Bool = false,
+                adminTier: Bool = false) {
         self.host = host
         self.port = port
         self.token = token
@@ -64,6 +67,7 @@ public struct LibraryServerConfig: Sendable {
         self.trashFile = trashFile
         self.onLibraryStructureChanged = onLibraryStructureChanged
         self.apiOnly = apiOnly
+        self.adminTier = adminTier
     }
 }
 
@@ -74,6 +78,8 @@ public struct LibraryRequestContext: RequestContext {
     public var coreContext: CoreRequestContextStorage
     /// 提示トークンのロール。BearerAuthMiddleware が認証成功時に刻む（既定 .read）。
     public var role: TokenRole = .read
+    /// アクセス階層（read/edit/admin）。BearerAuthMiddleware が認証成功時に刻む（既定 .read）。
+    public var tier: AccessTier = .read
 
     public init(source: Source) {
         self.coreContext = .init(source: source)
@@ -92,10 +98,17 @@ public struct LibraryRequestContext: RequestContext {
     }
 }
 
-/// BearerAuthMiddleware が値型コンテキストへロールを刻めるよう、role を get/set 可能にする制約。
+/// BearerAuthMiddleware が値型コンテキストへロールと tier を刻めるよう、role/tier を get/set 可能にする制約。
 /// 認証ミドルウェアはこの protocol への準拠だけを要求し、具体コンテキストに依存しない。
-public protocol RoleHoldingContext { var role: TokenRole { get set } }
+public protocol RoleHoldingContext { var role: TokenRole { get set }; var tier: AccessTier { get set } }
 extension LibraryRequestContext: RoleHoldingContext {}
+
+extension RoleHoldingContext {
+    /// .edit 以上の tier でなければ 403 を投げる。
+    public func requireEdit() throws { guard tier >= .edit else { throw HTTPError(.forbidden) } }
+    /// .admin tier でなければ 403 を投げる。
+    public func requireAdmin() throws { guard tier == .admin else { throw HTTPError(.forbidden) } }
+}
 
 /// ファセット / ブラウズで受け付ける列名の許可リスト（SQL injection 防御・4.2b-1b-2b）。
 /// BrowserPaneState.BrowseField.allCases から生成するため enum の変更に自動追従する。
@@ -129,13 +142,13 @@ public struct LibraryServerCore: Sendable {
         }
         // それ以外の API は Bearer トークン認証配下。
         let api = router.group("api/v1")
-            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken))
+            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier))
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
-        // 提示トークンのロール（read / write）を返す。RW ゲート編集の前段確認に使う（4.2b-3）。
+        // 提示トークンの tier（read/edit/admin）と role（互換）を返す（4.2b-3・B1）。
         api.get("me") { _, context in
-            MeReply(role: context.role)
+            MeReply(tier: context.tier)
         }
         api.get("libraries") { _, _ in
             let libs = await dataSource.servedLibraries()
