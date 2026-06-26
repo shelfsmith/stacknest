@@ -570,6 +570,52 @@ public struct LibraryServerCore: Sendable {
                 customFieldLabels: body.customFieldLabels.filter { !$0.value.isEmpty },
                 customBookTypeLabels: body.customBookTypeLabels.filter { !$0.value.isEmpty })
         }
+        // A2: 監視フォルダ設定の取得（R 可）。
+        api.get("libraries/:lib/watch-config") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            let enabled = ((try? lib.db.getLibrarySetting(key: "folder_watch_enabled")) ?? nil).map { $0 == "1" || $0 == "true" } ?? false
+            let foldersJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
+            let folders: [WatchedFolder] = foldersJSON.flatMap { $0.data(using: .utf8) }.flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
+            return WatchConfigDTO(enabled: enabled, folders: folders.map { WatchedFolderDTO(id: $0.id, path: $0.path, enabled: $0.enabled, presetID: $0.presetID, baseline: $0.baseline) })
+        }
+        // A2: 監視フォルダ設定の更新（RW）。
+        api.put("libraries/:lib/watch-config") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            let dto = try await request.decode(as: WatchConfigDTO.self, context: context)
+            let folders = dto.folders.map { WatchedFolder(id: $0.id, path: $0.path, enabled: $0.enabled, presetID: $0.presetID, baseline: $0.baseline) }
+            try lib.db.setLibrarySetting(key: "folder_watch_enabled", value: dto.enabled ? "true" : "false")
+            let data = try JSONEncoder().encode(folders)
+            try lib.db.setLibrarySetting(key: "watched_folders", value: String(decoding: data, as: UTF8.self))
+            config.onLibrarySettingsChanged?(lib.uuid)
+            return dto
+        }
+        // A2: ライブラリロック設定（RW）。パスワードを salt+hash で DB に保存。
+        api.post("libraries/:lib/lock") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            let body = try await request.decode(as: LockRequest.self, context: context)
+            guard !body.password.isEmpty else { throw HTTPError(.badRequest) }
+            let salt = LibraryLock.generateSalt()
+            let hash = LibraryLock.computeHash(password: body.password, saltHex: salt)
+            try lib.db.setLibrarySetting(key: "lock_password_salt", value: salt)
+            try lib.db.setLibrarySetting(key: "lock_password_hash", value: hash)
+            config.onLibrarySettingsChanged?(lib.uuid)
+            return HTTPResponse.Status.noContent
+        }
+        // A2: ライブラリロック解除（RW）。hash と salt を削除。
+        api.delete("libraries/:lib/lock") { [config] request, context in
+            guard context.role == .write else { throw HTTPError(.forbidden) }
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            try lib.db.deleteLibrarySetting(key: "lock_password_hash")
+            try lib.db.deleteLibrarySetting(key: "lock_password_salt")
+            config.onLibrarySettingsChanged?(lib.uuid)
+            return HTTPResponse.Status.noContent
+        }
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
         api.get("libraries/:lib/books/:id/adjacent") { request, context in

@@ -19,3 +19,4 @@ extension CoverCandidatesDTO: ResponseEncodable {}
 extension LabelSettingsDTO: ResponseEncodable {}
 extension AddBooksReplyDTO: ResponseEncodable {}
 extension SmartShelfConditions: ResponseEncodable {}
+extension WatchConfigDTO: ResponseEncodable {}
