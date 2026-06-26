@@ -145,4 +145,57 @@ struct APIClient {
     func me() throws -> Data {
         try request(makeURL("/me"))
     }
+
+    // MARK: - 棚 CRUD
+
+    func shelfCreate(uuid: String, body: ShelfCreateRequest) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/shelves"), method: "POST", body: try encoder.encode(body))
+    }
+    func shelfDelete(uuid: String, id: Int64) throws {
+        _ = try request(makeURL("/libraries/\(uuid)/shelves/\(id)"), method: "DELETE")
+    }
+    func shelfPatch(uuid: String, id: Int64, body: ShelfUpdateRequest) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/shelves/\(id)"), method: "PATCH", body: try encoder.encode(body))
+    }
+    func shelfConditionsGet(uuid: String, id: Int64) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/shelves/\(id)/conditions"))
+    }
+    func shelfConditionsPut(uuid: String, id: Int64, conditionsJSON: Data) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/shelves/\(id)/conditions"), method: "PUT", body: conditionsJSON)
+    }
+    func shelfBooksAdd(uuid: String, id: Int64, bookIDs: [Int]) throws {
+        let body = try encoder.encode(ShelfBooksRequest(bookIDs: bookIDs))
+        _ = try request(makeURL("/libraries/\(uuid)/shelves/\(id)/books"), method: "POST", body: body)
+    }
+    func shelfBooksRemove(uuid: String, id: Int64, bookIDs: [Int]) throws {
+        let body = try encoder.encode(ShelfBooksRequest(bookIDs: bookIDs))
+        _ = try request(makeURL("/libraries/\(uuid)/shelves/\(id)/books"), method: "DELETE", body: body)
+    }
+
+    // MARK: - ライブラリ管理
+
+    func watchGet(uuid: String) throws -> Data { try request(makeURL("/libraries/\(uuid)/watch-config")) }
+    func watchPut(uuid: String, configJSON: Data) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/watch-config"), method: "PUT", body: configJSON)
+    }
+    func lockSet(uuid: String, password: String) throws {
+        let body = try encoder.encode(LockRequest(password: password))
+        _ = try request(makeURL("/libraries/\(uuid)/lock"), method: "POST", body: body)
+    }
+    func lockClear(uuid: String) throws { _ = try request(makeURL("/libraries/\(uuid)/lock"), method: "DELETE") }
+    func importGet(uuid: String) throws -> Data { try request(makeURL("/libraries/\(uuid)/import-config")) }
+    func importPut(uuid: String, body: ImportConfigDTO) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/import-config"), method: "PUT", body: try encoder.encode(body))
+    }
+    func importGlobalGet() throws -> Data { try request(makeURL("/import-config")) }
+    func importGlobalPut(body: GlobalImportConfigDTO) throws -> Data {
+        try request(makeURL("/import-config"), method: "PUT", body: try encoder.encode(body))
+    }
+    func relink(uuid: String, id: Int, newPath: String) throws {
+        let body = try encoder.encode(RelinkRequest(newPath: newPath))
+        _ = try request(makeURL("/libraries/\(uuid)/books/\(id)/relink"), method: "POST", body: body)
+    }
+    func dedup(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/duplicates/scan"), method: "POST")
+    }
 }
