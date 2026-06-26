@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackroomFormat
 
 // ─────────────────────────────────────────────────────────────
 // 共有 wire 型（Foundation のみ依存・Hummingbird/LibraryStore/AppCore 不使用）
@@ -420,4 +421,31 @@ public struct AddBooksReplyDTO: Codable, Sendable {
         self.alreadyPresent = alreadyPresent
         self.failed = failed
     }
+}
+
+// MARK: - A1: 棚管理リクエスト DTO
+
+/// 棚の新規作成リクエスト。isSmart=true のとき conditions 必須。
+public struct ShelfCreateRequest: Codable, Sendable {
+    public var title: String
+    public var isSmart: Bool
+    public var conditions: SmartShelfConditions?
+    public init(title: String, isSmart: Bool, conditions: SmartShelfConditions? = nil) {
+        self.title = title; self.isSmart = isSmart; self.conditions = conditions
+    }
+}
+
+/// 棚の更新リクエスト。title=改名（nil で変更なし）、conditions=スマート棚条件更新（手動棚指定は 409）。
+public struct ShelfUpdateRequest: Codable, Sendable {
+    public var title: String?
+    public var conditions: SmartShelfConditions?
+    public init(title: String? = nil, conditions: SmartShelfConditions? = nil) {
+        self.title = title; self.conditions = conditions
+    }
+}
+
+/// 手動棚の所属追加/除去リクエスト。
+public struct ShelfBooksRequest: Codable, Sendable {
+    public var bookIDs: [Int]
+    public init(bookIDs: [Int]) { self.bookIDs = bookIDs }
 }

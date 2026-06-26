@@ -60,8 +60,8 @@ let package = Package(
             dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI", "StackroomFormat"],
             path: "Sources/AppCore"
         ),
-        .target(name: "LibraryServerAPI", path: "Sources/LibraryServerAPI"),
-        .testTarget(name: "LibraryServerAPITests", dependencies: ["LibraryServerAPI"], path: "Tests/LibraryServerAPITests"),
+        .target(name: "LibraryServerAPI", dependencies: ["StackroomFormat"], path: "Sources/LibraryServerAPI"),
+        .testTarget(name: "LibraryServerAPITests", dependencies: ["LibraryServerAPI", "StackroomFormat"], path: "Tests/LibraryServerAPITests"),
         .target(name: "RemoteClient", dependencies: ["LibraryServerAPI", "AppCore", "LibraryStore"], path: "Sources/RemoteClient"),
         .testTarget(name: "RemoteClientTests", dependencies: ["RemoteClient", "LibraryServerAPI", "LibraryStore"], path: "Tests/RemoteClientTests"),
         .target(
