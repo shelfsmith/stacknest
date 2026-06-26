@@ -86,13 +86,13 @@ func cacheableImageResponse(data: Data, etag: String, request: Request) -> Respo
 
 extension LibraryResolver {
     /// :lib/:id を解決して (ライブラリ, 本) を返す。
-    /// 不明 uuid / 不明 book id → 404、ロック庫の未解錠 → LibraryAccessError.locked（403）。
+    /// 不明 uuid / スコープ外 / 不明 book id → 404、ロック庫の未解錠 → LibraryAccessError.locked（403）。
     func resolveBook(
-        _ request: Request, _ context: some RequestContext
+        _ request: Request, _ context: some RequestContext & RoleHoldingContext
     ) async throws -> (ServedLibrary, BookRow) {
         let uuid = try context.parameters.require("lib")
         guard let lib = try await resolve(
-            uuid: uuid, libraryToken: libraryToken(from: request)
+            uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
         ) else { throw HTTPError(.notFound) }
         let id = try context.parameters.require("id", as: Int.self)
         guard let row = try lib.db.fetchBook(id: id) else { throw HTTPError(.notFound) }

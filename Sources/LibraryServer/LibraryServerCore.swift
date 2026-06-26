@@ -40,6 +40,8 @@ public struct LibraryServerConfig: Sendable {
     public var apiOnly: Bool
     /// true のとき、提示トークン（R/W いずれも）を admin tier として扱う（LAN 信頼環境向け）。
     public var adminTier: Bool
+    /// グラントリスト（B2a: スコープ付きアクセス制御）。nil = 旧来の token/editToken 経路。
+    public var grants: [Grant]?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -53,7 +55,8 @@ public struct LibraryServerConfig: Sendable {
                 trashFile: (@Sendable (URL) throws -> Void)? = nil,
                 onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil,
                 apiOnly: Bool = false,
-                adminTier: Bool = false) {
+                adminTier: Bool = false,
+                grants: [Grant]? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -68,6 +71,7 @@ public struct LibraryServerConfig: Sendable {
         self.onLibraryStructureChanged = onLibraryStructureChanged
         self.apiOnly = apiOnly
         self.adminTier = adminTier
+        self.grants = grants
     }
 }
 
@@ -80,6 +84,8 @@ public struct LibraryRequestContext: RequestContext {
     public var role: TokenRole = .read
     /// アクセス階層（read/edit/admin）。BearerAuthMiddleware が認証成功時に刻む（既定 .read）。
     public var tier: AccessTier = .read
+    /// グラントで許可されたライブラリスコープ。BearerAuthMiddleware が認証成功時に刻む（既定 .all）。
+    public var scope: GrantScope = .all
 
     public init(source: Source) {
         self.coreContext = .init(source: source)
@@ -98,9 +104,13 @@ public struct LibraryRequestContext: RequestContext {
     }
 }
 
-/// BearerAuthMiddleware が値型コンテキストへロールと tier を刻めるよう、role/tier を get/set 可能にする制約。
+/// BearerAuthMiddleware が値型コンテキストへロールと tier を刻めるよう、role/tier/scope を get/set 可能にする制約。
 /// 認証ミドルウェアはこの protocol への準拠だけを要求し、具体コンテキストに依存しない。
-public protocol RoleHoldingContext { var role: TokenRole { get set }; var tier: AccessTier { get set } }
+public protocol RoleHoldingContext {
+    var role: TokenRole { get set }
+    var tier: AccessTier { get set }
+    var scope: GrantScope { get set }
+}
 extension LibraryRequestContext: RoleHoldingContext {}
 
 extension RoleHoldingContext {
@@ -142,7 +152,7 @@ public struct LibraryServerCore: Sendable {
         }
         // それ以外の API は Bearer トークン認証配下。
         let api = router.group("api/v1")
-            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier))
+            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grants: config.grants))
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
@@ -150,8 +160,8 @@ public struct LibraryServerCore: Sendable {
         api.get("me") { _, context in
             MeReply(tier: context.tier)
         }
-        api.get("libraries") { _, _ in
-            let libs = await dataSource.servedLibraries()
+        api.get("libraries") { _, context in
+            let libs = await dataSource.servedLibraries().filter { context.scope.allows($0.uuid) }
             return libs.map {
                 LibraryDTO(id: $0.uuid, name: $0.name, locked: $0.isLocked,
                            bookCount: (try? $0.db.fetchBookCount()) ?? 0)
@@ -173,7 +183,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/books") { request, context in
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request)
+                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
             ) else {
                 throw HTTPError(.notFound)
             }
@@ -213,7 +223,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/shelves") { request, context in
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request)
+                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
             ) else {
                 throw HTTPError(.notFound)
             }
@@ -226,7 +236,7 @@ public struct LibraryServerCore: Sendable {
         api.post("libraries/:lib/shelves") { [config] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: ShelfCreateRequest.self, context: context)
             let newID: Int64
             if body.isSmart {
@@ -246,7 +256,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: ShelfUpdateRequest.self, context: context)
             // 先に全ガードを検証（partial-write 防止）。
@@ -271,7 +281,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             if row.kind == "favorites" { throw HTTPError(.conflict) }
             try lib.db.deleteShelf(id: shelfID)
@@ -282,7 +292,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/shelves/:id/conditions") { request, context in
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard row.isSmart else { throw HTTPError(.conflict) }
             guard let conditions = try lib.db.fetchSmartShelfConditions(id: shelfID) else { throw HTTPError(.notFound) }
@@ -293,7 +303,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard row.isSmart else { throw HTTPError(.conflict) }
             let conditions = try await request.decode(as: SmartShelfConditions.self, context: context)
@@ -306,7 +316,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard !row.isSmart else { throw HTTPError(.conflict) }
             let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
@@ -319,7 +329,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard !row.isSmart else { throw HTTPError(.conflict) }
             let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
@@ -331,7 +341,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/facets/:field") { request, context in
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request)
+                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
             ) else {
                 throw HTTPError(.notFound)
             }
@@ -425,7 +435,7 @@ public struct LibraryServerCore: Sendable {
         // 4.2c-6a: スタンプ定義の取得（R）。配信バンドル設定DB の stamp_definitions を返す。
         api.get("libraries/:lib/stamp-definitions") { request, context in
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
                 throw HTTPError(.notFound)
             }
             let json = (try? lib.db.getLibrarySetting(key: "stamp_definitions")) ?? nil
@@ -438,7 +448,7 @@ public struct LibraryServerCore: Sendable {
         api.put("libraries/:lib/stamp-definitions") { [config] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
                 throw HTTPError(.notFound)
             }
             let dto = try await request.decode(as: StampDefinitionsDTO.self, context: context)
@@ -454,7 +464,7 @@ public struct LibraryServerCore: Sendable {
         api.post("libraries/:lib/books/stamp") { [config] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
                 throw HTTPError(.notFound)
             }
             let body = try await request.decode(as: StampApplyRequest.self, context: context)
@@ -472,7 +482,7 @@ public struct LibraryServerCore: Sendable {
         api.post("libraries/:lib/books") { [config] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else {
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
                 throw HTTPError(.notFound)
             }
             let body = try await request.decode(as: AddBooksRequestDTO.self, context: context)
@@ -567,7 +577,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/label-settings") { request, context in
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request)
+                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
             ) else {
                 throw HTTPError(.notFound)
             }
@@ -586,7 +596,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request)
+                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
             ) else {
                 throw HTTPError(.notFound)
             }
@@ -606,7 +616,7 @@ public struct LibraryServerCore: Sendable {
         // A2: 監視フォルダ設定の取得（R 可）。
         api.get("libraries/:lib/watch-config") { request, context in
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let enabled = ((try? lib.db.getLibrarySetting(key: "folder_watch_enabled")) ?? nil).map { $0 == "1" || $0 == "true" } ?? false
             let foldersJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
             let folders: [WatchedFolder] = foldersJSON.flatMap { $0.data(using: .utf8) }.flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
@@ -616,7 +626,7 @@ public struct LibraryServerCore: Sendable {
         api.put("libraries/:lib/watch-config") { [config] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: WatchConfigDTO.self, context: context)
             let folders = dto.folders.map { WatchedFolder(id: $0.id, path: $0.path, enabled: $0.enabled, presetID: $0.presetID, baseline: $0.baseline) }
             try lib.db.setLibrarySetting(key: "folder_watch_enabled", value: dto.enabled ? "true" : "false")
@@ -629,7 +639,7 @@ public struct LibraryServerCore: Sendable {
         api.post("libraries/:lib/lock") { [config] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: LockRequest.self, context: context)
             guard !body.password.isEmpty else { throw HTTPError(.badRequest) }
             let salt = LibraryLock.generateSalt()
@@ -643,7 +653,7 @@ public struct LibraryServerCore: Sendable {
         api.delete("libraries/:lib/lock") { [config] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             try lib.db.deleteLibrarySetting(key: "lock_password_hash")
             try lib.db.deleteLibrarySetting(key: "lock_password_salt")
             config.onLibrarySettingsChanged?(lib.uuid)
@@ -652,7 +662,7 @@ public struct LibraryServerCore: Sendable {
         // A2: per-library 取り込み設定の取得（R 可）。未設定キーは nil（= グローバル既定に委譲）。
         api.get("libraries/:lib/import-config") { request, context in
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let ac = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libAutoClassifyKey)) ?? nil).map { $0 == "1" || $0 == "true" }
             let th = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libThickThresholdKey)) ?? nil).flatMap { Int($0) }
             return ImportConfigDTO(autoClassifyEnabled: ac, thickBookThreshold: th)
@@ -661,7 +671,7 @@ public struct LibraryServerCore: Sendable {
         api.put("libraries/:lib/import-config") { [config] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: ImportConfigDTO.self, context: context)
             if let ac = dto.autoClassifyEnabled { try lib.db.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: ac ? "true" : "false") } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libAutoClassifyKey) }
             if let th = dto.thickBookThreshold { try lib.db.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: String(max(5, min(100, th)))) } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libThickThresholdKey) }
@@ -685,7 +695,7 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let bookID = try context.parameters.require("id", as: Int.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             guard ((try? lib.db.fetchBook(id: bookID)) ?? nil) != nil else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: RelinkRequest.self, context: context)
             guard !body.newPath.isEmpty else { throw HTTPError(.badRequest) }
@@ -697,7 +707,7 @@ public struct LibraryServerCore: Sendable {
         api.post("libraries/:lib/duplicates/scan") { request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request)) else { throw HTTPError(.notFound) }
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let books = (try? lib.db.fetchAllBooks()) ?? []
             let fm = FileManager.default
             var sizes: [(id: Int, size: Int64)] = []

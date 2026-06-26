@@ -2,6 +2,7 @@
 import Foundation
 import HTTPTypes
 import Hummingbird
+import LibraryServerAPI
 
 /// ロック庫の短命ライブラリトークン管理（メモリのみ・サーバ再起動で失効 — spec §4）。
 /// 加えて TTL（既定 24h・アクセスで延長しない単純期限 — 引き継ぎ(2)）で失効する。
@@ -41,8 +42,9 @@ struct LibraryResolver: Sendable {
     let tokenStore: LibraryTokenStore
 
     /// uuid からライブラリを引き、ロック庫なら X-Library-Token を検証する。
-    /// 見つからない → nil（404 相当）、ロック未解錠 → LibraryAccessError.locked（403）。
-    func resolve(uuid: String, libraryToken: String?) async throws -> ServedLibrary? {
+    /// 見つからない / スコープ外 → nil（404 相当）、ロック未解錠 → LibraryAccessError.locked（403）。
+    func resolve(uuid: String, libraryToken: String?, scope: GrantScope = .all) async throws -> ServedLibrary? {
+        guard scope.allows(uuid) else { return nil }
         guard let lib = await dataSource.servedLibraries().first(where: { $0.uuid == uuid }) else {
             return nil
         }

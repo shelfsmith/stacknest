@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import AppCore
 import Hummingbird
 import LibraryServerAPI
 
@@ -18,6 +19,8 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
     let token: String
     let editToken: String?
     let adminTier: Bool
+    /// グラントリスト（nil = 旧来の token/editToken 経路）。
+    let grants: [Grant]?
 
     func handle(
         _ request: Request, context: Context,
@@ -31,15 +34,23 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
         }
         guard let presented else { throw HTTPError(.unauthorized) }
         var ctx = context
-        if adminTier {
+        if let grants {
+            // グラントモード: グラントリスト内のトークンと照合し、tier/scope を刻む。
+            guard let g = grants.first(where: { constantTimeEquals(presented, $0.token) }) else {
+                throw HTTPError(.unauthorized)
+            }
+            ctx.tier = g.tier
+            ctx.scope = g.scope
+            ctx.role = (g.tier == .read) ? .read : .write
+        } else if adminTier {
             // adminTier モード: R/W いずれかのトークンが一致すれば admin 昇格。
             if constantTimeEquals(presented, token) || (editToken.map { constantTimeEquals(presented, $0) } ?? false) {
-                ctx.role = .write; ctx.tier = .admin
+                ctx.role = .write; ctx.tier = .admin; ctx.scope = .all
             } else { throw HTTPError(.unauthorized) }
         } else if constantTimeEquals(presented, token) {
-            ctx.role = .read; ctx.tier = .read
+            ctx.role = .read; ctx.tier = .read; ctx.scope = .all
         } else if let editToken, constantTimeEquals(presented, editToken) {
-            ctx.role = .write; ctx.tier = .edit
+            ctx.role = .write; ctx.tier = .edit; ctx.scope = .all
         } else {
             throw HTTPError(.unauthorized)
         }
