@@ -562,13 +562,13 @@ struct ShelfConditionsSet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "conditions-set", abstract: "スマート棚の条件を更新する")
     @OptionGroup var common: CommonOptions
     @Argument(help: "棚 ID") var id: Int64
-    @Option(name: .long, help: "条件 JSON (SmartShelfConditions)") var json: String
+    @Option(name: [.customLong("conditions-json")], help: "条件 JSON (SmartShelfConditions)") var conditionsJSON: String
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
             // 妥当性のためデコードしてから再エンコード（不正 JSON は早期に弾く）
-            let cond = try JSONDecoder().decode(SmartShelfConditions.self, from: Data(json.utf8))
+            let cond = try JSONDecoder().decode(SmartShelfConditions.self, from: Data(conditionsJSON.utf8))
             let body = try JSONEncoder().encode(cond)
             print(String(data: try client.shelfConditionsPut(uuid: lib.id, id: id, conditionsJSON: body), encoding: .utf8) ?? "")
         }
@@ -910,10 +910,10 @@ struct StampDefinitionsGet: ParsableCommand {
 struct StampDefinitionsSet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "set", abstract: "スタンプ定義を全置換する")
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "StampDefinitionsDTO の JSON") var json: String
+    @Option(name: [.customLong("definitions-json")], help: "StampDefinitionsDTO の JSON") var definitionsJSON: String
     func run() throws { try mappingAPIErrors {
         // 妥当性のためデコードしてから再エンコード（不正 JSON は早期に弾く）
-        let dto = try JSONDecoder().decode(StampDefinitionsDTO.self, from: Data(json.utf8))
+        let dto = try JSONDecoder().decode(StampDefinitionsDTO.self, from: Data(definitionsJSON.utf8))
         let body = try JSONEncoder().encode(dto)
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
@@ -940,9 +940,9 @@ struct LabelGet: ParsableCommand {
 struct LabelSet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "set", abstract: "ラベルカスタマイズを更新する")
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "LabelSettingsDTO の JSON ({customFieldLabels,customBookTypeLabels})") var json: String
+    @Option(name: [.customLong("settings-json")], help: "LabelSettingsDTO の JSON ({customFieldLabels,customBookTypeLabels})") var settingsJSON: String
     func run() throws { try mappingAPIErrors {
-        let dto = try JSONDecoder().decode(LabelSettingsDTO.self, from: Data(json.utf8))
+        let dto = try JSONDecoder().decode(LabelSettingsDTO.self, from: Data(settingsJSON.utf8))
         let body = try JSONEncoder().encode(dto)
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)

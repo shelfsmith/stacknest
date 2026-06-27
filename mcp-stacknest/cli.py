@@ -160,7 +160,7 @@ def _with_library(library: str | None, explicit_token: str | None, call):
         if not password:
             raise StacknestError(
                 e.exit_code,
-                (e.stderr or "") + "\n（ライブラリトークンが失効。stacknest_unlock で再解錠してください）")
+                (e.stderr or "") + "\n（ロック庫なら stacknest_unlock で再解錠が必要です。または権限不足(tier)の可能性があります）")
         unlock(library, password)                 # 再 unlock（キャッシュ＆ STACKNEST_LIBRARY_TOKEN を更新）
         return call(_library_tokens[library])     # 新トークンで 1 回だけリトライ
 
@@ -209,7 +209,9 @@ def add(library: str, paths: list[str], preset: str | None = None,
         proc = _exec(build_argv("add", library=library, paths=paths, preset=preset), library_token=tok)
         if proc.returncode in (0, 1) and proc.stdout.strip():
             return proc.stdout                      # 部分成功(1)含め reply JSON を返す
-        raise StacknestError(proc.returncode, proc.stderr or proc.stdout)
+        if proc.returncode == 0:
+            return "{}"                             # 成功だが空 stdout（旧挙動を維持）
+        raise StacknestError(proc.returncode, proc.stderr or proc.stdout)  # exit 3 等は _with_library が拾う
     out = _with_library(library, library_token, _do)
     try:
         return json.loads(out)
@@ -460,7 +462,7 @@ def stamp_definitions_set(library: str, definitions: dict, *,
                           library_token: str | None = None) -> Any:
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("stamp-definitions", sub="set", library=library,
-                                   flags={"json": json.dumps(definitions)}), library_token=tok)))
+                                   flags={"definitions-json": json.dumps(definitions)}), library_token=tok)))
 
 
 def label_get(library: str, *, library_token: str | None = None) -> Any:
@@ -471,4 +473,4 @@ def label_get(library: str, *, library_token: str | None = None) -> Any:
 def label_set(library: str, settings: dict, *, library_token: str | None = None) -> Any:
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("label", sub="set", library=library,
-                                   flags={"json": json.dumps(settings)}), library_token=tok)))
+                                   flags={"settings-json": json.dumps(settings)}), library_token=tok)))
