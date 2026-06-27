@@ -277,3 +277,116 @@ def test_high_level_lock_set_passes_stdin(monkeypatch):
     assert "--password-stdin" in captured["argv"]
     assert "--password" not in captured["argv"]
     assert captured["input"] == "secret"
+
+
+# --- env library_token 注入 / 自動再 unlock ---
+
+def test_run_injects_library_token_into_env(monkeypatch):
+    captured = {}
+    class FakeProc:
+        returncode = 0
+        stdout = "{}"
+        stderr = ""
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return FakeProc()
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    cli.run(["list", "--json"], library_token="LT123")
+    assert captured["env"] is not None
+    assert captured["env"].get("STACKNEST_LIBRARY_TOKEN") == "LT123"
+
+
+def test_run_no_env_override_when_token_absent(monkeypatch):
+    captured = {}
+    class FakeProc:
+        returncode = 0
+        stdout = "{}"
+        stderr = ""
+    def fake_run(cmd, **kwargs):
+        captured["env"] = kwargs.get("env")
+        return FakeProc()
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    cli.run(["list", "--json"])
+    assert captured["env"] is None
+
+
+def test_build_argv_unchanged_for_library_token():
+    argv = cli.build_argv("list", library="M")
+    assert "STACKNEST_LIBRARY_TOKEN" not in " ".join(argv)
+    assert "--library-token" not in argv
+
+
+def test_build_argv_grant_create():
+    argv = cli.build_argv("grant", sub="create",
+                          flags={"label": "fam", "tier": "edit", "scope-json": '{"libraries":["a"]}'})
+    assert argv[:2] == ["grant", "create"]
+    assert "--label" in argv and "fam" in argv
+    assert "--tier" in argv and "edit" in argv
+    assert "--scope-json" in argv
+
+
+def test_build_argv_stamp_clear_and_ids():
+    argv = cli.build_argv("stamp", library="M", flags={"field": "genre", "clear": True}, ids=[1, 2])
+    assert argv[:1] == ["stamp"]
+    assert "--field" in argv and "genre" in argv
+    assert "--clear" in argv
+    assert argv[-2:] == ["1", "2"]
+
+
+def test_build_argv_list_filter_browse():
+    argv = cli.build_argv("list", library="M",
+                          flags={"sort": "dateAdded", "order": "desc",
+                                 "filter-json": "{}", "browse-json": "[]"})
+    assert "--sort" in argv and "dateAdded" in argv
+    assert "--order" in argv and "desc" in argv
+    assert "--filter-json" in argv
+    assert "--browse-json" in argv
+
+
+def test_stale_token_auto_reunlock_and_retry(monkeypatch):
+    """exit 3(stale) → password キャッシュ有りなら自動再 unlock＋リトライで成功し、
+    新トークンが STACKNEST_LIBRARY_TOKEN に書き戻される（spec §2.1）。"""
+    cli._library_tokens.clear()
+    cli._library_passwords.clear()
+    monkeypatch.delenv("STACKNEST_LIBRARY_TOKEN", raising=False)
+    cli._library_tokens["Secret"] = "OLD"
+    cli._library_passwords["Secret"] = "pw"
+
+    def fake_exec(argv, *, timeout=60, input=None, library_token=None):
+        class P:
+            stderr = ""
+        if argv[0] == "unlock":
+            P.returncode = 0
+            P.stdout = '{"libraryToken": "NEW"}'
+            return P
+        if library_token == "OLD":
+            P.returncode = 3
+            P.stdout = ""
+            P.stderr = "forbidden"
+            return P
+        P.returncode = 0
+        P.stdout = '{"items": [], "total": 0, "page": 1, "perPage": 100}'
+        return P
+    monkeypatch.setattr(cli, "_exec", fake_exec)
+
+    result = cli.list_books("Secret")
+    assert result["total"] == 0
+    assert cli._library_tokens["Secret"] == "NEW"
+    assert os.environ.get("STACKNEST_LIBRARY_TOKEN") == "NEW"
+
+
+def test_stale_token_without_password_raises(monkeypatch):
+    """exit 3 でも password 未キャッシュなら自動更新せず例外（外部 token を直接渡したケース）。"""
+    cli._library_tokens.clear()
+    cli._library_passwords.clear()
+    def fake_exec(argv, *, timeout=60, input=None, library_token=None):
+        class P:
+            returncode = 3
+            stdout = ""
+            stderr = "forbidden"
+        return P
+    monkeypatch.setattr(cli, "_exec", fake_exec)
+    with pytest.raises(cli.StacknestError) as e:
+        cli.list_books("Secret", library_token="EXTERNAL")
+    assert e.value.exit_code == 3
+    assert "再解錠" in e.value.stderr
