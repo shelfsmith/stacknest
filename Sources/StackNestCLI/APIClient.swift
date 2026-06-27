@@ -93,13 +93,23 @@ struct APIClient {
 
     /// GET /api/v1/libraries/:uuid/books → JSON Data（BookPageDTO）
     /// limit はサーバの per（1ページ件数・サーバ側で 1...500 にクランプ）。
-    func listBooks(uuid: String, query: String?, limit: Int?) throws -> Data {
+    /// filterJSON/browseJSON は URL-encoded JSON としてそのまま渡す（サーバが検証）。
+    func listBooks(uuid: String, query: String? = nil, limit: Int? = nil,
+                   sort: String? = nil, order: String? = nil,
+                   scope: String? = nil, scopeId: Int64? = nil, recentDays: Int? = nil,
+                   fields: String? = nil, filterJSON: String? = nil, browseJSON: String? = nil) throws -> Data {
+        func enc(_ s: String) -> String { s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s }
         var items: [String] = []
-        if let q = query, !q.isEmpty {
-            let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
-            items.append("q=\(enc)")
-        }
+        if let q = query, !q.isEmpty { items.append("q=\(enc(q))") }
         if let limit { items.append("per=\(limit)") }
+        if let sort { items.append("sort=\(enc(sort))") }
+        if let order { items.append("order=\(enc(order))") }
+        if let scope { items.append("scope=\(enc(scope))") }
+        if let scopeId { items.append("scopeId=\(scopeId)") }
+        if let recentDays { items.append("recentDays=\(recentDays)") }
+        if let fields, !fields.isEmpty { items.append("fields=\(enc(fields))") }
+        if let filterJSON, !filterJSON.isEmpty { items.append("filter=\(enc(filterJSON))") }
+        if let browseJSON, !browseJSON.isEmpty { items.append("browse=\(enc(browseJSON))") }
         let urlStr = apiBase + "/libraries/\(uuid)/books" + (items.isEmpty ? "" : "?" + items.joined(separator: "&"))
         return try request(URL(string: urlStr)!)
     }

@@ -154,20 +154,40 @@ struct Libraries: ParsableCommand {
 struct List: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "ライブラリの書籍一覧を表示する"
+        abstract: "ライブラリの書籍一覧を表示する（検索/フィルタ/ブラウズ/ソート対応）"
     )
     @OptionGroup var common: CommonOptions
     @Option(name: .shortAndLong, help: "検索キーワード")
     var query: String?
     @Option(name: .shortAndLong, help: "取得件数（既定 100・最大 500）")
     var limit: Int?
+    @Option(name: .long, help: "ソートキー（例: title, dateAdded）")
+    var sort: String?
+    @Option(name: .long, help: "並び順 (asc/desc)")
+    var order: String?
+    @Option(name: .long, help: "サイドバースコープ（例: all, recent, shelf）")
+    var scope: String?
+    @Option(name: [.customLong("scope-id")], help: "スコープ対象 ID（棚 ID 等）")
+    var scopeId: Int64?
+    @Option(name: [.customLong("recent-days")], help: "scope=recent の日数")
+    var recentDays: Int?
+    @Option(name: .long, help: "追加フィールドをカンマ区切りで要求（genre,neta,keywordA,...）")
+    var fields: String?
+    @Option(name: [.customLong("filter-json")], help: "FilterState の JSON")
+    var filterJSON: String?
+    @Option(name: [.customLong("browse-json")], help: "ブラウズ条件 JSON（[{\"column\":...,\"value\":...}]）")
+    var browseJSON: String?
 
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common)
             let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
-            let data = try client.listBooks(uuid: lib.id, query: query, limit: limit)
+            let data = try client.listBooks(
+                uuid: lib.id, query: query, limit: limit,
+                sort: sort, order: order, scope: scope, scopeId: scopeId,
+                recentDays: recentDays, fields: fields,
+                filterJSON: filterJSON, browseJSON: browseJSON)
             if common.json {
                 print(String(data: data, encoding: .utf8) ?? "")
                 return
