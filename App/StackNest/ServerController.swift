@@ -124,17 +124,13 @@ final class ServerController {
 
     func regenerateToken() {
         ServerPreferences.regenerateToken()
-        // C-③a: 既定グラント(default-read)のトークンを即同期＝旧トークン失効。grantsProvider が
-        // 毎リクエスト参照するため再起動不要（接続維持のまま即時切替）。
-        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
-                                     editToken: ServerPreferences.editToken(), now: Date())
+        syncDefaultGrantsToCurrent()   // C-③a: 再起動せず旧トークン失効・新トークン即時有効
     }
 
     /// 編集（RW）トークンを生成/再生成する。C-③a: 再起動せず既定グラントを即同期（接続維持）。
     func regenerateEditToken() {
         editToken = ServerPreferences.regenerateEditToken()   // stored prop 更新で UI 即反映（A2）
-        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
-                                     editToken: ServerPreferences.editToken(), now: Date())
+        syncDefaultGrantsToCurrent()
     }
 
     /// 編集（RW）トークンを削除（リモート編集を無効化）。C-③a: 再起動せず既定グラント(default-edit)を
@@ -142,11 +138,22 @@ final class ServerController {
     func clearEditToken() {
         ServerPreferences.clearEditToken()
         editToken = nil
+        syncDefaultGrantsToCurrent()
+    }
+
+    /// 既定グラント(default-read/default-edit)のトークンを現在の ServerPreferences 値へ即同期する。
+    /// C-③a: トークン再生成/無効化を grant 認可へ反映（grantsProvider が毎リクエスト参照＝再起動不要）。
+    /// グラント未初期化（サーバ未起動で空）なら何もしない＝次回 start() の migrate/sync に委ねる
+    /// （空配列に編集トークンだけ同期すると default-read 欠落の非対称状態を作るため）。
+    private func syncDefaultGrantsToCurrent() {
+        guard !GrantStore.list().isEmpty else { return }
         GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
                                      editToken: ServerPreferences.editToken(), now: Date())
     }
 
-    /// 稼働中の再起動。旧 serverTask の graceful shutdown（runService の return = ポート解放）
+    /// 稼働中の再起動。**C-③a 以降、トークン再生成はライブ化したため通常の呼び出し元はない**
+    /// （将来のポート変更・ライフサイクル制御用に残置）。
+    /// 旧 serverTask の graceful shutdown（runService の return = ポート解放）
     /// を待ってから start() する。stop(); start() を即時に呼ぶと、旧サーバがポートを解放する前に
     /// 同ポートへ再 bind して IOError になっていた（4.1b smoke A5）。
     private func restart() {
