@@ -49,7 +49,6 @@ final class ServerController {
                           tier: .admin, scope: .all, createdAt: existing?.createdAt ?? Date())
             if existing != nil { GrantStore.update(g) } else { GrantStore.add(g) }
         }
-        let grants = GrantStore.list()
         let config = LibraryServerConfig(
             host: "::",                      // dual-stack（IPv4/IPv6 両対応）
             port: ServerPreferences.port(),
@@ -87,7 +86,7 @@ final class ServerController {
                     }
                 }
             },
-            grants: grants   // B2: ネットワーク共有は grant 解決（tier×scope）。起動時スナップショット
+            grantsProvider: { GrantStore.list() }   // C-③a: 毎リクエスト現在のグラントを参照（ライブ反映/即時失効）
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         let app = core.buildApplication()
@@ -125,21 +124,26 @@ final class ServerController {
 
     func regenerateToken() {
         ServerPreferences.regenerateToken()
-        // 稼働中なら新トークンを反映するため再起動
-        if isRunning { restart() }
+        // C-③a: 既定グラント(default-read)のトークンを即同期＝旧トークン失効。grantsProvider が
+        // 毎リクエスト参照するため再起動不要（接続維持のまま即時切替）。
+        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
+                                     editToken: ServerPreferences.editToken(), now: Date())
     }
 
-    /// 編集（RW）トークンを生成/再生成する。稼働中なら新トークン反映のため再起動（4.2b-3）。
+    /// 編集（RW）トークンを生成/再生成する。C-③a: 再起動せず既定グラントを即同期（接続維持）。
     func regenerateEditToken() {
         editToken = ServerPreferences.regenerateEditToken()   // stored prop 更新で UI 即反映（A2）
-        if isRunning { restart() }
+        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
+                                     editToken: ServerPreferences.editToken(), now: Date())
     }
 
-    /// 編集（RW）トークンを削除（リモート編集を無効化）。稼働中なら反映のため再起動（4.2b-3）。
+    /// 編集（RW）トークンを削除（リモート編集を無効化）。C-③a: 再起動せず既定グラント(default-edit)を
+    /// 即削除＝旧 RW トークン失効（接続維持）。
     func clearEditToken() {
         ServerPreferences.clearEditToken()
         editToken = nil
-        if isRunning { restart() }
+        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
+                                     editToken: ServerPreferences.editToken(), now: Date())
     }
 
     /// 稼働中の再起動。旧 serverTask の graceful shutdown（runService の return = ポート解放）
