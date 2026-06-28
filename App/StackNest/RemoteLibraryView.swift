@@ -552,7 +552,20 @@ struct RemoteLibraryView: View {
                                 .onTapGesture(count: 2) { state.openViewer(book: book) }
                                 // 4.2c-4: 単一クリックは修飾子で分岐（⌘トグル / ⇧範囲 / 無修飾置換）。
                                 .onTapGesture { handleGridClick(book) }
-                                .contextMenu { downloadMenu(book); Divider(); sortMenu() }
+                                .contextMenu {
+                                    downloadMenu(book)
+                                    if state.canDelete {
+                                        Divider()
+                                        Button(role: .destructive) {
+                                            // 単一クリックでも複数選択中はその集合を対象に（選択外なら単体）。
+                                            let ids = (state.multiSelection.contains(book.id) && !state.multiSelection.isEmpty)
+                                                ? state.multiSelection : [book.id]
+                                            RemoteDeleteCommand.presentAndDelete(ids: ids, state: state)
+                                        } label: { Label("削除…", systemImage: "trash") }
+                                    }
+                                    Divider()
+                                    sortMenu()
+                                }
                                 // Task 3: infinite モードで末尾セルが見えたら次チャンクを取得。
                                 .onAppear {
                                     if state.scrollMode == .infinite, book.id == state.books.last?.id {

@@ -392,6 +392,14 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
             dlItem.isEnabled = !state.isDownloaded(book.id)
             menu.addItem(dlItem)
         }
+        // Phase C-②: 削除（admin のみ）。選択集合（clickedRow を含むよう上で調整済）を対象。
+        if state.canDelete {
+            menu.addItem(NSMenuItem.separator())
+            let delItem = NSMenuItem(title: String(localized: "削除…"),
+                                     action: #selector(ctxDelete(_:)), keyEquivalent: "")
+            delItem.target = self
+            menu.addItem(delItem)
+        }
     }
 
     @objc private func ctxOpen(_ sender: NSMenuItem) {
@@ -408,5 +416,11 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
     /// 作られず、×（中断）が効かない（token=false）。必ず startBatchDownload() 経由で起動する。
     @objc private func ctxDownloadSelected(_ sender: NSMenuItem) {
         state.startBatchDownload()
+    }
+    /// Phase C-②: 選択本を削除（admin）。確認ダイアログは RemoteDeleteCommand が出す。
+    @objc private func ctxDelete(_ sender: NSMenuItem) {
+        guard let table = tableView else { return }
+        let ids = Set(table.selectedRowIndexes.compactMap { $0 < state.books.count ? state.books[$0].id : nil })
+        RemoteDeleteCommand.presentAndDelete(ids: ids, state: state)
     }
 }
