@@ -454,15 +454,22 @@ def stamp_apply(library: str, field: str, book_ids: list[int], *,
 
 
 def stamp_definitions_get(library: str, *, library_token: str | None = None) -> Any:
-    return json.loads(_with_library(library, library_token,
+    # サーバ/CLI は StampDefinitionsDTO {"definitions": {col:[...]}} で授受するが、
+    # MCP ツールは内側マップ {col:[...]} を扱う（set と対称・label と同様に「中身」を直接扱う）。
+    raw = json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("stamp-definitions", sub="get", library=library), library_token=tok)))
+    return raw.get("definitions", raw) if isinstance(raw, dict) else raw
 
 
 def stamp_definitions_set(library: str, definitions: dict, *,
                           library_token: str | None = None) -> Any:
-    return json.loads(_with_library(library, library_token,
+    # 内側マップ {col:[...]} を StampDefinitionsDTO {"definitions": {...}} にラップして渡す
+    # （CLI/サーバは DTO 形を要求するため。素の内側マップだと keyNotFound("definitions") になる）。
+    payload = json.dumps({"definitions": definitions})
+    raw = json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("stamp-definitions", sub="set", library=library,
-                                   flags={"definitions-json": json.dumps(definitions)}), library_token=tok)))
+                                   flags={"definitions-json": payload}), library_token=tok)))
+    return raw.get("definitions", raw) if isinstance(raw, dict) else raw
 
 
 def label_get(library: str, *, library_token: str | None = None) -> Any:

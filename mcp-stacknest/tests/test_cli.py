@@ -390,3 +390,22 @@ def test_stale_token_without_password_raises(monkeypatch):
         cli.list_books("Secret", library_token="EXTERNAL")
     assert e.value.exit_code == 3
     assert "再解錠" in e.value.stderr
+
+
+def test_stamp_definitions_set_wraps_into_dto_and_unwraps_reply(monkeypatch):
+    """MCP は内側マップを受け取り CLI へ StampDefinitionsDTO {"definitions":{...}} で渡す。
+    返りは内側マップにアンラップする（スモークで keyNotFound("definitions") を検出した回帰防止）。"""
+    captured = {}
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return '{"definitions": {"genre": ["A"]}}'
+    monkeypatch.setattr(cli, "run", fake_run)
+    result = cli.stamp_definitions_set("L", {"genre": ["A"]})
+    i = captured["argv"].index("--definitions-json")
+    assert json.loads(captured["argv"][i + 1]) == {"definitions": {"genre": ["A"]}}
+    assert result == {"genre": ["A"]}
+
+
+def test_stamp_definitions_get_unwraps(monkeypatch):
+    monkeypatch.setattr(cli, "run", lambda argv, **k: '{"definitions": {"genre": ["A", "B"]}}')
+    assert cli.stamp_definitions_get("L") == {"genre": ["A", "B"]}
