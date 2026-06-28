@@ -86,7 +86,7 @@ struct RemoteLibraryView: View {
                     .help("上ペイン切替")
                 }
                 // 4.2c-8 B1(v2): ラベル編集は歯車「ライブラリ設定」（現状ラベルのみ・RW）。
-                if state.canEditServer {
+                if state.canEdit {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
                             showRemoteSettings = true
@@ -136,7 +136,7 @@ struct RemoteLibraryView: View {
         .frame(minWidth: 960, minHeight: 480)
     }
 
-    /// 詳細 DetailPaneView。write トークン時は編集可（canEdit = state.canEditServer）。
+    /// 詳細 DetailPaneView。edit トークン時は編集可（canEdit = state.canEdit）。
     /// v1: 単一本のメタデータ編集のみ。カバー・クロップ・マルチ選択編集は no-op。
     private var detailPane: some View {
         DetailPaneView(
@@ -144,7 +144,7 @@ struct RemoteLibraryView: View {
             librarySettings: settings,   // 4.2c-8: サーバ同期ラベルを詳細ペインにも反映
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
-            canEdit: state.canEditServer,
+            canEdit: state.canEdit,
             canShowFinder: false,   // リモートはローカルにファイルが無いため非表示
             remoteFileExtension: state.detail?.fileExtension,
             ratingEditable: true,   // 4.2c-9: レートは R でも編集可（共有評価）
@@ -279,11 +279,11 @@ struct RemoteLibraryView: View {
 
             // 4.2c-6a (smoke v2/v3/v4 自由記載): このリモート接続が編集可か閲覧のみかを一目で示す。
             // v4: 小さい pencil は棒に見えるため square.and.pencil に＋フォントを拡大。
-            Label(state.canEditServer ? "編集可" : "閲覧のみ",
-                  systemImage: state.canEditServer ? "square.and.pencil" : "eye")
+            Label(state.canEdit ? "編集可" : "閲覧のみ",
+                  systemImage: state.canEdit ? "square.and.pencil" : "eye")
                 .font(.callout)
-                .foregroundStyle(state.canEditServer ? Color.accentColor : .secondary)
-                .help(state.canEditServer ? "編集可能（RW トークン）" : "閲覧のみ（R トークン）")
+                .foregroundStyle(state.canEdit ? Color.accentColor : .secondary)
+                .help(state.canEdit ? "編集可能（RW トークン）" : "閲覧のみ（R トークン）")
 
             Spacer()
 

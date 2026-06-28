@@ -54,9 +54,13 @@ final class RemoteLibraryState {
     var isGrid = false
     var selection: Int? = nil
     var errorText: String? = nil
-    /// Phase 4.2b-3 Task 4: /me で取得したトークンロール（write なら編集可）。
-    var canEditServer = false
-    /// /me によるロール確認が成功したか（一度だけ確認・reload 毎の再取得を避ける）。
+    /// Phase C-②: /me で取得した接続トークンの tier（read<edit<admin）。fail-closed で既定 .read。
+    var tier: AccessTier = .read
+    /// 編集可（tier≥edit）。従来の編集可フラグ相当。
+    var canEdit: Bool { tier >= .edit }
+    /// 削除可（tier≥admin・実ファイル/DB 削除）。
+    var canDelete: Bool { tier >= .admin }
+    /// /me による tier 確認が成功したか（一度だけ確認・reload 毎の再取得を避ける）。
     private var roleResolved = false
 
     /// Phase 4.2b-1b-2b Task 5: 共有 browse ビュー（sidebar / facet pane / detail）駆動状態。
@@ -206,11 +210,11 @@ final class RemoteLibraryState {
             books = result.items
             total = result.total
             errorText = nil
-            // Phase 4.2b-3: トークンロール（編集可否）は一度だけ確認する。reload は
+            // Phase C-②: 接続トークンの tier（編集/削除可否）は一度だけ確認する。reload は
             // filter/sort/page 変更の度に走るため毎回 /me を叩かない。失敗時は roleResolved を
-            // 立てず次回 reload で再試行（fail-closed: 解決するまで canEditServer=false）。
-            if !roleResolved, let role = try? await client.me(libraryToken: libraryToken) {
-                canEditServer = (role == .write)
+            // 立てず次回 reload で再試行（fail-closed: 解決するまで tier=.read）。
+            if !roleResolved, let me = try? await client.me(libraryToken: libraryToken) {
+                tier = me.tier
                 roleResolved = true
             }
             // Phase 4.2c-2: 最初の本一覧ロード成功後に resume 意図を 1 回だけ消費する。
@@ -562,9 +566,33 @@ final class RemoteLibraryState {
         }
     }
 
+    /// Phase C-②: 選択本をサーバから削除（admin 必須）。trash=true でゴミ箱＋DB削除、false で DB のみ。
+    /// リモートは Undo 不可。成功分をローカル一覧から除去し、失敗は要約表示する。
+    func deleteBooks(ids: Set<Int>, trash: Bool) async {
+        guard canDelete, !ids.isEmpty else { return }
+        let list = Array(ids)
+        errorText = nil
+        var ok = 0, fail = 0
+        for id in list {
+            do {
+                try await client.deleteBook(libraryUUID: libraryUUID, bookID: id, trash: trash, libraryToken: libraryToken)
+                books.removeAll { $0.id == id }
+                ok += 1
+            } catch {
+                fail += 1
+            }
+        }
+        multiSelection.removeAll()
+        if let sel = selection, !books.contains(where: { $0.id == sel }) { selection = nil }
+        total = max(0, total - ok)
+        var parts = ["\(ok) 件削除"]
+        if fail > 0 { parts.append("\(fail) 件失敗") }
+        showEditSummary(parts.joined(separator: " / "), kind: fail > 0 ? .warning : .success)
+    }
+
     /// 詳細ペインの複数選択一括編集を開始（RW 必須・×中断トークン付き）。
     func startBatchEdit(ids: Set<Int>, patch: BookPatch) {
-        guard canEditServer, !ids.isEmpty else { return }
+        guard canEdit, !ids.isEmpty else { return }
         editCancel?.cancel(); editTask?.cancel()
         let flag = CancelFlag(); editCancel = flag
         editTask = Task { [weak self] in await self?.applyRemotePatchMulti(ids: ids, patch: patch, cancel: flag) }
@@ -680,7 +708,7 @@ final class RemoteLibraryState {
 
     /// 選択本へスタンプ値を append 適用（サーバ一括 API・単一リクエスト）。
     func applyStamp(field: StampField, value: String) {
-        guard canEditServer, !multiSelection.isEmpty else { return }
+        guard canEdit, !multiSelection.isEmpty else { return }
         let ids = Array(multiSelection)
         Task {
             _ = try? await client.applyStamp(libraryUUID: libraryUUID, field: field.dbColumn,
@@ -692,7 +720,7 @@ final class RemoteLibraryState {
 
     /// 選択本の当該スタンプフィールドを消去（サーバ一括 API）。
     func clearStamp(field: StampField) {
-        guard canEditServer, !multiSelection.isEmpty else { return }
+        guard canEdit, !multiSelection.isEmpty else { return }
         let ids = Array(multiSelection)
         Task {
             _ = try? await client.applyStamp(libraryUUID: libraryUUID, field: field.dbColumn,
@@ -704,7 +732,7 @@ final class RemoteLibraryState {
 
     /// スタンプ定義を追加（重複 skip）→ サーバ PUT。選択があれば併せて適用。RW 必須。
     func addStampDefinition(field: StampField, value: String) {
-        guard canEditServer else { return }
+        guard canEdit else { return }
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return }
         var defs = stampDefinitions
@@ -754,7 +782,7 @@ final class RemoteLibraryState {
 
     /// スタンプ定義を削除 → サーバ PUT。ショートカット定義のみ除去（本メタは不変）。RW 必須。
     func deleteStampDefinition(field: StampField, value: String) {
-        guard canEditServer else { return }
+        guard canEdit else { return }
         var defs = stampDefinitions
         if var fieldDefs = defs[field.dbColumn], let i = fieldDefs.firstIndex(of: value) {
             fieldDefs.remove(at: i); defs[field.dbColumn] = fieldDefs; stampDefinitions = defs

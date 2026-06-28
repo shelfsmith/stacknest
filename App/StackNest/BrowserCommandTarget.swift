@@ -43,7 +43,7 @@ extension FocusedValues {
     func setRating(_ stars: Int) { state.setRatingForSelection(stars) }
     func toggleUnread() { state.toggleUnreadForSelection() }
     func openSettings() { openSettingsAction() }
-    var canEditMeta: Bool { state.canEditServer }
+    var canEditMeta: Bool { state.canEdit }
     var canManageFiles: Bool { false }   // 将来ヘッドレス庫のリモート管理で true にする余地を残す
     var canRate: Bool { true }
     var canMarkUnread: Bool { true }
