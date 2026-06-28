@@ -1,27 +1,26 @@
 // SPDX-License-Identifier: MIT
 import AppKit
 
-/// Phase C-②: リモートRW の本削除（admin のみ）。NSAlert で「ライブラリから削除(DBのみ)」/
-/// 「ゴミ箱に移動(ファイル+DB)」/「キャンセル」の 3 択を出し、選択に応じて state.deleteBooks を起動する。
-/// list（NSMenu coordinator）と grid（SwiftUI contextMenu）の双方から呼ぶ共有ヘルパ。
+/// Phase C-②.1: リモートRW の本削除（admin のみ）。ローカルと同じ 2 コマンド
+/// （ライブラリから削除＝DB のみ・ファイル残す／ゴミ箱に移動＝ファイルも削除）に整合。
+/// File メニュー・list（NSMenu）・grid（SwiftUI contextMenu）から共通で呼ぶ確認付きヘルパ。
 @MainActor
 enum RemoteDeleteCommand {
-    static func presentAndDelete(ids: Set<Int>, state: RemoteLibraryState) {
+    /// trash=false: ライブラリから削除（DB のみ）。trash=true: ゴミ箱に移動（ファイル＋DB）。
+    static func confirmAndDelete(ids: Set<Int>, state: RemoteLibraryState, trash: Bool) {
         guard state.canDelete, !ids.isEmpty else { return }
         let alert = NSAlert()
-        alert.messageText = String(localized: "選択した \(ids.count) 件を削除しますか?")
-        alert.informativeText = String(localized: "「ゴミ箱に移動」はファイルも削除します（ゴミ箱から復元可）。「ライブラリから削除」は記録のみ削除しファイルは残します。\nこの操作は取り消せません。")
-        alert.addButton(withTitle: String(localized: "ライブラリから削除"))   // .alertFirstButtonReturn
-        let trashBtn = alert.addButton(withTitle: String(localized: "ゴミ箱に移動"))  // .alertSecondButtonReturn
-        trashBtn.hasDestructiveAction = true
-        alert.addButton(withTitle: String(localized: "キャンセル"))           // .alertThirdButtonReturn
-        let resp = alert.runModal()
-        let trash: Bool
-        switch resp {
-        case .alertFirstButtonReturn: trash = false
-        case .alertSecondButtonReturn: trash = true
-        default: return   // キャンセル
+        if trash {
+            alert.messageText = String(localized: "選択した \(ids.count) 件のファイルをゴミ箱に移動しますか?")
+            alert.informativeText = String(localized: "ファイルを macOS のゴミ箱へ移し、ライブラリの記録も削除します。この操作は取り消せません。")
+            alert.addButton(withTitle: String(localized: "ゴミ箱に移動")).hasDestructiveAction = true
+        } else {
+            alert.messageText = String(localized: "選択した \(ids.count) 件をライブラリから削除しますか?")
+            alert.informativeText = String(localized: "ライブラリの記録のみ削除します（ファイルは残ります）。この操作は取り消せません。")
+            alert.addButton(withTitle: String(localized: "ライブラリから削除")).hasDestructiveAction = true
         }
+        alert.addButton(withTitle: String(localized: "キャンセル"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
         Task { await state.deleteBooks(ids: ids, trash: trash) }
     }
 }

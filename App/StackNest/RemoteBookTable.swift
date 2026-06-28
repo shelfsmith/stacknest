@@ -392,13 +392,17 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
             dlItem.isEnabled = !state.isDownloaded(book.id)
             menu.addItem(dlItem)
         }
-        // Phase C-②: 削除（admin のみ）。選択集合（clickedRow を含むよう上で調整済）を対象。
+        // Phase C-②.1: 削除（admin のみ）。File メニュー/grid と同じ 2 コマンド。
         if state.canDelete {
             menu.addItem(NSMenuItem.separator())
-            let delItem = NSMenuItem(title: String(localized: "削除…"),
-                                     action: #selector(ctxDelete(_:)), keyEquivalent: "")
-            delItem.target = self
-            menu.addItem(delItem)
+            let delLib = NSMenuItem(title: String(localized: "ライブラリから削除"),
+                                    action: #selector(ctxDeleteLibrary(_:)), keyEquivalent: "")
+            delLib.target = self
+            menu.addItem(delLib)
+            let delTrash = NSMenuItem(title: String(localized: "ゴミ箱に移動"),
+                                      action: #selector(ctxDeleteTrash(_:)), keyEquivalent: "")
+            delTrash.target = self
+            menu.addItem(delTrash)
         }
     }
 
@@ -417,10 +421,16 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
     @objc private func ctxDownloadSelected(_ sender: NSMenuItem) {
         state.startBatchDownload()
     }
-    /// Phase C-②: 選択本を削除（admin）。確認ダイアログは RemoteDeleteCommand が出す。
-    @objc private func ctxDelete(_ sender: NSMenuItem) {
-        guard let table = tableView else { return }
-        let ids = Set(table.selectedRowIndexes.compactMap { $0 < state.books.count ? state.books[$0].id : nil })
-        RemoteDeleteCommand.presentAndDelete(ids: ids, state: state)
+    private func selectedBookIDs() -> Set<Int> {
+        guard let table = tableView else { return [] }
+        return Set(table.selectedRowIndexes.compactMap { $0 < state.books.count ? state.books[$0].id : nil })
+    }
+    /// Phase C-②.1: ライブラリから削除（DB のみ）。
+    @objc private func ctxDeleteLibrary(_ sender: NSMenuItem) {
+        RemoteDeleteCommand.confirmAndDelete(ids: selectedBookIDs(), state: state, trash: false)
+    }
+    /// Phase C-②.1: ゴミ箱に移動（ファイル＋DB）。
+    @objc private func ctxDeleteTrash(_ sender: NSMenuItem) {
+        RemoteDeleteCommand.confirmAndDelete(ids: selectedBookIDs(), state: state, trash: true)
     }
 }

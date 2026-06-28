@@ -117,6 +117,18 @@ struct RemoteLibraryView: View {
             guard state.isGrid, listFocused else { return }
             state.multiSelection = Set(state.books.map(\.id))
         }
+        // Phase C-②.1: File メニュー「ライブラリから削除（⌫）」/「ファイルをゴミ箱に移動（⌘⌫）」を
+        // admin リモートで受信。複数ウィンドウでは focus 中（listFocused）のリモートのみ反応。
+        .onReceive(NotificationCenter.default.publisher(for: .stacknestDeleteFromLibraryRequest)) { _ in
+            guard listFocused, state.canDelete else { return }
+            let ids = !state.multiSelection.isEmpty ? state.multiSelection : (state.selection.map { Set([$0]) } ?? [])
+            RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: false)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .stacknestMoveToTrashRequest)) { _ in
+            guard listFocused, state.canDelete else { return }
+            let ids = !state.multiSelection.isEmpty ? state.multiSelection : (state.selection.map { Set([$0]) } ?? [])
+            RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: true)
+        }
     }
 
     // MARK: - Split layout (Task 6)
@@ -279,11 +291,13 @@ struct RemoteLibraryView: View {
 
             // 4.2c-6a (smoke v2/v3/v4 自由記載): このリモート接続が編集可か閲覧のみかを一目で示す。
             // v4: 小さい pencil は棒に見えるため square.and.pencil に＋フォントを拡大。
-            Label(state.canEdit ? "編集可" : "閲覧のみ",
-                  systemImage: state.canEdit ? "square.and.pencil" : "eye")
+            // Phase C-②.1: 接続 tier（read/edit/admin）を一目で示す。admin=ローカルコントロール。
+            Label(state.tier == .admin ? "管理者" : (state.canEdit ? "編集可" : "閲覧のみ"),
+                  systemImage: state.tier == .admin ? "key.fill" : (state.canEdit ? "square.and.pencil" : "eye"))
                 .font(.callout)
                 .foregroundStyle(state.canEdit ? Color.accentColor : .secondary)
-                .help(state.canEdit ? "編集可能（RW トークン）" : "閲覧のみ（R トークン）")
+                .help(state.tier == .admin ? "管理者（ローカルコントロール・フル操作）"
+                      : (state.canEdit ? "編集可能（RW トークン）" : "閲覧のみ（R トークン）"))
 
             Spacer()
 
@@ -556,12 +570,14 @@ struct RemoteLibraryView: View {
                                     downloadMenu(book)
                                     if state.canDelete {
                                         Divider()
+                                        let ids = (state.multiSelection.contains(book.id) && !state.multiSelection.isEmpty)
+                                            ? state.multiSelection : Set([book.id])
                                         Button(role: .destructive) {
-                                            // 単一クリックでも複数選択中はその集合を対象に（選択外なら単体）。
-                                            let ids = (state.multiSelection.contains(book.id) && !state.multiSelection.isEmpty)
-                                                ? state.multiSelection : [book.id]
-                                            RemoteDeleteCommand.presentAndDelete(ids: ids, state: state)
-                                        } label: { Label("削除…", systemImage: "trash") }
+                                            RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: false)
+                                        } label: { Label("ライブラリから削除", systemImage: "trash") }
+                                        Button(role: .destructive) {
+                                            RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: true)
+                                        } label: { Label("ゴミ箱に移動", systemImage: "trash.slash") }
                                     }
                                     Divider()
                                     sortMenu()

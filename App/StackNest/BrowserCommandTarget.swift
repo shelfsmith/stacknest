@@ -44,7 +44,7 @@ extension FocusedValues {
     func toggleUnread() { state.toggleUnreadForSelection() }
     func openSettings() { openSettingsAction() }
     var canEditMeta: Bool { state.canEdit }
-    var canManageFiles: Bool { false }   // 将来ヘッドレス庫のリモート管理で true にする余地を残す
+    var canManageFiles: Bool { state.canDelete }   // C-②.1: admin リモートで File メニュー削除を有効化
     var canRate: Bool { true }
     var canMarkUnread: Bool { true }
     var librarySettingsForColumns: LibrarySettings? { settings }
