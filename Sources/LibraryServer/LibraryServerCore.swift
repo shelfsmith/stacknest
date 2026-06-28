@@ -40,8 +40,9 @@ public struct LibraryServerConfig: Sendable {
     public var apiOnly: Bool
     /// true のとき、提示トークン（R/W いずれも）を admin tier として扱う（LAN 信頼環境向け）。
     public var adminTier: Bool
-    /// グラントリスト（B2a: スコープ付きアクセス制御）。nil = 旧来の token/editToken 経路。
-    public var grants: [Grant]?
+    /// グラント解決クロージャ（毎リクエスト現在値を返す＝ライブ反映・C-③a）。
+    /// nil = 旧来の token/editToken 経路。本番は { GrantStore.list() } を注入する。
+    public var grantsProvider: (@Sendable () -> [Grant])?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -56,7 +57,7 @@ public struct LibraryServerConfig: Sendable {
                 onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil,
                 apiOnly: Bool = false,
                 adminTier: Bool = false,
-                grants: [Grant]? = nil) {
+                grantsProvider: (@Sendable () -> [Grant])? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -71,7 +72,7 @@ public struct LibraryServerConfig: Sendable {
         self.onLibraryStructureChanged = onLibraryStructureChanged
         self.apiOnly = apiOnly
         self.adminTier = adminTier
-        self.grants = grants
+        self.grantsProvider = grantsProvider
     }
 }
 
@@ -152,7 +153,7 @@ public struct LibraryServerCore: Sendable {
         }
         // それ以外の API は Bearer トークン認証配下。
         let api = router.group("api/v1")
-            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grants: config.grants))
+            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: config.grantsProvider))
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
@@ -160,9 +161,8 @@ public struct LibraryServerCore: Sendable {
         api.get("me") { _, context in
             MeReply(tier: context.tier, scope: context.scope)
         }
-        // B2b: グラント CRUD（admin 専用）。
-        // 注: CRUD は GrantStore(UserDefaults.standard) を更新。稼働中サーバへの即時反映は
-        // config スナップショットのため次回起動（Phase C で GUI ライブ反映予定）。
+        // グラント CRUD（admin 専用）。CRUD は GrantStore(UserDefaults.standard) を更新し、
+        // 認証は grantsProvider が毎リクエスト GrantStore を参照するため即時反映される（C-③a）。
         api.get("grants") { _, context in
             try context.requireAdmin()
             return GrantStore.list().map {

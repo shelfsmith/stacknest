@@ -19,8 +19,9 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
     let token: String
     let editToken: String?
     let adminTier: Bool
-    /// グラントリスト（nil = 旧来の token/editToken 経路）。
-    let grants: [Grant]?
+    /// グラント解決クロージャ（毎リクエスト現在値を返す＝ライブ反映・C-③a）。
+    /// nil = 旧来の token/editToken 直接照合パス（テスト/ローカルコントロール adminTier 用）。
+    let grantsProvider: (@Sendable () -> [Grant])?
 
     func handle(
         _ request: Request, context: Context,
@@ -34,8 +35,10 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
         }
         guard let presented else { throw HTTPError(.unauthorized) }
         var ctx = context
-        if let grants {
-            // グラントモード: グラントリスト内のトークンと照合し、tier/scope を刻む。
+        if let grantsProvider {
+            // グラントモード（ライブ）: 毎リクエスト現在のグラントを取得し照合、tier/scope を刻む。
+            // 削除済みグラント＝マッチなし＝401＝即時失効。
+            let grants = grantsProvider()
             guard let g = grants.first(where: { constantTimeEquals(presented, $0.token) }) else {
                 throw HTTPError(.unauthorized)
             }

@@ -11,7 +11,7 @@ import AppCore
 @Suite("Grant CRUD")
 struct GrantCrudTests {
     private func makeApp(_ grants: [Grant], _ lib: ServedLibrary) -> some ApplicationProtocol {
-        LibraryServerCore(config: .init(port: 0, token: "u", editToken: nil, grants: grants),
+        LibraryServerCore(config: .init(port: 0, token: "u", editToken: nil, grantsProvider: { grants }),
                           dataSource: StaticLibraryDataSource(libraries: [lib])).buildApplication()
     }
     private func admin() -> Grant { Grant(id: "adm", label: "admin", token: "ADM", tier: .admin, scope: .all, createdAt: Date(timeIntervalSince1970: 0)) }

@@ -11,7 +11,7 @@ import AppCore
 @Suite("Grant scope")
 struct GrantScopeTests {
     private func makeApp(grants: [Grant], libs: [ServedLibrary]) -> some ApplicationProtocol {
-        LibraryServerCore(config: .init(port: 0, token: "unused", editToken: nil, grants: grants),
+        LibraryServerCore(config: .init(port: 0, token: "unused", editToken: nil, grantsProvider: { grants }),
                           dataSource: StaticLibraryDataSource(libraries: libs)).buildApplication()
     }
     @Test func scopeLimitsLibrariesAnd404() async throws {
