@@ -250,10 +250,18 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(AdjacentVolumeReply.self, data).book
     }
 
-    /// GET /api/v1/me — ライブラリトークンのロールを返す。
-    public func me(libraryToken: String?) async throws -> TokenRole {
+    /// GET /api/v1/me — 提示トークンの権限情報（role/tier/scope）を返す。
+    public func me(libraryToken: String?) async throws -> MeReply {
         let data = try await send(request(makeURL("me"), libraryToken: libraryToken))
-        return try decode(MeReply.self, data).role
+        return try decode(MeReply.self, data)
+    }
+
+    /// DELETE /api/v1/libraries/:lib/books/:id — 本を削除（admin）。
+    /// trash=true で実ファイルを macOS ゴミ箱へ＋DB 削除、false で DB エントリのみ削除（ファイルは残す）。
+    public func deleteBook(libraryUUID: String, bookID: Int, trash: Bool, libraryToken: String?) async throws {
+        let q = trash ? [URLQueryItem(name: "trash", value: "1")] : []
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)", query: q)
+        _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken))
     }
 
     /// PATCH /api/v1/libraries/:lib/books/:id — メタデータを部分更新し、更新後の BookDetailDTO を返す。

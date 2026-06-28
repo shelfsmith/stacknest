@@ -159,14 +159,41 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
         }
 
-        @Test func meReturnsRole() async throws {
-            let reply = MeReply(tier: .edit, scope: .all)   // edit tier → role=.write（互換）
+        @Test func meReturnsReplyWithTier() async throws {
+            let reply = MeReply(tier: .admin, scope: .all)
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(reply))
-            let role = try await makeClient().me(libraryToken: "LT")
-            #expect(role == .write)
+            let me = try await makeClient().me(libraryToken: "LT")
+            #expect(me.tier == .admin)
+            #expect(me.role == .write)
             #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/me")
             #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
+
+        @Test func deleteBookDBOnlySendsDeleteNoTrashQuery() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
+            try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: false, libraryToken: "LT")
+            let url = StubURLProtocol.lastRequest!.url!
+            #expect(url.path == "/api/v1/libraries/U/books/7")
+            #expect(url.query?.contains("trash") != true)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "DELETE")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
+
+        @Test func deleteBookTrashAddsQuery() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
+            try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: true, libraryToken: nil)
+            let url = StubURLProtocol.lastRequest!.url!
+            #expect(url.path == "/api/v1/libraries/U/books/7")
+            #expect(url.query?.contains("trash=1") == true)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "DELETE")
+        }
+
+        @Test func deleteBookForbiddenThrows() async throws {
+            StubURLProtocol.stub = .init(status: 403, headers: [:], body: Data())
+            await #expect(throws: RemoteClientError.forbidden) {
+                try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: false, libraryToken: nil)
+            }
         }
 
         @Test func updateBookReturnsUpdatedDetail() async throws {
