@@ -35,7 +35,7 @@ struct GrantManagementSection: View {
                 if let d = pendingDelete { GrantStore.delete(id: d.id); reload() }
                 pendingDelete = nil
             }
-            Button("キャンセル", role: .cancel) { pendingDelete = nil }
+            Button("キャンセル", role: .cancel) {}
         } message: {
             Text("このグラントを削除すると、そのトークンでの接続は直ちにできなくなります（取り消し不可）。")
         }
@@ -48,7 +48,7 @@ struct GrantManagementSection: View {
                 }
                 pendingRegenerate = nil
             }
-            Button("キャンセル", role: .cancel) { pendingRegenerate = nil }
+            Button("キャンセル", role: .cancel) {}
         } message: {
             Text("この許可証の既存接続は再ペアリングが必要になります。")
         }
@@ -133,6 +133,7 @@ enum GrantEditorTarget: Identifiable {
 }
 
 /// グラント追加/編集シート。保存時に GrantStore を直接更新し onSaved を呼ぶ。
+@MainActor
 struct GrantEditorSheet: View {
     let target: GrantEditorTarget
     let onSaved: () -> Void
@@ -227,16 +228,18 @@ struct GrantEditorSheet: View {
     }
 
     private func save() {
-        let scope: GrantScope = scopeIsAll ? .all : .libraries(Array(selectedUUIDs))
+        let trimmedLabel = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Set は順序非決定のため sorted() で安定化（GrantScope の等値比較・JSON シリアライズの安定性）。
+        let scope: GrantScope = scopeIsAll ? .all : .libraries(Array(selectedUUIDs).sorted())
         switch target {
         case .create:
-            let g = Grant(id: UUID().uuidString, label: label,
+            let g = Grant(id: UUID().uuidString, label: trimmedLabel,
                           token: ServerPreferences.generateToken(),
                           tier: tier, scope: scope, createdAt: Date())
             GrantStore.add(g)
         case .edit(let existing):
             var g = existing
-            g.label = label
+            g.label = trimmedLabel
             g.tier = tier
             g.scope = scope
             GrantStore.update(g)
