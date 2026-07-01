@@ -52,6 +52,7 @@ struct SharingSettingsView: View {
             }
             tokenSection
             editTokenSection
+            GrantManagementSection()
             librariesSection
         }
         .formStyle(.grouped)
