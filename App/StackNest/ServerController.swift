@@ -24,12 +24,8 @@ final class ServerController {
     private var lifecycleGeneration = 0
 
     var port: Int { ServerPreferences.port() }
-    var token: String { ServerPreferences.token() }
-    /// 編集（RW）トークン。未生成は nil（その場合リモート編集は不可・R のみ）。
-    /// @Observable の stored property にすることで、サーバ停止中に発行/クリアしても共有設定 UI が
-    /// 即時更新される（A2 修正: computed だと稼働中の restart で observed prop が変わらない限り
-    /// 再描画されず「サーバ OFF で発行ボタン無反応」に見えた）。
-    private(set) var editToken: String? = ServerPreferences.editToken()
+    // C-③b-2: R/RW トークンの UI・専用メソッドを退役し共有トークンに一本化したため、
+    // 旧 `token`/`editToken` 公開プロパティは撤去（config への注入は ServerPreferences を直接参照）。
 
     func start() {
         guard !isRunning else { return }

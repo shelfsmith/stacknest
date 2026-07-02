@@ -53,6 +53,33 @@ struct GrantStoreTests {
         #expect(GrantStore.find(token: "W", defaults: d)?.tier == .edit)
         #expect(GrantStore.find(token: "R", defaults: d)?.scope == .all)
     }
+    /// C-③b-2: 全トークン削除後に再起動しても既定トークンが復活しない（一度きりマーカー）。
+    @Test func migrateDoesNotReviveAfterFullDelete() {
+        let d = suite()
+        GrantStore.migrateIfNeeded(readToken: "R", editToken: "W", defaults: d)
+        #expect(GrantStore.list(defaults: d).count == 2)
+        // ユーザーが全共有トークンを削除
+        GrantStore.delete(id: "default-read", defaults: d)
+        GrantStore.delete(id: "default-edit", defaults: d)
+        #expect(GrantStore.list(defaults: d).isEmpty)
+        // 再起動相当で migrateIfNeeded 再呼び出し → 復活しない
+        GrantStore.migrateIfNeeded(readToken: "R", editToken: "W", defaults: d)
+        #expect(GrantStore.list(defaults: d).isEmpty)
+    }
+
+    /// C-③b-2: 既存インストール（grant 既存・マーカー未設定）は種まきせずマーカーだけ立てる。
+    @Test func migrateSkipsSeedWhenGrantsExist() {
+        let d = suite()
+        GrantStore.add(Grant(id: "custom", label: "c", token: "T", tier: .read, scope: .all, createdAt: Date(timeIntervalSince1970: 0)), defaults: d)
+        GrantStore.migrateIfNeeded(readToken: "R", editToken: "W", defaults: d)
+        #expect(GrantStore.list(defaults: d).count == 1)                    // custom のみ・default は作らない
+        #expect(GrantStore.find(token: "R", defaults: d) == nil)
+        // 以後も再種まきしない
+        GrantStore.delete(id: "custom", defaults: d)
+        GrantStore.migrateIfNeeded(readToken: "R", editToken: "W", defaults: d)
+        #expect(GrantStore.list(defaults: d).isEmpty)
+    }
+
     @Test func grantScopeCodableRoundTrip() throws {
         for s in [GrantScope.all, .libraries(["A","B"])] {
             let back = try JSONDecoder().decode(GrantScope.self, from: JSONEncoder().encode(s))
