@@ -235,22 +235,30 @@ struct BridgeContent: View {
                         Self.logger.info("BridgeContent: startup=title → openWindow(title)")
                         openWindow(id: "title")
                     case .lastOpened:
-                        // try? on a Void-returning throwing func yields Optional(()) on success, nil on throw
-                        if let url = UserDefaultsKeys.lastOpenedBundleURL(),
-                           (try? LibraryBundle(url: url).validate()) != nil {
-                            Self.logger.info("BridgeContent: startup=lastOpened → openWindow(\(url.path))")
-                            openWindow(value: url)
-                        } else {
-                            Self.logger.info("BridgeContent: startup=lastOpened, no/invalid URL → Title")
+                        // C-④a: 前回終了時に開いていた庫の集合があれば全復元。無ければ recency 先頭 1 件（従来互換）。
+                        let resolved = StartupRestore.librariesToRestore(
+                            openSet: UserDefaultsKeys.openLibraryBundleURLs(),
+                            recencyFirst: UserDefaultsKeys.lastOpenedBundleURL(),
+                            exists: { (try? LibraryBundle(url: $0).validate()) != nil }
+                        )
+                        if resolved.isEmpty {
+                            Self.logger.info("BridgeContent: startup=lastOpened, none to restore → Title")
                             openWindow(id: "title")
-                            // Only show alert if there was a URL that failed validation
-                            if UserDefaultsKeys.lastOpenedBundleURL() != nil {
+                            // Only show alert if there was some prior-session intent that failed to resolve.
+                            let hadIntent = (UserDefaultsKeys.openLibraryBundleURLs()?.isEmpty == false)
+                                || (UserDefaultsKeys.lastOpenedBundleURL() != nil)
+                            if hadIntent {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                     let alert = NSAlert()
                                     alert.messageText = "前回のライブラリが見つかりません"
                                     alert.informativeText = "タイトル画面から再度開いてください。"
                                     alert.runModal()
                                 }
+                            }
+                        } else {
+                            Self.logger.info("BridgeContent: startup=lastOpened → restoring \(resolved.count) libraries")
+                            for url in resolved {
+                                openWindow(value: url)
                             }
                         }
                     case .fixedLibrary:
@@ -1021,6 +1029,8 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         for state in AppState.activeInstances.allObjects {
             state.backupOnCloseIfNeeded()
         }
+        // C-④a: 前回開いていた庫の集合を保存（次回 .lastOpened 起動で全復元）。
+        UserDefaultsKeys.setOpenLibraryBundleURLs(AppState.activeInstances.allObjects.map { $0.bundleURL })
         // 4.1b: 内蔵リモート共有サーバを graceful に停止する。
         ServerController.shared.stop()
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを停止する。
@@ -1064,6 +1074,20 @@ extension UTType {
 enum UserDefaultsKeys {
     static let lastOpenedBundleURLsKey = "stacknest.lastOpenedBundleURLs"
     static let defaultLibraryParentURLKey = "stacknest.defaultLibraryParentURL"
+    /// 前回終了時に開いていた庫の集合（recency 履歴とは別。C-④a 全復元用）。
+    static let openLibraryBundleURLsKey = "stacknest.openLibraryBundleURLs"
+
+    /// 現在開いている庫の集合を保存する（applicationWillTerminate で呼ぶ）。
+    static func setOpenLibraryBundleURLs(_ urls: [URL]) {
+        UserDefaults.standard.setValue(urls.map { $0.absoluteString }, forKey: openLibraryBundleURLsKey)
+    }
+
+    /// 前回終了時に開いていた庫の集合を取得する。
+    /// nil = キー未書込（アップグレード直後/新規）。書込済なら（空配列含む）[URL]。
+    static func openLibraryBundleURLs() -> [URL]? {
+        guard let strings = UserDefaults.standard.array(forKey: openLibraryBundleURLsKey) as? [String] else { return nil }
+        return strings.compactMap { URL(string: $0) }
+    }
 
     /// Append a bundle URL to the list of recently opened libraries.
     /// Limits history to the 10 most recent entries.
