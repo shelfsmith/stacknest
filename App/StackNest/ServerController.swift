@@ -38,9 +38,6 @@ final class ServerController {
         // B2: 既存 token/editToken を既定グラント(read/all, edit/all)へ移行（冪等）。
         GrantStore.migrateIfNeeded(readToken: ServerPreferences.token(),
                                    editToken: ServerPreferences.editToken(), now: Date())
-        // 既定グラントのトークンを現在値へ同期（トークン再生成/編集トークン無効化を反映＝旧トークン失効）。
-        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
-                                     editToken: ServerPreferences.editToken(), now: Date())
         // B2b: ヘッドレス起動の最初の admin を env から投入（GUI はローカルコントロール=admin で足りる）。
         if let adminToken = ProcessInfo.processInfo.environment["STACKNEST_ADMIN_TOKEN"], !adminToken.isEmpty {
             // 固定 ID（label 変更で重複生成しない）。
@@ -120,35 +117,6 @@ final class ServerController {
         serverTask?.cancel()   // ServiceLifecycle の graceful shutdown が走る
         serverTask = nil
         isRunning = false
-    }
-
-    func regenerateToken() {
-        ServerPreferences.regenerateToken()
-        syncDefaultGrantsToCurrent()   // C-③a: 再起動せず旧トークン失効・新トークン即時有効
-    }
-
-    /// 編集（RW）トークンを生成/再生成する。C-③a: 再起動せず既定グラントを即同期（接続維持）。
-    func regenerateEditToken() {
-        editToken = ServerPreferences.regenerateEditToken()   // stored prop 更新で UI 即反映（A2）
-        syncDefaultGrantsToCurrent()
-    }
-
-    /// 編集（RW）トークンを削除（リモート編集を無効化）。C-③a: 再起動せず既定グラント(default-edit)を
-    /// 即削除＝旧 RW トークン失効（接続維持）。
-    func clearEditToken() {
-        ServerPreferences.clearEditToken()
-        editToken = nil
-        syncDefaultGrantsToCurrent()
-    }
-
-    /// 既定グラント(default-read/default-edit)のトークンを現在の ServerPreferences 値へ即同期する。
-    /// C-③a: トークン再生成/無効化を grant 認可へ反映（grantsProvider が毎リクエスト参照＝再起動不要）。
-    /// グラント未初期化（サーバ未起動で空）なら何もしない＝次回 start() の migrate/sync に委ねる
-    /// （空配列に編集トークンだけ同期すると default-read 欠落の非対称状態を作るため）。
-    private func syncDefaultGrantsToCurrent() {
-        guard !GrantStore.list().isEmpty else { return }
-        GrantStore.syncDefaultGrants(readToken: ServerPreferences.token(),
-                                     editToken: ServerPreferences.editToken(), now: Date())
     }
 
     /// 稼働中の再起動。**C-③a 以降、トークン再生成はライブ化したため通常の呼び出し元はない**
