@@ -26,6 +26,9 @@ struct SharingSettingsView: View {
     /// ポート使用不可（起動失敗）アラートの表示制御。
     @State private var showPortInUseAlert = false
 
+    /// 起動時に共有を自動開始するか（ServerPreferences と同一キー）。
+    @AppStorage(ServerPreferences.autoStartSharingKey) private var autoStartSharing = false
+
     /// startError の portInUse 変化を検出するためのトークン。
     private var portInUseToken: String {
         if case .portInUse(let p) = server.startError { return "inuse-\(p)" }
@@ -132,6 +135,11 @@ struct SharingSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            Toggle("起動時に共有を自動で開始する", isOn: $autoStartSharing)
+            Text("⚠ 有効にすると、次回以降のアプリ起動時に自動でネットワーク共有を開始します。ライブラリを外部に見せる意味を理解した上で有効にしてください。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -277,6 +277,13 @@ struct BridgeContent: View {
                             }
                         }
                     }
+
+                    // C-④a: 起動時に共有を自動開始（ライブラリ復元後・silent）。
+                    // 配信は「開いている庫」依存のため switch(復元)後に発火する。
+                    if ServerPreferences.autoStartSharingOnLaunch() {
+                        Self.logger.info("BridgeContent: autoStartSharingOnLaunch → ServerController.start()")
+                        ServerController.shared.start()
+                    }
                 }
             }
     }
