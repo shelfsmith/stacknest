@@ -4,8 +4,9 @@ import LibraryServerAPI
 
 /// グラント管理 GUI の純ロジック（App の SwiftUI から呼ぶ・testable なので AppCore に置く）。
 public enum GrantManagementLogic {
-    /// GUI 一覧から除外する予約グラント ID（既定 R/RW は既存トークン UI・env-admin はヘッドレス用）。
-    public static let reservedIDs: Set<String> = ["default-read", "default-edit", "env-admin"]
+    /// GUI 一覧から除外する予約グラント ID。C-③b-2 で default-read/default-edit を一本化し
+    /// 「共有トークン」として表示するため、除外は env-admin（ヘッドレス env 投入・GUI 管理外）のみ。
+    public static let reservedIDs: Set<String> = ["env-admin"]
 
     /// ユーザー作成グラントのみを返す（予約 ID を除外・順序保持）。
     public static func customGrants(_ all: [Grant]) -> [Grant] {

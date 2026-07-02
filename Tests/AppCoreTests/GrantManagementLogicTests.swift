@@ -11,9 +11,10 @@ struct GrantManagementLogicTests {
               createdAt: Date(timeIntervalSince1970: 0))
     }
 
-    @Test func customGrantsExcludesReserved() {
+    @Test func customGrantsExcludesOnlyEnvAdmin() {
         let all = [g("default-read"), g("default-edit"), g("env-admin"), g("user-1"), g("user-2")]
-        #expect(GrantManagementLogic.customGrants(all).map(\.id) == ["user-1", "user-2"])
+        // 一本化(C-③b-2): default-read/default-edit も「共有トークン」として一覧に含める。env-admin のみ除外。
+        #expect(GrantManagementLogic.customGrants(all).map(\.id) == ["default-read", "default-edit", "user-1", "user-2"])
     }
 
     @Test func scopeSummaryText() {
