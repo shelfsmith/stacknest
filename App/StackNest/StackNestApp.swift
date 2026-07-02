@@ -1035,7 +1035,10 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
             state.backupOnCloseIfNeeded()
         }
         // C-④a: 前回開いていた庫の集合を保存（次回 .lastOpened 起動で全復元）。
-        UserDefaultsKeys.setOpenLibraryBundleURLs(AppState.activeInstances.allObjects.map { $0.bundleURL })
+        // 現在「窓が開いている」庫の集合は OpenLibraryRegistry（open で register・close で unregister＝
+        // 増分維持）を使う。AppState.activeInstances は deinit まで残り、閉じた窓が居残って
+        // 次回起動で復活する不具合があった（smoke A3 自由記載）。窓ライフサイクルに一致する registry が正。
+        UserDefaultsKeys.setOpenLibraryBundleURLs(Array(OpenLibraryRegistry.shared.openURLs))
         // 4.1b: 内蔵リモート共有サーバを graceful に停止する。
         ServerController.shared.stop()
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを停止する。
