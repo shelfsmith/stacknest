@@ -2,6 +2,7 @@
 import SwiftUI
 import AppKit
 import AppCore
+import LibraryServer
 import LibraryServerAPI
 
 /// サーバ設定窓の「グラント」セクション。カスタムグラント（既定 R/RW・env-admin 以外）を
@@ -12,23 +13,28 @@ struct GrantManagementSection: View {
     @State private var editorTarget: GrantEditorTarget?
     @State private var pendingDelete: Grant?
     @State private var pendingRegenerate: Grant?
+    @State private var server = ServerController.shared
+    @State private var qrTarget: Grant?
 
     var body: some View {
-        Section("グラント") {
+        Section("共有トークン") {
             let custom = GrantManagementLogic.customGrants(grants)
             if custom.isEmpty {
-                Text("グラントを追加すると、相手ごとに見せるライブラリと権限を分けられます。")
+                Text("共有トークンを追加すると、相手ごとに見せるライブラリと権限を分けられます。")
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(custom) { grant in
                     grantRow(grant)
                 }
             }
-            Button("＋ グラントを追加") { editorTarget = .create }
+            Button("＋ 共有トークンを追加") { editorTarget = .create }
         }
         .onAppear(perform: reload)
         .sheet(item: $editorTarget) { target in
             GrantEditorSheet(target: target, onSaved: reload)
+        }
+        .sheet(item: $qrTarget) { grant in
+            GrantQRSheet(grant: grant, port: server.port)
         }
         .confirmationDialog("グラントを削除しますか？", isPresented: deleteBinding, titleVisibility: .visible) {
             Button("削除", role: .destructive) {
@@ -79,6 +85,9 @@ struct GrantManagementSection: View {
                 .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
                 .foregroundStyle(.secondary)
             HStack(spacing: 12) {
+                Button("QR") { qrTarget = grant }
+                    .disabled(!server.isRunning)
+                    .help(server.isRunning ? "この共有トークンの QR を表示" : "サーバ稼働中のみ")
                 Button("コピー") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(grant.token, forType: .string)
@@ -246,5 +255,62 @@ struct GrantEditorSheet: View {
         }
         onSaved()
         dismiss()
+    }
+}
+
+/// 1 共有トークン分のペアリング QR シート。接続先 IP を選べる（自己完結）。
+@MainActor
+struct GrantQRSheet: View {
+    let grant: Grant
+    let port: Int
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedHostIP: String?
+
+    var body: some View {
+        let addresses = NetworkInterfaces.addresses()
+        VStack(alignment: .leading, spacing: 16) {
+            Text("共有トークンの QR: \(grant.label)").font(.headline)
+            if addresses.isEmpty {
+                Text("ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale を確認してください。")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                if addresses.count >= 2 {
+                    Picker("接続先", selection: Binding(
+                        get: { selectedHostIP ?? addresses.first?.ip },
+                        set: { selectedHostIP = $0 }
+                    )) {
+                        ForEach(addresses, id: \.ip) { addr in
+                            Text("\(addr.interface) — \(addr.displayHost)").tag(Optional(addr.ip))
+                        }
+                    }
+                }
+                let chosen = addresses.first(where: { $0.ip == selectedHostIP }) ?? addresses.first
+                if let chosen {
+                    VStack(spacing: 8) {
+                        QRCodeView(
+                            content: PairingInfo.url(host: chosen.ip, port: port, token: grant.token),
+                            size: 200
+                        )
+                        Text("接続先: \(chosen.interface) — \(chosen.displayHost)")
+                            .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        Text(grant.token)
+                            .font(.system(.caption2, design: .monospaced))
+                            .textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Text("iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。")
+                            .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            HStack {
+                Spacer()
+                Button("閉じる") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 320)
+        .onAppear { selectedHostIP = ServerPreferences.preferredHostIP() }
+        .onChange(of: selectedHostIP) { _, newValue in ServerPreferences.setPreferredHostIP(newValue) }
     }
 }
