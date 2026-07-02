@@ -236,18 +236,16 @@ struct BridgeContent: View {
                         openWindow(id: "title")
                     case .lastOpened:
                         // C-④a: 前回終了時に開いていた庫の集合があれば全復元。無ければ recency 先頭 1 件（従来互換）。
-                        let resolved = StartupRestore.librariesToRestore(
+                        // failedToRestore は「開く意図があったのに全滅」＝アラート対象（意図的に空なら false）。
+                        let restore = StartupRestore.plan(
                             openSet: UserDefaultsKeys.openLibraryBundleURLs(),
                             recencyFirst: UserDefaultsKeys.lastOpenedBundleURL(),
                             exists: { (try? LibraryBundle(url: $0).validate()) != nil }
                         )
-                        if resolved.isEmpty {
-                            Self.logger.info("BridgeContent: startup=lastOpened, none to restore → Title")
+                        if restore.urls.isEmpty {
+                            Self.logger.info("BridgeContent: startup=lastOpened, none to restore → Title (failed=\(restore.failedToRestore))")
                             openWindow(id: "title")
-                            // Only show alert if there was some prior-session intent that failed to resolve.
-                            let hadIntent = (UserDefaultsKeys.openLibraryBundleURLs()?.isEmpty == false)
-                                || (UserDefaultsKeys.lastOpenedBundleURL() != nil)
-                            if hadIntent {
+                            if restore.failedToRestore {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                     let alert = NSAlert()
                                     alert.messageText = "前回のライブラリが見つかりません"
@@ -256,8 +254,8 @@ struct BridgeContent: View {
                                 }
                             }
                         } else {
-                            Self.logger.info("BridgeContent: startup=lastOpened → restoring \(resolved.count) libraries")
-                            for url in resolved {
+                            Self.logger.info("BridgeContent: startup=lastOpened → restoring \(restore.urls.count) libraries")
+                            for url in restore.urls {
                                 openWindow(value: url)
                             }
                         }

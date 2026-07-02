@@ -136,7 +136,18 @@ struct SharingSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Toggle("起動時に共有を自動で開始する", isOn: $autoStartSharing)
+            // ON にする瞬間に既存の共有/著作権警告を通す（同意で ON・キャンセルで OFF のまま）。
+            // 抑制済みなら即 ON。自動起動の発火自体は起動時 silent（同意はここで取る）。
+            Toggle("起動時に共有を自動で開始する", isOn: Binding(
+                get: { autoStartSharing },
+                set: { newValue in
+                    if newValue {
+                        SharingWarning.confirm { autoStartSharing = true }
+                    } else {
+                        autoStartSharing = false
+                    }
+                }
+            ))
             Text("⚠ 有効にすると、次回以降のアプリ起動時に自動でネットワーク共有を開始します。ライブラリを外部に見せる意味を理解した上で有効にしてください。")
                 .font(.caption)
                 .foregroundStyle(.secondary)

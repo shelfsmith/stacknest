@@ -7,8 +7,15 @@ import AppCore
 /// 同意「公開する」で start＋suppression 反映。キャンセルは何もしない（OFF のまま）。
 @MainActor enum SharingWarning {
     static func confirmThenStart(_ server: ServerController) {
+        confirm { server.start() }
+    }
+
+    /// 著作権警告を提示し、同意（「公開する」）なら onAccept を実行する汎用版。
+    /// 抑制済み(AppPreferences.sharingWarningSuppressed)なら即 onAccept。キャンセルは何もしない。
+    /// C-④a: 「起動時に共有を自動で開始する」トグル ON もこの同意ゲートを通す（自動起動発火自体は silent）。
+    static func confirm(onAccept: () -> Void) {
         if AppPreferences.sharingWarningSuppressed {
-            server.start()
+            onAccept()
             return
         }
         let alert = NSAlert()
@@ -31,7 +38,7 @@ import AppCore
         if alert.suppressionButton?.state == .on {
             AppPreferences.sharingWarningSuppressed = true
         }
-        server.start()
+        onAccept()
     }
 
     /// 左詰め＋両端割り付け（justified）の本文ラベルを accessoryView 用に組む。
