@@ -23,18 +23,6 @@ struct SharingSettingsView: View {
     /// ポート編集用のローカル文字列。稼働中は disabled。コミットは onSubmit / Toggle ON 時。
     @State private var portInput: String = String(ServerPreferences.port())
 
-    /// トークン再生成の確認ダイアログ。
-    @State private var showRegenerateConfirm = false
-
-    /// 編集トークン再生成の確認ダイアログ。
-    @State private var showRegenerateEditTokenConfirm = false
-
-    /// 編集トークン無効化の確認ダイアログ。
-    @State private var showClearEditTokenConfirm = false
-
-    /// QR に使う接続先 IP アドレス。nil のとき addresses.first を使う。
-    @State private var selectedHostIP: String?
-
     /// ポート使用不可（起動失敗）アラートの表示制御。
     @State private var showPortInUseAlert = false
 
@@ -50,8 +38,6 @@ struct SharingSettingsView: View {
             if server.isRunning {
                 connectionSection
             }
-            tokenSection
-            editTokenSection
             GrantManagementSection()
             librariesSection
         }
@@ -190,153 +176,6 @@ struct SharingSettingsView: View {
                     }
                 }
                 .frame(maxHeight: 120)
-
-                // アドレスが 2 件以上あるとき、QR に使う IP を選択できる Picker を表示する。
-                // nil のとき先頭にフォールバックして表示する（@State は書き換えない）。
-                if addresses.count >= 2 {
-                    Picker("接続先", selection: Binding(
-                        get: { selectedHostIP ?? addresses.first?.ip },
-                        set: { selectedHostIP = $0 }
-                    )) {
-                        ForEach(addresses, id: \.ip) { addr in
-                            Text("\(addr.interface) — \(addr.displayHost)")
-                                .tag(Optional(addr.ip))
-                        }
-                    }
-                }
-
-                // 選択 IP に一致するアドレス、無ければ addresses.first を使う。
-                let chosen = addresses.first(where: { $0.ip == selectedHostIP }) ?? addresses.first
-                if let chosen {
-                    VStack(spacing: 8) {
-                        // PairingInfo.url に生 IP を渡す（PairingInfo 側が IPv6 を [...] で囲む）。
-                        QRCodeView(
-                            content: PairingInfo.url(host: chosen.ip, port: server.port, token: server.token),
-                            size: 160
-                        )
-                        Text("接続先: \(chosen.interface) — \(chosen.displayHost)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-                        Text("iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
-                }
-            }
-        }
-        .onAppear {
-            // 保存済みの IP 選択を復元する。
-            selectedHostIP = ServerPreferences.preferredHostIP()
-        }
-        .onChange(of: selectedHostIP) { _, newValue in
-            ServerPreferences.setPreferredHostIP(newValue)
-        }
-    }
-
-    // MARK: - トークンセクション
-
-    @ViewBuilder
-    private var tokenSection: some View {
-        Section("アクセストークン") {
-            Text(server.token)
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(2)
-                .truncationMode(.middle)
-
-            HStack(spacing: 12) {
-                Button("コピー") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(server.token, forType: .string)
-                }
-
-                Button("再生成…") {
-                    showRegenerateConfirm = true
-                }
-            }
-            .confirmationDialog(
-                "トークンを再生成しますか？",
-                isPresented: $showRegenerateConfirm,
-                titleVisibility: .visible
-            ) {
-                Button("再生成", role: .destructive) {
-                    server.regenerateToken()
-                }
-                Button("キャンセル", role: .cancel) {}
-            } message: {
-                Text("既存のペアリング端末は再ペアリングが必要になります。")
-            }
-        }
-    }
-
-    // MARK: - 編集用トークンセクション（RW）
-
-    @ViewBuilder
-    private var editTokenSection: some View {
-        Section("編集用トークン（RW）") {
-            if let editToken = server.editToken {
-                // トークン発行済み: 表示・コピー・再生成・無効化
-                Text(editToken)
-                    .font(.system(.caption, design: .monospaced))
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-
-                HStack(spacing: 12) {
-                    Button("コピー") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(editToken, forType: .string)
-                    }
-
-                    Button("再生成…") {
-                        showRegenerateEditTokenConfirm = true
-                    }
-                    .confirmationDialog(
-                        "編集用トークンを再生成しますか？",
-                        isPresented: $showRegenerateEditTokenConfirm,
-                        titleVisibility: .visible
-                    ) {
-                        Button("再生成", role: .destructive) {
-                            server.regenerateEditToken()
-                        }
-                        Button("キャンセル", role: .cancel) {}
-                    } message: {
-                        Text("既存の編集クライアントは再ペアリングが必要になります。")
-                    }
-
-                    Button("無効化（クリア）…", role: .destructive) {
-                        showClearEditTokenConfirm = true
-                    }
-                    .confirmationDialog(
-                        "編集用トークンを無効化しますか？",
-                        isPresented: $showClearEditTokenConfirm,
-                        titleVisibility: .visible
-                    ) {
-                        Button("無効化", role: .destructive) {
-                            server.clearEditToken()
-                        }
-                        Button("キャンセル", role: .cancel) {}
-                    } message: {
-                        Text("リモート編集が無効になります。再度発行するまで編集クライアントは接続できません。")
-                    }
-                }
-
-                Text("⚠ 編集用トークンは編集を許可します。自分・信頼できる相手にのみ渡してください。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                // トークン未発行: 説明と発行ボタン
-                Text("編集用トークンを発行すると、そのトークンで接続したクライアントが本のメタデータを編集できます（閲覧用トークンは読み取り専用のまま）。")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button("編集用トークンを発行") {
-                    server.regenerateEditToken()
-                }
             }
         }
     }
