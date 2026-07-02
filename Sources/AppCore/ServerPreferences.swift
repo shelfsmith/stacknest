@@ -131,6 +131,15 @@ public enum ServerPreferences {
         defaults.set(on, forKey: localAutomationEnabledKey)
     }
 
+    /// 起動時にネットワーク共有サーバを自動起動するか（既定 false）。@AppStorage 用に key を公開。
+    public static let autoStartSharingKey = "server_auto_start_on_launch"
+    public static func autoStartSharingOnLaunch(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: autoStartSharingKey)
+    }
+    public static func setAutoStartSharingOnLaunch(_ on: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(on, forKey: autoStartSharingKey)
+    }
+
     // MARK: - 同梱 CLI パス（MCP の自動解決用）
 
     private static let cliPathKey = "cli_path"
