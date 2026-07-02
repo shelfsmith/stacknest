@@ -5,7 +5,7 @@ import AppCore
 import LibraryServer
 import LibraryServerAPI
 
-/// サーバ設定窓の「グラント」セクション。カスタムグラント（既定 R/RW・env-admin 以外）を
+/// サーバ設定窓の「共有トークン」セクション。共有トークン（＝グラント・env-admin 以外）を
 /// 一覧・追加・編集・削除・トークン再生成する。GrantStore を直接操作し、C-③a のライブ解決で
 /// 稼働中サーバへ即反映（再起動不要）。GrantStore は非 Observable のため @State に読み込み直す。
 struct GrantManagementSection: View {
@@ -36,14 +36,14 @@ struct GrantManagementSection: View {
         .sheet(item: $qrTarget) { grant in
             GrantQRSheet(grant: grant, port: server.port)
         }
-        .confirmationDialog("グラントを削除しますか？", isPresented: deleteBinding, titleVisibility: .visible) {
+        .confirmationDialog("共有トークンを削除しますか？", isPresented: deleteBinding, titleVisibility: .visible) {
             Button("削除", role: .destructive) {
                 if let d = pendingDelete { GrantStore.delete(id: d.id); reload() }
                 pendingDelete = nil
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("このグラントを削除すると、そのトークンでの接続は直ちにできなくなります（取り消し不可）。")
+            Text("この共有トークンを削除すると、その接続は直ちにできなくなります（取り消し不可）。")
         }
         .confirmationDialog("トークンを再生成しますか？", isPresented: regenerateBinding, titleVisibility: .visible) {
             Button("再生成", role: .destructive) {
@@ -56,7 +56,7 @@ struct GrantManagementSection: View {
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("この許可証の既存接続は再ペアリングが必要になります。")
+            Text("この共有トークンの既存接続は再ペアリングが必要になります。")
         }
     }
 
@@ -141,7 +141,7 @@ enum GrantEditorTarget: Identifiable {
     }
 }
 
-/// グラント追加/編集シート。保存時に GrantStore を直接更新し onSaved を呼ぶ。
+/// 共有トークン追加/編集シート。保存時に GrantStore を直接更新し onSaved を呼ぶ。
 @MainActor
 struct GrantEditorSheet: View {
     let target: GrantEditorTarget
@@ -173,7 +173,7 @@ struct GrantEditorSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(isEdit ? "グラントを編集" : "グラントを追加").font(.headline)
+            Text(isEdit ? "共有トークンを編集" : "共有トークンを追加").font(.headline)
             Form {
                 TextField("ラベル", text: $label)
                 Picker("権限", selection: $tier) {
@@ -182,7 +182,7 @@ struct GrantEditorSheet: View {
                     Text("管理者").tag(AccessTier.admin)
                 }
                 if tier == .admin {
-                    Text("⚠ 管理者トークンは設定変更・ファイル削除・グラント管理まで全操作を許可します。信頼できる自分の端末にのみ渡してください。")
+                    Text("⚠ 管理者トークンは設定変更・ファイル削除・共有トークン管理まで全操作を許可します。信頼できる自分の端末にのみ渡してください。")
                         .font(.caption).foregroundStyle(.orange)
                 }
                 Picker("見せるライブラリ", selection: $scopeIsAll) {
