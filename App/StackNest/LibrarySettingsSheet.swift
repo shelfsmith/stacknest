@@ -73,9 +73,8 @@ struct LibrarySettingsSheet: View {
                     .tabItem { Label("フォーマット", systemImage: "textformat") }
                     .tag(1)
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 16) {
                         importSection()
-                        Divider()
                         watchSection()
                     }
                     .padding(16)
@@ -367,9 +366,8 @@ struct LibrarySettingsSheet: View {
 
     @ViewBuilder
     private func importSection() -> some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("このライブラリの取り込み設定")
-                .font(.headline)
+        GroupBox("自動分類") {
+        VStack(alignment: .leading, spacing: 12) {
             Text("「既定に従う」を選ぶと、StackNest 設定の値を使います。")
                 .font(.caption).foregroundStyle(.secondary)
 
@@ -395,6 +393,8 @@ struct LibrarySettingsSheet: View {
                 .pickerStyle(.radioGroup)
                 .labelsHidden()
             }
+
+            Divider()
 
             // 厚い本の閾値（既定に従う / 上書き）
             let effectiveAuto = settings.importAutoClassify ?? ImportDefaults.globalAutoClassify()
@@ -446,10 +446,9 @@ struct LibrarySettingsSheet: View {
             .onAppear {
                 if let v = settings.importThickThreshold { importThresholdInput = String(v) }
             }
-
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        }
     }
 
     /// C-④b: 取り込みタブの閾値 TextField をコミット（グローバル設定の commitThresholdInput 相当）。
