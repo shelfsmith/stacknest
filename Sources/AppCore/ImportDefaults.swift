@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import LibraryStore
 
 /// 取り込み設定のグローバル既定アクセサと per-library override 解決。
 /// グローバルは ViewerSettings と同じ UserDefaults キーを参照（二重管理回避）。nonisolated＝サーバから可。
@@ -18,4 +19,18 @@ public enum ImportDefaults {
     public static func setGlobalThickThreshold(_ v: Int, defaults: UserDefaults = .standard) { defaults.set(max(5, min(100, v)), forKey: thickThresholdKey) }
     public static func effectiveAutoClassify(override: Bool?, defaults: UserDefaults = .standard) -> Bool { override ?? globalAutoClassify(defaults: defaults) }
     public static func effectiveThickThreshold(override: Int?, defaults: UserDefaults = .standard) -> Int { override ?? globalThickThreshold(defaults: defaults) }
+
+    // MARK: - per-library override を DB(source of truth) から解決（全取り込み経路で統一・C-④b）
+    public static func autoClassifyOverride(db: Database) -> Bool? {
+        ((try? db.getLibrarySetting(key: libAutoClassifyKey)) ?? nil).map { $0 == "1" || $0 == "true" }
+    }
+    public static func thickThresholdOverride(db: Database) -> Int? {
+        ((try? db.getLibrarySetting(key: libThickThresholdKey)) ?? nil).flatMap { Int($0) }
+    }
+    public static func effectiveAutoClassify(db: Database, defaults: UserDefaults = .standard) -> Bool {
+        effectiveAutoClassify(override: autoClassifyOverride(db: db), defaults: defaults)
+    }
+    public static func effectiveThickThreshold(db: Database, defaults: UserDefaults = .standard) -> Int {
+        effectiveThickThreshold(override: thickThresholdOverride(db: db), defaults: defaults)
+    }
 }
