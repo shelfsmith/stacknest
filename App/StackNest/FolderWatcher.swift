@@ -118,8 +118,8 @@ final class FolderWatcher {
                 let importer = BookImporter(database: database, bundleURL: bundleURL, format: formatByKey[key]!)
                 let r = await importer.add(
                     urls: urls,
-                    autoClassifyEnabled: ViewerSettings.shared.autoClassifyEnabled,
-                    thickThreshold: ViewerSettings.shared.thickBookThreshold)
+                    autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(db: database),
+                    thickThreshold: ImportDefaults.effectiveThickThreshold(db: database))
                 total.addedIDs += r.addedIDs
                 total.coverFailures += r.coverFailures
                 total.alreadyPresent += r.alreadyPresent

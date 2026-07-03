@@ -1413,8 +1413,8 @@ final class AppState {
             let importer = BookImporter(database: db, bundleURL: bundleURL, format: format)
             let result = await importer.add(
                 urls: urls,
-                autoClassifyEnabled: ViewerSettings.shared.autoClassifyEnabled,
-                thickThreshold: ViewerSettings.shared.thickBookThreshold)
+                autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(db: db),
+                thickThreshold: ImportDefaults.effectiveThickThreshold(db: db))
             presentWatchSummary(result)
         }
     }

@@ -8,15 +8,17 @@ import LibraryStore
 public final class BookAddCoordinator {
     public typealias AddResult = BookImporter.ImportResult
     private let importer: BookImporter
+    private let database: Database
 
     public init(database: Database, bundleURL: URL, format: FilenameFormat) {
+        self.database = database
         self.importer = BookImporter(database: database, bundleURL: bundleURL, format: format)
     }
 
     public func add(urls: [URL]) async -> AddResult {
         await importer.add(
             urls: urls,
-            autoClassifyEnabled: ViewerSettings.shared.autoClassifyEnabled,
-            thickThreshold: ViewerSettings.shared.thickBookThreshold)
+            autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(db: database),
+            thickThreshold: ImportDefaults.effectiveThickThreshold(db: database))
     }
 }
