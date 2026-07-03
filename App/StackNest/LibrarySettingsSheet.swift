@@ -52,8 +52,10 @@ struct LibrarySettingsSheet: View {
     @State var stagedFieldLabels: [String: String] = [:]
     @State var stagedBookTypeLabels: [String: String] = [:]
 
-    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 2=ラベル / 3=ロック / 4=監視フォルダ / 5=取り込み)。
+    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 5=取り込み / 2=ラベル / 3=ロック / 4=監視フォルダ)。
     @State private var settingsTab = 0
+    /// C-④b: 取り込みタブの厚さ閾値 override 直接入力用（グローバル設定と同様の TextField+Stepper）。
+    @State private var importThresholdInput: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,6 +72,9 @@ struct LibrarySettingsSheet: View {
                 ScrollView { formatSection().padding(16) }
                     .tabItem { Label("フォーマット", systemImage: "textformat") }
                     .tag(1)
+                ScrollView { importSection().padding(16) }
+                    .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
+                    .tag(5)
                 ScrollView { labelSection().padding(16) }
                     .tabItem { Label("ラベル", systemImage: "tag") }
                     .tag(2)
@@ -79,9 +84,6 @@ struct LibrarySettingsSheet: View {
                 ScrollView { watchSection().padding(16) }
                     .tabItem { Label("監視フォルダ", systemImage: "folder.badge.gearshape") }
                     .tag(4)
-                ScrollView { importSection().padding(16) }
-                    .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
-                    .tag(5)
             }
             .padding(.horizontal, 12)
 
@@ -364,7 +366,7 @@ struct LibrarySettingsSheet: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("このライブラリの取り込み設定")
                 .font(.headline)
-            Text("「グローバル既定に従う」を選ぶと、設定 ▸ 取り込み の値を使います。")
+            Text("「既定に従う」を選ぶと、StackNest 設定の値を使います。")
                 .font(.caption).foregroundStyle(.secondary)
 
             // 本の種類を自動分類（3-way: 既定に従う / 有効 / 無効）
@@ -382,7 +384,7 @@ struct LibrarySettingsSheet: View {
                         settings.importAutoClassify = (sel == 0) ? nil : (sel == 1)
                     }
                 )) {
-                    Text("グローバル既定に従う（現在: \(ImportDefaults.globalAutoClassify() ? "有効" : "無効")）").tag(0)
+                    Text("既定に従う（現在: \(ImportDefaults.globalAutoClassify() ? "有効" : "無効")）").tag(0)
                     Text("このライブラリで有効").tag(1)
                     Text("このライブラリで無効").tag(2)
                 }
@@ -393,36 +395,66 @@ struct LibrarySettingsSheet: View {
             // 厚い本の閾値（既定に従う / 上書き）
             let effectiveAuto = settings.importAutoClassify ?? ImportDefaults.globalAutoClassify()
             VStack(alignment: .leading, spacing: 6) {
-                Toggle("厚い本の閾値をグローバル既定に従う（現在: \(ImportDefaults.globalThickThreshold()) ページ）", isOn: Binding(
+                Toggle("厚い本の閾値を既定に従う（現在: \(ImportDefaults.globalThickThreshold()) ページ）", isOn: Binding(
                     get: { settings.importThickThreshold == nil },
                     set: { inherit in
-                        settings.importThickThreshold = inherit ? nil : ImportDefaults.globalThickThreshold()
+                        if inherit {
+                            settings.importThickThreshold = nil
+                        } else {
+                            let v = ImportDefaults.globalThickThreshold()
+                            settings.importThickThreshold = v
+                            importThresholdInput = String(v)
+                        }
                     }
                 ))
                 if settings.importThickThreshold != nil {
+                    // グローバル設定（設定 ▸ 取り込み）と同じ TextField 直接入力＋Stepper。
                     HStack {
                         Text("厚い本判定閾値（ページ数）")
                         Spacer()
-                        Stepper(
-                            value: Binding(
-                                get: { settings.importThickThreshold ?? ImportDefaults.globalThickThreshold() },
-                                set: { settings.importThickThreshold = max(5, min(100, $0)) }
-                            ),
-                            in: 5...100, step: 1
-                        ) {
-                            Text("\(settings.importThickThreshold ?? ImportDefaults.globalThickThreshold())")
-                                .monospacedDigit().frame(width: 40, alignment: .trailing)
-                        }
+                        TextField("", text: $importThresholdInput)
+                            .multilineTextAlignment(.trailing)
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 72)
+                            .onChange(of: importThresholdInput) { _, newValue in
+                                let cleaned = String(newValue.filter(\.isNumber).prefix(3))
+                                if cleaned != newValue { importThresholdInput = cleaned }
+                            }
+                            .onSubmit { commitImportThresholdInput() }
+                        Stepper("", value: Binding(
+                            get: { settings.importThickThreshold ?? ImportDefaults.globalThickThreshold() },
+                            set: { settings.importThickThreshold = max(5, min(100, $0)) }
+                        ), in: 5...100, step: 1)
                         .labelsHidden()
+                    }
+                    .onChange(of: settings.importThickThreshold) { _, newValue in
+                        // Stepper 経由などで値が変わったら TextField を同期。
+                        if let v = newValue, importThresholdInput != String(v) {
+                            importThresholdInput = String(v)
+                        }
                     }
                 }
             }
             .disabled(!effectiveAuto)
             .opacity(effectiveAuto ? 1.0 : 0.5)
+            .onAppear {
+                if let v = settings.importThickThreshold { importThresholdInput = String(v) }
+            }
 
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// C-④b: 取り込みタブの閾値 TextField をコミット（グローバル設定の commitThresholdInput 相当）。
+    private func commitImportThresholdInput() {
+        if let v = Int(importThresholdInput) {
+            settings.importThickThreshold = max(5, min(100, v))
+        }
+        // 空/非数値は現在値へ戻す。
+        importThresholdInput = String(settings.importThickThreshold ?? ImportDefaults.globalThickThreshold())
     }
 
     // MARK: - B6: プリセット操作ヘルパー
