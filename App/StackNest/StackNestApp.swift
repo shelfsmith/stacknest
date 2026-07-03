@@ -11,6 +11,9 @@ import UniformTypeIdentifiers
 // 「実際に可視な庫ウィンドウ」から open-set を作るために使う（SwiftUI の close hook
 // ＝onDisappear / OpenLibraryRegistry は macOS の WindowGroup で確実に発火せず、閉じた窓が
 // 居残って次回起動で復活する不具合があったため・smoke A3 自由記載）。
+// C-④a: 庫ウィンドウに bundleURL を関連付ける。NSWindow.willCloseNotification のグローバル観測で
+// 「閉じられた窓が庫かどうか」を判定するために使う（SwiftUI の onDisappear は不確実だが willClose は
+// 手動クローズで確実に発火する・⌘Q 終了時は発火しない＝計測で確認済み）。
 private nonisolated(unsafe) var stacknestBundleURLKey: UInt8 = 0
 extension NSWindow {
     var stacknestBundleURL: URL? {
@@ -394,7 +397,8 @@ struct LibraryWindowContainer: View {
                     if self.hostWindow == nil {
                         self.hostWindow = window
                     }
-                    // C-④a: この庫ウィンドウの bundleURL を NSWindow に関連付ける（終了時の open-set 用）。
+                    // C-④a: この庫ウィンドウの bundleURL を NSWindow に関連付ける
+                    // （グローバルな willCloseNotification 観測が「閉じた窓＝庫」を識別するため）。
                     window.stacknestBundleURL = bundleURL
                     // Setup frame observer and trigger deferred restoration after settings load
                     let observer = WindowFrameObserver()
@@ -428,6 +432,7 @@ struct LibraryWindowContainer: View {
                     appState?.closeBundle()
                     LibraryOpenLockManager.shared.release(bundleURL: oldURL)
                     OpenLibraryRegistry.shared.unregister(oldURL)
+                    UserDefaultsKeys.removeOpenLibrary(oldURL)   // C-④a: 窓再利用時は旧庫を集合から外す
                 }
                 Task { await openBundleIfNeeded() }
             }
@@ -601,6 +606,7 @@ struct LibraryWindowContainer: View {
             // Phase 2.5f: 全 library open 経路の集約点。fixedLibrary 起動 /
             // Finder ダブルクリック / File menu / Title 等すべてここを通る。
             UserDefaultsKeys.appendLastOpenedBundleURL(bundleURL)
+            UserDefaultsKeys.addOpenLibrary(bundleURL)   // C-④a: 開いている庫集合へ追加（willClose で削除）
             self.appState = state
             // Determine lock state based on whether a password hash is configured
             if state.librarySettings?.lockPasswordHash != nil {
@@ -985,6 +991,8 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     /// Set to true when AppDelegate receives a launch URL via application(_:open:).
     /// BridgeContent.onAppear checks this to decide whether to suppress Title window spawn.
     static var hasLaunchURL = false
+    /// C-④a: 終了処理中フラグ。終了時に窓が閉じても open-set から削除しない（開いていた庫を復元対象に残す）。
+    static var isTerminating = false
 
     override init() {
         super.init()
@@ -996,6 +1004,13 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         //（「表示 ▸ タブバーを表示／すべてのタブを表示」メニューを消す）。allowsAutomaticWindowTabbing
         // は NSWindow のクラスプロパティ。
         NSWindow.allowsAutomaticWindowTabbing = false
+        // C-④a: 庫ウィンドウのクローズを確実に検知して open-set から削除する（増分維持）。
+        // SwiftUI の onDisappear は WindowGroup で不確実だが、NSWindow.willCloseNotification は
+        // 手動クローズで確実に発火する（計測で確認）。終了(⌘Q)時は発火しない＝開いていた庫は残る。
+        // willCloseNotification は main で post されるため @objc @MainActor セレクタで受ける。
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(handleWindowWillClose(_:)),
+            name: NSWindow.willCloseNotification, object: nil)
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを起動する（isRunning ガードで冪等）。
         LocalControlController.shared.startIfEnabled()
         // 4.2f: 同梱 CLI（Contents/Helpers/stacknest-cli）の絶対パスを記録（MCP の自動解決用）。
@@ -1048,15 +1063,25 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     /// SwiftUI の close hook（onDisappear / OpenLibraryRegistry）は macOS の WindowGroup で確実に
     /// 発火せず、閉じた窓が居残る（smoke A3）。実際の `NSWindow.isVisible` ＋ 関連付けた bundleURL を
     /// 使えば hook 非依存で正確。applicationWillTerminate はウィンドウ teardown 後に走るため不適。
+    /// C-④a: 庫ウィンドウのクローズ（手動）を open-set から削除する。willCloseNotification は
+    /// main で post されるため @MainActor セレクタで安全に受けられる。終了時は isTerminating で除外。
+    @objc private func handleWindowWillClose(_ note: Notification) {
+        guard !Self.isTerminating,
+              let w = note.object as? NSWindow,
+              let url = w.stacknestBundleURL else { return }
+        UserDefaultsKeys.removeOpenLibrary(url)
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let openURLs = sender.windows
-            .filter { $0.isVisible }
-            .compactMap { $0.stacknestBundleURL }
-        UserDefaultsKeys.setOpenLibraryBundleURLs(openURLs)
+        // C-④a: できるだけ早く終了フラグを立てる（終了に伴う窓クローズで open-set を削らないため）。
+        Self.isTerminating = true
         return .terminateNow
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        // C-④a: 終了確定。以後の窓クローズ（終了に伴うもの）で open-set を削らない
+        // （開いていた庫を次回 .lastOpened 復元対象に残す）。
+        Self.isTerminating = true
         // B22: Cmd-Q では LibraryWindowContainer.onDisappear が確実に発火しないため、
         // 終了時にも開いている各 AppState のバックアップを走らせる（didBackupThisSession で二重実行防止）。
         for state in AppState.activeInstances.allObjects {
@@ -1108,7 +1133,7 @@ enum UserDefaultsKeys {
     /// 前回終了時に開いていた庫の集合（recency 履歴とは別。C-④a 全復元用）。
     static let openLibraryBundleURLsKey = "stacknest.openLibraryBundleURLs"
 
-    /// 現在開いている庫の集合を保存する（applicationWillTerminate で呼ぶ）。
+    /// 現在開いている庫の集合を保存する。
     static func setOpenLibraryBundleURLs(_ urls: [URL]) {
         UserDefaults.standard.setValue(urls.map { $0.absoluteString }, forKey: openLibraryBundleURLsKey)
     }
@@ -1118,6 +1143,23 @@ enum UserDefaultsKeys {
     static func openLibraryBundleURLs() -> [URL]? {
         guard let strings = UserDefaults.standard.array(forKey: openLibraryBundleURLsKey) as? [String] else { return nil }
         return strings.compactMap { URL(string: $0) }
+    }
+
+    /// C-④a: 庫ウィンドウを開いたとき集合に追加する（増分維持）。
+    /// SwiftUI/AppKit の終了フックは信頼できないため、open で追加・`NSWindow.willCloseNotification`
+    /// で削除して集合を常に「現在開いている窓」に一致させる（計測で willClose は手動クローズで
+    /// 確実に発火・⌘Q 終了時には発火しないことを確認済み）。
+    static func addOpenLibrary(_ url: URL) {
+        var set = Set((openLibraryBundleURLs() ?? []).map { $0.standardizedFileURL })
+        set.insert(url.standardizedFileURL)
+        setOpenLibraryBundleURLs(Array(set))
+    }
+
+    /// C-④a: 庫ウィンドウを閉じたとき集合から削除する（増分維持）。
+    static func removeOpenLibrary(_ url: URL) {
+        var set = Set((openLibraryBundleURLs() ?? []).map { $0.standardizedFileURL })
+        set.remove(url.standardizedFileURL)
+        setOpenLibraryBundleURLs(Array(set))
     }
 
     /// Append a bundle URL to the list of recently opened libraries.
