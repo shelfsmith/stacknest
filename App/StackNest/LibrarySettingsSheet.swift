@@ -80,7 +80,7 @@ struct LibrarySettingsSheet: View {
                     .tabItem { Label("監視フォルダ", systemImage: "folder.badge.gearshape") }
                     .tag(4)
                 ScrollView { importSection().padding(16) }
-                    .tabItem { Label("取り込み", systemImage: "square.and.arrow.down") }
+                    .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
                     .tag(5)
             }
             .padding(.horizontal, 12)
