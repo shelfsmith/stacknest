@@ -72,7 +72,14 @@ struct LibrarySettingsSheet: View {
                 ScrollView { formatSection().padding(16) }
                     .tabItem { Label("フォーマット", systemImage: "textformat") }
                     .tag(1)
-                ScrollView { importSection().padding(16) }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        importSection()
+                        Divider()
+                        watchSection()
+                    }
+                    .padding(16)
+                }
                     .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
                     .tag(5)
                 ScrollView { labelSection().padding(16) }
@@ -81,9 +88,6 @@ struct LibrarySettingsSheet: View {
                 ScrollView { lockSection().padding(16) }
                     .tabItem { Label("ロック", systemImage: "lock") }
                     .tag(3)
-                ScrollView { watchSection().padding(16) }
-                    .tabItem { Label("監視フォルダ", systemImage: "folder.badge.gearshape") }
-                    .tag(4)
             }
             .padding(.horizontal, 12)
 

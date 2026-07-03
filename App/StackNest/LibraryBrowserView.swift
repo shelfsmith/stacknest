@@ -92,6 +92,9 @@ struct LibraryBrowserView: View {
             // Task 15: DeleteBooksCommand 経由 (Undo 対応)。
             // FX7: scope-aware な 3 択ダイアログを経由する（Delete キーと同一パス）。
             .onReceive(NotificationCenter.default.publisher(for: .stacknestDeleteFromLibraryRequest)) { _ in
+                // Fix: 複数 library window が開いていると全窓が反応し確認ダイアログが多重表示される。
+                // selectAll と同じく frontmost(key) window のみ反応させる（通知は object:nil で全窓へ届く）。
+                guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
                 guard !appState.selectedBookIDs.isEmpty, let db = appState.database else { return }
                 BookDeleteCommand.runScopeAwareDelete(
                     mode: .library,
@@ -102,6 +105,7 @@ struct LibraryBrowserView: View {
                 )
             }
             .onReceive(NotificationCenter.default.publisher(for: .stacknestMoveToTrashRequest)) { _ in
+                guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
                 guard !appState.selectedBookIDs.isEmpty, let db = appState.database else { return }
                 BookDeleteCommand.runScopeAwareDelete(
                     mode: .trash,
