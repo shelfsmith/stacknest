@@ -2,9 +2,22 @@
 import AppCore
 import AppKit
 import LibraryStore
+import ObjectiveC
 import os
 import SwiftUI
 import UniformTypeIdentifiers
+
+// C-④a: NSWindow に「表示中の庫 bundleURL」を関連付ける。applicationShouldTerminate で
+// 「実際に可視な庫ウィンドウ」から open-set を作るために使う（SwiftUI の close hook
+// ＝onDisappear / OpenLibraryRegistry は macOS の WindowGroup で確実に発火せず、閉じた窓が
+// 居残って次回起動で復活する不具合があったため・smoke A3 自由記載）。
+private nonisolated(unsafe) var stacknestBundleURLKey: UInt8 = 0
+extension NSWindow {
+    var stacknestBundleURL: URL? {
+        get { objc_getAssociatedObject(self, &stacknestBundleURLKey) as? URL }
+        set { objc_setAssociatedObject(self, &stacknestBundleURLKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+}
 
 // MARK: - WindowBridge
 /// Singleton that bridges AppDelegate's `application(_:open:)` call (which fires before
@@ -381,6 +394,8 @@ struct LibraryWindowContainer: View {
                     if self.hostWindow == nil {
                         self.hostWindow = window
                     }
+                    // C-④a: この庫ウィンドウの bundleURL を NSWindow に関連付ける（終了時の open-set 用）。
+                    window.stacknestBundleURL = bundleURL
                     // Setup frame observer and trigger deferred restoration after settings load
                     let observer = WindowFrameObserver()
                     self.frameObserver = observer
@@ -407,7 +422,8 @@ struct LibraryWindowContainer: View {
                     }
                 }
             }
-            .onChange(of: bundleURL) { oldURL, _ in
+            .onChange(of: bundleURL) { oldURL, newURL in
+                hostWindow?.stacknestBundleURL = newURL   // C-④a: 窓再利用時に関連付けを更新
                 if let oldURL {
                     appState?.closeBundle()
                     LibraryOpenLockManager.shared.release(bundleURL: oldURL)
@@ -1028,17 +1044,24 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         return true  // there are user-facing windows; let macOS bring app forward
     }
 
+    /// C-④a: 終了確定の直前（**窓が閉じられる前**）に「現在可視な庫ウィンドウ」の集合を保存する。
+    /// SwiftUI の close hook（onDisappear / OpenLibraryRegistry）は macOS の WindowGroup で確実に
+    /// 発火せず、閉じた窓が居残る（smoke A3）。実際の `NSWindow.isVisible` ＋ 関連付けた bundleURL を
+    /// 使えば hook 非依存で正確。applicationWillTerminate はウィンドウ teardown 後に走るため不適。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let openURLs = sender.windows
+            .filter { $0.isVisible }
+            .compactMap { $0.stacknestBundleURL }
+        UserDefaultsKeys.setOpenLibraryBundleURLs(openURLs)
+        return .terminateNow
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // B22: Cmd-Q では LibraryWindowContainer.onDisappear が確実に発火しないため、
         // 終了時にも開いている各 AppState のバックアップを走らせる（didBackupThisSession で二重実行防止）。
         for state in AppState.activeInstances.allObjects {
             state.backupOnCloseIfNeeded()
         }
-        // C-④a: 前回開いていた庫の集合を保存（次回 .lastOpened 起動で全復元）。
-        // 現在「窓が開いている」庫の集合は OpenLibraryRegistry（open で register・close で unregister＝
-        // 増分維持）を使う。AppState.activeInstances は deinit まで残り、閉じた窓が居残って
-        // 次回起動で復活する不具合があった（smoke A3 自由記載）。窓ライフサイクルに一致する registry が正。
-        UserDefaultsKeys.setOpenLibraryBundleURLs(Array(OpenLibraryRegistry.shared.openURLs))
         // 4.1b: 内蔵リモート共有サーバを graceful に停止する。
         ServerController.shared.stop()
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを停止する。
