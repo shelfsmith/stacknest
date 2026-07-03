@@ -7,13 +7,9 @@ import os
 import SwiftUI
 import UniformTypeIdentifiers
 
-// C-④a: NSWindow に「表示中の庫 bundleURL」を関連付ける。applicationShouldTerminate で
-// 「実際に可視な庫ウィンドウ」から open-set を作るために使う（SwiftUI の close hook
-// ＝onDisappear / OpenLibraryRegistry は macOS の WindowGroup で確実に発火せず、閉じた窓が
-// 居残って次回起動で復活する不具合があったため・smoke A3 自由記載）。
 // C-④a: 庫ウィンドウに bundleURL を関連付ける。NSWindow.willCloseNotification のグローバル観測で
-// 「閉じられた窓が庫かどうか」を判定するために使う（SwiftUI の onDisappear は不確実だが willClose は
-// 手動クローズで確実に発火する・⌘Q 終了時は発火しない＝計測で確認済み）。
+// 「閉じられた窓が庫かどうか」を判定し open-set から削除するために使う（SwiftUI の onDisappear は
+// WindowGroup で不確実だが willClose は手動クローズで確実に発火・⌘Q 終了時は非発火＝計測で確認済み）。
 private nonisolated(unsafe) var stacknestBundleURLKey: UInt8 = 0
 extension NSWindow {
     var stacknestBundleURL: URL? {
@@ -1059,12 +1055,9 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         return true  // there are user-facing windows; let macOS bring app forward
     }
 
-    /// C-④a: 終了確定の直前（**窓が閉じられる前**）に「現在可視な庫ウィンドウ」の集合を保存する。
-    /// SwiftUI の close hook（onDisappear / OpenLibraryRegistry）は macOS の WindowGroup で確実に
-    /// 発火せず、閉じた窓が居残る（smoke A3）。実際の `NSWindow.isVisible` ＋ 関連付けた bundleURL を
-    /// 使えば hook 非依存で正確。applicationWillTerminate はウィンドウ teardown 後に走るため不適。
-    /// C-④a: 庫ウィンドウのクローズ（手動）を open-set から削除する。willCloseNotification は
-    /// main で post されるため @MainActor セレクタで安全に受けられる。終了時は isTerminating で除外。
+    /// C-④a: 庫ウィンドウのクローズ（手動）を open-set から削除する（増分維持）。
+    /// willCloseNotification は main で post されるため @MainActor セレクタで安全に受けられる。
+    /// 終了に伴うクローズは `isTerminating` で除外し、開いていた庫を復元対象に残す。
     @objc private func handleWindowWillClose(_ note: Notification) {
         guard !Self.isTerminating,
               let w = note.object as? NSWindow,
@@ -1074,6 +1067,8 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // C-④a: できるだけ早く終了フラグを立てる（終了に伴う窓クローズで open-set を削らないため）。
+        // 注: 将来ここで .terminateCancel を返す分岐を足す場合は isTerminating を false に戻す経路が要る
+        //（現状は常に .terminateNow なのでリセット不要）。
         Self.isTerminating = true
         return .terminateNow
     }
