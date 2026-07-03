@@ -52,7 +52,7 @@ struct LibrarySettingsSheet: View {
     @State var stagedFieldLabels: [String: String] = [:]
     @State var stagedBookTypeLabels: [String: String] = [:]
 
-    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 2=ラベル / 3=ロック)。
+    /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 2=ラベル / 3=ロック / 4=監視フォルダ / 5=取り込み)。
     @State private var settingsTab = 0
 
     var body: some View {
