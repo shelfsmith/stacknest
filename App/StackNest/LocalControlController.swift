@@ -42,8 +42,6 @@ final class LocalControlController {
                     }
                 }
             },
-            autoClassifyEnabled: ViewerSettings.shared.autoClassifyEnabled,
-            thickThreshold: ViewerSettings.shared.thickBookThreshold,
             trashFile: { url in try FileManager.default.trashItem(at: url, resultingItemURL: nil) },
             onLibraryStructureChanged: { uuid in
                 Task { @MainActor in
