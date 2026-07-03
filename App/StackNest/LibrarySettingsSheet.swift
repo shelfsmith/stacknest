@@ -79,6 +79,9 @@ struct LibrarySettingsSheet: View {
                 ScrollView { watchSection().padding(16) }
                     .tabItem { Label("監視フォルダ", systemImage: "folder.badge.gearshape") }
                     .tag(4)
+                ScrollView { importSection().padding(16) }
+                    .tabItem { Label("取り込み", systemImage: "square.and.arrow.down") }
+                    .tag(5)
             }
             .padding(.horizontal, 12)
 
@@ -352,6 +355,74 @@ struct LibrarySettingsSheet: View {
     private func openBackupsFolder() {
         guard let url = bundleURL else { return }
         NSWorkspace.shared.open(BackupManager.backupsDir(for: url))
+    }
+
+    // MARK: - Phase C-④b Task 4: 取り込み セクション（per-library override）
+
+    @ViewBuilder
+    private func importSection() -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("このライブラリの取り込み設定")
+                .font(.headline)
+            Text("「グローバル既定に従う」を選ぶと、設定 ▸ 取り込み の値を使います。")
+                .font(.caption).foregroundStyle(.secondary)
+
+            // 本の種類を自動分類（3-way: 既定に従う / 有効 / 無効）
+            VStack(alignment: .leading, spacing: 6) {
+                Text("本の種類を自動分類")
+                Picker("", selection: Binding(
+                    get: {
+                        switch settings.importAutoClassify {
+                        case nil: return 0
+                        case .some(true): return 1
+                        case .some(false): return 2
+                        }
+                    },
+                    set: { (sel: Int) in
+                        settings.importAutoClassify = (sel == 0) ? nil : (sel == 1)
+                    }
+                )) {
+                    Text("グローバル既定に従う（現在: \(ImportDefaults.globalAutoClassify() ? "有効" : "無効")）").tag(0)
+                    Text("このライブラリで有効").tag(1)
+                    Text("このライブラリで無効").tag(2)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+            }
+
+            // 厚い本の閾値（既定に従う / 上書き）
+            let effectiveAuto = settings.importAutoClassify ?? ImportDefaults.globalAutoClassify()
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("厚い本の閾値をグローバル既定に従う（現在: \(ImportDefaults.globalThickThreshold()) ページ）", isOn: Binding(
+                    get: { settings.importThickThreshold == nil },
+                    set: { inherit in
+                        settings.importThickThreshold = inherit ? nil : ImportDefaults.globalThickThreshold()
+                    }
+                ))
+                if settings.importThickThreshold != nil {
+                    HStack {
+                        Text("厚い本判定閾値（ページ数）")
+                        Spacer()
+                        Stepper(
+                            value: Binding(
+                                get: { settings.importThickThreshold ?? ImportDefaults.globalThickThreshold() },
+                                set: { settings.importThickThreshold = max(5, min(100, $0)) }
+                            ),
+                            in: 5...100, step: 1
+                        ) {
+                            Text("\(settings.importThickThreshold ?? ImportDefaults.globalThickThreshold())")
+                                .monospacedDigit().frame(width: 40, alignment: .trailing)
+                        }
+                        .labelsHidden()
+                    }
+                }
+            }
+            .disabled(!effectiveAuto)
+            .opacity(effectiveAuto ? 1.0 : 0.5)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - B6: プリセット操作ヘルパー
