@@ -6,6 +6,8 @@ import CryptoKit
 /// リモートページ/表紙バイトのディスク永続キャッシュ（ファイル blob ＋ SQLite 索引）。
 /// LRU（atime 昇順で上限まで退避）＋可視保護（setProtected）＋TTL（evictExpired）。best-effort。
 public actor RemotePageCache {
+    public static let shared = RemotePageCache()
+
     public struct Key: Hashable, Sendable {
         public enum Kind: String, Sendable { case page, cover }
         public let serverID: UUID

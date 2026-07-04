@@ -4,6 +4,7 @@ import AppKit
 import LibraryStore
 import ObjectiveC
 import os
+import RemoteClient
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -1015,6 +1016,12 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         let cliURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/stacknest-cli")
         if FileManager.default.fileExists(atPath: cliURL.path) {
             ServerPreferences.setCLIPath(cliURL.path)
+        }
+        // G3a: リモートキャッシュの起動時整合＋設定適用
+        Task {
+            await RemotePageCache.shared.setLimit(RemoteCacheSettings.limitBytes())
+            await RemotePageCache.shared.setMaxAge(RemoteCacheSettings.maxAgeSeconds())
+            await RemotePageCache.shared.reconcile()
         }
     }
 
