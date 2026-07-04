@@ -6,9 +6,10 @@ import AppCore
 extension LibrarySettingsSheet {
     @ViewBuilder
     func watchSection() -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // 上段: 機能 ON/OFF（独立した背景）
-            GroupBox {
+        // 自動追加を 1 カードに統合: 有効トグル → 追加/スキャンボタン → 監視フォルダリスト。
+        GroupBox("自動追加") {
+            VStack(alignment: .leading, spacing: 12) {
+                // 1) 機能 ON/OFF トグル
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("自動追加を有効にする").font(.headline)
@@ -19,12 +20,18 @@ extension LibrarySettingsSheet {
                     Toggle("", isOn: $settings.folderWatchEnabled)
                         .toggleStyle(.switch).labelsHidden()
                 }
-                .padding(8)
-            }
 
-            // 下段: 監視フォルダ管理（独立した背景・OFF 時はグレーアウト）
-            GroupBox("監視フォルダ") {
+                Divider()
+
+                // 2) フォルダを追加 / 今すぐスキャン → 3) 監視フォルダリスト（OFF 時はグレーアウト）
                 VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Button("フォルダを追加…") { addWatchFolder() }
+                        Button("今すぐスキャン") { appState?.scanWatchedFoldersNow() }
+                            .disabled(settings.watchedFolders.isEmpty)
+                        Spacer()
+                    }
+
                     if settings.watchedFolders.isEmpty {
                         Text("監視フォルダが未設定です。「フォルダを追加…」で指定してください。")
                             .font(.caption).foregroundStyle(.secondary)
@@ -33,20 +40,14 @@ extension LibrarySettingsSheet {
                         watchRow($folder)
                         Divider()
                     }
-                    HStack {
-                        Button("フォルダを追加…") { addWatchFolder() }
-                        Button("今すぐスキャン") { appState?.scanWatchedFoldersNow() }
-                            .disabled(settings.watchedFolders.isEmpty)
-                        Spacer()
-                    }
 
                     Text("本（アーカイブ/PDF/画像/フォルダ）を移動せずその場所を参照して追加します（追加のみ・サブフォルダは対象外）。NAS など共有ボリュームでは最大 60 秒で反映されます。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(8)
+                .disabled(!settings.folderWatchEnabled)
+                .opacity(settings.folderWatchEnabled ? 1 : 0.4)
             }
-            .disabled(!settings.folderWatchEnabled)
-            .opacity(settings.folderWatchEnabled ? 1 : 0.4)
+            .padding(8)
         }
         // 行削除・有効トグル・ON/OFF・プリセット変更を即 watcher へ反映（save() を待たない）。
         .onChange(of: settings.folderWatchEnabled) { appState?.reloadFolderWatcher() }
