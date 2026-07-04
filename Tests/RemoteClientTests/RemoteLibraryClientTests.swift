@@ -234,7 +234,7 @@ struct StubBackedRemoteClientTests {
         @Test func pageCountFromManifest() async throws {
             StubURLProtocol.stub = .init(status: 200, headers: [:],
                 body: try enc().encode(ManifestDTO(pageCount: 42, direction: "rtl", format: "archive", etag: "e")))
-            let content = RemoteBookContent(client: client(), libraryUUID: "u", bookID: 1, libraryToken: nil, maxWidth: 1600)
+            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 1, libraryToken: nil, maxWidth: 1600, cache: nil)
             let n = try await content.pageCount
             #expect(n == 42)
         }
@@ -242,7 +242,7 @@ struct StubBackedRemoteClientTests {
         @Test func imageDataFetchesPageWithMaxw() async throws {
             let bytes = Data([0xFF, 0xD8, 0x01, 0x02])
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
-            let content = RemoteBookContent(client: client(), libraryUUID: "u", bookID: 9, libraryToken: nil, maxWidth: 1600)
+            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9, libraryToken: nil, maxWidth: 1600, cache: nil)
             let data = try await content.imageData(at: 3)
             #expect(data == bytes)
             let url = StubURLProtocol.lastRequest?.url
