@@ -3,7 +3,7 @@
 // Task R4。
 
 import { fetchManifest, fetchPageBlob, postProgress, postDirection, fetchAdjacent, UnauthorizedError, NetworkError } from "./api.js";
-import { deleteBook, clearAll } from "./idb.js";
+import { deleteBook, clearAll, purgeExpired } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
 
@@ -74,6 +74,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     let cur = startUi - 1; // apiIndex
 
     // 3. PrefetchEngine 構築
+    purgeExpired();   // 7日以上アクセスの無いページキャッシュを掃除（await 不要・best-effort）
     const prefs = readerPrefs();
     const engine = new PrefetchEngine({
         uuid, bookId, pageCount, maxw, book,

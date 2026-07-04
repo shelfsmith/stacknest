@@ -90,3 +90,20 @@ export async function clearAll() {
 export async function deletePage(key) {
     try { const db = await openDB(); await reqP(tx(db, "readwrite").delete(key)); } catch {}
 }
+export const WEB_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;   // 7日固定
+export async function purgeExpired(maxAgeMs = WEB_CACHE_TTL_MS) {
+    try {
+        const db = await openDB();
+        const cutoff = Date.now() - maxAgeMs;
+        await new Promise((res) => {
+            const cur = tx(db, "readwrite").index("byAtime").openCursor();
+            cur.onsuccess = () => {
+                const c = cur.result;
+                if (!c) return res();
+                if ((c.value.atime || 0) < cutoff) c.delete();
+                c.continue();
+            };
+            cur.onerror = () => res();
+        });
+    } catch {}
+}
