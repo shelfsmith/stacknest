@@ -62,8 +62,8 @@ let package = Package(
         ),
         .target(name: "LibraryServerAPI", dependencies: ["StackroomFormat"], path: "Sources/LibraryServerAPI"),
         .testTarget(name: "LibraryServerAPITests", dependencies: ["LibraryServerAPI", "StackroomFormat"], path: "Tests/LibraryServerAPITests"),
-        .target(name: "RemoteClient", dependencies: ["LibraryServerAPI", "AppCore", "LibraryStore"], path: "Sources/RemoteClient"),
-        .testTarget(name: "RemoteClientTests", dependencies: ["RemoteClient", "LibraryServerAPI", "LibraryStore"], path: "Tests/RemoteClientTests"),
+        .target(name: "RemoteClient", dependencies: ["LibraryServerAPI", "AppCore", "LibraryStore", .product(name: "GRDB", package: "GRDB.swift")], path: "Sources/RemoteClient"),
+        .testTarget(name: "RemoteClientTests", dependencies: ["RemoteClient", "LibraryServerAPI", "LibraryStore"], path: "Tests/RemoteClientTests", swiftSettings: [.swiftLanguageMode(.v5)]),
         .target(
             name: "LibraryServer",
             dependencies: [
