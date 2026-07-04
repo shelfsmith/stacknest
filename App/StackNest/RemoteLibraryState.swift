@@ -915,7 +915,7 @@ final class RemoteLibraryState {
                 readingOffline = true
             } else {
                 content = RemoteBookContent(
-                    client: client, libraryUUID: libraryUUID, bookID: book.id,
+                    client: client, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id,
                     libraryToken: libraryToken, maxWidth: 1600)
                 row = Self.makeBookRow(from: book)
                 sourceLabel = "リモート"
@@ -923,7 +923,7 @@ final class RemoteLibraryState {
             }
         } else {
             content = RemoteBookContent(
-                client: client, libraryUUID: libraryUUID, bookID: book.id,
+                client: client, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id,
                 libraryToken: libraryToken, maxWidth: 1600)
             row = Self.makeBookRow(from: book)
             sourceLabel = "リモート"
@@ -1093,7 +1093,7 @@ final class RemoteLibraryState {
             return NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン")
         }
         let content = RemoteBookContent(
-            client: client, libraryUUID: libraryUUID,
+            client: client, serverID: serverID, libraryUUID: libraryUUID,
             bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600)
         let row = Self.makeBookRow(from: dto)
         return NextVolume(content: content, book: row, state: state, sourceLabel: "リモート")
