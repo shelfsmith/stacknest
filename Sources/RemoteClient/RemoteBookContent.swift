@@ -41,4 +41,12 @@ public struct RemoteBookContent: BookContent {
         let key = RemotePageCache.Key(serverID: serverID, libraryUUID: uuid, bookID: bid, kind: .page, page: page, maxw: mw)
         return try await cache.data(for: key, fetch: fetch)
     }
+
+    /// 起動時近傍の可視保護用に、指定ページ±radius のページキャッシュキー集合を作る。
+    /// G3a では「ビューア起動時点の近傍」までを保護する（ページ移動追従は G3b）。
+    public func protectionKeys(around page: Int, radius: Int = 2) -> Set<RemotePageCache.Key> {
+        Set((max(0, page - radius)...(page + radius)).map {
+            RemotePageCache.Key(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID, kind: .page, page: $0, maxw: maxWidth)
+        })
+    }
 }

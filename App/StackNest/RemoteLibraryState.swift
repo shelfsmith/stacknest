@@ -96,7 +96,7 @@ final class RemoteLibraryState {
     /// infinite モードの 1 チャンク件数（paged の per とは独立した固定値）。
     private let infiniteChunkSize = 100
 
-    let coverCache = RemoteCoverCache()
+    let coverCache: RemoteCoverCache
 
     /// ビューワを 1 ウィンドウだけ保持する（ローカル AppState.viewerController と同じ方針）。
     private var viewerController: ViewerWindowController?
@@ -108,6 +108,7 @@ final class RemoteLibraryState {
         self.libraryName = libraryName
         self.locked = locked
         self.libraryToken = libraryToken
+        self.coverCache = RemoteCoverCache(serverID: serverID, libraryUUID: libraryUUID)
         self.per = prefs.perPageSize
         self.scrollMode = prefs.scrollMode
         // 4.2c-7: 保存済みブラウズ状態（ファセット/ソート/grid/フィルタ/サイドバー）を復元する。
@@ -576,6 +577,8 @@ final class RemoteLibraryState {
         for id in list {
             do {
                 try await client.deleteBook(libraryUUID: libraryUUID, bookID: id, trash: trash, libraryToken: libraryToken)
+                await coverCache.invalidate(libraryUUID: libraryUUID, bookID: id)
+                await RemotePageCache.shared.deleteBook(serverID: serverID, libraryUUID: libraryUUID, bookID: id)
                 books.removeAll { $0.id == id }
                 ok += 1
             } catch {
@@ -771,6 +774,7 @@ final class RemoteLibraryState {
                 coverImageName: coverImageName, setName: setName,
                 coverCropRectJSON: cropJSON, setCrop: setCrop, libraryToken: libraryToken)
             await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
+            await RemotePageCache.shared.deleteBook(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
             downloadedVersion &+= 1   // grid/list セルの表紙再評価トリガ
             await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }
@@ -906,6 +910,9 @@ final class RemoteLibraryState {
         let row: BookRow
         let sourceLabel: String
         let readingOffline: Bool
+        // G3a: 可視保護用に、リモート閲覧時の RemoteBookContent を静的型のまま保持する
+        // （content は BookContent 抽象のため。オフライン読み出し時は nil）。
+        var remoteContent: RemoteBookContent?
         if let dl = downloaded {
             let offlineRow = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
             if let made = try? BookContentFactory.make(for: offlineRow) {
@@ -914,17 +921,21 @@ final class RemoteLibraryState {
                 sourceLabel = "オフライン"
                 readingOffline = true
             } else {
-                content = RemoteBookContent(
+                let made = RemoteBookContent(
                     client: client, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id,
                     libraryToken: libraryToken, maxWidth: 1600)
+                content = made
+                remoteContent = made
                 row = Self.makeBookRow(from: book)
                 sourceLabel = "リモート"
                 readingOffline = false
             }
         } else {
-            content = RemoteBookContent(
+            let made = RemoteBookContent(
                 client: client, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id,
                 libraryToken: libraryToken, maxWidth: 1600)
+            content = made
+            remoteContent = made
             row = Self.makeBookRow(from: book)
             sourceLabel = "リモート"
             readingOffline = false
@@ -943,6 +954,10 @@ final class RemoteLibraryState {
             }
             // 4.2c-5: DL済みは offline の lastPage も考慮し max で続きを解決（前進読み前提）。
             let resolvedLastPage = resolveResumePage(server: book.lastPage, offline: downloaded?.lastPage)
+            // G3a: 起動時点の近傍ページ（開始ページ±2）を LRU 退避から保護する（ページ移動追従は G3b）。
+            if let remoteContent {
+                await RemotePageCache.shared.setProtected(remoteContent.protectionKeys(around: resolvedLastPage))
+            }
             // 開いた時点で既読をサーバ確定（/progress は R でも許可）。offline 先行時にサーバを
             // 巻き戻さないよう、解決後ページで POST する。
             Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: resolvedLastPage, libraryToken: self.libraryToken) }

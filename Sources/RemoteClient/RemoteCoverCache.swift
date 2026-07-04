@@ -14,15 +14,29 @@ public actor RemoteCoverCache {
         var string: String { "\(libraryUUID)#\(bookID)#\(maxWidth)" }
     }
 
-    private let cache = NSCache<NSString, NSData>()
+    private let cacheInternal = NSCache<NSString, NSData>()
+    private let cache: RemotePageCache?
+    private let serverID: UUID?
+    private let libraryUUID: String?
 
-    public init(countLimit: Int = 400) { cache.countLimit = countLimit }
+    public init(countLimit: Int = 400, cache: RemotePageCache? = .shared, serverID: UUID? = nil, libraryUUID: String? = nil) {
+        self.cache = cache
+        self.serverID = serverID
+        self.libraryUUID = libraryUUID
+        cacheInternal.countLimit = countLimit
+    }
 
-    /// キャッシュにあれば返し、無ければ fetch して格納する。
+    /// L1(NSCache) にあれば返し、無ければ L2(RemotePageCache) を挟んで fetch し L1 に格納する。
     public func data(for key: Key, fetch: @Sendable () async throws -> Data) async throws -> Data {
-        if let hit = cache.object(forKey: key.string as NSString) { return hit as Data }
-        let data = try await fetch()
-        cache.setObject(data as NSData, forKey: key.string as NSString)
+        if let hit = cacheInternal.object(forKey: key.string as NSString) { return hit as Data }
+        let data: Data
+        if let cache, let serverID, let libraryUUID {
+            let l2 = RemotePageCache.Key(serverID: serverID, libraryUUID: libraryUUID, bookID: key.bookID, kind: .cover, page: 0, maxw: key.maxWidth)
+            data = try await cache.data(for: l2, fetch: fetch)
+        } else {
+            data = try await fetch()
+        }
+        cacheInternal.setObject(data as NSData, forKey: key.string as NSString)
         return data
     }
 
@@ -30,7 +44,7 @@ public actor RemoteCoverCache {
     /// 表紙の取得元は cover(maxw=300) と coverImage(maxw=600) の 2 サイズ。
     public func invalidate(libraryUUID: String, bookID: Int) {
         for w in [300, 600] {
-            cache.removeObject(forKey: Key(libraryUUID: libraryUUID, bookID: bookID, maxWidth: w).string as NSString)
+            cacheInternal.removeObject(forKey: Key(libraryUUID: libraryUUID, bookID: bookID, maxWidth: w).string as NSString)
         }
     }
 }
