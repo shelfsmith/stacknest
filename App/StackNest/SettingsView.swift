@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import AppCore
 import LibraryStore
 import LibraryServer
+import RemoteClient
 
 struct SettingsView: View {
     @Bindable var settings: ViewerSettings
@@ -20,6 +21,9 @@ struct SettingsView: View {
     /// HStack の他要素を押し出す (smoke v4 自由記載)。`text:` に切り替えて文字数を 3 桁
     /// (= 100 まで) に強制し、確定時に Int 変換 + setter clamp で同期する。
     @State private var thresholdInput: String = ""
+
+    /// Phase G3a: リモートキャッシュ使用量の表示テキスト（onAppear / クリア後に更新）。
+    @State private var cacheUsageText = "—"
 
     /// 現在表示中の設定タブ (0=一般 / 1=表示 / 2=取り込み)。
     /// SettingsWindowFixedSize にこの値を渡してタブ切替時に updateNSView を再発火させ、
@@ -227,6 +231,40 @@ struct SettingsView: View {
                         )
                     }
                 }
+
+                Section("リモートキャッシュ") {
+                    Text("リモート閲覧の高速化用に、ページ・表紙をディスクへ自動キャッシュします（自動管理。オフライン ダウンロードとは別）。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Picker("上限", selection: Binding(
+                        get: { RemoteCacheSettings.limitBytes() },
+                        set: { v in RemoteCacheSettings.setLimitBytes(v); Task { await RemotePageCache.shared.setLimit(v) } }
+                    )) {
+                        Text("512 MB").tag(Int64(512) * 1024 * 1024)
+                        Text("1 GB").tag(Int64(1) * 1024 * 1024 * 1024)
+                        Text("2 GB").tag(Int64(2) * 1024 * 1024 * 1024)
+                        Text("5 GB").tag(Int64(5) * 1024 * 1024 * 1024)
+                        Text("10 GB").tag(Int64(10) * 1024 * 1024 * 1024)
+                        Text("無制限").tag(Int64(0))
+                    }
+                    Picker("保持期間", selection: Binding(
+                        get: { RemoteCacheSettings.maxAgeSeconds() },
+                        set: { v in RemoteCacheSettings.setMaxAgeSeconds(v); Task { await RemotePageCache.shared.setMaxAge(v) } }
+                    )) {
+                        Text("7 日").tag(Int64(7) * 24 * 3600)
+                        Text("30 日").tag(Int64(30) * 24 * 3600)
+                        Text("90 日").tag(Int64(90) * 24 * 3600)
+                        Text("無効").tag(Int64(0))
+                    }
+                    HStack {
+                        Text("使用量")
+                        Spacer()
+                        Text(cacheUsageText).foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Button("今すぐ空にする") {
+                        Task { await RemotePageCache.shared.clearAll(); await refreshCacheUsage() }
+                    }
+                }
+                .onAppear { Task { await refreshCacheUsage() } }
             }
             .formStyle(.grouped)
             .tabItem {
@@ -362,6 +400,13 @@ struct SettingsView: View {
         }
         // 空文字 or 非数値の場合は元値を表示し直す
         thresholdInput = String(settings.thickBookThreshold)
+    }
+
+    /// Phase G3a: リモートキャッシュの現使用量を計測して表示テキストを更新。
+    private func refreshCacheUsage() async {
+        let bytes = await RemotePageCache.shared.totalBytes()
+        let mb = Double(bytes) / (1024 * 1024)
+        cacheUsageText = mb >= 1024 ? String(format: "%.2f GB", mb / 1024) : String(format: "%.0f MB", mb)
     }
 
 }
