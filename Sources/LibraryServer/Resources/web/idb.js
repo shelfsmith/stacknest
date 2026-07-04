@@ -91,8 +91,16 @@ export async function deletePage(key) {
     try { const db = await openDB(); await reqP(tx(db, "readwrite").delete(key)); } catch {}
 }
 export const WEB_CACHE_TTL_MS = 7 * 24 * 3600 * 1000;   // 7日固定
+const PURGE_INTERVAL_MS = 24 * 3600 * 1000;             // フルスキャンは 1 日 1 回に間引く
+const PURGE_TS_KEY = "stacknest_last_purge";
 export async function purgeExpired(maxAgeMs = WEB_CACHE_TTL_MS) {
     try {
+        // 本を開くたびの全走査を避ける: 前回 purge から 24h 未満ならスキップ（best-effort・localStorage）。
+        try {
+            const last = Number(localStorage.getItem(PURGE_TS_KEY) || "0");
+            if (Date.now() - last < PURGE_INTERVAL_MS) return;
+            localStorage.setItem(PURGE_TS_KEY, String(Date.now()));
+        } catch {}
         const db = await openDB();
         const cutoff = Date.now() - maxAgeMs;
         await new Promise((res) => {

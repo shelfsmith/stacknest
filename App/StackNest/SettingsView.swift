@@ -237,7 +237,7 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                     Picker("上限", selection: Binding(
                         get: { RemoteCacheSettings.limitBytes() },
-                        set: { v in RemoteCacheSettings.setLimitBytes(v); Task { await RemotePageCache.shared.setLimit(v) } }
+                        set: { v in RemoteCacheSettings.setLimitBytes(v); Task { await RemotePageCache.shared.setLimit(v); await refreshCacheUsage() } }
                     )) {
                         Text("512 MB").tag(Int64(512) * 1024 * 1024)
                         Text("1 GB").tag(Int64(1) * 1024 * 1024 * 1024)

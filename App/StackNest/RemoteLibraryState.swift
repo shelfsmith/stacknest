@@ -774,7 +774,8 @@ final class RemoteLibraryState {
                 coverImageName: coverImageName, setName: setName,
                 coverCropRectJSON: cropJSON, setCrop: setCrop, libraryToken: libraryToken)
             await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
-            await RemotePageCache.shared.deleteBook(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
+            // 表紙差し替えは表紙キャッシュのみ無効化（本文ページの L2 キャッシュは温存）。
+            await RemotePageCache.shared.deleteCovers(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
             downloadedVersion &+= 1   // grid/list セルの表紙再評価トリガ
             await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }

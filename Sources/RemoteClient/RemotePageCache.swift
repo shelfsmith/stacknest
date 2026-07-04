@@ -2,11 +2,13 @@
 import Foundation
 import GRDB
 import CryptoKit
+import os
 
 /// リモートページ/表紙バイトのディスク永続キャッシュ（ファイル blob ＋ SQLite 索引）。
 /// LRU（atime 昇順で上限まで退避）＋可視保護（setProtected）＋TTL（evictExpired）。best-effort。
 public actor RemotePageCache {
     public static let shared = RemotePageCache()
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemotePageCache")
 
     public struct Key: Hashable, Sendable {
         public enum Kind: String, Sendable { case page, cover }
@@ -53,9 +55,15 @@ public actor RemotePageCache {
         self.now = now
         try? FileManager.default.createDirectory(at: blobsDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
-        // 索引 DB。失敗時はメモリ DB にフォールバック（best-effort・キャッシュ無効化相当）。
+        // 索引 DB。失敗時はメモリ DB にフォールバック（best-effort・当該セッションは L2 永続化が効かない）。
         let dbURL = base.appendingPathComponent("index.sqlite")
-        let q = (try? DatabaseQueue(path: dbURL.path)) ?? (try! DatabaseQueue())
+        let q: DatabaseQueue
+        if let disk = try? DatabaseQueue(path: dbURL.path) {
+            q = disk
+        } else {
+            Self.logger.error("disk index open failed at \(dbURL.path, privacy: .public) — falling back to in-memory (L2 persistence disabled this session)")
+            q = (try? DatabaseQueue()) ?? { fatalError("RemotePageCache: in-memory DatabaseQueue failed") }()
+        }
         self.queue = q
         try? q.write { db in
             try db.execute(sql: """
@@ -117,6 +125,15 @@ public actor RemotePageCache {
         let book = "\(serverID.uuidString)|\(libraryUUID)|\(bookID)"
         let rows = (try? queue.read { db in
             try Row.fetchAll(db, sql: "SELECT key, file FROM entries WHERE book = ?", arguments: [book])
+        }) ?? []
+        for row in rows { removeRowAndBlob(key: row["key"], file: row["file"]) }
+    }
+
+    /// 表紙のみ無効化（差し替え時。本文ページキャッシュは温存）。
+    public func deleteCovers(serverID: UUID, libraryUUID: String, bookID: Int) {
+        let book = "\(serverID.uuidString)|\(libraryUUID)|\(bookID)"
+        let rows = (try? queue.read { db in
+            try Row.fetchAll(db, sql: "SELECT key, file FROM entries WHERE book = ? AND kind = 'cover'", arguments: [book])
         }) ?? []
         for row in rows { removeRowAndBlob(key: row["key"], file: row["file"]) }
     }
