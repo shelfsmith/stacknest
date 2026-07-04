@@ -9,16 +9,12 @@ extension LibrarySettingsSheet {
         // 自動追加を 1 カードに統合: 有効トグル → 追加/スキャンボタン → 監視フォルダリスト。
         GroupBox("自動追加") {
             VStack(alignment: .leading, spacing: 12) {
-                // 1) 機能 ON/OFF トグル
-                HStack(alignment: .firstTextBaseline) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("自動追加を有効にする").font(.headline)
-                        Text("監視フォルダ直下に入った本を自動でライブラリに追加します。")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: $settings.folderWatchEnabled)
-                        .toggleStyle(.switch).labelsHidden()
+                // 1) 機能 ON/OFF（チェックボックス・通常字）
+                VStack(alignment: .leading, spacing: 2) {
+                    Toggle("自動追加を有効にする", isOn: $settings.folderWatchEnabled)
+                        .toggleStyle(.checkbox)
+                    Text("監視フォルダ直下に入った本を自動でライブラリに追加します。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Divider()
