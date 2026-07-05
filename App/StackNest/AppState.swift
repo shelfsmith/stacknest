@@ -1345,9 +1345,13 @@ final class AppState {
         // Step 3: DB 更新＋Undo（coverImageName=@external）。prepareCoverFiles は @external を skip。
         let patch = BookPatch(coverImageName: CoverSource.externalSentinel)
         _ = try applyPatch(bookIDs: [bookID], patch: patch, undoManager: undoManager)
-        // Step 4: crop 書込（既存 crop 経路。nil=クロップ解除で NULL）。
+        // Step 4: crop 書込（既存 crop 経路。nil=クロップ解除で NULL）。失敗はログ（表紙自体は確定済み）。
         let cropJSON = cropRect.map(BookRow.encodeCoverCropRect)
-        try? database?.updateBookCoverCropRect(id: bookID, json: cropJSON)
+        do {
+            try database?.updateBookCoverCropRect(id: bookID, json: cropJSON)
+        } catch {
+            Self.coverLogger.error("setExternalCover: crop write failed bookID=\(bookID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
         try? refreshDisplayedBooks()
         Self.coverLogger.info("setExternalCover: applyPatch+crop done, bookID=\(bookID, privacy: .public)")
     }
@@ -1359,12 +1363,21 @@ final class AppState {
     /// エラーは log only — UI へのアラートは出さない (Task 8 で background refresh として利用)。
     func regenerateThumbnail(for book: BookRow) async {
         Self.coverLogger.info("regenerateThumbnail: bookID=\(book.id), coverImageName=\(book.coverImageName ?? "nil")")
+        let thumbDir = bundleURL.appending(path: "Thumbnails")
+        // 外部表紙（@external）: 既存の外部サムネが**存在するとき**だけ保護スキップ。
+        // 不在（delete→Undo でサムネごと消える等・外部バイトは復旧不能）なら自動表紙へフォールバックさせ、
+        // 恒久的な空白表紙を防ぐ。フォールバック時は preferredName=nil（先頭ページ）で archive 経路へ。
+        var preferredName = book.coverImageName
         if CoverSource.isExternal(book.coverImageName) {
-            Self.coverLogger.info("regenerateThumbnail: skip external cover bookID=\(book.id, privacy: .public)")
-            return
+            let extThumb = thumbDir.appendingPathComponent("\(book.id)/thumbnail.jpg")
+            if FileManager.default.fileExists(atPath: extThumb.path) {
+                Self.coverLogger.info("regenerateThumbnail: skip external (thumbnail present) bookID=\(book.id, privacy: .public)")
+                return
+            }
+            Self.coverLogger.warning("regenerateThumbnail: external thumbnail missing → fallback to auto, bookID=\(book.id, privacy: .public)")
+            preferredName = nil
         }
         guard let path = book.path else { return }
-        let thumbDir = bundleURL.appending(path: "Thumbnails")
         let sourceURL = URL(fileURLWithPath: path)
         guard let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) else {
             Self.logger.warning("regenerateThumbnail: unsupported format for book \(book.id) path=\(path)")
@@ -1374,7 +1387,7 @@ final class AppState {
             try await CoverRefresher.regenerate(
                 bookID: book.id,
                 sourceURL: sourceURL,
-                preferredName: book.coverImageName,
+                preferredName: preferredName,
                 thumbnailsDirURL: thumbDir,
                 extractor: extractor
             )
