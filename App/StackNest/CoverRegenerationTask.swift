@@ -43,6 +43,7 @@ final class CoverRegenerationTask {
                 processedCount += 1
                 onProgress(processedCount, totalCount)
             }
+            if CoverSource.isExternal(book.coverImageName) { continue }   // 外部表紙は再圧縮対象外（上書き防止）
             guard let pathStr = book.path else { continue }
             let sourceURL = URL(fileURLWithPath: pathStr)
             guard FileManager.default.fileExists(atPath: sourceURL.path) else {

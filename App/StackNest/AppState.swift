@@ -1248,6 +1248,7 @@ final class AppState {
         for (id, patch) in entries {
             guard patch.coverImageName != nil || patch.clearCoverImageName else { continue }
             let preferredName: String? = patch.clearCoverImageName ? nil : patch.coverImageName
+            if patch.coverImageName == CoverSource.externalSentinel { continue }   // 外部表紙は自前で thumbnail を書く
             guard let book = displayedBooks.first(where: { $0.id == id }),
                   let path = book.path else { continue }
             let sourceURL = URL(fileURLWithPath: path)
@@ -1319,6 +1320,38 @@ final class AppState {
         Self.coverLogger.info("setCoverImageName: applyPatch done, bookID=\(bookID, privacy: .public)")
     }
 
+    // MARK: - Phase G4a: 外部画像を表紙に
+
+    /// 外部画像を表紙に設定する（thumbnail.jpg を外部画像へ置換＋coverImageName="@external"＋crop・Undo 対応）。
+    /// **重要な順序**: file write → cache purge → DB 更新(Undo) → crop 書込 の順。
+    /// prepareCoverFiles は @external を skip するので、initial apply / redo で外部 thumbnail は保持される。
+    /// crop は BookPatch に持たないため、既存 crop 経路（updateBookCoverCropRect・JSON or NULL）で別途書く。
+    @MainActor
+    func setExternalCover(bookID: Int, imageData: Data, cropRect: CGRect?, undoManager: UndoManager?) async throws {
+        guard displayedBooks.contains(where: { $0.id == bookID }) else { return }
+        let umStatus: String = (undoManager == nil) ? "nil" : "set"
+        Self.coverLogger.info("setExternalCover: bookID=\(bookID, privacy: .public), crop=\(cropRect == nil ? "nil" : "set", privacy: .public), undoManager=\(umStatus, privacy: .public)")
+        let thumbDir = bundleURL.appending(path: "Thumbnails")
+        // Step 1: file write（DB 更新前）
+        do {
+            try CoverRefresher.regenerateFromImageData(bookID: bookID, imageData: imageData, thumbnailsDirURL: thumbDir)
+            Self.coverLogger.info("setExternalCover: thumbnail written (pre-DB), bookID=\(bookID, privacy: .public)")
+        } catch {
+            Self.coverLogger.error("setExternalCover: thumbnail write failed bookID=\(bookID, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            throw error
+        }
+        // Step 2: cache purge（DB 更新前）
+        await thumbnailLoader?.purge(bookID: bookID)
+        // Step 3: DB 更新＋Undo（coverImageName=@external）。prepareCoverFiles は @external を skip。
+        let patch = BookPatch(coverImageName: CoverSource.externalSentinel)
+        _ = try applyPatch(bookIDs: [bookID], patch: patch, undoManager: undoManager)
+        // Step 4: crop 書込（既存 crop 経路。nil=クロップ解除で NULL）。
+        let cropJSON = cropRect.map(BookRow.encodeCoverCropRect)
+        try? database?.updateBookCoverCropRect(id: bookID, json: cropJSON)
+        try? refreshDisplayedBooks()
+        Self.coverLogger.info("setExternalCover: applyPatch+crop done, bookID=\(bookID, privacy: .public)")
+    }
+
     // MARK: - Phase 2.5c spec b Task 6: Thumbnail 再生成 helper
 
     /// 指定 book の thumbnail を cover_image_name に基づいて再生成。
@@ -1326,6 +1359,10 @@ final class AppState {
     /// エラーは log only — UI へのアラートは出さない (Task 8 で background refresh として利用)。
     func regenerateThumbnail(for book: BookRow) async {
         Self.coverLogger.info("regenerateThumbnail: bookID=\(book.id), coverImageName=\(book.coverImageName ?? "nil")")
+        if CoverSource.isExternal(book.coverImageName) {
+            Self.coverLogger.info("regenerateThumbnail: skip external cover bookID=\(book.id, privacy: .public)")
+            return
+        }
         guard let path = book.path else { return }
         let thumbDir = bundleURL.appending(path: "Thumbnails")
         let sourceURL = URL(fileURLWithPath: path)
