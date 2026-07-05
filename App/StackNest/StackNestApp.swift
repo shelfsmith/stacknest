@@ -544,6 +544,9 @@ struct LibraryWindowContainer: View {
                     onError: { err in
                         appState.error = nil
                         DispatchQueue.main.async { appState.error = err }
+                    },
+                    onSetExternalCover: { data, crop, id in
+                        try? await appState.setExternalCover(bookID: id, imageData: data, cropRect: crop, undoManager: appState.undoManager)
                     }
                 )
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)

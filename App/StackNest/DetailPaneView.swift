@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import LibraryStore
 import AppCore
 import ImageCache
@@ -43,6 +44,8 @@ struct DetailPaneView: View {
     /// 4.2c-6b: リモート表紙編集用の注入（nil=ローカル＝従来 CoverPickerSheet）。
     var remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil
     var remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
+    /// G4a: 外部画像を表紙に設定（imageData, crop, bookID）。ローカルのみ注入・リモート/オフラインは nil。
+    let onSetExternalCover: ((Data, CGRect?, Int) async -> Void)?
 
     /// 明示イニシャライザ。`coverImage` は inline default (`= nil`) を持つため
     /// 合成メモリワイズ init からは除外され、呼び出し側で渡せなくなる。
@@ -71,7 +74,8 @@ struct DetailPaneView: View {
         onError: @escaping (AppError) -> Void,
         coverImage: ((Int) async -> NSImage?)? = nil,
         remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil,
-        remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
+        remoteEntryImage: ((Int, String) async -> NSImage?)? = nil,
+        onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil
     ) {
         self.books = books
         self.librarySettings = librarySettings
@@ -96,6 +100,7 @@ struct DetailPaneView: View {
         self.coverImage = coverImage
         self.remoteCoverCandidates = remoteCoverCandidates
         self.remoteEntryImage = remoteEntryImage
+        self.onSetExternalCover = onSetExternalCover
     }
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
@@ -118,6 +123,11 @@ struct DetailPaneView: View {
     @State private var requestedFieldNonce: Int = 0
     /// 表紙選択 sheet の表示フラグ (Task 8)
     @State private var showCoverPicker = false
+    /// G4a: 外部画像を表紙に設定する導線の state（D&D / NSOpenPanel → crop シート）。
+    @State private var externalImage: NSImage?
+    @State private var externalImageData: Data?
+    @State private var externalCrop: CGRect = CGRect(x: 0.25, y: 0, width: 0.5, height: 1.0)
+    @State private var showExternalCrop = false
 
     var body: some View {
         Group {
@@ -554,6 +564,12 @@ struct DetailPaneView: View {
                         showCoverPicker = true
                     }
                     .disabled(!isSingleSelection || !canEdit)
+                    if onSetExternalCover != nil {
+                        Button("外部画像を表紙に設定…") {
+                            presentExternalImagePanel()
+                        }
+                        .disabled(!isSingleSelection || !canEdit)
+                    }
                     Button("自動に戻す") {
                         Task {
                             // Phase 2.5g+h+i fixup v1: 表紙データを自動に戻すと同時に crop_rect も NULL に。
@@ -594,6 +610,15 @@ struct DetailPaneView: View {
                         CoverPickerSheet(book: book, bundleURL: bundleURL, onSelect: onPicked)
                     }
                 }
+                // G4a: 外部画像ファイルの D&D（ローカル・単一選択・編集可のみ）。
+                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                    guard onSetExternalCover != nil, canEdit, isSingleSelection else { return false }
+                    return handleExternalImageDrop(providers: providers)
+                }
+                // G4a: 外部画像のクロップ → 表紙設定シート。
+                .sheet(isPresented: $showExternalCrop) {
+                    externalCropSheet(bookID: book.id)
+                }
             HStack(spacing: 6) {
                 UnseenIndicator(state: unseenState, onCommit: onUnseenCommit)
                     .disabled(!(unseenEditable ?? canEdit))   // 4.2c-9: 未読は R でも可
@@ -603,6 +628,76 @@ struct DetailPaneView: View {
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - G4a 外部画像 → 表紙
+
+    /// D&D で受けた最初の画像ファイル URL を読み込みクロップシートを開く。非画像は無視。
+    private func handleExternalImageDrop(providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { $0.canLoadObject(ofClass: URL.self) }) else {
+            return false
+        }
+        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+            guard let url else { return }
+            DispatchQueue.main.async {
+                loadExternalImage(from: url)
+            }
+        }
+        return true
+    }
+
+    /// NSOpenPanel で画像ファイルを選び、クロップシートを開く。
+    private func presentExternalImagePanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        if panel.runModal() == .OK, let url = panel.url {
+            loadExternalImage(from: url)
+        }
+    }
+
+    /// 画像 URL を読み込み、画像なら state に保持してクロップシートを開く。非画像は no-op。
+    private func loadExternalImage(from url: URL) {
+        guard let data = try? Data(contentsOf: url), let img = NSImage(data: data) else { return }
+        externalImageData = data
+        externalImage = img
+        externalCrop = CGRect(x: 0.25, y: 0, width: 0.5, height: 1.0)
+        showExternalCrop = true
+    }
+
+    /// 外部画像のクロップ → 「設定」で onSetExternalCover を呼ぶシート。
+    @ViewBuilder
+    private func externalCropSheet(bookID: Int) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("外部画像を表紙に設定")
+                .font(.title2.bold())
+            Text("表示する範囲をドラッグで指定します（元のアーカイブは変更されません）")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let img = externalImage {
+                CoverCropPicker(image: img, normalizedRect: $externalCrop)
+                    .frame(minWidth: 420, minHeight: 320)
+            }
+            HStack {
+                Spacer()
+                Button("キャンセル") { showExternalCrop = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("設定") {
+                    guard let data = externalImageData else { return }
+                    let crop = externalCrop
+                    Task {
+                        await onSetExternalCover?(data, crop, bookID)
+                        showExternalCrop = false
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(externalImageData == nil)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 520, minHeight: 460)
     }
 
     @ViewBuilder
