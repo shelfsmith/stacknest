@@ -16,4 +16,8 @@ enum RemoteCacheSettings {
         d.object(forKey: maxAgeKey) == nil ? defaultMaxAge : Int64(d.integer(forKey: maxAgeKey))
     }
     static func setMaxAgeSeconds(_ v: Int64, _ d: UserDefaults = .standard) { d.set(Int(v), forKey: maxAgeKey) }
+
+    static let wholeBookPrefetchKey = "remote_prefetch_whole_book"
+    static func wholeBookPrefetch(_ d: UserDefaults = .standard) -> Bool { d.bool(forKey: wholeBookPrefetchKey) }  // 既定 false
+    static func setWholeBookPrefetch(_ v: Bool, _ d: UserDefaults = .standard) { d.set(v, forKey: wholeBookPrefetchKey) }
 }

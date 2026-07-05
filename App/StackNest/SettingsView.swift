@@ -260,6 +260,10 @@ struct SettingsView: View {
                         Spacer()
                         Text(cacheUsageText).foregroundStyle(.secondary).monospacedDigit()
                     }
+                    Toggle("開いた本を全ページ先読みする（帯域・容量を使用）", isOn: Binding(
+                        get: { RemoteCacheSettings.wholeBookPrefetch() },
+                        set: { RemoteCacheSettings.setWholeBookPrefetch($0) }
+                    ))
                     Button("今すぐ空にする") {
                         Task { await RemotePageCache.shared.clearAll(); await refreshCacheUsage() }
                     }
