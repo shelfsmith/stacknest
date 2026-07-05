@@ -67,13 +67,13 @@ struct TitleScreenView: View {
         .buttonStyle(.bordered)
 
         Button { openWindow(id: "connect") } label: {
-          Label("リモートビューアを開く", systemImage: "network")
+          Label("リモートブラウザを開く", systemImage: "network")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
 
         Button { openWindow(id: "offline") } label: {
-          Label("オフラインビューアを開く", systemImage: "tray.and.arrow.down")
+          Label("オフラインブラウザを開く", systemImage: "tray.and.arrow.down")
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)

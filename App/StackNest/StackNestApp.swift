@@ -139,9 +139,9 @@ struct StackNestApp: App {
         .commandsRemoved()
         .restorationBehavior(.disabled)
 
-        // Phase 4.2b-1 fixup v1: リモートビューア（接続）ウィンドウ — File メニュー / Title から openWindow(id:"connect")。
-        // タイトルウィンドウを開かずに接続フローを完結する（A1）。4.2c-3 (A5-2): タイトルを「リモートビューア」に統一。
-        Window("リモートビューア", id: "connect") {
+        // Phase 4.2b-1 fixup v1: リモートブラウザ（接続）ウィンドウ — File メニュー / Title から openWindow(id:"connect")。
+        // タイトルウィンドウを開かずに接続フローを完結する（A1）。4.2c-3 (A5-2): タイトルを「リモートブラウザ」に統一（旧「リモートビューア」）。
+        Window("リモートブラウザ", id: "connect") {
             RemoteConnectFlowView()
         }
         .windowResizability(.contentSize)

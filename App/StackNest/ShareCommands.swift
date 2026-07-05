@@ -8,8 +8,8 @@ struct ShareCommands: Commands {
         CommandMenu("共有") {
             Button("サーバ設定…") { openWindow(id: "sharing-settings") }
             Divider()
-            Button("リモートビューア…") { openWindow(id: "connect") }
-            Button("オフラインビューア…") { openWindow(id: "offline") }
+            Button("リモートブラウザ…") { openWindow(id: "connect") }
+            Button("オフラインブラウザ…") { openWindow(id: "offline") }
         }
     }
 }
