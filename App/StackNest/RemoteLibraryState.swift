@@ -955,10 +955,8 @@ final class RemoteLibraryState {
             }
             // 4.2c-5: DL済みは offline の lastPage も考慮し max で続きを解決（前進読み前提）。
             let resolvedLastPage = resolveResumePage(server: book.lastPage, offline: downloaded?.lastPage)
-            // G3a: 起動時点の近傍ページ（開始ページ±2）を LRU 退避から保護する（ページ移動追従は G3b）。
-            if let remoteContent {
-                await RemotePageCache.shared.setProtected(remoteContent.protectionKeys(around: resolvedLastPage))
-            }
+            // G3b: 起動時保護は controller の初回 recomputePrefetch()→reportActiveWindow が担う
+            // （旧 setProtected 呼び出しは Task 2 で owner 必須になったため削除）。
             // 開いた時点で既読をサーバ確定（/progress は R でも許可）。offline 先行時にサーバを
             // 巻き戻さないよう、解決後ページで POST する。
             Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: resolvedLastPage, libraryToken: self.libraryToken) }

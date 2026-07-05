@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import LibraryStore
 import AppCore
+import RemoteClient
 import OSLog
 
 /// 内蔵ビューワの専用ウィンドウを管理する。1 冊の BookContent を ViewerModel で遷移し
@@ -55,6 +56,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// ノートなし時の idle-hide 遅延（秒）。
     private let hudIdleHideDelay: TimeInterval = 2.0
     private var prefetch: [Int: NSImage] = [:]
+    private var inFlightPrefetch: [Int: Task<Void, Never>] = [:]
+    private var prefetchQueue: [Int] = []
+    private let maxConcurrentPrefetch = 3
+    /// リモート閲覧時のみ注入（可視保護・tier3）。ローカル/オフラインは nil。
+    var remotePrefetch: RemotePrefetchContext?
     private let bindings = ViewerKeyBindings.load()
     /// ヘルプオーバーレイ（? / h）。PassthroughHostingView で canvas にジェスチャを通す。
     private var helpOverlayHosting: PassthroughHostingView<ViewerHelpOverlayView>?
@@ -291,7 +297,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             canvas.setImages(cachedAll)
             updateHUD()
             recordOrientationsThenMaybeReload(displayedPages: pages, images: cachedAll)
-            prefetchNeighbors()
+            recomputePrefetch()
             return
         }
         let token = model.currentSpreadIndex
@@ -311,7 +317,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             self.canvas.setImages(imgs)
             self.updateHUD()
             self.recordOrientationsThenMaybeReload(displayedPages: pages, images: imgs)
-            self.prefetchNeighbors()
+            self.recomputePrefetch()
         }
     }
 
@@ -337,33 +343,62 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         return model.pageCount > 0 ? [model.currentPage] : []
     }
 
-    /// 見開きモードでは前後の見開きのページ（±2 ページ相当）まで広げてプリフェッチする。
-    private func prefetchNeighbors() {
-        var targets: Set<Int> = []
-        if model.displayMode == .spread {
+    /// 移動ごとに Web パリティの先読み plan を再計算し、遠方の in-flight を abort、近傍を優先取得する。
+    private func recomputePrefetch() {
+        let cur = model.currentPage
+        let spreadPages: [Int]?
+        var neighborSpreads: [[Int]] = []
+        if model.displayMode == .spread, model.currentSpreadIndex >= 0, model.currentSpreadIndex < model.spreads.count {
+            spreadPages = model.spreads[model.currentSpreadIndex].pages
             let idx = model.currentSpreadIndex
             for si in [idx - 1, idx + 1] where si >= 0 && si < model.spreads.count {
-                for p in model.spreads[si].pages { targets.insert(p) }
+                neighborSpreads.append(model.spreads[si].pages)
             }
         } else {
-            targets.insert(model.currentPage - 1)
-            targets.insert(model.currentPage + 1)
+            spreadPages = nil
         }
-        for p in targets where p >= 0 && p < model.pageCount && prefetch[p] == nil {
-            Task { [weak self] in
+        let tier3 = remotePrefetch?.tier3Enabled() ?? false
+        let plan = PrefetchPlanner.plan(current: cur, pageCount: model.pageCount,
+                                        spreadPages: spreadPages, neighborSpreads: neighborSpreads, tier3: tier3)
+        // abort: 近傍(先頭8)に無い in-flight を cancel
+        let keep = Set(plan.queue.prefix(8))
+        for (page, task) in inFlightPrefetch where !keep.contains(page) {
+            task.cancel(); inFlightPrefetch.removeValue(forKey: page)
+        }
+        // 可視保護（ページ移動追従）
+        remotePrefetch?.reportActiveWindow(plan.activeWindow)
+        // enqueue
+        prefetchQueue = plan.queue
+        pumpPrefetch()
+    }
+
+    private func pumpPrefetch() {
+        while inFlightPrefetch.count < maxConcurrentPrefetch,
+              let page = prefetchQueue.first(where: { prefetch[$0] == nil && inFlightPrefetch[$0] == nil }) {
+            prefetchQueue.removeAll { $0 == page }
+            let content = self.content
+            inFlightPrefetch[page] = Task { [weak self] in
+                let img = await Self.loadImage(content: content, page: page)
                 guard let self else { return }
-                if let img = await Self.loadImage(content: self.content, page: p) {
-                    self.prefetch[p] = img
+                if Task.isCancelled { self.inFlightPrefetch.removeValue(forKey: page); return }
+                if let img {
+                    self.prefetch[page] = img
                     // プリフェッチ済み画像からも向きを学習する（前方の横長ページへ進んだ時点で既に正しい配置）。
-                    self.recordOrientation(page: p, image: img)
-                    if self.prefetch.count > 8 {
-                        let cur = self.model.currentPage
-                        if let farthest = self.prefetch.keys.max(by: { abs($0 - cur) < abs($1 - cur) }) {
-                            self.prefetch.removeValue(forKey: farthest)
-                        }
-                    }
+                    self.recordOrientation(page: page, image: img)
+                    self.trimL1(around: self.model.currentPage)
                 }
+                self.inFlightPrefetch.removeValue(forKey: page)
+                self.pumpPrefetch()
             }
+        }
+    }
+
+    /// L1 メモリを可視近傍中心に間引く（現行の「最大8・遠方破棄」を踏襲）。
+    private func trimL1(around cur: Int) {
+        while prefetch.count > 8 {
+            if let farthest = prefetch.keys.max(by: { abs($0 - cur) < abs($1 - cur) }) {
+                prefetch.removeValue(forKey: farthest)
+            } else { break }
         }
     }
 
@@ -664,6 +699,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         // ここから content-swap と model-install の間に suspension は無い（atomic swap）。
+        // 旧巻の先読みを止める（保護 owner は同一ビューアなので clear 不要・次 recompute で更新）。
+        for (_, t) in inFlightPrefetch { t.cancel() }
+        inFlightPrefetch.removeAll()
         content = nv.content
         book = nv.book
         overrides = state.overrides
@@ -782,6 +820,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         helpOverlayTimer?.invalidate()
         helpOverlayTimer = nil
         prefetch.removeAll()
+        for (_, t) in inFlightPrefetch { t.cancel() }
+        inFlightPrefetch.removeAll()
+        remotePrefetch?.clearProtection()
         onClose()
     }
 
