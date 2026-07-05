@@ -1033,17 +1033,26 @@ final class RemoteLibraryState {
             )
             // G3b: リモート閲覧では RemotePrefetchContext を注入し、可視ページの保護を
             // ページ移動に追従させる（各 controller が別 owner=union 保護）。
-            if let rc = remoteContent {
+            if remoteContent != nil {
                 let owner = ObjectIdentifier(controller)
                 let sID = serverID, luid = libraryUUID
+                // 保護更新を発行順に直列化（fire-and-forget の到達順不定を排除・I2）。
+                // 更新は MainActor（recompute/close）からのみ発行されるため @unchecked Sendable で安全。
+                let chain = ProtectionChain()
                 controller.remotePrefetch = RemotePrefetchContext(
-                    reportActiveWindow: { pages in
+                    reportActiveWindow: { pages, bid in
+                        // bid はビューアが現在 content から渡す（巻スワップ追従・C1）。オフライン巻なら nil→no-op。
+                        guard let bid else { return }
                         let keys = Set(pages.map {
-                            RemotePageCache.Key(serverID: sID, libraryUUID: luid, bookID: rc.bookIDValue, kind: .page, page: $0, maxw: 1600)
+                            RemotePageCache.Key(serverID: sID, libraryUUID: luid, bookID: bid, kind: .page, page: $0, maxw: 1600)
                         })
-                        Task { await RemotePageCache.shared.setProtected(keys, owner: owner) }
+                        let prev = chain.task
+                        chain.task = Task { await prev?.value; await RemotePageCache.shared.setProtected(keys, owner: owner) }
                     },
-                    clearProtection: { Task { await RemotePageCache.shared.clearProtected(owner: owner) } },
+                    clearProtection: {
+                        let prev = chain.task
+                        chain.task = Task { await prev?.value; await RemotePageCache.shared.clearProtected(owner: owner) }
+                    },
                     tier3Enabled: { RemoteCacheSettings.wholeBookPrefetch() }
                 )
             }

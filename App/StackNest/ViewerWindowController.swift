@@ -56,11 +56,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// ノートなし時の idle-hide 遅延（秒）。
     private let hudIdleHideDelay: TimeInterval = 2.0
     private var prefetch: [Int: NSImage] = [:]
-    private var inFlightPrefetch: [Int: Task<Void, Never>] = [:]
+    /// page → (token, task)。token で Task 同一性を判定し、古い cancel 済 Task の完了が
+    /// 同一ページの新 Task エントリを誤除去する競合（高速連打）を防ぐ（I1 対策）。
+    private var inFlightPrefetch: [Int: (token: Int, task: Task<Void, Never>)] = [:]
+    private var prefetchToken = 0
     private var prefetchQueue: [Int] = []
     private let maxConcurrentPrefetch = 3
     /// リモート閲覧時のみ注入（可視保護・tier3）。ローカル/オフラインは nil。
     var remotePrefetch: RemotePrefetchContext?
+    /// 現在 content がリモート本なら bookID。巻スワップで content が差し替わると追従（C1 対策）。
+    var currentRemoteBookID: Int? { (content as? RemoteBookContent)?.bookIDValue }
     private let bindings = ViewerKeyBindings.load()
     /// ヘルプオーバーレイ（? / h）。PassthroughHostingView で canvas にジェスチャを通す。
     private var helpOverlayHosting: PassthroughHostingView<ViewerHelpOverlayView>?
@@ -362,11 +367,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                                         spreadPages: spreadPages, neighborSpreads: neighborSpreads, tier3: tier3)
         // abort: 近傍(先頭8)に無い in-flight を cancel
         let keep = Set(plan.queue.prefix(8))
-        for (page, task) in inFlightPrefetch where !keep.contains(page) {
-            task.cancel(); inFlightPrefetch.removeValue(forKey: page)
+        for (page, entry) in inFlightPrefetch where !keep.contains(page) {
+            entry.task.cancel(); inFlightPrefetch.removeValue(forKey: page)
         }
-        // 可視保護（ページ移動追従）
-        remotePrefetch?.reportActiveWindow(plan.activeWindow)
+        // 可視保護（ページ移動追従）。現在のリモート bookID を渡し巻スワップに追従（C1）。
+        remotePrefetch?.reportActiveWindow(plan.activeWindow, currentRemoteBookID)
         // enqueue
         prefetchQueue = plan.queue
         pumpPrefetch()
@@ -377,19 +382,27 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
               let page = prefetchQueue.first(where: { prefetch[$0] == nil && inFlightPrefetch[$0] == nil }) {
             prefetchQueue.removeAll { $0 == page }
             let content = self.content
-            inFlightPrefetch[page] = Task { [weak self] in
+            prefetchToken += 1
+            let token = prefetchToken
+            // 自分の token に一致するときだけエントリを除去（別 Task に置換済みなら触らない）。
+            let removeIfMine: () -> Void = { [weak self] in
+                guard let self, self.inFlightPrefetch[page]?.token == token else { return }
+                self.inFlightPrefetch.removeValue(forKey: page)
+            }
+            let task = Task { [weak self] in
                 let img = await Self.loadImage(content: content, page: page)
                 guard let self else { return }
-                if Task.isCancelled { self.inFlightPrefetch.removeValue(forKey: page); return }
+                if Task.isCancelled { removeIfMine(); return }
                 if let img {
                     self.prefetch[page] = img
                     // プリフェッチ済み画像からも向きを学習する（前方の横長ページへ進んだ時点で既に正しい配置）。
                     self.recordOrientation(page: page, image: img)
                     self.trimL1(around: self.model.currentPage)
                 }
-                self.inFlightPrefetch.removeValue(forKey: page)
+                removeIfMine()
                 self.pumpPrefetch()
             }
+            inFlightPrefetch[page] = (token, task)
         }
     }
 
@@ -700,7 +713,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         }
         // ここから content-swap と model-install の間に suspension は無い（atomic swap）。
         // 旧巻の先読みを止める（保護 owner は同一ビューアなので clear 不要・次 recompute で更新）。
-        for (_, t) in inFlightPrefetch { t.cancel() }
+        for (_, e) in inFlightPrefetch { e.task.cancel() }
         inFlightPrefetch.removeAll()
         content = nv.content
         book = nv.book
@@ -820,7 +833,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         helpOverlayTimer?.invalidate()
         helpOverlayTimer = nil
         prefetch.removeAll()
-        for (_, t) in inFlightPrefetch { t.cancel() }
+        for (_, e) in inFlightPrefetch { e.task.cancel() }
         inFlightPrefetch.removeAll()
         remotePrefetch?.clearProtection()
         onClose()
