@@ -66,6 +66,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     var remotePrefetch: RemotePrefetchContext?
     /// 現在 content がリモート本なら bookID。巻スワップで content が差し替わると追従（C1 対策）。
     var currentRemoteBookID: Int? { (content as? RemoteBookContent)?.bookIDValue }
+    /// G3b: L2 キャッシュ済みページのカバレッジ帯（プログレスバー可視化・リモートのみ・~1s ポーリング）。
+    private var cachedSegments: [ClosedRange<Double>] = []
+    private var cacheCoverageTimer: Timer?
     private let bindings = ViewerKeyBindings.load()
     /// ヘルプオーバーレイ（? / h）。PassthroughHostingView で canvas にジェスチャを通す。
     private var helpOverlayHosting: PassthroughHostingView<ViewerHelpOverlayView>?
@@ -146,7 +149,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         container.addSubview(canvas)
 
-        let hud = PassthroughHostingView(rootView: ViewerHUDView(progressText: model.progressText, progressFraction: model.progressFraction, isVisible: true, pageDirection: model.options.pageDirection))
+        let hud = PassthroughHostingView(rootView: ViewerHUDView(progressText: model.progressText, progressFraction: model.progressFraction, isVisible: true, pageDirection: model.options.pageDirection, cachedSegments: cachedSegments))
         hud.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(hud)
         hudHosting = hud
@@ -210,6 +213,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        startCacheCoverageUpdatesIfRemote()
         // Phase 2.6b-2 T-F1: 全画面で開く設定が ON かつウィンドウが通常表示のとき全画面へ移行する。
         // toggleFullScreen は window が on-screen になった直後に呼ぶ必要があるため
         // DispatchQueue.main.async で 1 runloop 遅延させる。
@@ -600,7 +604,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             progressFraction: model.progressFraction,
             isVisible: true,
             pageDirection: model.options.pageDirection,
-            noteText: hudNoteText
+            noteText: hudNoteText,
+            cachedSegments: cachedSegments
         )
         // ノート専用タイマー（~3.0s）。idleTimer（マウス操作による HUD 表示制御）とは別に管理する。
         hudNoteTimer?.invalidate()
@@ -793,6 +798,28 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         helpOverlayHosting?.rootView = ViewerHelpOverlayView(isVisible: false)
     }
 
+    /// G3b: リモート閲覧時、~1s ごとに L2 キャッシュ済みページを取得しカバレッジ帯を更新する。
+    private func startCacheCoverageUpdatesIfRemote() {
+        guard remotePrefetch != nil, cacheCoverageTimer == nil else { return }
+        refreshCacheCoverage()
+        cacheCoverageTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshCacheCoverage() }
+        }
+    }
+
+    private func refreshCacheCoverage() {
+        guard let ctx = remotePrefetch, let bid = currentRemoteBookID else { return }
+        let pageCount = model.pageCount
+        Task { @MainActor in
+            let pages = await ctx.cachedPages(bid)
+            let segs = CacheCoverage.segments(cached: pages, pageCount: pageCount)
+            if segs != self.cachedSegments {
+                self.cachedSegments = segs
+                self.updateHUD()
+            }
+        }
+    }
+
     private func updateHUD() {
         // hudNoteText を passthrough することで、loadCurrentPage() による progress 更新が
         // アクティブなノート（~3s）を消してしまうバグを防ぐ（Task 3 コアフィックス）。
@@ -801,7 +828,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             progressFraction: model.progressFraction,
             isVisible: hudVisible,
             pageDirection: model.options.pageDirection,
-            noteText: hudNoteText
+            noteText: hudNoteText,
+            cachedSegments: cachedSegments
         )
     }
 
@@ -832,6 +860,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         hudNoteTimer = nil
         helpOverlayTimer?.invalidate()
         helpOverlayTimer = nil
+        cacheCoverageTimer?.invalidate()
+        cacheCoverageTimer = nil
         prefetch.removeAll()
         for (_, e) in inFlightPrefetch { e.task.cancel() }
         inFlightPrefetch.removeAll()

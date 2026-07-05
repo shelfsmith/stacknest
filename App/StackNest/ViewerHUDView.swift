@@ -15,6 +15,8 @@ struct ViewerHUDView: View {
     var pageDirection: PageDirection = .rightToLeft
     /// 一時メモ（巻ナビ結果・レイアウトモード等）。nil のとき非表示。progress とは独立して更新される。
     var noteText: String? = nil
+    /// G3b: L2 キャッシュ済みページのカバレッジ帯（0..1 割合の範囲）。リモート閲覧時のみ非空。
+    var cachedSegments: [ClosedRange<Double>] = []
 
     var body: some View {
         VStack {
@@ -47,14 +49,28 @@ struct ViewerHUDView: View {
             }
             .overlay(alignment: .bottom) {
                 GeometryReader { geo in
-                    // RTL（右綴じ漫画）は右端から左へ伸ばし、LTR は左端から右へ伸ばす。
-                    let fillAlignment: Alignment = pageDirection == .rightToLeft ? .trailing : .leading
-                    ZStack(alignment: fillAlignment) {
+                    let w = geo.size.width
+                    let rtl = pageDirection == .rightToLeft
+                    ZStack(alignment: .leading) {
+                        // トラック（下地）
                         Rectangle().fill(.white.opacity(0.15))
+                        // G3b: L2 キャッシュ済みカバレッジ帯（読書位置塗りより下・控えめな別色）。
+                        ForEach(cachedSegments.indices, id: \.self) { i in
+                            let seg = cachedSegments[i]
+                            let bw = max(0, w * (seg.upperBound - seg.lowerBound))
+                            let x = rtl ? w * (1 - seg.upperBound) : w * seg.lowerBound
+                            Rectangle().fill(.white.opacity(0.32))
+                                .frame(width: bw)
+                                .offset(x: x)
+                        }
+                        // 読書位置の塗り（RTL は右端から）
+                        let fw = w * progressFraction
                         Rectangle().fill(Color(red: 0.36, green: 0.62, blue: 0.85))
-                            .frame(width: geo.size.width * progressFraction)
+                            .frame(width: fw)
+                            .offset(x: rtl ? w - fw : 0)
                     }
                     .frame(height: 3)
+                    .clipped()
                 }
                 .frame(height: 3)
             }

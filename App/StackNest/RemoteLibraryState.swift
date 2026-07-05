@@ -1053,7 +1053,10 @@ final class RemoteLibraryState {
                         let prev = chain.task
                         chain.task = Task { await prev?.value; await RemotePageCache.shared.clearProtected(owner: owner) }
                     },
-                    tier3Enabled: { RemoteCacheSettings.wholeBookPrefetch() }
+                    tier3Enabled: { RemoteCacheSettings.wholeBookPrefetch() },
+                    cachedPages: { bid in
+                        await RemotePageCache.shared.cachedPages(serverID: sID, libraryUUID: luid, bookID: bid, maxw: 1600)
+                    }
                 )
             }
             self.viewerController = controller

@@ -8,12 +8,16 @@ public struct RemotePrefetchContext: Sendable {
     public let reportActiveWindow: @Sendable (Set<Int>, Int?) -> Void   // pages→Key 写像し setProtected(owner:)
     public let clearProtection: @Sendable () -> Void                    // ビューア閉/巻スワップで clearProtected(owner:)
     public let tier3Enabled: @Sendable () -> Bool                       // RemoteCacheSettings を読む
+    /// 現在 bookID → その本の L2 キャッシュ済みページ集合（プログレスバー可視化用・~1s ポーリング）。
+    public let cachedPages: @Sendable (Int) async -> Set<Int>
     public init(reportActiveWindow: @escaping @Sendable (Set<Int>, Int?) -> Void,
                 clearProtection: @escaping @Sendable () -> Void,
-                tier3Enabled: @escaping @Sendable () -> Bool) {
+                tier3Enabled: @escaping @Sendable () -> Bool,
+                cachedPages: @escaping @Sendable (Int) async -> Set<Int>) {
         self.reportActiveWindow = reportActiveWindow
         self.clearProtection = clearProtection
         self.tier3Enabled = tier3Enabled
+        self.cachedPages = cachedPages
     }
 }
 
