@@ -135,6 +135,23 @@ public actor RemotePageCache {
         for row in rows { removeRowAndBlob(key: row["key"], file: row["file"]) }
     }
 
+    /// その本の L2 キャッシュ済みページ番号集合（指定 maxw のページのみ）。プログレスバー可視化用。
+    /// キー形式 `serverID|libraryUUID|bookID|kind|<page>|<maxw>` をパースする。best-effort（失敗は空集合）。
+    public func cachedPages(serverID: UUID, libraryUUID: String, bookID: Int, maxw: Int?) -> Set<Int> {
+        let book = "\(serverID.uuidString)|\(libraryUUID)|\(bookID)"
+        let maxwField = maxw.map(String.init) ?? "full"
+        let keys = (try? queue.read { db in
+            try String.fetchAll(db, sql: "SELECT key FROM entries WHERE book = ? AND kind = 'page'", arguments: [book])
+        }) ?? []
+        var pages = Set<Int>()
+        for k in keys {
+            let f = k.split(separator: "|", omittingEmptySubsequences: false)
+            guard f.count == 6, f[5] == maxwField, let p = Int(f[4]) else { continue }
+            pages.insert(p)
+        }
+        return pages
+    }
+
     /// 表紙のみ無効化（差し替え時。本文ページキャッシュは温存）。
     public func deleteCovers(serverID: UUID, libraryUUID: String, bookID: Int) {
         let book = "\(serverID.uuidString)|\(libraryUUID)|\(bookID)"

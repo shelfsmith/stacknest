@@ -125,4 +125,19 @@ struct RemotePageCacheTests {
         _ = try await cache.data(for: key(0)) { q0.v = true; return Data(count: 100) }
         #expect(q0.v)   // 解除後 page0 は退避され再 fetch
     }
+
+    @Test func cachedPagesReturnsMatchingPageIndices() async throws {
+        let cache = RemotePageCache(baseDirectory: tempDir(), limitBytes: 0, maxAgeSeconds: 0)
+        let sid = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        _ = try await cache.data(for: key(2)) { Data(count: 10) }              // book1 page2 maxw800
+        _ = try await cache.data(for: key(5)) { Data(count: 10) }              // book1 page5 maxw800
+        _ = try await cache.data(for: key(0, book: 2)) { Data(count: 10) }     // 別 book
+        let otherMaxw = RemotePageCache.Key(serverID: sid, libraryUUID: "lib", bookID: 1, kind: .page, page: 9, maxw: 1600)
+        _ = try await cache.data(for: otherMaxw) { Data(count: 10) }           // 別 maxw
+        let cover = RemotePageCache.Key(serverID: sid, libraryUUID: "lib", bookID: 1, kind: .cover, page: 0, maxw: 300)
+        _ = try await cache.data(for: cover) { Data(count: 10) }               // cover
+        let pages = await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 1, maxw: 800)
+        #expect(pages == [2, 5])
+        #expect(await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 99, maxw: 800).isEmpty)
+    }
 }
