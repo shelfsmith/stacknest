@@ -30,4 +30,13 @@ public enum CoverRefresher {
         let resized = CoverImageResizer.resizeJPEG(imageData, maxPixelSize: 1200)
         try resized.write(to: thumbURL)
     }
+
+    /// 外部画像データから直接 thumbnail.jpg を生成する（アーカイブ抽出なし・G4a 外部表紙）。
+    public static func regenerateFromImageData(bookID: Int, imageData: Data, thumbnailsDirURL: URL) throws {
+        let bookDir = thumbnailsDirURL.appendingPathComponent("\(bookID)")
+        try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+        let thumbURL = bookDir.appendingPathComponent("thumbnail.jpg")
+        let resized = CoverImageResizer.resizeJPEG(imageData, maxPixelSize: 1200)
+        try resized.write(to: thumbURL)
+    }
 }
