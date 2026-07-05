@@ -35,7 +35,7 @@ public actor RemotePageCache {
     private var limitBytes: Int64
     private var maxAgeSeconds: Int64
     private let now: @Sendable () -> Int64
-    private var protectedKeys: Set<String> = []
+    private var protectedByOwner: [ObjectIdentifier: Set<String>] = [:]
     private let queue: DatabaseQueue
     private let fm = FileManager.default
 
@@ -87,7 +87,12 @@ public actor RemotePageCache {
         return data
     }
 
-    public func setProtected(_ keys: Set<Key>) { protectedKeys = Set(keys.map { $0.string }) }
+    public func setProtected(_ keys: Set<Key>, owner: ObjectIdentifier) {
+        protectedByOwner[owner] = Set(keys.map { $0.string })
+    }
+    public func clearProtected(owner: ObjectIdentifier) {
+        protectedByOwner.removeValue(forKey: owner)
+    }
 
     public func setLimit(_ bytes: Int64) { limitBytes = bytes; evictToLimit() }
     public func setMaxAge(_ seconds: Int64) { maxAgeSeconds = seconds; evictExpired() }
@@ -100,13 +105,14 @@ public actor RemotePageCache {
         guard limitBytes > 0 else { return }
         var total = totalBytes()
         guard total > limitBytes else { return }
+        let protectedUnion = protectedByOwner.values.reduce(into: Set<String>()) { $0.formUnion($1) }
         let rows = (try? queue.read { db in
             try Row.fetchAll(db, sql: "SELECT key, bytes, file FROM entries ORDER BY atime ASC")
         }) ?? []
         for row in rows {
             if total <= limitBytes { break }
             let k: String = row["key"]; let bytes: Int64 = row["bytes"]; let file: String = row["file"]
-            if protectedKeys.contains(k) { continue }
+            if protectedUnion.contains(k) { continue }
             removeRowAndBlob(key: k, file: file)
             total -= bytes
         }

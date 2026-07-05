@@ -47,7 +47,7 @@ struct RemotePageCacheTests {
         let clock = Box<Int64>(1000)
         let cache = RemotePageCache(baseDirectory: tempDir(), limitBytes: 250, maxAgeSeconds: 0, now: { clock.v })
         _ = try await cache.data(for: key(0)) { Data(count: 100) }; clock.v += 10
-        await cache.setProtected([key(0)])   // page0 を保護
+        await cache.setProtected([key(0)], owner: ObjectIdentifier(cache))   // page0 を保護
         _ = try await cache.data(for: key(1)) { Data(count: 100) }; clock.v += 10
         _ = try await cache.data(for: key(2)) { Data(count: 100) }   // 超過 → 保護外の page1 が先に退避
         let p0 = Box(false), p1 = Box(false)
@@ -102,5 +102,27 @@ struct RemotePageCacheTests {
         let fetched = Box(false)
         _ = try await cache.data(for: key(0)) { fetched.v = true; return Data(count: 10) }
         #expect(fetched.v)   // 欠損行が掃除され miss → 再 fetch
+    }
+
+    @Test func protectedUnionAcrossOwners() async throws {
+        final class Owner {}
+        let o1 = Owner(), o2 = Owner()
+        let clock = Box<Int64>(1000)
+        let cache = RemotePageCache(baseDirectory: tempDir(), limitBytes: 250, maxAgeSeconds: 0, now: { clock.v })
+        _ = try await cache.data(for: key(0)) { Data(count: 100) }; clock.v += 10
+        _ = try await cache.data(for: key(1)) { Data(count: 100) }; clock.v += 10
+        await cache.setProtected([key(0)], owner: ObjectIdentifier(o1))
+        await cache.setProtected([key(1)], owner: ObjectIdentifier(o2))
+        _ = try await cache.data(for: key(2)) { Data(count: 100) }   // 超過 → 保護外(page2以外は全保護)
+        let p0 = Box(false), p1 = Box(false)
+        _ = try await cache.data(for: key(0)) { p0.v = true; return Data(count: 100) }
+        _ = try await cache.data(for: key(1)) { p1.v = true; return Data(count: 100) }
+        #expect(!p0.v); #expect(!p1.v)   // 両 owner の保護が union で効く
+        // o1 を解除 → page0 は保護外に
+        await cache.clearProtected(owner: ObjectIdentifier(o1))
+        _ = try await cache.data(for: key(3)) { Data(count: 100) }   // 超過 → 保護外の page0 が退避
+        let q0 = Box(false)
+        _ = try await cache.data(for: key(0)) { q0.v = true; return Data(count: 100) }
+        #expect(q0.v)   // 解除後 page0 は退避され再 fetch
     }
 }
