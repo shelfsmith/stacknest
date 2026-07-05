@@ -42,6 +42,9 @@ public struct RemoteBookContent: BookContent {
         return try await cache.data(for: key, fetch: fetch)
     }
 
+    /// G3b: RemotePrefetchContext から保護キーを組み立てるため bookID を公開する。
+    public var bookIDValue: Int { bookID }
+
     /// 起動時近傍の可視保護用に、指定ページ±radius のページキャッシュキー集合を作る。
     /// G3a では「ビューア起動時点の近傍」までを保護する（ページ移動追従は G3b）。
     public func protectionKeys(around page: Int, radius: Int = 2) -> Set<RemotePageCache.Key> {

@@ -1031,6 +1031,22 @@ final class RemoteLibraryState {
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: sourceLabel
             )
+            // G3b: リモート閲覧では RemotePrefetchContext を注入し、可視ページの保護を
+            // ページ移動に追従させる（各 controller が別 owner=union 保護）。
+            if let rc = remoteContent {
+                let owner = ObjectIdentifier(controller)
+                let sID = serverID, luid = libraryUUID
+                controller.remotePrefetch = RemotePrefetchContext(
+                    reportActiveWindow: { pages in
+                        let keys = Set(pages.map {
+                            RemotePageCache.Key(serverID: sID, libraryUUID: luid, bookID: rc.bookIDValue, kind: .page, page: $0, maxw: 1600)
+                        })
+                        Task { await RemotePageCache.shared.setProtected(keys, owner: owner) }
+                    },
+                    clearProtection: { Task { await RemotePageCache.shared.clearProtected(owner: owner) } },
+                    tier3Enabled: { RemoteCacheSettings.wholeBookPrefetch() }
+                )
+            }
             self.viewerController = controller
             controller.onSetBookPageDirection = { [weak self] id, dir in
                 Task { await self?.setRemoteDirection(bookID: id, direction: dir) }
