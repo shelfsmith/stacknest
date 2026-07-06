@@ -6,6 +6,7 @@ import ArchiveAdapter
 import Hummingbird
 import LibraryServerAPI
 import StackroomFormat
+import ImageIO
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -597,6 +598,32 @@ public struct LibraryServerCore: Sendable {
             }
             if body.setCoverCropRect {
                 try lib.db.updateBookCoverCropRect(id: row.id, json: body.coverCropRect)
+            }
+            config.onBookChanged?(lib.uuid, row.id)
+            let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
+            return makeBookDetailDTO(from: updated)
+        }
+        // G4b: 外部画像を表紙に（RW）。画像バイトを thumbnail.jpg として保存＋coverImageName="@external"＋crop。
+        api.put("libraries/:lib/books/:id/cover-image") { [config] request, context in
+            try context.requireEdit()
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let buffer = try await request.body.collect(upTo: 30 * 1024 * 1024)   // 上限 30MB
+            let imageData = Data(buffer: buffer)
+            guard !imageData.isEmpty,
+                  let src = CGImageSourceCreateWithData(imageData as CFData, nil),
+                  CGImageSourceGetCount(src) > 0 else {
+                throw HTTPError(.badRequest)
+            }
+            let resized = CoverImageResizer.resizeJPEG(imageData, maxPixelSize: 1200)
+            let thumbURL = coverURL(bundleURL: lib.bundleURL, bookID: row.id)
+            try FileManager.default.createDirectory(
+                at: thumbURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try resized.write(to: thumbURL)
+            var patch = BookPatch()
+            patch.coverImageName = CoverSource.externalSentinel
+            try lib.db.updateBook(id: row.id, patch: patch)
+            if let cropJSON = request.uri.queryParameters.get("crop") {
+                try lib.db.updateBookCoverCropRect(id: row.id, json: cropJSON)
             }
             config.onBookChanged?(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
