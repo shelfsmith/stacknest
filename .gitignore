@@ -71,5 +71,6 @@ __pycache__/
 .pytest_cache/
 
 # superpowers 6.x の worktree（プロジェクト直下 .worktrees/ に作成・git 管理外）
-.worktrees/
-worktrees/
+# root-anchored・スラッシュ無し＝ディレクトリ名も配下も両方マッチ（スキルの check-ignore 検証も通る）
+/.worktrees
+/worktrees
