@@ -126,7 +126,9 @@ struct DetailPaneView: View {
     /// G4a: 外部画像を表紙に設定する導線の state（D&D / NSOpenPanel → crop シート）。
     @State private var externalImage: NSImage?
     @State private var externalImageData: Data?
-    @State private var externalCrop: CGRect = CGRect(x: 0.25, y: 0, width: 0.5, height: 1.0)
+    @State private var externalCrop: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    @State private var externalCropWidth: Double = 1.0
+    @State private var externalCropHeight: Double = 1.0
     @State private var showExternalCrop = false
 
     var body: some View {
@@ -663,7 +665,9 @@ struct DetailPaneView: View {
         guard let data = try? Data(contentsOf: url), let img = NSImage(data: data) else { return }
         externalImageData = data
         externalImage = img
-        externalCrop = CGRect(x: 0.25, y: 0, width: 0.5, height: 1.0)
+        externalCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
+        externalCropWidth = 1.0
+        externalCropHeight = 1.0
         showExternalCrop = true
     }
 
@@ -679,6 +683,35 @@ struct DetailPaneView: View {
             if let img = externalImage {
                 CoverCropPicker(image: img, normalizedRect: $externalCrop)
                     .frame(minWidth: 420, minHeight: 320)
+                // CoverCropPicker は矩形の移動のみ。幅/高さはスライダで調整する（CoverPickerSheet と同方式）。
+                HStack {
+                    Text("幅")
+                    Slider(value: $externalCropWidth, in: 0.1...1.0)
+                        .onChange(of: externalCropWidth) { _, newValue in
+                            var r = externalCrop
+                            r.size.width = newValue
+                            r.origin.x = min(r.origin.x, 1 - newValue)
+                            externalCrop = r
+                        }
+                }
+                HStack {
+                    Text("高さ")
+                    Slider(value: $externalCropHeight, in: 0.1...1.0)
+                        .onChange(of: externalCropHeight) { _, newValue in
+                            var r = externalCrop
+                            r.size.height = newValue
+                            r.origin.y = min(r.origin.y, 1 - newValue)
+                            externalCrop = r
+                        }
+                }
+                HStack {
+                    Button("リセット (全体)") {
+                        externalCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
+                        externalCropWidth = 1
+                        externalCropHeight = 1
+                    }
+                    Spacer()
+                }
             }
             HStack {
                 Spacer()
