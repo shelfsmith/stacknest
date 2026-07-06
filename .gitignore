@@ -69,3 +69,7 @@ dist/
 mcp-stacknest/.venv/
 __pycache__/
 .pytest_cache/
+
+# superpowers 6.x の worktree（プロジェクト直下 .worktrees/ に作成・git 管理外）
+.worktrees/
+worktrees/
