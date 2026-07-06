@@ -180,7 +180,11 @@ struct RemoteLibraryView: View {
             onError: { _ in },
             coverImage: { id in await state.coverImage(id) },
             remoteCoverCandidates: { id in await state.coverCandidates(bookID: id) },
-            remoteEntryImage: { id, name in await state.entryImage(bookID: id, name: name) }
+            remoteEntryImage: { id, name in await state.entryImage(bookID: id, name: name) },
+            onSetExternalCover: { data, crop, id in
+                let json = crop.map(BookRow.encodeCoverCropRect)
+                await state.setRemoteExternalCover(bookID: id, imageData: data, cropJSON: json)
+            }
         )
     }
 

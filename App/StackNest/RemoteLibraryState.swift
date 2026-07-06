@@ -785,6 +785,23 @@ final class RemoteLibraryState {
         }
     }
 
+    /// G4b: 外部画像を表紙にアップロード（リモート・RW）。成功で表紙キャッシュ無効化＋リロード。
+    func setRemoteExternalCover(bookID: Int, imageData: Data, cropJSON: String?) async {
+        do {
+            _ = try await client.setCoverImage(
+                libraryUUID: libraryUUID, bookID: bookID,
+                imageData: imageData, cropJSON: cropJSON, libraryToken: libraryToken)
+            await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
+            await RemotePageCache.shared.deleteCovers(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
+            downloadedVersion &+= 1
+            await reload(clearFirst: false)
+            if selection == bookID { await selectBook(bookID) }
+        } catch {
+            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
+            else { errorText = "表紙の更新に失敗しました" }
+        }
+    }
+
     /// スタンプ定義を削除 → サーバ PUT。ショートカット定義のみ除去（本メタは不変）。RW 必須。
     func deleteStampDefinition(field: StampField, value: String) {
         guard canEdit else { return }
