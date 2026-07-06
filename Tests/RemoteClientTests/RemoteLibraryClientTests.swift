@@ -219,6 +219,22 @@ struct StubBackedRemoteClientTests {
                 _ = try await makeClient().updateBook(libraryUUID: "U", bookID: 42, patch: patch, libraryToken: nil as String?)
             }
         }
+
+        @Test func setCoverImagePutsBytesToEndpoint() async throws {
+            let detail = BookDetailDTO(id: 9, title: "T", author: nil, genre: nil, path: nil,
+                dateAdded: Date(timeIntervalSince1970: 0), playDate: nil, bookType: 0, fileType: 0,
+                pages: nil, rating: 0, unseen: false, keywordA: nil, keywordB: nil, keywordC: nil,
+                neta: nil, memo: nil, series: nil, volume: nil,
+                coverImageName: "@external", coverCropRectJSON: nil, pageDirection: nil)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(detail))
+            _ = try await makeClient().setCoverImage(libraryUUID: "u", bookID: 9,
+                imageData: Data([0xFF, 0xD8, 1, 2]), cropJSON: "{\"x\":0,\"y\":0,\"w\":1,\"h\":1}", libraryToken: nil)
+            let req = StubURLProtocol.lastRequest
+            #expect(req?.httpMethod == "PUT")
+            #expect(req?.url?.path == "/api/v1/libraries/u/books/9/cover-image")
+            #expect(req?.url?.query?.contains("crop=") == true)
+            #expect(req?.value(forHTTPHeaderField: "Content-Type")?.contains("image") == true)
+        }
     }
 
     @Suite("RemoteBookContent — BookContent 適合")

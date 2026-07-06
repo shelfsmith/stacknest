@@ -337,6 +337,18 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(BookDetailDTO.self, data)
     }
 
+    /// G4b: 外部画像を表紙にアップロード（RW）。画像バイトを PUT し、更新後 DTO を返す。
+    @discardableResult
+    public func setCoverImage(libraryUUID: String, bookID: Int, imageData: Data,
+                              cropJSON: String?, libraryToken: String?) async throws -> BookDetailDTO {
+        var q: [URLQueryItem] = []
+        if let cropJSON { q.append(URLQueryItem(name: "crop", value: cropJSON)) }
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover-image", query: q)
+        let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
+                                          body: imageData, contentType: "image/jpeg"))
+        return try decode(BookDetailDTO.self, data)
+    }
+
     /// 4.2c-8: GET label-settings — ラベルカスタマイズ取得（表示用・R 可）。
     public func fetchLabelSettings(libraryUUID: String, libraryToken: String?) async throws -> LabelSettingsDTO {
         let url = makeURL("libraries/\(libraryUUID)/label-settings")
