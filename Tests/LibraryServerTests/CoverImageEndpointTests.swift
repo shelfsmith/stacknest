@@ -97,6 +97,23 @@ struct CoverImageEndpointTests {
     }
 
     /// 空ボディは 400。
+    @Test func putCoverImageNonImageIsBadRequest() async throws {
+        let fixture = try TestLibraryFixture(name: "CoverImgNI", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(lib)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/1/cover-image",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "image/jpeg"],
+                body: .init(bytes: Array("this is not an image".utf8))
+            ) { resp in
+                #expect(resp.status == .badRequest)   // CGImageSource デコード不可 → 400
+            }
+        }
+    }
+
     @Test func putCoverImageEmptyBodyIsBadRequest() async throws {
         let fixture = try TestLibraryFixture(name: "CoverImg3", bookCount: 1)
         defer { fixture.cleanup() }

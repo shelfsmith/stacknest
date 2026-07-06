@@ -4,6 +4,7 @@ import AppCore
 import LibraryStore
 import ArchiveAdapter
 import Hummingbird
+import NIOCore
 import LibraryServerAPI
 import StackroomFormat
 import ImageIO
@@ -607,8 +608,13 @@ public struct LibraryServerCore: Sendable {
         api.put("libraries/:lib/books/:id/cover-image") { [config] request, context in
             try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
-            let buffer = try await request.body.collect(upTo: 30 * 1024 * 1024)   // 上限 30MB
-            let imageData = Data(buffer: buffer)
+            let imageData: Data
+            do {
+                let buffer = try await request.body.collect(upTo: 30 * 1024 * 1024)   // 上限 30MB
+                imageData = Data(buffer: buffer)
+            } catch is NIOTooManyBytesError {
+                throw HTTPError(.contentTooLarge)   // 30MB 超 → 413
+            }
             guard !imageData.isEmpty,
                   let src = CGImageSourceCreateWithData(imageData as CFData, nil),
                   CGImageSourceGetCount(src) > 0 else {
@@ -618,13 +624,12 @@ public struct LibraryServerCore: Sendable {
             let thumbURL = coverURL(bundleURL: lib.bundleURL, bookID: row.id)
             try FileManager.default.createDirectory(
                 at: thumbURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try resized.write(to: thumbURL)
+            try resized.write(to: thumbURL, options: .atomic)
             var patch = BookPatch()
             patch.coverImageName = CoverSource.externalSentinel
             try lib.db.updateBook(id: row.id, patch: patch)
-            if let cropJSON = request.uri.queryParameters.get("crop") {
-                try lib.db.updateBookCoverCropRect(id: row.id, json: cropJSON)
-            }
+            // crop 未指定=解除（G4a の setExternalCover と同 atomicity＝新表紙に旧 crop を残さない）。
+            try lib.db.updateBookCoverCropRect(id: row.id, json: request.uri.queryParameters.get("crop"))
             config.onBookChanged?(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
