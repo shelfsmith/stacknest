@@ -6,6 +6,13 @@ import LibraryStore
 import AppCore
 import ImageCache
 
+/// G4a: 外部表紙のクロップシートを `.sheet(item:)` で駆動するための下書き（画像＋バイト）。
+private struct ExternalCoverDraft: Identifiable {
+    let id = UUID()
+    let image: NSImage
+    let data: Data
+}
+
 struct DetailPaneView: View {
     let books: [BookRow]                    // was appState.displayedSelectedBooks
     let librarySettings: LibrarySettings?   // was appState.librarySettings
@@ -124,12 +131,11 @@ struct DetailPaneView: View {
     /// 表紙選択 sheet の表示フラグ (Task 8)
     @State private var showCoverPicker = false
     /// G4a: 外部画像を表紙に設定する導線の state（D&D / NSOpenPanel → crop シート）。
-    @State private var externalImage: NSImage?
-    @State private var externalImageData: Data?
+    /// `.sheet(item:)` で駆動＝提示時に必ず画像を持つ（isPresented 方式の「初回だけ画像が出ない」レースを回避）。
+    @State private var externalCoverDraft: ExternalCoverDraft?
     @State private var externalCrop: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @State private var externalCropWidth: Double = 1.0
     @State private var externalCropHeight: Double = 1.0
-    @State private var showExternalCrop = false
 
     var body: some View {
         Group {
@@ -618,8 +624,8 @@ struct DetailPaneView: View {
                     return handleExternalImageDrop(providers: providers)
                 }
                 // G4a: 外部画像のクロップ → 表紙設定シート。
-                .sheet(isPresented: $showExternalCrop) {
-                    externalCropSheet(bookID: book.id)
+                .sheet(item: $externalCoverDraft) { draft in
+                    externalCropSheet(draft: draft, bookID: book.id)
                 }
             HStack(spacing: 6) {
                 UnseenIndicator(state: unseenState, onCommit: onUnseenCommit)
@@ -663,70 +669,65 @@ struct DetailPaneView: View {
     /// 画像 URL を読み込み、画像なら state に保持してクロップシートを開く。非画像は no-op。
     private func loadExternalImage(from url: URL) {
         guard let data = try? Data(contentsOf: url), let img = NSImage(data: data) else { return }
-        externalImageData = data
-        externalImage = img
         externalCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
         externalCropWidth = 1.0
         externalCropHeight = 1.0
-        showExternalCrop = true
+        externalCoverDraft = ExternalCoverDraft(image: img, data: data)   // .sheet(item:) が提示
     }
 
-    /// 外部画像のクロップ → 「設定」で onSetExternalCover を呼ぶシート。
+    /// 外部画像のクロップ → 「設定」で onSetExternalCover を呼ぶシート。draft は必ず画像を持つ。
     @ViewBuilder
-    private func externalCropSheet(bookID: Int) -> some View {
+    private func externalCropSheet(draft: ExternalCoverDraft, bookID: Int) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("外部画像を表紙に設定")
                 .font(.title2.bold())
-            Text("表示する範囲をドラッグで指定します（元のアーカイブは変更されません）")
+            Text("表示する範囲を指定します（幅・高さで切り抜き量を調整。元のアーカイブは変更されません）")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if let img = externalImage {
-                CoverCropPicker(image: img, normalizedRect: $externalCrop)
-                    .frame(minWidth: 420, minHeight: 320)
-                // CoverCropPicker は矩形の移動のみ。幅/高さはスライダで調整する（CoverPickerSheet と同方式）。
-                HStack {
-                    Text("幅")
-                    Slider(value: $externalCropWidth, in: 0.1...1.0)
-                        .onChange(of: externalCropWidth) { _, newValue in
-                            var r = externalCrop
-                            r.size.width = newValue
-                            r.origin.x = min(r.origin.x, 1 - newValue)
-                            externalCrop = r
-                        }
-                }
-                HStack {
-                    Text("高さ")
-                    Slider(value: $externalCropHeight, in: 0.1...1.0)
-                        .onChange(of: externalCropHeight) { _, newValue in
-                            var r = externalCrop
-                            r.size.height = newValue
-                            r.origin.y = min(r.origin.y, 1 - newValue)
-                            externalCrop = r
-                        }
-                }
-                HStack {
-                    Button("リセット (全体)") {
-                        externalCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
-                        externalCropWidth = 1
-                        externalCropHeight = 1
+            CoverCropPicker(image: draft.image, normalizedRect: $externalCrop)
+                .frame(minWidth: 420, minHeight: 320)
+            // CoverCropPicker は矩形の移動のみ。幅/高さはスライダで調整する（CoverPickerSheet と同方式）。
+            HStack {
+                Text("幅")
+                Slider(value: $externalCropWidth, in: 0.1...1.0)
+                    .onChange(of: externalCropWidth) { _, newValue in
+                        var r = externalCrop
+                        r.size.width = newValue
+                        r.origin.x = min(r.origin.x, 1 - newValue)
+                        externalCrop = r
                     }
-                    Spacer()
+            }
+            HStack {
+                Text("高さ")
+                Slider(value: $externalCropHeight, in: 0.1...1.0)
+                    .onChange(of: externalCropHeight) { _, newValue in
+                        var r = externalCrop
+                        r.size.height = newValue
+                        r.origin.y = min(r.origin.y, 1 - newValue)
+                        externalCrop = r
+                    }
+            }
+            HStack {
+                Button("リセット (全体)") {
+                    externalCrop = CGRect(x: 0, y: 0, width: 1, height: 1)
+                    externalCropWidth = 1
+                    externalCropHeight = 1
                 }
+                Spacer()
             }
             HStack {
                 Spacer()
-                Button("キャンセル") { showExternalCrop = false }
+                Button("キャンセル") { externalCoverDraft = nil }
                     .keyboardShortcut(.cancelAction)
                 Button("設定") {
-                    guard let data = externalImageData else { return }
+                    let data = draft.data
                     let crop = externalCrop
                     Task {
                         await onSetExternalCover?(data, crop, bookID)
-                        showExternalCrop = false
+                        externalCoverDraft = nil
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(externalImageData == nil)
             }
         }
         .padding(20)
