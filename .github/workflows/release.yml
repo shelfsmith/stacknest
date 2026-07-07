@@ -1,7 +1,8 @@
 name: Release
 
 # タグ `vX.Y.Z` を push するとリリースビルド（ad-hoc 署名 Universal）を作り、
-# GitHub Release（リポジトリが Private の間は非公開）を作成して zip を添付する。
+# GitHub Release を作成して zip を添付する。リポジトリは public のためリリースも公開される。
+# `-` 付きサフィックスのタグ（例 v0.12.0-rc.1）は semver プレリリースとして prerelease 扱いになる。
 on:
   push:
     tags: ["v*"]
