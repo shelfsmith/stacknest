@@ -27,8 +27,9 @@ public struct RemoteLibraryClient: Sendable {
     }
 
     private func request(_ url: URL, method: String = "GET", libraryToken: String? = nil,
-                         body: Data? = nil, contentType: String? = nil) -> URLRequest {
-        var req = URLRequest(url: url)
+                         body: Data? = nil, contentType: String? = nil,
+                         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy) -> URLRequest {
+        var req = URLRequest(url: url, cachePolicy: cachePolicy)
         req.httpMethod = method
         req.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
         if let libraryToken { req.setValue(libraryToken, forHTTPHeaderField: "X-Library-Token") }
@@ -209,7 +210,10 @@ public struct RemoteLibraryClient: Sendable {
         var q: [URLQueryItem] = []
         if let maxw, maxw > 0 { q.append(.init(name: "maxw", value: String(maxw))) }
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover", query: q)
-        return try await send(request(url, libraryToken: libraryToken))
+        // 表紙は差し替わり得るが GET cover は `immutable` 長期キャッシュのため、共有 URLCache が
+        // 古い表紙を返し続ける（ライブラリ開き直しまで stale）。L1/L2 が前段にあり URLSession 到達＝
+        // キャッシュミス＝新バイトが欲しい時なので、URLCache をバイパスして常に再取得する（G4b stale 修正）。
+        return try await send(request(url, libraryToken: libraryToken, cachePolicy: .reloadIgnoringLocalCacheData))
     }
 
     public func postProgress(libraryUUID: String, bookID: Int, page: Int, libraryToken: String?) async throws {

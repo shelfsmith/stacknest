@@ -85,6 +85,27 @@ struct StubBackedRemoteClientTests {
             _ = try await client.fetchBooks(libraryUUID: "u1", query: nil as String?, sort: "title", ascending: true, page: 1, per: 100, libraryToken: "LTOK")
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LTOK")
         }
+
+        /// G4b stale 修正: 表紙は差し替わり得るのに GET cover は `immutable` 長期キャッシュ
+        /// のため、共有 URLCache が古い表紙を返し続ける（ライブラリ開き直しまで解消しない）。
+        /// L1/L2 が前段にあり URLSession 到達＝キャッシュミス＝新バイトが欲しい時なので、
+        /// cover 取得は URLCache をバイパス（.reloadIgnoringLocalCacheData）して常に再取得する。
+        @Test func coverDataBypassesURLCache() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([0xFF, 0xD8, 0xFF]))
+            let client = makeClient()
+            _ = try await client.coverData(libraryUUID: "u1", bookID: 7, maxw: 600, libraryToken: "LT")
+            let req = StubURLProtocol.lastRequest
+            #expect(req?.url?.path == "/api/v1/libraries/u1/books/7/cover")
+            #expect(req?.cachePolicy == .reloadIgnoringLocalCacheData)
+        }
+
+        /// 逆側の保証: 通常エンドポイントは既定ポリシーのまま（cover 以外に影響させない）。
+        @Test func nonCoverRequestUsesDefaultCachePolicy() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(BookPageDTO(items: [], total: 0, page: 1, perPage: 100)))
+            let client = makeClient()
+            _ = try await client.fetchBooks(libraryUUID: "u1", query: nil as String?, sort: "title", ascending: true, page: 1, per: 100, libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.cachePolicy == .useProtocolCachePolicy)
+        }
     }
 
     @Suite("RemoteLibraryClient browse")
