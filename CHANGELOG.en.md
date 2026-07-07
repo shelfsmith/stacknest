@@ -9,7 +9,7 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 
 ## [0.12.0] - Unreleased — Share tokens / headless CLI & MCP / watch-folder import / remote persistent cache / external covers (Phases 4.2d–4.2f, C, G3, G4)
 
-> A pre-release rolling up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, and setting an external image as a book's cover.
+> Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, and setting an external image as a book's cover.
 
 ### Added
 
