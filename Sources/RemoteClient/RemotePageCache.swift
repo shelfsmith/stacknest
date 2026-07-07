@@ -18,13 +18,18 @@ public actor RemotePageCache {
         public let kind: Kind
         public let page: Int
         public let maxw: Int?
-        public init(serverID: UUID, libraryUUID: String, bookID: Int, kind: Kind, page: Int, maxw: Int?) {
+        /// 表紙の版トークン（cover のみ・thumbnail の mtime+size 由来）。
+        /// page は nil ＝キー文字列は現行維持（既存ディスクキャッシュ後方互換）。
+        public let version: String?
+        public init(serverID: UUID, libraryUUID: String, bookID: Int, kind: Kind, page: Int, maxw: Int?, version: String? = nil) {
             self.serverID = serverID; self.libraryUUID = libraryUUID; self.bookID = bookID
-            self.kind = kind; self.page = page; self.maxw = maxw
+            self.kind = kind; self.page = page; self.maxw = maxw; self.version = version
         }
         public var string: String {
             let where_ = kind == .page ? String(page) : "cover"
-            return "\(serverID.uuidString)|\(libraryUUID)|\(bookID)|\(kind.rawValue)|\(where_)|\(maxw.map(String.init) ?? "full")"
+            let base = "\(serverID.uuidString)|\(libraryUUID)|\(bookID)|\(kind.rawValue)|\(where_)|\(maxw.map(String.init) ?? "full")"
+            if let version { return base + "|v\(version)" }
+            return base
         }
         public var book: String { "\(serverID.uuidString)|\(libraryUUID)|\(bookID)" }
     }

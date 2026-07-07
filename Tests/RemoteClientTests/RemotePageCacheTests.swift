@@ -140,4 +140,19 @@ struct RemotePageCacheTests {
         #expect(pages == [2, 5])
         #expect(await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 99, maxw: 800).isEmpty)
     }
+
+    @Test func keyVersionChangesStringAndIsBackwardCompatibleWhenNil() {
+        let sid = UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!
+        // version nil はページ用＝現行キー文字列と完全一致（後方互換）
+        let pageKey = RemotePageCache.Key(serverID: sid, libraryUUID: "u", bookID: 5, kind: .page, page: 3, maxw: 1600)
+        #expect(pageKey.string == "\(sid.uuidString)|u|5|page|3|1600")
+        // cover: version 有無/差で string が変わる
+        let noVer = RemotePageCache.Key(serverID: sid, libraryUUID: "u", bookID: 5, kind: .cover, page: 0, maxw: 600)
+        let v1 = RemotePageCache.Key(serverID: sid, libraryUUID: "u", bookID: 5, kind: .cover, page: 0, maxw: 600, version: "c5-100-2000")
+        let v2 = RemotePageCache.Key(serverID: sid, libraryUUID: "u", bookID: 5, kind: .cover, page: 0, maxw: 600, version: "c5-200-2100")
+        #expect(noVer.string == "\(sid.uuidString)|u|5|cover|cover|600")   // version nil は現行同一
+        #expect(v1.string == "\(sid.uuidString)|u|5|cover|cover|600|vc5-100-2000")
+        #expect(v1.string != v2.string)
+        #expect(v1 != v2)   // Hashable/Equatable も版で区別
+    }
 }
