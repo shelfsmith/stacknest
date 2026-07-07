@@ -8,10 +8,15 @@ public actor RemoteCoverCache {
         public let libraryUUID: String
         public let bookID: Int
         public let maxWidth: Int
-        public init(libraryUUID: String, bookID: Int, maxWidth: Int) {
-            self.libraryUUID = libraryUUID; self.bookID = bookID; self.maxWidth = maxWidth
+        /// 表紙の版トークン（サーバ coverVersion＝thumbnail mtime+size）。nil で現行キー互換。
+        public let version: String?
+        public init(libraryUUID: String, bookID: Int, maxWidth: Int, version: String? = nil) {
+            self.libraryUUID = libraryUUID; self.bookID = bookID; self.maxWidth = maxWidth; self.version = version
         }
-        var string: String { "\(libraryUUID)#\(bookID)#\(maxWidth)" }
+        var string: String {
+            let base = "\(libraryUUID)#\(bookID)#\(maxWidth)"
+            return version.map { "\(base)#v\($0)" } ?? base
+        }
     }
 
     private let cacheInternal = NSCache<NSString, NSData>()
@@ -31,7 +36,7 @@ public actor RemoteCoverCache {
         if let hit = cacheInternal.object(forKey: key.string as NSString) { return hit as Data }
         let data: Data
         if let cache, let serverID, let libraryUUID {
-            let l2 = RemotePageCache.Key(serverID: serverID, libraryUUID: libraryUUID, bookID: key.bookID, kind: .cover, page: 0, maxw: key.maxWidth)
+            let l2 = RemotePageCache.Key(serverID: serverID, libraryUUID: libraryUUID, bookID: key.bookID, kind: .cover, page: 0, maxw: key.maxWidth, version: key.version)
             data = try await cache.data(for: l2, fetch: fetch)
         } else {
             data = try await fetch()
