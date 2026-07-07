@@ -46,7 +46,16 @@ final class RemoteLibraryState {
     /// books が更新されるたびに増えるカウンタ。表コーディネータが reloadData の要否判定に使う
     /// （ソートのみの並べ替えで件数・先頭が一致しても確実に再描画）。
     private(set) var booksVersion = 0
-    var books: [BookListItemDTO] = [] { didSet { booksVersion += 1 } }
+    var books: [BookListItemDTO] = [] {
+        didSet {
+            booksVersion += 1
+            // G4c: サーバ coverVersion を bookID→version へ派生（表紙キャッシュの版鍵に使う）。
+            coverVersionByID = Dictionary(books.compactMap { d in d.coverVersion.map { (d.id, $0) } },
+                                          uniquingKeysWith: { first, _ in first })
+        }
+    }
+    /// G4c: 各本の表紙版トークン（サーバ coverVersion）。表紙キャッシュ鍵に注入し、サーバ表紙変更へ追従。
+    private var coverVersionByID: [Int: String] = [:]
 
     /// 表示中の列から算出した、サーバへ要求する追加フィールド。RemoteBookTable のコーディネータが
     /// settings 変更時に更新する。
@@ -466,9 +475,10 @@ final class RemoteLibraryState {
         let client = self.client
         let uuid = self.libraryUUID
         let token = self.libraryToken
+        let version = coverVersionByID[bookID]   // G4c: 版鍵
         do {
             return try await coverCache.data(
-                for: .init(libraryUUID: uuid, bookID: bookID, maxWidth: 300)
+                for: .init(libraryUUID: uuid, bookID: bookID, maxWidth: 300, version: version)
             ) {
                 try await client.coverData(
                     libraryUUID: uuid, bookID: bookID, maxw: 300, libraryToken: token)
@@ -887,7 +897,8 @@ final class RemoteLibraryState {
         let client = self.client
         let uuid = self.libraryUUID
         let token = self.libraryToken
-        let key = RemoteCoverCache.Key(libraryUUID: uuid, bookID: bookID, maxWidth: 600)
+        let version = coverVersionByID[bookID]   // G4c: 版鍵
+        let key = RemoteCoverCache.Key(libraryUUID: uuid, bookID: bookID, maxWidth: 600, version: version)
         let data = try? await coverCache.data(for: key) {
             try await client.coverData(libraryUUID: uuid, bookID: bookID, maxw: 600, libraryToken: token)
         }
