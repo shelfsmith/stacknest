@@ -34,6 +34,12 @@ final class RemoteLibraryState {
     /// ビュー body で参照させ、ダウンロード済みバッジを再評価させるためのトリガ。
     var downloadedVersion = 0
 
+    /// G4b: 表紙書き込み（setRemoteCover / setRemoteExternalCover）ごとに増える版数。
+    /// 詳細ペイン表紙ビューの identity に注入し、外部画像の差し替え等でメタ（coverImageName）が
+    /// 不変でも再描画/再取得させる。downloadedVersion はダウンロード等でも増えるため、
+    /// 表紙のちらつきを避けて専用カウンタとする。
+    var coverVersion = 0
+
     /// Phase 4.2b-1b-1 Task 3: 表示モード + per のグローバル設定（UserDefaults 永続）。
     private let prefs = RemoteBrowsePreferences()
 
@@ -777,6 +783,7 @@ final class RemoteLibraryState {
             // 表紙差し替えは表紙キャッシュのみ無効化（本文ページの L2 キャッシュは温存）。
             await RemotePageCache.shared.deleteCovers(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
             downloadedVersion &+= 1   // grid/list セルの表紙再評価トリガ
+            coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（メタ不変でも）
             await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }
         } catch {
@@ -794,6 +801,7 @@ final class RemoteLibraryState {
             await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
             await RemotePageCache.shared.deleteCovers(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
             downloadedVersion &+= 1
+            coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（@external 差し替えでメタ不変でも）
             await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }
         } catch {

@@ -53,6 +53,10 @@ struct DetailPaneView: View {
     var remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
     /// G4a: 外部画像を表紙に設定（imageData, crop, bookID）。ローカルのみ注入・リモート/オフラインは nil。
     let onSetExternalCover: ((Data, CGRect?, Int) async -> Void)?
+    /// G4b: 表紙書き込みごとに増える版数。詳細ペイン表紙ビューの identity に含め、
+    /// メタ不変（外部画像の差し替え等）でも再描画/再取得させる。リモートは state.coverVersion を注入、
+    /// ローカル/オフラインは 0 固定（従来挙動＝メタ変化で再描画）。
+    var coverVersion: Int = 0
 
     /// 明示イニシャライザ。`coverImage` は inline default (`= nil`) を持つため
     /// 合成メモリワイズ init からは除外され、呼び出し側で渡せなくなる。
@@ -82,7 +86,8 @@ struct DetailPaneView: View {
         coverImage: ((Int) async -> NSImage?)? = nil,
         remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil,
         remoteEntryImage: ((Int, String) async -> NSImage?)? = nil,
-        onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil
+        onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil,
+        coverVersion: Int = 0
     ) {
         self.books = books
         self.librarySettings = librarySettings
@@ -108,6 +113,7 @@ struct DetailPaneView: View {
         self.remoteCoverCandidates = remoteCoverCandidates
         self.remoteEntryImage = remoteEntryImage
         self.onSetExternalCover = onSetExternalCover
+        self.coverVersion = coverVersion
     }
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
@@ -565,7 +571,7 @@ struct DetailPaneView: View {
         // 単一選択かどうかを判定 (複数選択時は context menu 全項目 disabled)
         let isSingleSelection = books.count == 1
         VStack(alignment: .center, spacing: 8) {
-            CoverImageView(book: book, loader: loader, coverImage: coverImage)
+            CoverImageView(book: book, loader: loader, coverImage: coverImage, coverVersion: coverVersion)
                 .frame(maxWidth: 240, maxHeight: 340)
                 .contextMenu {
                     Button("表紙を編集") {
@@ -822,6 +828,8 @@ private struct CoverImageView: View {
     let loader: ThumbnailLoader?
     /// Optional remote cover provider. When non-nil, used instead of `loader`.
     let coverImage: ((Int) async -> NSImage?)?
+    /// 表紙書き込みごとに増える版数。メタ不変（外部画像差し替え等）でも再描画/再取得させる。
+    var coverVersion: Int = 0
     @State private var image: CGImage?
 
     var body: some View {
@@ -842,10 +850,11 @@ private struct CoverImageView: View {
                     )
             }
         }
-        // coverImageName / cover_crop_rect 変化時に view identity を更新して SwiftUI に強制再描画させる。
+        // coverImageName / cover_crop_rect / coverVersion 変化時に view identity を更新して SwiftUI に強制再描画させる。
         // .task(id:) だけでは @State image 更新後も view が skip される場合がある。
-        .id("\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? "")")
-        .task(id: "\(book.id):\(book.coverImageName ?? "")") {
+        // coverVersion は外部表紙の差し替え等でメタが不変でも再取得を促す（G4b stale 修正）。
+        .id(book.coverRenderIdentity(coverVersion: coverVersion))
+        .task(id: book.coverFetchIdentity(coverVersion: coverVersion)) {
             if let coverImage {
                 // Remote path: fetch NSImage via injected provider, convert to CGImage.
                 let nsImage = await coverImage(book.id)

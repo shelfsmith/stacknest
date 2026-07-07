@@ -184,7 +184,8 @@ struct RemoteLibraryView: View {
             onSetExternalCover: { data, crop, id in
                 let json = crop.map(BookRow.encodeCoverCropRect)
                 await state.setRemoteExternalCover(bookID: id, imageData: data, cropJSON: json)
-            }
+            },
+            coverVersion: state.coverVersion
         )
     }
 

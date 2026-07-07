@@ -133,6 +133,24 @@ public struct BookRow: Sendable, Equatable, Identifiable {
         }
         return s
     }
+
+    /// 詳細ペイン表紙ビューの再描画 identity（SwiftUI `.id()` 用）。
+    /// 表紙メタ（名前・crop）に加えて `coverVersion` を含める。外部画像を差し替えても
+    /// coverImageName="@external" のままメタが不変なケースで、cover 書き込みごとに増える
+    /// coverVersion が変化することで view identity が更新され、キャッシュ無効化後に
+    /// 再描画/再取得される（G4b smoke で判明した stale 修正）。
+    public func coverRenderIdentity(coverVersion: Int) -> String {
+        let crop = coverCropRect.map {
+            "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)"
+        } ?? ""
+        return "\(id):\(coverImageName ?? ""):\(crop):\(coverVersion)"
+    }
+
+    /// 表紙画像の再取得トリガ identity（SwiftUI `.task(id:)` 用）。
+    /// 画像の再取得は切り抜き（crop）に依存しないため crop は含めない。
+    public func coverFetchIdentity(coverVersion: Int) -> String {
+        "\(id):\(coverImageName ?? ""):\(coverVersion)"
+    }
 }
 
 /// Per-book viewer state as persisted in `book_viewer_state` + `book_page_layout`.
