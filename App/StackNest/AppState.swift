@@ -17,6 +17,9 @@ final class AppState {
     var database: Database?
     var displayedBooks: [BookRow] = []
     var thumbnailLoader: ThumbnailLoader?
+    /// G4c: 表紙が外部要因（リモート編集など）で変わった際に bump し、ローカル表紙ビュー
+    /// （BookCell / DetailPaneView）の view identity を更新して再取得させる。
+    var coverVersion = 0
     var isImporting: Bool = false
     var importProgress: (processed: Int, total: Int)?
     var importSummary: ImportSummary?
@@ -1509,6 +1512,16 @@ final class AppState {
             // 並び順は不変。該当行の内容（未読●・最終閲覧日列等）だけ差し替えて version を bump。
             sortedDisplayedBooks[sidx] = fresh
             sortedDisplayedBooksVersion &+= 1
+        }
+
+        // G4c: リモート由来の変更で表紙が差し替わっている可能性があるため、当該本のサムネイル
+        // メモリキャッシュを捨てた後に coverVersion を bump してローカル表紙ビューを再取得させる。
+        // onBookChanged は変更種別を持たないため一律実行（cover 再取得は thumbnail.jpg から安価）。
+        // purge 完了 → bump の順にして、再取得が新しい thumbnail を読むようにする。
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.thumbnailLoader?.purge(bookID: bookID)
+            self.coverVersion &+= 1
         }
     }
 }

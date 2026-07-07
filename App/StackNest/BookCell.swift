@@ -8,6 +8,8 @@ import OSLog
 struct BookCell: View {
     let book: BookRow
     let loader: ThumbnailLoader?
+    /// G4c: 表紙差し替え（メタ不変）でも再描画/再取得させる版数。ローカルグリッド用。
+    var coverVersion: Int = 0
 
     @State private var thumbnail: CGImage?
 
@@ -35,7 +37,7 @@ struct BookCell: View {
             }
             // coverImageName 変化時に view identity を更新して SwiftUI に強制再描画させる。
             // .task(id:) だけでは @State thumbnail 更新後も view が skip される場合がある。
-            .id("\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? "")")
+            .id("\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)")
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .shadow(radius: 2, y: 1)
@@ -51,8 +53,8 @@ struct BookCell: View {
                     .lineLimit(1)
             }
         }
-        .task(id: "\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? "")") {
-            let taskID = "\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? "")"
+        .task(id: "\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)") {
+            let taskID = "\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)"
             Self.logger.info("BookCell.task: id=\(taskID)")
             guard let loader else { return }
             let loaded = await loader.thumbnail(for: book.id, maxPixelSize: 400)
