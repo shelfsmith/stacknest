@@ -792,9 +792,11 @@ final class RemoteLibraryState {
             await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
             // 表紙差し替えは表紙キャッシュのみ無効化（本文ページの L2 キャッシュは温存）。
             await RemotePageCache.shared.deleteCovers(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
+            // G4c: reload 完了後に bump する（L1 が版付きキーのため、reload の suspend 中に旧
+            // coverVersion で描画が走ると版なし invalidate が空振りした stale エントリを引く窓があった）。
+            await reload(clearFirst: false)
             downloadedVersion &+= 1   // grid/list セルの表紙再評価トリガ
             coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（メタ不変でも）
-            await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }
         } catch {
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
@@ -810,9 +812,11 @@ final class RemoteLibraryState {
                 imageData: imageData, cropJSON: cropJSON, libraryToken: libraryToken)
             await coverCache.invalidate(libraryUUID: libraryUUID, bookID: bookID)
             await RemotePageCache.shared.deleteCovers(serverID: serverID, libraryUUID: libraryUUID, bookID: bookID)
+            // G4c: reload 完了後に bump する（L1 が版付きキーのため、reload の suspend 中に旧
+            // coverVersion で描画が走ると版なし invalidate が空振りした stale エントリを引く窓があった）。
+            await reload(clearFirst: false)
             downloadedVersion &+= 1
             coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（@external 差し替えでメタ不変でも）
-            await reload(clearFirst: false)
             if selection == bookID { await selectBook(bookID) }
         } catch {
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }

@@ -548,7 +548,7 @@ struct LibraryWindowContainer: View {
                     onSetExternalCover: { data, crop, id in
                         try? await appState.setExternalCover(bookID: id, imageData: data, cropRect: crop, undoManager: appState.undoManager)
                     },
-                    coverVersion: appState.coverVersion
+                    coverVersion: appState.coverVersionByBook[appState.displayedSelectedBooks.first?.id ?? -1] ?? 0
                 )
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)
             }
