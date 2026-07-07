@@ -7,6 +7,56 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.12.0] - Unreleased — Share tokens / headless CLI & MCP / watch-folder import / remote persistent cache / external covers (Phases 4.2d–4.2f, C, G3, G4)
+
+> A pre-release rolling up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, and setting an external image as a book's cover.
+
+### Added
+
+**Sharing & permissions**
+- **Share tokens (access tiers)**: issue per-recipient tokens with **read / edit / admin** permission and a scope (which libraries are visible). Server settings gain a token list (renameable) and a **per-token QR / URL**.
+- **Live token changes**: creating / renaming / regenerating / revoking a token takes effect **without restarting the server** (old tokens are invalidated immediately).
+- **Delete books remotely (admin)**: with an admin token, remove / trash books remotely from the list / grid context menu.
+
+**Automation (CLI / MCP / API)**
+- **Headless CLI `stacknest-cli`**: drive local / remote libraries from the command line (`libraries` / `list` [filter, browse, sort, scope, fields] / `add` / `rm` / `set` / `detail` / `facets` / `shelves` / `me` / `shelf` CRUD / `watch` / `lock` [password via stdin] / `import` / `relink` / `dedup` / `unlock` / `grant` / `stamp` / `label`). Bundled with the app; connects with a local-access token.
+- **MCP server `mcp-stacknest`**: a Model Context Protocol server wrapping the CLI, so AI agents can browse, edit, import, and manage share tokens.
+- **OpenAPI 3.1 + Redoc**: the local endpoint is now API-only and serves Redoc API documentation at `/`.
+
+**Import**
+- **Watch folders (auto-import)**: watch folders and auto-import archives / image folders dropped into them (per-folder naming presets, first-run preview, import summary banner).
+- **Per-library import settings**: override auto-classification (bookType) and thickness threshold per library ("follow the StackNest default" / custom). New "Import" tab in library settings.
+
+**Faster / self-updating remote viewing**
+- **Persistent on-disk cache for the remote reader**: cache remote pages / covers to disk (LRU + visible-protection + TTL). **The cache survives reconnect / restart.** Manage size / retention / usage / clear under Settings ▸ "Remote cache".
+- **Web-parity prefetch + whole-book prefetch**: reworked prefetch to forward-priority + skip stride, plus a **whole-book prefetch (tier 3)** toggle (off by default) that caches an entire book while idle.
+- **Cache coverage bar**: the remote viewer's progress bar visualizes the pages already in the L2 cache as a subtle band.
+- **Server-tracking cover cache (G4c)**: covers are version-keyed by a server token, so a remote viewing client **picks up a server-side cover change on list reload / reconnect** (no manual cache clear). The host app reflects remote cover changes without reopening.
+
+**Covers**
+- **External image as cover (local G4a / remote G4b)**: set any external image as a book's cover by **dragging & dropping onto the detail-pane cover** (or the "Set External Image as Cover…" menu → crop). **Appearance only; the archive itself is unchanged.** Also available from a native remote client with an RW token (new server `PUT /books/:id/cover-image`).
+
+**Remote editing & web**
+- **Rating / unread editable even with an R token**: as shared evaluation / viewing state, a read-only token can still change rating and unread (synced to the server).
+- **Server-synced label customization (remote)**: remote detail / facets / stamps reflect server-synced custom labels; RW tokens can edit labels.
+- **Web reader end-of-volume nav + PWA**: end-of-volume dialog (next volume / first page / close), plus favicon / apple-touch-icon / PWA manifest.
+- **Startup options**: "reopen last-open libraries" now **restores all windows**, and an option to **auto-start remote sharing** at launch (behind the copyright-consent gate).
+
+### Changed
+- **Unified to share tokens**: the old "access / edit token" UI is folded into the share-token list; user-facing wording standardized to "share token".
+- **Local-access settings moved to app settings**: the local-control (CLI / MCP) settings moved out of the sharing window into an app-settings tab, renamed "Local access".
+- **Settings tabs reorganized**: General / Import / Display / Viewer keys (the Import tab merges auto-classification and watch folders).
+- **Copyright warning before sharing**: shown (suppressible) before the server starts.
+- Wording "remote / offline viewer" → "**remote / offline browser**".
+
+### Fixed
+- **Stale remote covers**: after replacing a cover remotely, the editing detail pane or another viewing client could keep showing the old cover — fixed (bypass the cover fetch's HTTP cache [`immutable`] on replace / version-key the cover cache by server token / host reflects per-book).
+- **Reopened closed windows on startup restore** — fixed by switching to an incremental `NSWindow.willClose` scheme (independent of termination hooks).
+- **Duplicate delete-confirmation across multiple windows** — fixed an existing bug with a notification focus guard.
+- **Token invalidation**: regenerate / revoke now invalidates old tokens; fixed tokens reappearing after deleting all tokens (default grants synced to the current token, one-time migration marker).
+- **EXIF orientation** now applied to the built-in viewer / thumbnails; warning for missing watch paths; automatic port re-pick on conflict.
+- **Security**: CLI passwords read from stdin (no argv exposure); MCP `add` argument-smuggling guard (`--`); local endpoint Web UI removed (API-only).
+
 ## [0.11.0] - Unreleased — Remote sharing / native client / offline / remote editing (Phase 4.2)
 
 > Distributed as prereleases: `v0.11.0-rc.1` (2026-06-14, Phase 4.2b = viewing / offline foundation) and `v0.11.0-rc.2` (2026-06-21, Phase 4.2c = parity & remote editing).

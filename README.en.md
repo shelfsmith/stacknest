@@ -9,7 +9,7 @@ original [Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) library
 
 > ⚠️ **Compatibility note:** StackNest only **imports** Stackroom library XML (a one-way read). StackNest's own library format (`.stacknest`) is independent and is **not interoperable with Stackroom** (you cannot open or write it back in Stackroom). StackNest is also a **catalog**: a `.stacknest` holds metadata and cover thumbnails, while the actual image/book files stay outside the library (StackNest references their paths).
 
-> **Status:** Active development. Stackroom-compatible import plus browse / edit / search / built-in viewer / multi-library / lock / duplicate detection / label customization / DB preventive safety & repair (through Phase 2.9) all work. **Remote sharing / viewing / editing (Phase 4) also works** (sharing server + web browser / web reader, native client from another Mac, offline download; with an RW token you can edit metadata, stamps, and **cover page selection / crop** remotely).
+> **Status:** Active development. Stackroom-compatible import plus browse / edit / search / built-in viewer / multi-library / lock / duplicate detection / label customization / DB preventive safety & repair (through Phase 2.9) all work. **Remote sharing / viewing / editing (Phase 4) also works** (sharing server + web browser / web reader, native client from another Mac, offline download, **a persistent on-disk cache for remote viewing**). Sharing uses **share tokens** that split **read / edit / admin** permission and which libraries are visible per recipient; with an RW token you can **edit metadata, stamps, and covers (archive page selection / crop / setting an external image as the cover via drag & drop) remotely**, and an admin token can **add / delete remotely**. It also supports **watch-folder auto-import** and **local automation (CLI `stacknest-cli` / MCP `mcp-stacknest` / OpenAPI + Redoc)**.
 
 ![StackNest main window](docs/images/main-ui.png)
 
@@ -58,6 +58,7 @@ re-implemented from observation.
 - **Viewer key rebinding**: Settings ▸ Keys lets you remap every built-in viewer action to any key (conflicts are rejected; per-row / global reset; the help table reflects the current bindings)
 - **Large-library performance**: sorting is optimized for thousands–tens of thousands of items (precomputed ICU collation keys speed up the re-sort that runs on every list refresh)
 - **Built-in viewer**: dedicated window / full-screen viewing with a unified pipeline for zip/cbz/cbr/7z, folders, single images, and PDF. Fit-to-window (=), pinch / ＋− zoom, drag panning, left/right zone-click + arrow + Space paging, digit keys 0–9 to jump by position (0=start … 9=90%), Tab / ⇧Tab to skip multiple pages. **Two-page spread** (global default ON/OFF + per-book override; cover-alone and auto-solo for wide pages, W), **per-book page direction** (right-to-left / left-to-right, 2-way toggle in Detail and r in the viewer), **slideshow** (auto-advance, s), **resume reading** (per-book last page & spread state persisted), **end-of-book behavior** (stop / next volume / loop, e) with previous/next volume nav ([ / ]), an **open-in-full-screen** setting, and a key-binding help overlay (? / h). **All viewer keys are fully remappable in Settings ▸ Keys.** Minimal bottom HUD (progress). Built-in vs. external viewer is switchable in settings
+- **Cover editing**: set a book's cover by **selecting any page inside the archive** and **cropping the visible region**, or by **dropping an external image file onto the detail-pane cover** (or the "Set External Image as Cover…" menu → crop). This changes **only the thumbnail (appearance); the archive and the original files are never modified**. Works both locally and remotely (with an editing token), and **when a cover changes on the server, remote clients pick it up on list reload / reconnect** (server-tracking cover cache)
 - **File operations**: add / remove from library / ⌫ remove / ⌘⌫ trash / ⇧⌘R rename / ⌘D file move, each with confirmation dialogs
 - **Keyboard navigation**: grid / list arrows, Shift+arrows (range select), ⌘↑↓, Home/End, PageUp/Down, Enter to open
 - **Grid item size**: per-library persisted slider
@@ -65,10 +66,13 @@ re-implemented from observation.
 - **Supported formats**: archives ZIP / CBZ / RAR / CBR / 7z (via libarchive) and PDF (PDFKit); images JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF (via NSImage)
 - **First-run wizard**: on first launch, a paged wizard walks through "image-opening method (built-in / external viewer) → (if built-in) viewer initial settings → first library (create / open / import)". Re-showable anytime from Settings ▸ General
 - **Import**: migrate an existing Stackroom library XML into the SQLite database
-- **Remote sharing (server)**: serve a library over HTTP (token auth, QR / NIC selection / IPv6, downscaled delivery, locked-library unlock). Browse from a **web browser** (list / grid, FTS search, sort, paging) and read with the **web reader** (3-layer prefetch, spread / single-page, resume, two-way instant page-direction sync)
-- **Native remote client**: connect from StackNest on another Mac to a remote server to browse and edit (connect / history, **full browse** = sidebar / facets / filters / grid / list / detail pane, paged / infinite-scroll, built-in viewer, progress synced to the server). **With an RW (editable) token, the detail pane supports editing** = single / multi-select batch metadata edits, stamp tagging / definition editing, **cover page selection / crop editing**, and reading-direction changes (an R token is read-only)
+- **Watch folders (auto-import)**: watch folders and **auto-import** archives / image folders dropped into them (per-folder naming presets, first-run preview, import summary banner). Auto-classification (bookType) and thickness threshold can be **overridden per library** ("follow the StackNest default" / custom)
+- **Remote sharing (server)**: serve a library over HTTP. **Share tokens** let you issue per-recipient tokens that split **read / edit / admin** permission and the **scope (which libraries are visible)**, with a **per-token QR / URL**, NIC selection / IPv6, downscaled delivery, and locked-library unlock. Creating / renaming / regenerating / revoking a token takes effect **without restarting the server**. Browse from a **web browser** (list / grid, FTS search, sort, paging) and read with the **web reader** (prefetch, spread / single-page, resume, two-way instant page-direction sync, end-of-volume nav, PWA icons)
+- **Native remote client**: connect from StackNest on another Mac to a remote server to browse and edit (connect / history, **full browse** = sidebar / facets / filters / grid / list / detail pane, paged / infinite-scroll, built-in viewer, progress synced to the server). **With an RW (editable) token, the detail pane supports editing** = single / multi-select batch metadata edits, stamp tagging / definition editing, **cover editing (archive page selection / crop / setting an external image as the cover via drag & drop or menu)**, reading-direction changes, and server-synced label customization (**with an admin token you can also delete books remotely**; even an R token can edit rating / unread as shared evaluation / viewing state)
+- **Persistent on-disk cache for remote viewing**: cache remote pages / covers to disk (LRU + visible-protection + TTL). **The cache survives reconnect / restart** (manage size / retention / usage / clear under Settings ▸ "Remote cache"). Built-in viewer **prefetch (forward-priority + skip stride, plus a whole-book prefetch toggle)**, and the progress bar shows a **band for pages already cached**. When a cover changes on the server, the client **follows it on list reload / reconnect**
 - **Offline download**: download selected remote books to local storage and browse / read them **without a connection** (resume supported). Open from the title screen / File menu "Offline". **Multi-select for batch download / delete**
 - **Remote / offline volume navigation**: the built-in viewer's previous / next volume works for remote (adjacent volume streamed, even if not downloaded) and offline (consecutive downloaded volumes). For a half-read volume, choose "continue / from start"
+- **Local access (CLI / MCP automation)**: the bundled **`stacknest-cli`** drives libraries from the command line (list / add / remove / metadata edit / shelf CRUD / watch / lock / import / relink / dedup / share tokens / stamps / labels). An **MCP server (mcp-stacknest)** exposes the same to **AI agents**. The local endpoint ships **OpenAPI 3.1 + Redoc** API docs
 
 ## Requirements
 
@@ -108,7 +112,12 @@ Sources/
   ImageCache/         -- Thumbnail rendering / caching
   ArchiveAdapter/     -- ZIP / CBZ / RAR / CBR / 7z reading via libarchive
   AppCore/            -- App-level logic (LibrarySettings, AppPreferences, LibraryLock, error types, external viewer launch) — SwiftUI-independent for testability
+  LibraryServer/      -- Sharing server (Hummingbird), web UI / reader, OpenAPI/Redoc, access tiers / grants
+  LibraryServerAPI/   -- DTOs shared by server & client
+  RemoteClient/       -- Native remote client (HTTP client, L1/L2 cache, prefetch)
   StackroomImportCLI/ -- Importer executable (swift run stackroom-import)
+  StackNestCLI/       -- Headless CLI (stacknest-cli, local / remote operations)
+mcp-stacknest/        -- MCP server (Python; wraps stacknest-cli for AI agents)
 Tests/                -- Swift Testing modules (swift-testing)
 docs/                 -- Architecture, design notes, smoke checklists
 ```
@@ -194,18 +203,27 @@ The same StackNest acts as both a **server (sharing)** and a **client**. You can
 
 **On the server side (share)**
 1. Open the library you want to share and turn **sharing ON** via the **antenna (delivery indicator)** in the toolbar (or the sharing settings).
-2. Hand the displayed **URL / QR code / access token** to the connecting side (NIC selection and IPv6 supported). Locked libraries require a password unlock on the connecting side.
+2. In server settings, create **share tokens** that split **permission (read / edit / admin)** and **scope (which libraries are visible)** per recipient, and hand the token's **URL / QR code / token** to the connecting side (NIC selection and IPv6 supported). Creating / renaming / regenerating / revoking a token takes effect **without restarting the server**. Locked libraries require a password unlock on the connecting side.
 3. **Security:** do not expose the port directly to the internet; prefer access over a VPN such as **Tailscale** (LAN use is the assumption).
 
 **From a web browser**
 - Open the share URL on the connecting side to browse with list / grid, full-text search, sort, and paging; open a book to read in the web reader (prefetch, spread / single-page, resume, page-direction sync).
 
 **Native client (from StackNest on another Mac)**
-- Use **"Connect to a server…"** from the title screen (or File menu), enter the URL and token. You get full browse (sidebar / facets / filters / detail pane) and the built-in viewer; reading progress is synced back to the server. **When you connect with an RW (editable) token, you can edit metadata (single / multi-select), stamps, cover page selection / crop, and reading direction remotely** (an R token is read-only).
+- Use **"Connect to a server…"** from the title screen (or File menu), enter the URL and token. You get full browse (sidebar / facets / filters / detail pane) and the built-in viewer; reading progress is synced back to the server. **When you connect with an RW (editable) token, you can edit metadata (single / multi-select), stamps, cover (archive page selection / crop / setting an external image as the cover via drag & drop or the "Set External Image as Cover…" menu), and reading direction remotely** (an R token is read-only). Covers change **appearance only**; the archive itself is never modified. If a cover changes on the sharing host or another client, this client follows it on list reload / reconnect.
 
 **Offline (read without a connection)**
 - While connected, **right-click a book → "Download"** to store it locally. **Multi-select mode → batch download** is also available (narrow to a series via facets / search, then "Select all").
 - From the title screen / File menu **"Offline (downloaded)"**, browse and read downloaded books **even without a server connection** (resume and volume navigation supported). Remove unneeded books via multi-select mode.
+
+### Local access (automation via CLI / MCP)
+
+StackNest can drive libraries from the **command line or AI agents** without the GUI.
+
+- **Enable:** turn it on under **"General ▸ Local access"** in app settings (`⌘,`) — a `127.0.0.1`-only local-control endpoint.
+- **CLI:** the bundled **`stacknest-cli`** covers list / add / remove / metadata edit / shelf CRUD / watch config / lock / import / relink / dedup scan / share-token management / stamps / labels (`stacknest-cli --help`). Passwords are read from stdin so they never appear in argv.
+- **MCP:** register **`mcp-stacknest`** (a Model Context Protocol server) to get the same operations from a compatible AI agent. See `mcp-stacknest/README.md`.
+- **API docs:** the local endpoint is API-only; opening the root (`/`) in a browser shows the **Redoc (OpenAPI 3.1)** API reference.
 
 ## Library lock (Phase 2.5b+)
 
@@ -245,7 +263,7 @@ Development proceeds in incremental phases. Summary:
 | 2.7 | Polish & performance (duplicate detection, field / bookType label customization, sort optimization, viewer key-rebinding UI, multiple naming-format presets) | ✅ Done |
 | **2.8** | **Library safety** (relink missing files, DB auto-backup + integrity check, NFC normalization fix) | ✅ Done |
 | **2.9** | **DB repair** (in-app `.recover` to salvage data from a corrupt DB, with recovered-count prompt) | ✅ Done |
-| 4.0+ | Server / client (sharing server, web browser / reader, native client, offline download, **remote editing** [metadata / stamps / cover & crop], screen-size-aware image delivery) | 🔄 In progress |
+| 4.0+ | Server / client (sharing server, web browser / reader, native client, offline download, **share tokens** [read / edit / admin × scope], **remote editing** [metadata / stamps / cover: page selection, crop, **external image as cover** / remote add & delete], **persistent on-disk cache for remote viewing + prefetch + server-tracking cover cache**, screen-size-aware image delivery, **watch-folder auto-import**, **local access (CLI `stacknest-cli` / MCP `mcp-stacknest` / OpenAPI + Redoc)**) | 🔄 In progress |
 
 Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
 
