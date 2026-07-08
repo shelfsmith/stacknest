@@ -271,6 +271,10 @@ Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
 
 See [CHANGELOG.en.md](CHANGELOG.en.md) ([日本語](CHANGELOG.md)) for per-release changes.
 
+## Feedback & community
+
+Questions, requests, bug reports, and show-and-tell are welcome in [GitHub Discussions](https://github.com/shelfsmith/stacknest/discussions) (use **Q&A** for questions, **Ideas** for requests). Bugs with reproduction steps can also go to [Issues](https://github.com/shelfsmith/stacknest/issues).
+
 ## License
 
 MIT — see `LICENSE`.

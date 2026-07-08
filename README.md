@@ -279,6 +279,10 @@ sqlite3 /path/to/MyLibrary.stacknest/library.sqlite \
 
 リリースごとの変更点は [CHANGELOG.md](CHANGELOG.md)（[English](CHANGELOG.en.md)）を参照してください。
 
+## フィードバック・コミュニティ
+
+質問・要望・不具合報告・作例の共有は [GitHub Discussions](https://github.com/shelfsmith/stacknest/discussions) へどうぞ（質問は **Q&A**、要望は **Ideas** カテゴリ）。再現手順のあるバグは [Issues](https://github.com/shelfsmith/stacknest/issues) でも受け付けます。
+
 ## ライセンス
 
 MIT — `LICENSE` を参照。
