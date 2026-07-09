@@ -412,6 +412,7 @@ public struct RemoteLibraryClient: Sendable {
                 } catch let e as URLError {
                     // send(_:) と同じ URLError→RemoteClientError 写像。
                     switch e.code {
+                    case .cancelled: continuation.finish()   // URLSession.bytes のキャンセルは URLError(.cancelled)。静音 finish（再接続させない）
                     case .timedOut: continuation.finish(throwing: RemoteClientError.timeout)
                     case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost:
                         continuation.finish(throwing: RemoteClientError.offline)
