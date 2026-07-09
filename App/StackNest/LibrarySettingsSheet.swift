@@ -4,6 +4,7 @@ import AppKit  // for NSAlert / NSWorkspace (backup section)
 import AppCore
 import LibraryStore
 import StackroomFormat  // for BookRecord
+import LibraryServerAPI
 import OSLog
 
 private let settingsLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettingsSheet")
@@ -538,11 +539,18 @@ struct LibrarySettingsSheet: View {
         settings.setDefaultPreset(id: stagedDefaultID)
 
         // ラベルカスタマイズ反映（ステージした内容を保存時のみ適用）
+        var labelsChanged = false
         if settings.customFieldLabels != stagedFieldLabels {
             settings.customFieldLabels = stagedFieldLabels
+            labelsChanged = true
         }
         if settings.customBookTypeLabels != stagedBookTypeLabels {
             settings.customBookTypeLabels = stagedBookTypeLabels
+            labelsChanged = true
+        }
+        // G8a Task 6: ホストローカルなラベル定義編集を共有 EventHub へ橋渡し。
+        if labelsChanged, let uuid = settings.libraryUUID {
+            ServerController.shared.publishLiveEvent(.settingsChanged(library: uuid))
         }
 
         // Lock 反映

@@ -6,6 +6,7 @@ import StackroomFormat
 import ImageCache
 import AppCore
 import ArchiveAdapter
+import LibraryServerAPI
 import OSLog
 
 @Observable
@@ -961,6 +962,9 @@ final class AppState {
             let cmd = try PatchBooksCommand.prepare(patches: [(bookID: bookID, patch: patch)], database: db)
             try perform(cmd, undoManager: undoManager)
             refreshSelectedBook()
+            if let uuid = librarySettings?.libraryUUID {
+                ServerController.shared.publishLiveEvent(.bookChanged(library: uuid, bookID: bookID))
+            }
         } catch BookPatchError.emptyTitle {
             self.error = .titleRequired
         } catch {
@@ -1002,6 +1006,11 @@ final class AppState {
         let patches: [(bookID: Int, patch: BookPatch)] = bookIDs.map { ($0, p) }
         let cmd = try PatchBooksCommand.prepare(patches: patches, database: db)
         try perform(cmd, undoManager: undoManager)
+        if let uuid = librarySettings?.libraryUUID {
+            for id in bookIDs {
+                ServerController.shared.publishLiveEvent(.bookChanged(library: uuid, bookID: id))
+            }
+        }
         return bookIDs.count
     }
 
@@ -1015,6 +1024,9 @@ final class AppState {
         guard !bookIDs.isEmpty, let db = database else { return 0 }
         let cmd = try DeleteBooksCommand.prepare(bookIDs: bookIDs, database: db)
         try perform(cmd, undoManager: undoManager)
+        if let uuid = librarySettings?.libraryUUID {
+            ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
+        }
         return bookIDs.count
     }
 
@@ -1041,6 +1053,11 @@ final class AppState {
         guard !perBookPatches.isEmpty else { return }
         let cmd = try PatchBooksCommand.prepare(patches: perBookPatches, database: database)
         try perform(cmd, undoManager: undoManager)
+        if let uuid = librarySettings?.libraryUUID {
+            for id in bookIDs {
+                ServerController.shared.publishLiveEvent(.bookChanged(library: uuid, bookID: id))
+            }
+        }
     }
 
     /// スタンプ pane の「消去 chip クリック」を Undo 可能に処理する。
@@ -1116,6 +1133,9 @@ final class AppState {
                 fieldDefs.append(trimmed)
                 defs[field.dbColumn] = fieldDefs
                 settings.stampDefinitions = defs
+                if let uuid = settings.libraryUUID {
+                    ServerController.shared.publishLiveEvent(.settingsChanged(library: uuid))
+                }
             }
         }
         if !selectedBookIDs.isEmpty { applyStamp(field: field, value: trimmed) }
@@ -1129,6 +1149,9 @@ final class AppState {
             fieldDefs.remove(at: i)
             defs[field.dbColumn] = fieldDefs
             settings.stampDefinitions = defs
+            if let uuid = settings.libraryUUID {
+                ServerController.shared.publishLiveEvent(.settingsChanged(library: uuid))
+            }
         }
     }
 
@@ -1475,6 +1498,9 @@ final class AppState {
 
     private func presentWatchSummary(_ result: BookImporter.ImportResult) {
         try? refreshDisplayedBooks()
+        if !result.addedIDs.isEmpty, let uuid = librarySettings?.libraryUUID {
+            ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
+        }
         var parts: [String] = []
         if !result.addedIDs.isEmpty { parts.append("\(result.addedIDs.count) 件を自動追加") }
         if !result.failed.isEmpty { parts.append("\(result.failed.count) 件失敗") }

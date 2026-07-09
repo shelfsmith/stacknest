@@ -2,6 +2,7 @@
 import Foundation
 import SwiftUI
 import LibraryServer
+import LibraryServerAPI
 import AppCore
 
 /// 127.0.0.1 専用のローカル制御エンドポイント（CLI/MCP 用）。ネットワーク共有とは独立。
@@ -31,6 +32,8 @@ final class LocalControlController {
                     where state.librarySettings?.libraryUUID == uuid {
                         state.handleExternalBookChange(bookID: bookID)
                     }
+                    // G8a Task 6: CLI/MCP (LocalControl 発) の変更を共有 EventHub へ橋渡し。
+                    ServerController.shared.publishLiveEvent(.bookChanged(library: uuid, bookID: bookID))
                 }
             },
             onLibrarySettingsChanged: { uuid in
@@ -40,6 +43,7 @@ final class LocalControlController {
                         state.librarySettings?.reloadStampDefinitions()
                         state.librarySettings?.reloadCustomLabels()
                     }
+                    ServerController.shared.publishLiveEvent(.settingsChanged(library: uuid))
                 }
             },
             trashFile: { url in try FileManager.default.trashItem(at: url, resultingItemURL: nil) },
@@ -49,6 +53,7 @@ final class LocalControlController {
                     where state.librarySettings?.libraryUUID == uuid {
                         try? state.refreshDisplayedBooks()
                     }
+                    ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
                 }
             },
             apiOnly: true,  // ローカルエンドポイントはアプリ Web UI を載せず API ドキュメント(Redoc)のみ

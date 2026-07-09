@@ -4,6 +4,7 @@ import AppKit
 import UniformTypeIdentifiers
 import LibraryStore
 import AppCore
+import LibraryServerAPI
 
 // Identifiable wrapper so [BookRow] can be used with sheet(item:).
 struct BookRenameSelection: Identifiable {
@@ -364,6 +365,9 @@ struct LibraryBrowserView: View {
             let result = await coord.add(urls: urls)
             do { try appState.refreshDisplayedBooks() }
             catch { appState.error = .unexpected(error) }
+            if !result.addedIDs.isEmpty, let uuid = appState.librarySettings?.libraryUUID {
+                ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
+            }
             if !result.alreadyPresent.isEmpty {
                 let alert = NSAlert()
                 alert.messageText = "\(result.alreadyPresent.count) 件は既に登録済みです"
