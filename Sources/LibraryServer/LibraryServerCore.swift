@@ -958,6 +958,35 @@ public struct LibraryServerCore: Sendable {
             return Response(
                 status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
         }
+        // G8a: ライブ同期 SSE。接続トークンの scope で絞ったイベントをストリームする。
+        // イベント本流とハートビートを 1 本の AsyncStream<ByteBuffer> に合流させ、
+        // 切断（body 終了 = onTermination）で forward/heartbeat を cancel し EventHub から unsubscribe する。
+        api.get("events") { [eventHub] _, context in
+            let (subID, events) = await eventHub.subscribe(scope: context.scope)
+            let (frames, cont) = AsyncStream<ByteBuffer>.makeStream()
+            // イベント → SSE フレーム
+            let forward = Task {
+                for await ev in events { cont.yield(ByteBuffer(string: ev.sseFrame())) }
+                cont.finish()
+            }
+            // ~20s ハートビート（プロキシ/中間機器によるアイドル切断を防ぐ）
+            let heartbeat = Task {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(20))
+                    cont.yield(ByteBuffer(string: ": ping\n\n"))
+                }
+            }
+            cont.onTermination = { _ in
+                forward.cancel()
+                heartbeat.cancel()
+                Task { await eventHub.unsubscribe(subID) }
+            }
+            var headers = HTTPFields()
+            headers[.contentType] = "text/event-stream"
+            headers[.cacheControl] = "no-cache"
+            headers[.connection] = "keep-alive"
+            return Response(status: .ok, headers: headers, body: .init(asyncSequence: frames))
+        }
         // 静的 Web クライアント配信（認証不要 — ペアリング前にアプリ本体を読み込むため）。
         // FileMiddleware はルート未一致（.notFound）時のフォールバックとして働く: ルータ直登録
         // すると buildResponder() 時に NotFoundResponder をラップするため、/api/v1 配下の
