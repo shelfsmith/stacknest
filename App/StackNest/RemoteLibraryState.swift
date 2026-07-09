@@ -1182,6 +1182,65 @@ final class RemoteLibraryState {
         return NextVolume(content: content, book: row, state: state, sourceLabel: "リモート")
     }
 
+    // MARK: - G8a: リモート即時同期（SSE 購読・反映・再接続）
+
+    /// G8a: settingsChanged 受信ごとに増分。ラベル override は View 所有（settings.remote*Override）のため
+    /// state から直接触れない。View が `.onChange(of: settingsChangeToken)` で fetchLabels を再実行する。
+    var settingsChangeToken = 0
+
+    /// G8a Design 1: /events を購読し反映する。切断/一時障害は指数バックオフ再接続＋再接続時に
+    /// reload(clearFirst:false) で取りこぼし回収。認証失効（401/403）は errorText に提示し再接続せず停止。
+    /// View の `.task {}` から `await` で呼ぶ（view 消滅で .task がキャンセル→ループ終了）。
+    func runLiveSync() async {
+        var backoff: Duration = .seconds(1)              // 1s→2s→4s…→最大30s（エラー時のみ増加）
+        let maxBackoff: Duration = .seconds(30)
+        while !Task.isCancelled {
+            do {
+                // throwing 購読。events() は非200/URLError を型付き RemoteClientError で終端 throw、
+                // サーバ正常クローズは throw なし finish、キャンセルは静音 finish。
+                for try await event in client.events(libraryToken: libraryToken) {
+                    await handleLiveEvent(event)
+                }
+                if Task.isCancelled { break }
+                backoff = .seconds(1)                    // 正常クローズ＝接続は成立していた→リセット
+                await reload(clearFirst: false)          // 取りこぼし回収
+                try? await Task.sleep(for: backoff)
+            } catch let e as RemoteClientError {
+                if Task.isCancelled { break }
+                switch e {
+                case .unauthorized, .forbidden:
+                    errorText = Self.message(for: e)     // 認証失効を提示（unlock 導線は locked/unlock UI が担う）
+                    return                               // 再接続しない
+                default:
+                    await reload(clearFirst: false)      // .offline/.timeout/.server 等は一時障害
+                    try? await Task.sleep(for: backoff)
+                    backoff = min(backoff * 2, maxBackoff)
+                }
+            } catch {
+                if Task.isCancelled { break }
+                await reload(clearFirst: false)
+                try? await Task.sleep(for: backoff)
+                backoff = min(backoff * 2, maxBackoff)
+            }
+        }
+    }
+
+    /// SSE イベントを既存の反映経路へ結線する。
+    private func handleLiveEvent(_ event: LiveEvent) async {
+        guard event.library == libraryUUID else { return }   // scope で絞られるが念のため
+        switch event {
+        case .bookChanged(_, let bookID):
+            // setRating/setUnseen と同一の反映イディオム（単一本 GET は無い・progress 非 publish で低頻度）。
+            await reload(clearFirst: false)
+            if selection == bookID { await selectBook(bookID) }
+        case .structureChanged:
+            await reload(clearFirst: false)
+        case .settingsChanged:
+            await loadStampDefinitions()                 // スタンプ定義（observable）を即時反映
+            settingsChangeToken &+= 1                    // View にラベル override 再取得を促す
+        }
+    }
+
     // MARK: - Error messages
 
     static func message(for error: RemoteClientError) -> String {

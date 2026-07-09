@@ -258,6 +258,8 @@ struct RemoteLibraryView: View {
             let labels = await state.fetchLabels()
             settings.remoteFieldLabelOverride = labels.customFieldLabels
             settings.remoteBookTypeLabelOverride = labels.customBookTypeLabels
+            // G8a: /events 購読ループ。view 消滅で .task がキャンセルされループ終了する（stored task 不要）。
+            await state.runLiveSync()
         }
         .onAppear { perInput = String(state.per) }
         .onChange(of: state.per) { _, newValue in
@@ -275,6 +277,14 @@ struct RemoteLibraryView: View {
         }
         // 4.2c-7: grid/list トグルは reload を伴わないため個別にブラウズ状態を永続化する。
         .onChange(of: state.isGrid) { _, _ in state.persistBrowseState() }
+        // G8a: settingsChanged 受信のたびに View 所有のラベル override を再取得する（.task と同一処理）。
+        .onChange(of: state.settingsChangeToken) { _, _ in
+            Task {
+                let labels = await state.fetchLabels()
+                settings.remoteFieldLabelOverride = labels.customFieldLabels
+                settings.remoteBookTypeLabelOverride = labels.customBookTypeLabels
+            }
+        }
     }
 
     private var toolbar: some View {
