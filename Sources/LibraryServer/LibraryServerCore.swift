@@ -130,10 +130,28 @@ public struct LibraryServerCore: Sendable {
     let tokenStore = LibraryTokenStore()
     /// 本ごとの BookContent ハンドルキャッシュ（アーカイブ再オープン排除・spec §3.3）。
     let contentCache = BookContentCache(ttlSeconds: 300)
+    /// G8a: ライブ同期の配信ハブ。/events が subscribe し、mutation が publish する。
+    public let eventHub = EventHub()
 
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
         self.dataSource = dataSource
+    }
+
+    /// G8a: 本のメタデータ変更を App コールバック＋EventHub の両方へ通知する（progress は除外・呼出元判断）。
+    private func notifyBookChanged(_ uuid: String, _ bookID: Int) {
+        config.onBookChanged?(uuid, bookID)
+        Task { await eventHub.publish(.bookChanged(library: uuid, bookID: bookID)) }
+    }
+    /// G8a: ライブラリ構造変更（追加/削除/relink 等）を App コールバック＋EventHub の両方へ通知する。
+    private func notifyStructureChanged(_ uuid: String) {
+        config.onLibraryStructureChanged?(uuid)
+        Task { await eventHub.publish(.structureChanged(library: uuid)) }
+    }
+    /// G8a: ライブラリ設定変更（ラベル/スタンプ/watch/lock 等）を App コールバック＋EventHub の両方へ通知する。
+    private func notifySettingsChanged(_ uuid: String) {
+        config.onLibrarySettingsChanged?(uuid)
+        Task { await eventHub.publish(.settingsChanged(library: uuid)) }
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -264,7 +282,7 @@ public struct LibraryServerCore: Sendable {
             }
         }
         // A1: 棚の作成（RW・手動 or スマート）。
-        api.post("libraries/:lib/shelves") { [config] request, context in
+        api.post("libraries/:lib/shelves") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
@@ -277,13 +295,13 @@ public struct LibraryServerCore: Sendable {
                 if body.conditions != nil { throw HTTPError(.conflict) }
                 newID = try lib.db.createUserShelf(title: body.title)
             }
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             let row = try lib.db.fetchAllShelves().first(where: { $0.id == newID })
             return row.map { ShelfDTO(id: $0.id, title: $0.title, kind: $0.kind, isSmart: $0.isSmart) }
                 ?? ShelfDTO(id: newID, title: body.title, kind: "user", isSmart: body.isSmart)
         }
         // A1: 棚の更新（RW・改名＋スマート条件更新）。
-        api.patch("libraries/:lib/shelves/:id") { [config] request, context in
+        api.patch("libraries/:lib/shelves/:id") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
@@ -302,13 +320,13 @@ public struct LibraryServerCore: Sendable {
                 try lib.db.renameShelf(id: shelfID, title: title)
                 changed = true
             }
-            if changed { config.onLibrarySettingsChanged?(lib.uuid) }
+            if changed { self.notifySettingsChanged(lib.uuid) }
             let updated = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID })
             return updated.map { ShelfDTO(id: $0.id, title: $0.title, kind: $0.kind, isSmart: $0.isSmart) }
                 ?? ShelfDTO(id: shelfID, title: body.title ?? row.title, kind: row.kind, isSmart: row.isSmart)
         }
         // A1: 棚の削除（RW・お気に入り棚は 409 で保護）。
-        api.delete("libraries/:lib/shelves/:id") { [config] request, context in
+        api.delete("libraries/:lib/shelves/:id") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
@@ -316,7 +334,7 @@ public struct LibraryServerCore: Sendable {
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             if row.kind == "favorites" { throw HTTPError(.conflict) }
             try lib.db.deleteShelf(id: shelfID)
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return Response(status: .noContent)
         }
         // A1: スマート棚の条件取得（read）。
@@ -330,7 +348,7 @@ public struct LibraryServerCore: Sendable {
             return conditions
         }
         // A1: スマート棚の条件更新（RW）。
-        api.put("libraries/:lib/shelves/:id/conditions") { [config] request, context in
+        api.put("libraries/:lib/shelves/:id/conditions") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
@@ -339,11 +357,11 @@ public struct LibraryServerCore: Sendable {
             guard row.isSmart else { throw HTTPError(.conflict) }
             let conditions = try await request.decode(as: SmartShelfConditions.self, context: context)
             try lib.db.updateSmartShelfConditions(id: shelfID, conditions: conditions)
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return conditions
         }
         // A1: 手動棚への所属追加（RW・スマート棚は 409）。
-        api.post("libraries/:lib/shelves/:id/books") { [config] request, context in
+        api.post("libraries/:lib/shelves/:id/books") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
@@ -352,11 +370,11 @@ public struct LibraryServerCore: Sendable {
             guard !row.isSmart else { throw HTTPError(.conflict) }
             let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
             try lib.db.appendBooksToShelf(playlistID: shelfID, bookIDs: body.bookIDs)
-            config.onLibraryStructureChanged?(lib.uuid)
+            self.notifyStructureChanged(lib.uuid)
             return Response(status: .noContent)
         }
         // A1: 手動棚からの所属除去（RW・スマート棚は 409）。
-        api.delete("libraries/:lib/shelves/:id/books") { [config] request, context in
+        api.delete("libraries/:lib/shelves/:id/books") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
@@ -365,7 +383,7 @@ public struct LibraryServerCore: Sendable {
             guard !row.isSmart else { throw HTTPError(.conflict) }
             let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
             try lib.db.removeBooksFromShelf(playlistID: shelfID, bookIDs: body.bookIDs)
-            config.onLibraryStructureChanged?(lib.uuid)
+            self.notifyStructureChanged(lib.uuid)
             return Response(status: .noContent)
         }
         // ファセット（列の distinct 値リスト）。ロック庫は X-Library-Token 必須。
@@ -430,7 +448,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 書籍メタデータ更新（RW トークン専用・表紙フィールドは対象外）。
         // role=write でなければ 403、resolve で 404/401 を返す既存ルーティングを再利用。
-        api.patch("libraries/:lib/books/:id") { [config] request, context in
+        api.patch("libraries/:lib/books/:id") { [self] request, context in
             try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
             let dto = try await request.decode(as: BookPatchDTO.self, context: context)
@@ -459,7 +477,7 @@ public struct LibraryServerCore: Sendable {
             patch.clearVolume = dto.clearVolume
             patch.clearPageDirection = dto.clearPageDirection
             try lib.db.updateBook(id: row.id, patch: patch)
-            config.onBookChanged?(lib.uuid, row.id)
+            self.notifyBookChanged(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
         }
@@ -476,7 +494,7 @@ public struct LibraryServerCore: Sendable {
             return StampDefinitionsDTO(definitions: map)
         }
         // 4.2c-6a: スタンプ定義の置換（RW）。許可カラムのみ採用しマップ全体を保存。
-        api.put("libraries/:lib/stamp-definitions") { [config] request, context in
+        api.put("libraries/:lib/stamp-definitions") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
@@ -488,11 +506,11 @@ public struct LibraryServerCore: Sendable {
             let data = try JSONEncoder().encode(filtered)
             try lib.db.setLibrarySetting(key: "stamp_definitions", value: String(decoding: data, as: UTF8.self))
             // ローカル(同バンドルを開いている AppState)のインメモリ設定を再読込させる（C1' ライブ反映）。
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return StampDefinitionsDTO(definitions: filtered)
         }
         // 4.2c-6a: 一括スタンプ適用（RW・append/clear をサーバ側で MultiValueParser/clearBookField）。
-        api.post("libraries/:lib/books/stamp") { [config] request, context in
+        api.post("libraries/:lib/books/stamp") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
@@ -506,11 +524,11 @@ public struct LibraryServerCore: Sendable {
             } catch is StampApplyError {
                 throw HTTPError(.badRequest)
             }
-            for id in body.bookIDs { config.onBookChanged?(lib.uuid, id) }
+            for id in body.bookIDs { self.notifyBookChanged(lib.uuid, id) }
             return StampApplyReply(updated: updated)
         }
         // 4.2d-2: ローカルパスのファイルをライブラリに追加（in-place・admin）。
-        api.post("libraries/:lib/books") { [config] request, context in
+        api.post("libraries/:lib/books") { [self] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
@@ -530,7 +548,7 @@ public struct LibraryServerCore: Sendable {
                 autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(override: acOverride),
                 thickThreshold: ImportDefaults.effectiveThickThreshold(override: thOverride))
             // 行が増えるので全リロード通知（onBookChanged はメタ更新用で新規行に効かない）。
-            if !result.addedIDs.isEmpty { config.onLibraryStructureChanged?(lib.uuid) }
+            if !result.addedIDs.isEmpty { self.notifyStructureChanged(lib.uuid) }
             return AddBooksReplyDTO(
                 addedIDs: result.addedIDs,
                 alreadyPresent: result.alreadyPresent.map { $0.path },
@@ -538,13 +556,13 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2d-2: 本をライブラリから削除（エントリ＋サムネ）。?trash=true は admin 専用・edit は DB 削除のみ。
         // ?trash=true で実ファイルをゴミ箱へ（config.trashFile 注入時のみ・失敗は 500＝DB 不変・完全削除はしない）。
-        api.delete("libraries/:lib/books/:id") { [config] request, context in
+        api.delete("libraries/:lib/books/:id") { [self] request, context in
             // tier ゲートは解決より前（PATCH と一貫・read ユーザーへ存在情報を漏らさない）。
             let wantTrash = request.uri.queryParameters.get("trash").map { $0 == "true" || $0 == "1" } ?? false
             if wantTrash { try context.requireAdmin() } else { try context.requireEdit() }
             let (lib, row) = try await resolver.resolveBook(request, context)
             if wantTrash {
-                guard let trashFile = config.trashFile else { throw HTTPError(.notImplemented) }
+                guard let trashFile = self.config.trashFile else { throw HTTPError(.notImplemented) }
                 if let p = row.path {
                     do { try trashFile(URL(fileURLWithPath: p)) }
                     catch { throw HTTPError(.internalServerError) }
@@ -554,7 +572,7 @@ public struct LibraryServerCore: Sendable {
             let thumbDir = lib.bundleURL.appendingPathComponent("Thumbnails").appendingPathComponent(String(row.id))
             try? FileManager.default.removeItem(at: thumbDir)
             // 行が消えるので全リロード通知（削除済み本は onBookChanged で扱えない）。
-            config.onLibraryStructureChanged?(lib.uuid)
+            self.notifyStructureChanged(lib.uuid)
             return Response(status: .noContent)
         }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
@@ -584,7 +602,7 @@ public struct LibraryServerCore: Sendable {
             return cacheableImageResponse(data: data, etag: etag, request: request)
         }
         // 4.2c-6b: 表紙更新（RW）。coverImageName 更新時は thumbnail を再生成する。
-        api.put("libraries/:lib/books/:id/cover") { [config] request, context in
+        api.put("libraries/:lib/books/:id/cover") { [self] request, context in
             try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: CoverUpdateRequest.self, context: context)
@@ -600,12 +618,12 @@ public struct LibraryServerCore: Sendable {
             if body.setCoverCropRect {
                 try lib.db.updateBookCoverCropRect(id: row.id, json: body.coverCropRect)
             }
-            config.onBookChanged?(lib.uuid, row.id)
+            self.notifyBookChanged(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
         }
         // G4b: 外部画像を表紙に（RW）。画像バイトを thumbnail.jpg として保存＋coverImageName="@external"＋crop。
-        api.put("libraries/:lib/books/:id/cover-image") { [config] request, context in
+        api.put("libraries/:lib/books/:id/cover-image") { [self] request, context in
             try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
             let imageData: Data
@@ -630,7 +648,7 @@ public struct LibraryServerCore: Sendable {
             try lib.db.updateBook(id: row.id, patch: patch)
             // crop 未指定=解除（G4a の setExternalCover と同 atomicity＝新表紙に旧 crop を残さない）。
             try lib.db.updateBookCoverCropRect(id: row.id, json: request.uri.queryParameters.get("crop"))
-            config.onBookChanged?(lib.uuid, row.id)
+            self.notifyBookChanged(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
         }
@@ -653,7 +671,7 @@ public struct LibraryServerCore: Sendable {
                 customBookTypeLabels: decodeMap("custom_book_type_labels"))
         }
         // 4.2c-8: ラベルカスタマイズ保存（RW 必須）。キー名・JSON 形式はローカル LibrarySettings と同一。
-        api.put("libraries/:lib/label-settings") { [config] request, context in
+        api.put("libraries/:lib/label-settings") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(
@@ -669,7 +687,7 @@ public struct LibraryServerCore: Sendable {
             }
             try lib.db.setLibrarySetting(key: "custom_field_labels", value: encodeMap(body.customFieldLabels))
             try lib.db.setLibrarySetting(key: "custom_book_type_labels", value: encodeMap(body.customBookTypeLabels))
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return LabelSettingsDTO(
                 customFieldLabels: body.customFieldLabels.filter { !$0.value.isEmpty },
                 customBookTypeLabels: body.customBookTypeLabels.filter { !$0.value.isEmpty })
@@ -684,7 +702,7 @@ public struct LibraryServerCore: Sendable {
             return WatchConfigDTO(enabled: enabled, folders: folders.map { WatchedFolderDTO(id: $0.id, path: $0.path, enabled: $0.enabled, presetID: $0.presetID, baseline: $0.baseline) })
         }
         // A2: 監視フォルダ設定の更新（RW）。
-        api.put("libraries/:lib/watch-config") { [config] request, context in
+        api.put("libraries/:lib/watch-config") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
@@ -693,11 +711,11 @@ public struct LibraryServerCore: Sendable {
             try lib.db.setLibrarySetting(key: "folder_watch_enabled", value: dto.enabled ? "true" : "false")
             let data = try JSONEncoder().encode(folders)
             try lib.db.setLibrarySetting(key: "watched_folders", value: String(decoding: data, as: UTF8.self))
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return dto
         }
         // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
-        api.post("libraries/:lib/lock") { [config] request, context in
+        api.post("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
@@ -707,17 +725,17 @@ public struct LibraryServerCore: Sendable {
             let hash = LibraryLock.computeHash(password: body.password, saltHex: salt)
             try lib.db.setLibrarySetting(key: "lock_password_salt", value: salt)
             try lib.db.setLibrarySetting(key: "lock_password_hash", value: hash)
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }
         // A2: ライブラリロック解除（admin）。hash と salt を削除。
-        api.delete("libraries/:lib/lock") { [config] request, context in
+        api.delete("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             try lib.db.deleteLibrarySetting(key: "lock_password_hash")
             try lib.db.deleteLibrarySetting(key: "lock_password_salt")
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }
         // A2: per-library 取り込み設定の取得（R 可）。未設定キーは nil（= グローバル既定に委譲）。
@@ -729,14 +747,14 @@ public struct LibraryServerCore: Sendable {
             return ImportConfigDTO(autoClassifyEnabled: ac, thickBookThreshold: th)
         }
         // A2: per-library 取り込み設定の更新（RW）。nil 指定は override 削除（= グローバル既定へ戻す）。
-        api.put("libraries/:lib/import-config") { [config] request, context in
+        api.put("libraries/:lib/import-config") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: ImportConfigDTO.self, context: context)
             if let ac = dto.autoClassifyEnabled { try lib.db.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: ac ? "true" : "false") } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libAutoClassifyKey) }
             if let th = dto.thickBookThreshold { try lib.db.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: String(max(5, min(100, th)))) } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libThickThresholdKey) }
-            config.onLibrarySettingsChanged?(lib.uuid)
+            self.notifySettingsChanged(lib.uuid)
             return dto
         }
         // A2: グローバル取り込み既定の取得（庫非依存・R 可）。サーバ canonical（UserDefaults）。
@@ -752,7 +770,7 @@ public struct LibraryServerCore: Sendable {
             return GlobalImportConfigDTO(autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold())
         }
         // A2: 本のパス再リンク（RW）。relinkBook で path 更新＋ハッシュ NULL 化。
-        api.post("libraries/:lib/books/:id/relink") { [config] request, context in
+        api.post("libraries/:lib/books/:id/relink") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             let bookID = try context.parameters.require("id", as: Int.self)
@@ -761,7 +779,7 @@ public struct LibraryServerCore: Sendable {
             let body = try await request.decode(as: RelinkRequest.self, context: context)
             guard !body.newPath.isEmpty else { throw HTTPError(.badRequest) }
             try lib.db.relinkBook(id: bookID, newPath: body.newPath)
-            config.onLibraryStructureChanged?(lib.uuid)
+            self.notifyStructureChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }
         // A2: 重複スキャン（RW・content_hash を計算/キャッシュしグループ返却）。
@@ -894,7 +912,7 @@ public struct LibraryServerCore: Sendable {
             return HTTPResponse.Status.ok
         }
         // ページ方向の書き戻し（Web リーダーでの変更を本ごと DB に反映・4.1c F2b）。
-        api.post("libraries/:lib/books/:id/direction") { [config] request, context in
+        api.post("libraries/:lib/books/:id/direction") { [self] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: DirectionRequestBody.self, context: context)
             let dir: PageDirection?
@@ -905,26 +923,26 @@ public struct LibraryServerCore: Sendable {
             default: throw HTTPError(.badRequest)
             }
             try lib.db.updatePageDirection(bookID: row.id, direction: dir)
-            config.onBookChanged?(lib.uuid, row.id)
+            self.notifyBookChanged(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
         // 4.2c-9: レート更新（role 不問＝R でも可・共有評価）。0–5 検証。本を mutate するので onBookChanged。
-        api.post("libraries/:lib/books/:id/rating") { [config] request, context in
+        api.post("libraries/:lib/books/:id/rating") { [self] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: RatingRequestBody.self, context: context)
             guard (0...5).contains(body.rating) else { throw HTTPError(.badRequest) }
             try lib.db.setRating(bookID: row.id, rating: body.rating)
-            config.onBookChanged?(lib.uuid, row.id)
+            self.notifyBookChanged(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
         // 4.2c-9: 未読(unseen)更新（role 不問＝R でも可・共有閲覧状態）。
-        api.post("libraries/:lib/books/:id/unseen") { [config] request, context in
+        api.post("libraries/:lib/books/:id/unseen") { [self] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: UnseenRequestBody.self, context: context)
             var patch = BookPatch()
             patch.unseen = body.unseen
             try lib.db.updateBook(id: row.id, patch: patch)
-            config.onBookChanged?(lib.uuid, row.id)
+            self.notifyBookChanged(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
         // 原本ファイルの一括ダウンロード（4.2 オフライン機能の土台・ストリーミングは YAGNI）。
