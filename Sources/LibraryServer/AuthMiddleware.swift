@@ -59,16 +59,25 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
         }
         return try await next(request, ctx)
     }
+}
 
-    /// 長さが異なっても全バイト走査する定数時間比較。
-    private func constantTimeEquals(_ a: String, _ b: String) -> Bool {
-        let aBytes = Array(a.utf8), bBytes = Array(b.utf8)
-        var diff = aBytes.count ^ bBytes.count
-        for i in 0..<max(aBytes.count, bBytes.count) {
-            let x = i < aBytes.count ? aBytes[i] : 0
-            let y = i < bBytes.count ? bBytes[i] : 0
-            diff |= Int(x ^ y)
-        }
-        return diff == 0
+/// 長さが異なっても全バイト走査する定数時間比較。
+/// BearerAuthMiddleware と /events の長寿命接続再検証（liveConnectionStillAuthorized）の双方から
+/// 共有するためファイルスコープ関数として公開する（タイミング攻撃対策・spec §4）。
+func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+    let aBytes = Array(a.utf8), bBytes = Array(b.utf8)
+    var diff = aBytes.count ^ bBytes.count
+    for i in 0..<max(aBytes.count, bBytes.count) {
+        let x = i < aBytes.count ? aBytes[i] : 0
+        let y = i < bBytes.count ? bBytes[i] : 0
+        diff |= Int(x ^ y)
     }
+    return diff == 0
+}
+
+/// SSE 長寿命接続の再認証: 提示トークンに一致する grant が現存し、その scope が接続時 scope と一致するか。
+/// grants に一致トークンが無い＝失効、scope が変わった＝再接続で更新すべき → いずれも false。
+func liveConnectionStillAuthorized(presentedToken: String, subscribedScope: GrantScope, grants: [Grant]) -> Bool {
+    guard let g = grants.first(where: { constantTimeEquals(presentedToken, $0.token) }) else { return false }
+    return g.scope == subscribedScope
 }

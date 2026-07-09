@@ -961,18 +961,36 @@ public struct LibraryServerCore: Sendable {
         // G8a: ライブ同期 SSE。接続トークンの scope で絞ったイベントをストリームする。
         // イベント本流とハートビートを 1 本の AsyncStream<ByteBuffer> に合流させ、
         // 切断（body 終了 = onTermination）で forward/heartbeat を cancel し EventHub から unsubscribe する。
-        api.get("events") { [eventHub] _, context in
+        api.get("events") { [eventHub, grantsProvider = config.grantsProvider] request, context in
             let (subID, events) = await eventHub.subscribe(scope: context.scope)
             let (frames, cont) = AsyncStream<ByteBuffer>.makeStream()
+            // 接続時に提示されたトークンと scope を保持し、ハートビート毎に再検証する（C-③a・長寿命接続の即時失効反映）。
+            let presentedToken: String? = {
+                if let header = request.headers[.authorization], header.hasPrefix("Bearer ") {
+                    return String(header.dropFirst("Bearer ".count))
+                }
+                return request.uri.queryParameters.get("token")
+            }()
+            let subscribedScope = context.scope
             // イベント → SSE フレーム
             let forward = Task {
                 for await ev in events { cont.yield(ByteBuffer(string: ev.sseFrame())) }
                 cont.finish()
             }
-            // ~20s ハートビート（プロキシ/中間機器によるアイドル切断を防ぐ）
+            // ~20s ハートビート（プロキシ/中間機器によるアイドル切断を防ぐ）。
+            // グラントモードでは同時に grant の現存/scope を再検証し、失効・scope 変更を検知したら
+            // ストリームを終了する（client は再接続時に BearerAuthMiddleware で 401 を受け取り停止する）。
             let heartbeat = Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(20))
+                    if let grantsProvider, let presentedToken {
+                        if !liveConnectionStillAuthorized(presentedToken: presentedToken,
+                                                          subscribedScope: subscribedScope,
+                                                          grants: grantsProvider()) {
+                            cont.finish()
+                            break
+                        }
+                    }
                     cont.yield(ByteBuffer(string: ": ping\n\n"))
                 }
             }
