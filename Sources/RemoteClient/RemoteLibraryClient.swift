@@ -373,4 +373,55 @@ public struct RemoteLibraryClient: Sendable {
                                           body: body, contentType: "application/json"))
         return try decode(LabelSettingsDTO.self, data)
     }
+
+    // MARK: - G8a: ライブ同期（SSE）
+
+    /// G8a: ライブ同期イベントを購読する（SSE・Design 1）。
+    /// 正常クローズ＝throw なし finish、非200/URLError＝型付き RemoteClientError で終端 throw。
+    public func events(libraryToken: String?) -> AsyncThrowingStream<LiveEvent, Error> {
+        let url = makeURL("events")
+        let req: URLRequest = {
+            var r = request(url, libraryToken: libraryToken)
+            r.timeoutInterval = .infinity         // ストリーミングは無期限
+            return r
+        }()
+        let session = self.session
+        return AsyncThrowingStream<LiveEvent, Error> { continuation in
+            let task = Task {
+                do {
+                    let (bytes, resp) = try await session.bytes(for: req)
+                    // status 検証（bookFile と同じ判定）。非200 は型付きで終端 throw。
+                    if let http = resp as? HTTPURLResponse {
+                        switch http.statusCode {
+                        case 200...299: break
+                        case 401: continuation.finish(throwing: RemoteClientError.unauthorized); return
+                        case 403: continuation.finish(throwing: RemoteClientError.forbidden); return
+                        case 404: continuation.finish(throwing: RemoteClientError.notFound); return
+                        default: continuation.finish(throwing: RemoteClientError.server(http.statusCode)); return
+                        }
+                    } else {
+                        continuation.finish(throwing: RemoteClientError.badResponse); return
+                    }
+                    var parser = SSEParser()
+                    for try await line in bytes.lines {
+                        for ev in parser.consume(line + "\n") { continuation.yield(ev) }
+                    }
+                    continuation.finish()                    // サーバ正常クローズ（throw なし）
+                } catch is CancellationError {
+                    continuation.finish()                    // キャンセルは静かに finish
+                } catch let e as URLError {
+                    // send(_:) と同じ URLError→RemoteClientError 写像。
+                    switch e.code {
+                    case .timedOut: continuation.finish(throwing: RemoteClientError.timeout)
+                    case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost:
+                        continuation.finish(throwing: RemoteClientError.offline)
+                    default: continuation.finish(throwing: RemoteClientError.server(-1))
+                    }
+                } catch {
+                    continuation.finish(throwing: RemoteClientError.server(-1))
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
