@@ -2,6 +2,7 @@
 import Foundation
 import SwiftUI
 import LibraryServer
+import LibraryServerAPI
 import AppCore
 
 /// アプリ内蔵サーバのライフサイクル管理（設定「共有」タブから操作）。
@@ -16,6 +17,7 @@ final class ServerController {
     /// 直近の起動エラー分類（UI がダイアログ判定に使う）。成功/停止で nil。
     private(set) var startError: ServerStartError?
     private var serverTask: Task<Void, Never>?
+    private var runningCore: LibraryServerCore?   // start で代入・stop で nil
 
     /// ライフサイクル世代カウンタ。stop() / restart() のたびにインクリメントする。
     /// restart() は await 中に手動 stop（共有トグル OFF）や別 restart が割り込むと、
@@ -82,6 +84,7 @@ final class ServerController {
             grantsProvider: { GrantStore.list() }   // C-③a: 毎リクエスト現在のグラントを参照（ライブ反映/即時失効）
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
+        self.runningCore = core
         let app = core.buildApplication()
         isRunning = true
         let portUsed = ServerPreferences.port()
@@ -113,6 +116,13 @@ final class ServerController {
         serverTask?.cancel()   // ServiceLifecycle の graceful shutdown が走る
         serverTask = nil
         isRunning = false
+        runningCore = nil
+    }
+
+    /// G8a: ホストローカル発の変更を共有サーバの EventHub へ流す（未起動なら no-op）。
+    func publishLiveEvent(_ event: LiveEvent) {
+        guard let hub = runningCore?.eventHub else { return }
+        Task { await hub.publish(event) }
     }
 
     /// 稼働中の再起動。**C-③a 以降、トークン再生成はライブ化したため通常の呼び出し元はない**
