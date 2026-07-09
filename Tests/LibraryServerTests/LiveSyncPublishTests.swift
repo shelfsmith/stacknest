@@ -48,7 +48,13 @@ struct LiveSyncPublishTests {
                 body: .init(bytes: Array(#"{"page":2}"#.utf8))
             ) { _ in }
 
+            // progress は publish しないはず。万一の spurious publish（fire-and-forget の
+            // Task）が actor に届く猶予を与えてから締める。sleep がないと、buggy な publish が
+            // unsubscribe 後に actor へ入り無音で drop され、negative assertion が骨抜きになる。
+            try await Task.sleep(for: .milliseconds(50))
             // progress 後、新イベントが来ないこと（unsubscribe → stream 終了 → next() == nil で締める）。
+            // spurious publish があれば sleep 中に buffer 済みで、AsyncStream は終端 nil より先に
+            // それを surface するため it.next() が非 nil を返し、テストは正しく FAIL する。
             await core.eventHub.unsubscribe(sub.id)
             #expect(await it.next() == nil)
         }
