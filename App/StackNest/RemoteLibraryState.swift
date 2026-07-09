@@ -1199,7 +1199,7 @@ final class RemoteLibraryState {
                 // throwing 購読。events() は非200/URLError を型付き RemoteClientError で終端 throw、
                 // サーバ正常クローズは throw なし finish、キャンセルは静音 finish。
                 for try await event in client.events(libraryToken: libraryToken) {
-                    await handleLiveEvent(event)
+                    handleLiveEvent(event)
                 }
                 if Task.isCancelled { break }
                 backoff = .seconds(1)                    // 正常クローズ＝接続は成立していた→リセット
@@ -1225,17 +1225,49 @@ final class RemoteLibraryState {
         }
     }
 
-    /// SSE イベントを既存の反映経路へ結線する。
-    private func handleLiveEvent(_ event: LiveEvent) async {
+    /// G8a whole-branch-review Important #2: SSE イベントは実反映せず pending フラグに畳み込む。ホストの
+    /// 一括編集（applyPatch(bookIDs:)）は N 件の .bookChanged を連続送出するため、~200ms のデバウンス窓で
+    /// 1 回の reload/選択再取得/スタンプ再読込に集約し、大量一括編集時の reload storm（体感カクつき）を防ぐ。
+    private func handleLiveEvent(_ event: LiveEvent) {
         guard event.library == libraryUUID else { return }   // scope で絞られるが念のため
         switch event {
         case .bookChanged(_, let bookID):
             // setRating/setUnseen と同一の反映イディオム（単一本 GET は無い・progress 非 publish で低頻度）。
-            await reload(clearFirst: false)
-            if selection == bookID { await selectBook(bookID) }
+            pendingLiveReload = true
+            if selection == bookID { pendingLiveSelectionRefresh = bookID }
         case .structureChanged:
-            await reload(clearFirst: false)
+            pendingLiveReload = true
         case .settingsChanged:
+            pendingLiveStampReload = true
+        }
+        scheduleLiveFlush()
+    }
+
+    private var pendingLiveReload = false
+    private var pendingLiveStampReload = false
+    private var pendingLiveSelectionRefresh: Int?
+    private var liveFlushTask: Task<Void, Never>?
+
+    /// バーストを ~200ms 窓で 1 回に集約。イベントごとに再スケジュールし、静止後に flush する。
+    private func scheduleLiveFlush() {
+        liveFlushTask?.cancel()
+        liveFlushTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            await self?.flushLiveEvents()
+        }
+    }
+
+    private func flushLiveEvents() async {
+        let doReload = pendingLiveReload
+        let doStamps = pendingLiveStampReload
+        let sel = pendingLiveSelectionRefresh
+        pendingLiveReload = false
+        pendingLiveStampReload = false
+        pendingLiveSelectionRefresh = nil
+        if doReload { await reload(clearFirst: false) }
+        if let sel, selection == sel { await selectBook(sel) }
+        if doStamps {
             await loadStampDefinitions()                 // スタンプ定義（observable）を即時反映
             settingsChangeToken &+= 1                    // View にラベル override 再取得を促す
         }
