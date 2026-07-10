@@ -89,30 +89,37 @@ struct BrowserColumnView: View {
         .menuIndicator(.hidden)
     }
 
-    @ViewBuilder
     private var valueList: some View {
-        List {
-            // 「すべて (N 種類)」: click で当該列の selection を nil にリセット
-            row(
-                label: "すべて (\(values.count) 種類)",
-                isSelected: browserPaneState.selections[columnIndex] == nil
-            ) {
-                isFocused = true
-                browserPaneState.setSelection(nil, at: columnIndex)
-            }
-
-            ForEach(values, id: \.self) { v in
+        ScrollViewReader { proxy in
+            List {
+                // 「すべて (N 種類)」: click で当該列の selection を nil にリセット
                 row(
-                    label: v,
-                    isSelected: browserPaneState.selections[columnIndex] == v
+                    label: "すべて (\(values.count) 種類)",
+                    isSelected: browserPaneState.selections[columnIndex] == nil
                 ) {
                     isFocused = true
-                    browserPaneState.setSelection(v, at: columnIndex)
+                    browserPaneState.setSelection(nil, at: columnIndex)
+                }
+                .id("__all__")
+
+                ForEach(values, id: \.self) { v in
+                    row(
+                        label: v,
+                        isSelected: browserPaneState.selections[columnIndex] == v
+                    ) {
+                        isFocused = true
+                        browserPaneState.setSelection(v, at: columnIndex)
+                    }
+                    .id(v)
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            // G11: 矢印キー（moveSelection）/クリックで選択が変わったら、その行が見えるよう追従。
+            .onChange(of: browserPaneState.selections[columnIndex]) { _, newSel in
+                proxy.scrollTo(newSel ?? "__all__", anchor: .center)
+            }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
     }
 
     @ViewBuilder
