@@ -93,11 +93,11 @@ extension LibrarySettingsSheet {
                 Text("サブフォルダ").font(.caption).foregroundStyle(.secondary)
                 Picker("", selection: folder.subfolderMode) {
                     Text("サブフォルダを取り込まない").tag(WatchedFolder.SubfolderMode.topLevelOnly)
-                    Text("サブフォルダを再帰して取り込む").tag(WatchedFolder.SubfolderMode.recurse)
+                    Text("サブフォルダの中も取り込む").tag(WatchedFolder.SubfolderMode.recurse)
                 }
                 .labelsHidden()
                 .frame(maxWidth: 200)
-                .help("このフォルダのサブフォルダを再帰的に走査して取り込むか")
+                .help("サブフォルダ（さらにその下の階層も含む）の中のファイルも取り込むか")
             }
         }
     }
