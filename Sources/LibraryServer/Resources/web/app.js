@@ -8,6 +8,7 @@ import {
 } from "./api.js";
 import { renderBooks } from "./books.js";
 import { renderReader } from "./reader.js";
+import { stopLiveSync } from "./livesync.js";
 
 const appEl = () => document.getElementById("app");
 const backBtn = () => document.getElementById("back-btn");
@@ -90,6 +91,7 @@ function parseRoute() {
 
 async function route() {
     const r = parseRoute();
+    if (r.name !== "lib") stopLiveSync();
     // 未ペアリングなら（pair 画面以外は）ペアリングへ誘導。
     if (!hasDeviceToken() && r.name !== "pair") {
         location.hash = "#/pair";

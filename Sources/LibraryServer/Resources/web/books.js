@@ -3,6 +3,7 @@
 // 状態は URL（#/lib/<uuid>?page=&q=&sort=）に反映し、表示モード/per/sort は localStorage に記憶する。
 
 import { api, apiJSON, deviceToken, libToken, browseParam, fetchFacet } from "./api.js";
+import { startLiveSync } from "./livesync.js";
 
 // ---- localStorage キー（端末ごとの表示設定） --------------------------------
 const VIEW_KEY = "stacknest.books.view";   // "list" | "grid" | "column"
@@ -253,6 +254,12 @@ export async function renderBooks(uuid, query, deps) {
         }
         throw e;
     }
+    // G8b: ライブ同期。現在ライブラリの変更を ~250ms デバウンスで現在ビュー全体に反映する。
+    // onAuthLost はリロードを試み、既存 api() の 401→clearDeviceToken＋#/pair 導線に流す。
+    startLiveSync(uuid, {
+        onReload: () => deps.route(),
+        onAuthLost: () => deps.route(),
+    });
     const items = Array.isArray(data.items) ? data.items : [];
     const total = data.total ?? 0;
     const perPage = data.perPage ?? per;
