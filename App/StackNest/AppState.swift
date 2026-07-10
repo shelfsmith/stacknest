@@ -27,6 +27,9 @@ final class AppState {
     var importSummary: ImportSummary?
     var error: AppError?
     let viewerSettings: ViewerSettings = .shared
+    /// G10: 詳細ペインの表紙表示トグル（per-browser・このウィンドウ専用・既定 true）。
+    /// ツールバーボタンで切り替え、DetailPaneView(showCover:) に注入する。
+    var showDetailCover: Bool = true
 
     /// 監視フォルダ自動取込の要約（バナー表示用・一定時間で自動クリア）。
     var watchImportSummary: String?

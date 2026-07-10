@@ -23,6 +23,8 @@ struct DetailPaneView: View {
     /// Defaults to nil — local callers omit this and stay on the `loader` path.
     let coverImage: ((Int) async -> NSImage?)?
     let canEdit: Bool                       // local = true
+    /// G10: 詳細ペインの表紙表示トグル。per-browser（呼び出し側が自身の状態を注入）・既定 true。
+    let showCover: Bool
     /// 「Finder で表示」ボタンの表示可否。リモートはローカルにファイルが無いため false。
     var canShowFinder: Bool = true
     /// リモートのファイル拡張子（"zip"/""=フォルダ/nil=不明）。path が秘匿のリモートで
@@ -68,6 +70,7 @@ struct DetailPaneView: View {
         bundleURL: URL,
         loader: ThumbnailLoader?,
         canEdit: Bool,
+        showCover: Bool = true,
         canShowFinder: Bool = true,
         remoteFileExtension: String? = nil,
         ratingEditable: Bool? = nil,
@@ -94,6 +97,7 @@ struct DetailPaneView: View {
         self.bundleURL = bundleURL
         self.loader = loader
         self.canEdit = canEdit
+        self.showCover = showCover
         self.canShowFinder = canShowFinder
         self.remoteFileExtension = remoteFileExtension
         self.ratingEditable = ratingEditable
@@ -571,9 +575,9 @@ struct DetailPaneView: View {
         // 単一選択かどうかを判定 (複数選択時は context menu 全項目 disabled)
         let isSingleSelection = books.count == 1
         VStack(alignment: .center, spacing: 8) {
-            // G10: 詳細ペインの表紙表示は ViewerSettings.showDetailCover でトグル可能（app-global・既定 true）。
+            // G10: 詳細ペインの表紙表示は per-browser の showCover でトグル可能（各ブラウザのツールバーボタン・既定 true）。
             // OFF のときは CoverImageView とその編集導線（contextMenu / sheet 群）をまとめて非表示にする。
-            if ViewerSettings.shared.showDetailCover {
+            if showCover {
                 CoverImageView(book: book, loader: loader, coverImage: coverImage, coverVersion: coverVersion)
                     .frame(maxWidth: 240, maxHeight: 340)
                     .contextMenu {

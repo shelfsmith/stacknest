@@ -29,7 +29,6 @@ public final class ViewerSettings {
     private let tabSkipPageCountKey = "viewerTabSkipPageCount"
     private let spreadByDefaultKey = "viewerSpreadByDefault"
     private let openFullScreenByDefaultKey = "viewerOpenFullScreenByDefault"
-    private let showDetailCoverKey = "show_detail_cover"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -95,11 +94,6 @@ public final class ViewerSettings {
     /// UserDefaults key "viewerOpenFullScreenByDefault"、初期値 false。
     public var openFullScreenByDefault: Bool {
         didSet { defaults.set(openFullScreenByDefault, forKey: openFullScreenByDefaultKey) }
-    }
-
-    /// G10: 詳細ペインに表紙サムネを表示するか（既定 true）。OFF で詳細ペインの表紙を隠す。
-    public var showDetailCover: Bool {
-        didSet { defaults.set(showDetailCover, forKey: showDetailCoverKey) }
     }
 
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
@@ -182,12 +176,6 @@ public final class ViewerSettings {
             self.openFullScreenByDefault = false
         } else {
             self.openFullScreenByDefault = defaults.bool(forKey: openFullScreenByDefaultKey)
-        }
-        // G10: showDetailCover は key 不在で true（詳細ペインの表紙をデフォルト表示）。
-        if defaults.object(forKey: showDetailCoverKey) == nil {
-            self.showDetailCover = true
-        } else {
-            self.showDetailCover = defaults.bool(forKey: showDetailCoverKey)
         }
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve

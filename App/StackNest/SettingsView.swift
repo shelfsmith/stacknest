@@ -209,11 +209,6 @@ struct SettingsView: View {
                     BuiltInViewerSettingsForm(settings: settings)
                 }
 
-                Section("詳細ペイン") {
-                    // G10: 詳細ペインの表紙サムネ表示を app-global にトグル（既定 ON）。
-                    Toggle("詳細ペインに表紙を表示", isOn: $settings.showDetailCover)
-                }
-
                 Section("外部ビューワ") {
                     viewerSettingsRow(
                         label: "デフォルト",

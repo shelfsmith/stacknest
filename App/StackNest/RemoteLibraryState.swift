@@ -40,6 +40,10 @@ final class RemoteLibraryState {
     /// 表紙のちらつきを避けて専用カウンタとする。
     var coverVersion = 0
 
+    /// G10: 詳細ペインの表紙表示トグル（per-browser・このウィンドウ専用・既定 true）。
+    /// ツールバーボタンで切り替え、DetailPaneView(showCover:) に注入する。
+    var showDetailCover = true
+
     /// Phase 4.2b-1b-1 Task 3: 表示モード + per のグローバル設定（UserDefaults 永続）。
     private let prefs = RemoteBrowsePreferences()
 

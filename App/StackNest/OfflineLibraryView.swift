@@ -17,6 +17,8 @@ struct OfflineLibraryView: View {
     @State private var multiSelection: Set<String> = []
     /// 内蔵ビューワを 1 ウィンドウだけ保持する（RemoteLibraryState.viewerController と同方針）。
     @State private var viewer: ViewerWindowController? = nil
+    /// G10: 詳細ペインの表紙表示トグル（per-browser・このウィンドウ専用・既定 true）。
+    @State private var showDetailCover = true
     /// Bug 3b: List に focus を当て、Return キーで選択中の本を開けるようにする
     /// （.searchable が focus を保持していると onKeyPress(.return) が発火しない）。
     @FocusState private var listFocused: Bool
@@ -48,6 +50,13 @@ struct OfflineLibraryView: View {
                     }
                     .disabled(multiSelection.isEmpty)
                     .help("選択した本のオフライン保存を削除")
+                }
+                // G10: 詳細ペインの表紙表示を per-browser でトグル（このウィンドウのみ・既定 ON）。
+                ToolbarItem {
+                    Button { showDetailCover.toggle() } label: {
+                        Label("詳細ペインの表紙", systemImage: showDetailCover ? "photo.fill" : "photo")
+                    }
+                    .help("詳細ペインの表紙表示を切り替え")
                 }
             }
         }
@@ -228,6 +237,7 @@ struct OfflineLibraryView: View {
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
             canEdit: false,
+            showCover: showDetailCover,
             onApplyPatch: { _, _ in }, onApplyPatchMulti: { _, _ in },
             onSetCover: { _, _ in }, onClearCrop: { _ in }, onSetCrop: { _, _ in },
             onJump: { _, _ in }, onError: { _ in },

@@ -96,6 +96,13 @@ struct RemoteLibraryView: View {
                         .help("ライブラリ設定")
                     }
                 }
+                // G10: 詳細ペインの表紙表示を per-browser でトグル（このウィンドウのみ・既定 ON）。
+                ToolbarItem(placement: .primaryAction) {
+                    Button { state.showDetailCover.toggle() } label: {
+                        Label("詳細ペインの表紙", systemImage: state.showDetailCover ? "photo.fill" : "photo")
+                    }
+                    .help("詳細ペインの表紙表示を切り替え")
+                }
             }
         }
         .sheet(isPresented: $showRemoteSettings) {
@@ -157,6 +164,7 @@ struct RemoteLibraryView: View {
             bundleURL: URL(fileURLWithPath: "/"),
             loader: nil,
             canEdit: state.canEdit,
+            showCover: state.showDetailCover,
             canShowFinder: false,   // リモートはローカルにファイルが無いため非表示
             remoteFileExtension: state.detail?.fileExtension,
             ratingEditable: true,   // 4.2c-9: レートは R でも編集可（共有評価）

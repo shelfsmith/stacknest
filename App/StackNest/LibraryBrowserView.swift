@@ -159,6 +159,13 @@ struct LibraryBrowserView: View {
                     .help("このライブラリの設定")
                     .disabled(appState.librarySettings == nil)
                 }
+                // G10: 詳細ペインの表紙表示を per-browser でトグル（このウィンドウのみ・既定 ON）。
+                ToolbarItem(placement: .primaryAction) {
+                    Button { appState.showDetailCover.toggle() } label: {
+                        Label("詳細ペインの表紙", systemImage: appState.showDetailCover ? "photo.fill" : "photo")
+                    }
+                    .help("詳細ペインの表紙表示を切り替え")
+                }
             }
             .onAppear { startModifierMonitor() }
             .onDisappear { stopModifierMonitor() }

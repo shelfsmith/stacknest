@@ -532,6 +532,7 @@ struct LibraryWindowContainer: View {
                     bundleURL: appState.bundleURL,
                     loader: appState.thumbnailLoader,
                     canEdit: true,
+                    showCover: appState.showDetailCover,
                     onApplyPatch: { id, p in appState.applyPatch(bookID: id, patch: p, undoManager: appState.undoManager) },
                     onApplyPatchMulti: { ids, p in
                         do { _ = try appState.applyPatch(bookIDs: ids, patch: p, undoManager: appState.undoManager) }
