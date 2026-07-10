@@ -42,8 +42,18 @@ export function startLiveSync(uuid, h) {
     };
     es.onerror = () => {
         // CONNECTING = ブラウザが自動再接続中（transient）→ 放置。
-        // CLOSED = 非2xx 等で恒久 fail（grant 失効/サーバ喪失）→ auth-lost 経路へ。
-        if (es && es.readyState === EventSource.CLOSED) handlers.onAuthLost();
+        // CLOSED = 非2xx 等で恒久 fail（grant 失効／サーバ喪失／サーバ再起動）→ 復旧経路へ。
+        // ★先に stopLiveSync() で stale な es を破棄してから onAuthLost() を呼ぶ。こうすると:
+        //   ・真の認証失効: onAuthLost→route()→再取得 401→api() が #/pair へ（従来どおり）。
+        //   ・非認証の恒久 fail（例: サーバ再起動中に再接続が非2xx）: route()→再取得 200→
+        //     startLiveSync が es=null を見て新規接続を張り直す。破棄せず onAuthLost を
+        //     呼ぶと、stale es が残り idempotent guard（同一 uuid で return）に阻まれ再購読が
+        //     スキップされ「ライブ同期が無音で死ぬ」ため、必ず先に破棄する。
+        if (es && es.readyState === EventSource.CLOSED) {
+            const cb = handlers.onAuthLost;
+            stopLiveSync();
+            cb();
+        }
     };
 }
 
