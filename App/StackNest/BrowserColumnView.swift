@@ -116,8 +116,11 @@ struct BrowserColumnView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             // G11: 矢印キー（moveSelection）/クリックで選択が変わったら、その行が見えるよう追従。
+            // anchor は nil（最小スクロール）＝選択が可視領域内なら動かさず、上端/下端を越えて
+            // 初めて必要分だけスクロールする（macOS 標準リストの端追従挙動）。.center だと毎移動で
+            // 再センタリングして「端に達する前にスクロール」してしまい、リモートでも再描画のたびに暴れた。
             .onChange(of: browserPaneState.selections[columnIndex]) { _, newSel in
-                proxy.scrollTo(newSel ?? "__all__", anchor: .center)
+                proxy.scrollTo(newSel ?? "__all__")
             }
         }
     }
