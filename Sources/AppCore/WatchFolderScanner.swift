@@ -26,6 +26,27 @@ public enum WatchFolderScanner {
         }
     }
 
+    /// 監視フォルダから取込候補の URL を列挙する（I/O）。
+    /// - recurse=false: 直下のみ（従来。ディレクトリを含む＝下流 BookImporter がスキップ）。
+    /// - recurse=true: サブフォルダを再帰走査し、ディレクトリを除いたファイル URL のみを返す。
+    public static func enumerateCandidates(folder: URL, recurse: Bool) -> [URL] {
+        let fm = FileManager.default
+        let keys: [URLResourceKey] = [.fileSizeKey, .isDirectoryKey]
+        if recurse {
+            guard let en = fm.enumerator(at: folder, includingPropertiesForKeys: keys,
+                                         options: [.skipsHiddenFiles]) else { return [] }
+            var out: [URL] = []
+            for case let u as URL in en {
+                let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if !isDir { out.append(u) }
+            }
+            return out
+        } else {
+            return (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
+                                                options: [.skipsHiddenFiles])) ?? []
+        }
+    }
+
     /// ファイルサイズの前回観測値と今回観測値を比較し、安定（サイズ不変）かどうかを判定する。
     /// - 2 回連続で同一サイズならそのパスを安定とみなす（ダウンロード完了と判断）。
     /// - Returns: `stable`（確定 path の昇順配列）と `pending`（次回比較用のサイズマップ）

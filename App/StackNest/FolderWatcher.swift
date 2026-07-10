@@ -80,10 +80,8 @@ final class FolderWatcher {
             var candidatesByPath: [String: (URL, WatchedFolder)] = [:]
             for folder in settings.watchedFolders where folder.enabled {
                 let dir = URL(fileURLWithPath: folder.path)
-                let top = (try? FileManager.default.contentsOfDirectory(
-                    at: dir,
-                    includingPropertiesForKeys: [.fileSizeKey, .isDirectoryKey],
-                    options: [.skipsHiddenFiles])) ?? []
+                let top = WatchFolderScanner.enumerateCandidates(
+                    folder: dir, recurse: folder.subfolderMode == .recurse)
                 let importable = WatchFolderScanner.importable(
                     topLevel: top,
                     existingLibraryPaths: existing,
