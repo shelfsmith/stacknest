@@ -402,10 +402,10 @@ public struct RemoteLibraryClient: Sendable {
                     } else {
                         continuation.finish(throwing: RemoteClientError.badResponse); return
                     }
-                    var parser = SSEParser()
-                    for try await line in bytes.lines {
-                        for ev in parser.consume(line + "\n") { continuation.yield(ev) }
-                    }
+                    // NOTE: URLSession.AsyncBytes.lines は**空行を落とす**が、SSE は空行（"\n\n"）を
+                    // フレーム区切りとして使い、SSEParser はそれを見て初めて LiveEvent を emit する。
+                    // よって .lines は使わず、生バイトを行末込みで SSEParser へ流す（下記ヘルパ）。
+                    try await SSEParser.forEachEvent(inRawBytes: bytes) { continuation.yield($0) }
                     continuation.finish()                    // サーバ正常クローズ（throw なし）
                 } catch is CancellationError {
                     continuation.finish()                    // キャンセルは静かに finish

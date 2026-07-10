@@ -34,3 +34,25 @@ public struct SSEParser {
         return events
     }
 }
+
+extension SSEParser {
+    /// 生 SSE バイト列を復号し、確定した LiveEvent ごとに `body` を呼ぶ。
+    ///
+    /// **重要**: `URLSession.AsyncBytes.lines` は空行を落とすが、SSE は空行（"\n\n"）を
+    /// フレーム区切りに使い、`SSEParser` はそれを見て初めて event を emit する。よって
+    /// `.lines` は使えず、本メソッドが生バイトを「行末 '\n' 込み」で `consume` に流して
+    /// 空行区切りを保持する（0x0A は UTF-8 継続バイトに現れないので行境界として安全）。
+    static func forEachEvent<Bytes: AsyncSequence>(
+        inRawBytes bytes: Bytes, _ body: (LiveEvent) -> Void
+    ) async throws where Bytes.Element == UInt8 {
+        var parser = SSEParser()
+        var lineBuf = [UInt8]()
+        for try await byte in bytes {
+            lineBuf.append(byte)
+            if byte == 0x0A {
+                for ev in parser.consume(String(decoding: lineBuf, as: UTF8.self)) { body(ev) }
+                lineBuf.removeAll(keepingCapacity: true)
+            }
+        }
+    }
+}
