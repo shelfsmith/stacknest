@@ -571,68 +571,72 @@ struct DetailPaneView: View {
         // 単一選択かどうかを判定 (複数選択時は context menu 全項目 disabled)
         let isSingleSelection = books.count == 1
         VStack(alignment: .center, spacing: 8) {
-            CoverImageView(book: book, loader: loader, coverImage: coverImage, coverVersion: coverVersion)
-                .frame(maxWidth: 240, maxHeight: 340)
-                .contextMenu {
-                    Button("表紙を編集") {
-                        showCoverPicker = true
-                    }
-                    .disabled(!isSingleSelection || !canEdit)
-                    if onSetExternalCover != nil {
-                        Button("外部画像を表紙に設定…") {
-                            presentExternalImagePanel()
+            // G10: 詳細ペインの表紙表示は ViewerSettings.showDetailCover でトグル可能（app-global・既定 true）。
+            // OFF のときは CoverImageView とその編集導線（contextMenu / sheet 群）をまとめて非表示にする。
+            if ViewerSettings.shared.showDetailCover {
+                CoverImageView(book: book, loader: loader, coverImage: coverImage, coverVersion: coverVersion)
+                    .frame(maxWidth: 240, maxHeight: 340)
+                    .contextMenu {
+                        Button("表紙を編集") {
+                            showCoverPicker = true
                         }
                         .disabled(!isSingleSelection || !canEdit)
-                    }
-                    Button("自動に戻す") {
-                        Task {
-                            // Phase 2.5g+h+i fixup v1: 表紙データを自動に戻すと同時に crop_rect も NULL に。
-                            // cover write の成否に関わらず crop_rect は必ずクリアする（元の挙動）。
-                            // CoverPickerSheet 経由とは異なり、こちらは try? で cover write を swallow し
-                            // 常に onClearCrop まで到達する。
-                            try? await onSetCover(nil, book.id)
-                            onClearCrop(book.id)
-                        }
-                    }
-                    // 既に自動 (coverImageName == nil) かつ crop_rect も nil の場合は完全に no-op のため disabled
-                    .disabled(!isSingleSelection || !canEdit || (book.coverImageName == nil && book.coverCropRect == nil))
-                }
-                .sheet(isPresented: $showCoverPicker) {
-                    // 選択確定の共通処理（cover write→crop write の atomicity はローカル/リモート共通）。
-                    let onPicked: (String, CGRect?) -> Void = { entry, cropRect in
-                        Task {
-                            do {
-                                try await onSetCover(entry, book.id)
-                            } catch {
-                                return
+                        if onSetExternalCover != nil {
+                            Button("外部画像を表紙に設定…") {
+                                presentExternalImagePanel()
                             }
-                            if let cropRect {
-                                onSetCrop(book.id, BookRow.encodeCoverCropRect(cropRect))
-                            } else {
+                            .disabled(!isSingleSelection || !canEdit)
+                        }
+                        Button("自動に戻す") {
+                            Task {
+                                // Phase 2.5g+h+i fixup v1: 表紙データを自動に戻すと同時に crop_rect も NULL に。
+                                // cover write の成否に関わらず crop_rect は必ずクリアする（元の挙動）。
+                                // CoverPickerSheet 経由とは異なり、こちらは try? で cover write を swallow し
+                                // 常に onClearCrop まで到達する。
+                                try? await onSetCover(nil, book.id)
                                 onClearCrop(book.id)
                             }
                         }
+                        // 既に自動 (coverImageName == nil) かつ crop_rect も nil の場合は完全に no-op のため disabled
+                        .disabled(!isSingleSelection || !canEdit || (book.coverImageName == nil && book.coverCropRect == nil))
                     }
-                    // 4.2c-6b: remote プロバイダが注入されていればリモート用ピッカー、なければ従来ローカル。
-                    if let cand = remoteCoverCandidates, let img = remoteEntryImage {
-                        RemoteCoverPickerSheet(
-                            book: book,
-                            loadCandidates: { await cand(book.id) },
-                            loadEntryImage: { await img(book.id, $0) },
-                            onSelect: onPicked)
-                    } else {
-                        CoverPickerSheet(book: book, bundleURL: bundleURL, onSelect: onPicked)
+                    .sheet(isPresented: $showCoverPicker) {
+                        // 選択確定の共通処理（cover write→crop write の atomicity はローカル/リモート共通）。
+                        let onPicked: (String, CGRect?) -> Void = { entry, cropRect in
+                            Task {
+                                do {
+                                    try await onSetCover(entry, book.id)
+                                } catch {
+                                    return
+                                }
+                                if let cropRect {
+                                    onSetCrop(book.id, BookRow.encodeCoverCropRect(cropRect))
+                                } else {
+                                    onClearCrop(book.id)
+                                }
+                            }
+                        }
+                        // 4.2c-6b: remote プロバイダが注入されていればリモート用ピッカー、なければ従来ローカル。
+                        if let cand = remoteCoverCandidates, let img = remoteEntryImage {
+                            RemoteCoverPickerSheet(
+                                book: book,
+                                loadCandidates: { await cand(book.id) },
+                                loadEntryImage: { await img(book.id, $0) },
+                                onSelect: onPicked)
+                        } else {
+                            CoverPickerSheet(book: book, bundleURL: bundleURL, onSelect: onPicked)
+                        }
                     }
-                }
-                // G4a: 外部画像ファイルの D&D（ローカル・単一選択・編集可のみ）。
-                .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-                    guard onSetExternalCover != nil, canEdit, isSingleSelection else { return false }
-                    return handleExternalImageDrop(providers: providers)
-                }
-                // G4a: 外部画像のクロップ → 表紙設定シート。
-                .sheet(item: $externalCoverDraft) { draft in
-                    externalCropSheet(draft: draft, bookID: book.id)
-                }
+                    // G4a: 外部画像ファイルの D&D（ローカル・単一選択・編集可のみ）。
+                    .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+                        guard onSetExternalCover != nil, canEdit, isSingleSelection else { return false }
+                        return handleExternalImageDrop(providers: providers)
+                    }
+                    // G4a: 外部画像のクロップ → 表紙設定シート。
+                    .sheet(item: $externalCoverDraft) { draft in
+                        externalCropSheet(draft: draft, bookID: book.id)
+                    }
+            }
             HStack(spacing: 6) {
                 UnseenIndicator(state: unseenState, onCommit: onUnseenCommit)
                     .disabled(!(unseenEditable ?? canEdit))   // 4.2c-9: 未読は R でも可
