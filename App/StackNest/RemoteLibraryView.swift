@@ -537,23 +537,27 @@ struct RemoteLibraryView: View {
 
     /// Task 3: グリッドセル右クリックのレート/種類/未読/開く（list の row context menu と同等）。
     /// レート/未読は共有状態のため canEdit ゲート不要。種類のみ canEdit でゲートする。
+    /// G12b-1 whole-branch fix: SwiftUI の .contextMenu は右クリックで選択を更新しないため、
+    /// *ForSelection（既存選択集合頼り）を呼ぶと「右クリックしたセル」ではなく既存選択に適用されてしまう。
+    /// 削除ボタンと同じ解決（multiSelection に含まれていれば選択集合、無ければ右クリックしたセル単体）を使う。
     @ViewBuilder
     private func rateTypeUnreadOpenMenu(_ book: BookListItemDTO) -> some View {
+        let ids: Set<Int> = state.multiSelection.contains(book.id) ? state.multiSelection : [book.id]
         Button("ビューワで開く") { state.openViewer(book: book) }
         Menu("レート") {
-            Button("レートなし") { state.setRatingForSelection(0) }
+            Button("レートなし") { state.setRating(ids: Array(ids), 0) }
             ForEach(1...5, id: \.self) { s in
-                Button(String(repeating: "★", count: s)) { state.setRatingForSelection(s) }
+                Button(String(repeating: "★", count: s)) { state.setRating(ids: Array(ids), s) }
             }
         }
         if state.canEdit {
             Menu("種類") {
                 ForEach(0...5, id: \.self) { t in
-                    Button(settings.bookTypeLabel(t)) { state.setBookTypeForSelection(t) }
+                    Button(settings.bookTypeLabel(t)) { state.setBookType(ids: ids, t) }
                 }
             }
         }
-        Button("未読チェック") { state.toggleUnreadForSelection() }
+        Button("未読チェック") { state.toggleUnread(ids: ids) }
     }
 
     /// 4.2c-4: グリッドセル右クリックの並び替え。state.sortKey/ascending を設定して reload する。

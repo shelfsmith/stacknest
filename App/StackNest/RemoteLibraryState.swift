@@ -685,16 +685,22 @@ final class RemoteLibraryState {
         setRating(ids: ids, stars)
     }
 
-    /// 右クリック「種類」submenu 用。選択集合（multiSelection 優先・無ければ selection）へ bookType 適用。
-    func setBookTypeForSelection(_ type: Int) {
+    /// grid 右クリック等・ids を明示指定して bookType を適用（G12b-1 whole-branch fix）。
+    /// ids.count == 1 なら単体 PATCH、複数なら一括編集（進捗/中断付き）。
+    func setBookType(ids: Set<Int>, _ type: Int) {
         guard canEdit else { return }
-        let ids: [Int] = multiSelection.isEmpty ? (selection.map { [$0] } ?? []) : Array(multiSelection)
         guard !ids.isEmpty else { return }
         if ids.count == 1, let only = ids.first {
             Task { await applyRemotePatch(bookID: only, patch: BookPatch(bookType: type)) }
         } else {
-            startBatchEdit(ids: Set(ids), patch: BookPatch(bookType: type))
+            startBatchEdit(ids: ids, patch: BookPatch(bookType: type))
         }
+    }
+
+    /// 右クリック「種類」submenu 用。選択集合（multiSelection 優先・無ければ selection）へ bookType 適用。
+    func setBookTypeForSelection(_ type: Int) {
+        let ids: Set<Int> = multiSelection.isEmpty ? Set(selection.map { [$0] } ?? []) : multiSelection
+        setBookType(ids: ids, type)
     }
 
     /// 指定本の未読(unseen)を更新（R 可・共有閲覧状態）。失敗は errorText に出す。
@@ -715,13 +721,18 @@ final class RemoteLibraryState {
         }
     }
 
-    /// メニュー(⌘T)用。選択集合の先頭本の unseen を反転して全選択へ適用（ローカル同等）。
-    func toggleUnreadForSelection() {
-        let ids: [Int] = multiSelection.isEmpty ? (selection.map { [$0] } ?? []) : Array(multiSelection)
+    /// grid 右クリック等・ids を明示指定して先頭本の unseen を反転して ids 全体へ適用（G12b-1 whole-branch fix）。
+    func toggleUnread(ids: Set<Int>) {
         guard !ids.isEmpty else { return }
         let first = books.first(where: { ids.contains($0.id) })
         let newValue = first.map { !$0.unseen } ?? true
-        setUnseen(ids: ids, newValue)
+        setUnseen(ids: Array(ids), newValue)
+    }
+
+    /// メニュー(⌘T)用。選択集合の先頭本の unseen を反転して全選択へ適用（ローカル同等）。
+    func toggleUnreadForSelection() {
+        let ids: Set<Int> = multiSelection.isEmpty ? Set(selection.map { [$0] } ?? []) : multiSelection
+        toggleUnread(ids: ids)
     }
 
     // MARK: - 4.2c-8: ラベル同期
