@@ -648,6 +648,98 @@ final class RemoteLibraryState {
         showEditSummary(parts.joined(separator: " / "), kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
     }
 
+    // MARK: - G12b-2: 設定 / シェルフ / 重複
+
+    /// お気に入りシェルフの ID（kind=="favorites"）。shelves 未取得時は nil（呼び出し側は
+    /// 必要に応じて loadShelves() 済みであることを前提とする）。
+    var favoritesShelfID: Int64? { shelves.first { $0.kind == "favorites" }?.id }
+
+    /// 取り込み設定を取得（RW 不要・閲覧のみでも表示可）。失敗時は errorText を立て nil。
+    func loadImportConfig() async -> ImportConfigDTO? {
+        do {
+            return try await client.getImportConfig(libraryUUID: libraryUUID, libraryToken: libraryToken)
+        } catch {
+            errorText = "取り込み設定の取得に失敗しました"
+            return nil
+        }
+    }
+
+    /// 取り込み設定を保存（RW 必須）。
+    func saveImportConfig(_ dto: ImportConfigDTO) async {
+        guard canEdit else { return }
+        do {
+            _ = try await client.putImportConfig(dto, libraryUUID: libraryUUID, libraryToken: libraryToken)
+        } catch {
+            errorText = "取り込み設定の保存に失敗しました"
+        }
+    }
+
+    /// ライブラリロックを設定（admin 必須）。
+    func setLibraryLock(password: String) async {
+        guard canDelete else { return }   // lock=admin
+        do {
+            try await client.setLock(password: password, libraryUUID: libraryUUID, libraryToken: libraryToken)
+            showEditSummary("ロックを設定しました", kind: .success)
+        } catch {
+            errorText = "ロックの設定に失敗しました"
+        }
+    }
+
+    /// ライブラリロックを解除（admin 必須）。
+    func clearLibraryLock() async {
+        guard canDelete else { return }
+        do {
+            try await client.clearLock(libraryUUID: libraryUUID, libraryToken: libraryToken)
+            showEditSummary("ロックを解除しました", kind: .success)
+        } catch {
+            errorText = "ロックの解除に失敗しました"
+        }
+    }
+
+    /// 選択本を指定シェルフへ追加（RW 必須）。
+    func addSelectionToShelf(_ shelfID: Int64, ids: Set<Int>) async {
+        guard canEdit, !ids.isEmpty else { return }
+        do {
+            try await client.addBooksToShelf(shelfID: shelfID, bookIDs: Array(ids), libraryUUID: libraryUUID, libraryToken: libraryToken)
+            showEditSummary("\(ids.count) 件をシェルフに追加", kind: .success)
+        } catch {
+            errorText = "シェルフへの追加に失敗しました"
+        }
+    }
+
+    /// 選択本を指定シェルフから除外（RW 必須）。現在シェルフ表示中なら一覧から消えるよう reload する。
+    func removeSelectionFromShelf(_ shelfID: Int64, ids: Set<Int>) async {
+        guard canEdit, !ids.isEmpty else { return }
+        do {
+            try await client.removeBooksFromShelf(shelfID: shelfID, bookIDs: Array(ids), libraryUUID: libraryUUID, libraryToken: libraryToken)
+            await reload(clearFirst: false)
+            showEditSummary("\(ids.count) 件をシェルフから除外", kind: .success)
+        } catch {
+            errorText = "シェルフからの除外に失敗しました"
+        }
+    }
+
+    /// お気に入りシェルフへの追加/除外を切り替える（RW 必須）。favoritesShelfID が未解決なら
+    /// errorText を出して何もしない（呼び出し側は事前に loadShelves() 済みであること）。
+    func toggleFavorite(ids: Set<Int>, add: Bool) async {
+        guard canEdit, !ids.isEmpty, let fid = favoritesShelfID else {
+            if favoritesShelfID == nil { errorText = "お気に入りシェルフが見つかりません" }
+            return
+        }
+        if add { await addSelectionToShelf(fid, ids: ids) } else { await removeSelectionFromShelf(fid, ids: ids) }
+    }
+
+    /// 重複スキャンを実行（RW 必須）。失敗時は errorText を立て nil。
+    func scanDuplicatesNow() async -> DuplicateScanReply? {
+        guard canEdit else { return nil }
+        do {
+            return try await client.scanDuplicates(libraryUUID: libraryUUID, libraryToken: libraryToken)
+        } catch {
+            errorText = "重複スキャンに失敗しました"
+            return nil
+        }
+    }
+
     // MARK: - 4.2c-6a: スタンプ（サーバ定義同期＋一括適用）
 
     /// サーバ常駐のスタンプ定義キャッシュ（dbColumn→値配列）。library open 時に GET、編集で PUT。
