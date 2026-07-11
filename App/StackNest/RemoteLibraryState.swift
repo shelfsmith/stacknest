@@ -685,6 +685,18 @@ final class RemoteLibraryState {
         setRating(ids: ids, stars)
     }
 
+    /// 右クリック「種類」submenu 用。選択集合（multiSelection 優先・無ければ selection）へ bookType 適用。
+    func setBookTypeForSelection(_ type: Int) {
+        guard canEdit else { return }
+        let ids: [Int] = multiSelection.isEmpty ? (selection.map { [$0] } ?? []) : Array(multiSelection)
+        guard !ids.isEmpty else { return }
+        if ids.count == 1, let only = ids.first {
+            Task { await applyRemotePatch(bookID: only, patch: BookPatch(bookType: type)) }
+        } else {
+            startBatchEdit(ids: Set(ids), patch: BookPatch(bookType: type))
+        }
+    }
+
     /// 指定本の未読(unseen)を更新（R 可・共有閲覧状態）。失敗は errorText に出す。
     func setUnseen(ids: [Int], _ value: Bool) {
         guard !ids.isEmpty else { return }
