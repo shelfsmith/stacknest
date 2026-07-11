@@ -301,7 +301,10 @@ struct RemoteLibrarySettingsSheet: View {
         state.errorText = nil
         await state.setLibraryLock(password: passwordInput)
         if state.errorText == nil {
-            state.locked = true
+            // IMP-1 (G12b-2 whole-branch review): 現在のリモートセッションは continued 前提。
+            // state.locked を立てると RemoteLibraryView の isUnlockFormShown が真になり、
+            // 設定した瞬間に自分自身が解錠フォームへ落とされてしまう。
+            // ロックはサーバ側に保存済みなので、次回接続時から効く（現セッションは継続）。
             passwordInput = ""
             passwordConfirm = ""
             errorText = nil
@@ -320,6 +323,7 @@ struct RemoteLibrarySettingsSheet: View {
             state.locked = false
             lockToggleOn = false
             errorText = nil
+            dismiss()
         } else {
             errorText = state.errorText
         }
