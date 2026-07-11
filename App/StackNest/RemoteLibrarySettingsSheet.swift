@@ -2,52 +2,110 @@
 import SwiftUI
 import AppCore
 import RemoteClient
+import LibraryServerAPI
 
-/// 4.2c-8 B1(v2): リモートから開く「ライブラリ設定」シート（RW）。ツールバーの歯車から開く。
+/// 4.2c-8 B1(v2): リモートから開く「ライブラリ設定」シート。ツールバーの歯車から開く。
 /// 実体は接続先（ローカル）ライブラリの設定をリモートで変更する UI なので呼称は「ライブラリ設定」。
-/// 現状はラベルカスタマイズのみ（ローカルと同じ LabelEditorView を再利用）。後々サーバ同期可能な
-/// 設定項目が増えたら、ここに GroupBox / タブを追加していく方針。
-/// 保存はサーバへ PUT → 成功で per-window settings の override を更新する。
+///
+/// G12b-2 Task 3: タブ化（ラベル / 取り込み / ロック）。tier に応じてタブを出し分ける:
+/// - ラベル: 全 tier（read でも閲覧・編集は不可＝保存ボタンで弾かれるが UI 自体は出す＝既存挙動）
+/// - 取り込み: canEdit（RW）以上のみ
+/// - ロック: canDelete（admin）以上のみ
+/// 保存はタブごとにサーバへ PUT/POST → 成功で state / settings の override を更新する。
 struct RemoteLibrarySettingsSheet: View {
     let state: RemoteLibraryState
     @Bindable var settings: LibrarySettings
 
     @Environment(\.dismiss) private var dismiss
-    @State private var stagedFieldLabels: [String: String] = [:]
-    @State private var stagedBookTypeLabels: [String: String] = [:]
+
+    /// 現在表示中の設定タブ (0=ラベル / 1=取り込み / 2=ロック)。
+    @State private var settingsTab = 0
     @State private var errorText: String?
     @State private var saving = false
 
+    // MARK: ラベルタブ
+
+    @State private var stagedFieldLabels: [String: String] = [:]
+    @State private var stagedBookTypeLabels: [String: String] = [:]
+
+    // MARK: 取り込みタブ（canEdit 以上）
+
+    @State private var importAutoClassify: Bool?
+    @State private var thickThreshold: Int?
+    @State private var thickThresholdInput: String = ""
+    @State private var importConfigLoaded = false
+
+    // MARK: ロックタブ（canDelete 以上）
+
+    @State private var lockToggleOn = false
+    @State private var passwordInput = ""
+    @State private var passwordConfirm = ""
+    @State private var confirmingDisableLock = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("ライブラリ設定").font(.title2.bold())
-            ScrollView {
-                // 現状はラベルのみ。将来の設定項目はこの VStack に追加する。
-                LabelEditorView(
-                    fieldLabels: $stagedFieldLabels,
-                    bookTypeLabels: $stagedBookTypeLabels,
-                    fieldRows: LibrarySettingsSheet.fieldLabelRows,
-                    bookTypeRows: LibrarySettingsSheet.bookTypeLabelRows)
+        VStack(spacing: 0) {
+            Text("ライブラリ設定")
+                .font(.title2.bold())
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding([.horizontal, .top], 20)
+                .padding(.bottom, 8)
+
+            TabView(selection: $settingsTab) {
+                ScrollView { labelTab().padding(16) }
+                    .tabItem { Label("ラベル", systemImage: "tag") }
+                    .tag(0)
+
+                if state.canEdit {
+                    ScrollView { importTab().padding(16) }
+                        .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
+                        .tag(1)
+                }
+
+                if state.canDelete {
+                    ScrollView { lockTab().padding(16) }
+                        .tabItem { Label("ロック", systemImage: "lock") }
+                        .tag(2)
+                }
             }
+            .padding(.horizontal, 12)
+
             if let errorText {
                 Text(errorText).foregroundStyle(.red).font(.caption)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
             }
+
+            Divider()
             HStack {
                 Spacer()
                 Button("キャンセル") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("保存") { Task { await save() } }
-                    .keyboardShortcut(.defaultAction).disabled(saving)
+                Button("保存") { Task { await saveCurrentTab() } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(saving || (settingsTab == 2 && lockToggleOn && !state.locked
+                        && (passwordInput.isEmpty || passwordInput != passwordConfirm)))
             }
+            .padding(16)
         }
-        .padding(20)
-        .frame(minWidth: 480, minHeight: 420)
+        .frame(width: 520, height: 480)
         .onAppear {
             stagedFieldLabels = settings.remoteFieldLabelOverride ?? [:]
             stagedBookTypeLabels = settings.remoteBookTypeLabelOverride ?? [:]
+            lockToggleOn = state.locked
         }
     }
 
-    private func save() async {
+    // MARK: - ラベルタブ
+
+    @ViewBuilder
+    private func labelTab() -> some View {
+        LabelEditorView(
+            fieldLabels: $stagedFieldLabels,
+            bookTypeLabels: $stagedBookTypeLabels,
+            fieldRows: LibrarySettingsSheet.fieldLabelRows,
+            bookTypeRows: LibrarySettingsSheet.bookTypeLabelRows)
+    }
+
+    private func saveLabels() async {
         saving = true
         defer { saving = false }
         do {
@@ -55,10 +113,226 @@ struct RemoteLibrarySettingsSheet: View {
                 customFieldLabels: stagedFieldLabels, customBookTypeLabels: stagedBookTypeLabels)
             settings.remoteFieldLabelOverride = saved.customFieldLabels
             settings.remoteBookTypeLabelOverride = saved.customBookTypeLabels
+            errorText = nil
             dismiss()
         } catch {
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
             else { errorText = "ラベルの更新に失敗しました" }
+        }
+    }
+
+    // MARK: - 取り込みタブ（canEdit 以上）
+
+    @ViewBuilder
+    private func importTab() -> some View {
+        GroupBox("自動分類") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("「既定に従う」を選ぶと、サーバのグローバル設定を使います。")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                // 本の種類を自動分類（3-way: 既定に従う / 有効 / 無効）
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("本の種類を自動分類")
+                    Picker("", selection: Binding(
+                        get: {
+                            switch importAutoClassify {
+                            case nil: return 0
+                            case .some(true): return 1
+                            case .some(false): return 2
+                            }
+                        },
+                        set: { (sel: Int) in
+                            importAutoClassify = (sel == 0) ? nil : (sel == 1)
+                        }
+                    )) {
+                        Text("既定に従う").tag(0)
+                        Text("このライブラリで有効").tag(1)
+                        Text("このライブラリで無効").tag(2)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+                }
+
+                Divider()
+
+                // 厚い本の閾値（既定に従う / 上書き）
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle("厚い本の閾値を既定に従う", isOn: Binding(
+                        get: { thickThreshold == nil },
+                        set: { inherit in
+                            if inherit {
+                                thickThreshold = nil
+                            } else {
+                                let v = thickThreshold ?? 20
+                                thickThreshold = v
+                                thickThresholdInput = String(v)
+                            }
+                        }
+                    ))
+                    if thickThreshold != nil {
+                        HStack {
+                            Text("厚い本判定閾値（ページ数）")
+                            Spacer()
+                            TextField("", text: $thickThresholdInput)
+                                .multilineTextAlignment(.trailing)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 72)
+                                .onChange(of: thickThresholdInput) { _, newValue in
+                                    let cleaned = String(newValue.filter(\.isNumber).prefix(3))
+                                    if cleaned != newValue { thickThresholdInput = cleaned }
+                                }
+                                .onSubmit { commitThickThresholdInput() }
+                            Stepper("", value: Binding(
+                                get: { thickThreshold ?? 20 },
+                                set: { newValue in
+                                    let clamped = max(5, min(100, newValue))
+                                    thickThreshold = clamped
+                                    thickThresholdInput = String(clamped)
+                                }
+                            ), in: 5...100, step: 1)
+                            .labelsHidden()
+                        }
+                    }
+                }
+            }
+            .padding(8)
+        }
+        .task {
+            guard !importConfigLoaded else { return }
+            importConfigLoaded = true
+            if let dto = await state.loadImportConfig() {
+                importAutoClassify = dto.autoClassifyEnabled
+                thickThreshold = dto.thickBookThreshold
+                if let t = dto.thickBookThreshold { thickThresholdInput = String(t) }
+            }
+        }
+    }
+
+    /// 取り込みタブの閾値 TextField をコミット（ローカル LibrarySettingsSheet の同名処理相当）。
+    private func commitThickThresholdInput() {
+        if let v = Int(thickThresholdInput) {
+            thickThreshold = max(5, min(100, v))
+        }
+        thickThresholdInput = String(thickThreshold ?? 20)
+    }
+
+    private func saveImport() async {
+        saving = true
+        defer { saving = false }
+        state.errorText = nil
+        let dto = ImportConfigDTO(autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold)
+        await state.saveImportConfig(dto)
+        if state.errorText == nil {
+            errorText = nil
+            dismiss()
+        } else {
+            errorText = state.errorText
+        }
+    }
+
+    // MARK: - ロックタブ（canDelete 以上）
+
+    @ViewBuilder
+    private func lockTab() -> some View {
+        GroupBox("ロック設定") {
+            VStack(alignment: .leading, spacing: 8) {
+                Toggle("このライブラリにパスワードロックを設定する", isOn: Binding(
+                    get: { state.locked || lockToggleOn },
+                    set: { newVal in
+                        if state.locked && !newVal {
+                            // ON → OFF 切替: confirm dialog を表示、即クリアしない
+                            confirmingDisableLock = true
+                        } else if !state.locked && newVal {
+                            // OFF → ON 切替: 新規 password 入力フィールド表示
+                            lockToggleOn = true
+                        } else {
+                            lockToggleOn = newVal
+                        }
+                    }
+                ))
+
+                if lockToggleOn && !state.locked {
+                    SecureField("パスワード", text: $passwordInput)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 240)
+                    SecureField("パスワード (確認)", text: $passwordConfirm)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 240)
+
+                    if !passwordInput.isEmpty && passwordInput != passwordConfirm {
+                        Text("確認パスワードが一致しません")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    Text("「保存」でこのライブラリにロックを設定します。")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else if state.locked {
+                    Text("現在ロック中です。解除するにはトグルを OFF にしてください。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(8)
+        }
+        .confirmationDialog(
+            "ロックを解除しますか？",
+            isPresented: $confirmingDisableLock,
+            titleVisibility: .visible
+        ) {
+            Button("解除する", role: .destructive) {
+                Task { await disableLock() }
+            }
+            Button("キャンセル", role: .cancel) {}
+        } message: {
+            Text("このライブラリのパスワードロックを解除します。")
+        }
+    }
+
+    private func saveLock() async {
+        // 既にロック中で toggle が変化していない場合は何もしない（保存対象なし）。
+        guard lockToggleOn, !state.locked else { return }
+        guard !passwordInput.isEmpty, passwordInput == passwordConfirm else {
+            errorText = "パスワードが一致しません"
+            return
+        }
+        saving = true
+        defer { saving = false }
+        state.errorText = nil
+        await state.setLibraryLock(password: passwordInput)
+        if state.errorText == nil {
+            state.locked = true
+            passwordInput = ""
+            passwordConfirm = ""
+            errorText = nil
+            dismiss()
+        } else {
+            errorText = state.errorText
+        }
+    }
+
+    private func disableLock() async {
+        saving = true
+        defer { saving = false }
+        state.errorText = nil
+        await state.clearLibraryLock()
+        if state.errorText == nil {
+            state.locked = false
+            lockToggleOn = false
+            errorText = nil
+        } else {
+            errorText = state.errorText
+        }
+    }
+
+    // MARK: - 保存ディスパッチ
+
+    private func saveCurrentTab() async {
+        switch settingsTab {
+        case 0: await saveLabels()
+        case 1: await saveImport()
+        case 2: await saveLock()
+        default: break
         }
     }
 }
