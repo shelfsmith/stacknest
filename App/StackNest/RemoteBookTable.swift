@@ -462,6 +462,39 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         let unread = NSMenuItem(title: String(localized: "未読チェック"), action: #selector(ctxToggleUnread(_:)), keyEquivalent: "")
         unread.target = self; menu.addItem(unread)
 
+        // G12b-2 Task 4: お気に入り 追加/削除・シェルフに追加（edit 未満では出さない）。
+        // シェルフに追加の対象は grid（RemoteLibraryView.rateTypeUnreadOpenMenu）と同じ判定
+        // （スマートでなく、お気に入りでもない棚）。サーバはスマート棚も kind=="user" で発行するため
+        // kind だけでは区別できず、isSmart を必ず併用する（スマート棚は membership 変更不可＝サーバ 409）。
+        if state.canEdit {
+            if state.favoritesShelfID != nil {
+                let favAdd = NSMenuItem(title: String(localized: "お気に入りに追加"),
+                                        action: #selector(ctxToggleFavorite(_:)), keyEquivalent: "")
+                favAdd.target = self; favAdd.representedObject = true
+                menu.addItem(favAdd)
+                let favRemove = NSMenuItem(title: String(localized: "お気に入りから削除"),
+                                           action: #selector(ctxToggleFavorite(_:)), keyEquivalent: "")
+                favRemove.target = self; favRemove.representedObject = false
+                menu.addItem(favRemove)
+            }
+            let userShelves = state.shelves.filter { !$0.isSmart && $0.kind != "favorites" }
+            if !userShelves.isEmpty {
+                let addShelfItem = NSMenuItem(title: String(localized: "シェルフに追加"), action: nil, keyEquivalent: "")
+                let addShelfSub = NSMenu()
+                for shelf in userShelves {
+                    let it = NSMenuItem(title: shelf.title, action: #selector(ctxAddToShelf(_:)), keyEquivalent: "")
+                    it.target = self; it.representedObject = shelf.id  // Int64
+                    addShelfSub.addItem(it)
+                }
+                addShelfItem.submenu = addShelfSub
+                menu.addItem(addShelfItem)
+            } else if state.shelves.isEmpty {
+                // shelves 未ロード（RemoteLibraryView 側の .task がまだ完了していない等）。
+                // この回では出さず、次回メニュー表示までにロードされるよう kick する。
+                Task { await state.loadShelves() }
+            }
+        }
+
         // Phase C-②.1: 削除（admin のみ）。File メニュー/grid と同じ 2 コマンド。
         if state.canDelete {
             menu.addItem(NSMenuItem.separator())
@@ -535,6 +568,22 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
     }
     @objc private func ctxToggleUnread(_ sender: NSMenuItem) {
         state.toggleUnreadForSelection()
+    }
+    /// 選択集合の解決（multiSelection 優先・無ければ selection）。ctxSetRating 系と同じ方針。
+    private func selectionIDsForMenu() -> Set<Int> {
+        state.multiSelection.isEmpty ? Set(state.selection.map { [$0] } ?? []) : state.multiSelection
+    }
+    /// G12b-2 Task 4: お気に入り 追加(true)/削除(false)。representedObject に Bool。
+    @objc private func ctxToggleFavorite(_ sender: NSMenuItem) {
+        guard let add = sender.representedObject as? Bool else { return }
+        let ids = selectionIDsForMenu()
+        Task { await state.toggleFavorite(ids: ids, add: add) }
+    }
+    /// G12b-2 Task 4: シェルフに追加。representedObject に shelf id (Int64)。
+    @objc private func ctxAddToShelf(_ sender: NSMenuItem) {
+        guard let shelfID = sender.representedObject as? Int64 else { return }
+        let ids = selectionIDsForMenu()
+        Task { await state.addSelectionToShelf(shelfID, ids: ids) }
     }
     /// 「並び替え」submenu 項目のアクション（grid の sortMenu() と同じロジック）。
     @objc private func ctxSetSort(_ sender: NSMenuItem) {

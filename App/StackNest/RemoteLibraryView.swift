@@ -281,6 +281,11 @@ struct RemoteLibraryView: View {
         .task {
             await state.reload()
             await state.loadStampDefinitions()
+            // G12b-2 Task 4: 右クリックの「お気に入り」「シェルフに追加」は state.shelves に依存する。
+            // 従来は RemoteSidebarView の .task でのみロードしており、サイドバー非表示時は空のまま
+            // だった。サイドバー表示に依存せず載るよう、ここでも一度ロードする（RemoteSidebarView 側の
+            // ロードと重複しても loadShelves() は単純な再取得で副作用は無い）。
+            await state.loadShelves()
             // 4.2c-8: サーバのラベルカスタマイズを取得し、この per-window settings の override に反映。
             let labels = await state.fetchLabels()
             settings.remoteFieldLabelOverride = labels.customFieldLabels
@@ -558,6 +563,24 @@ struct RemoteLibraryView: View {
             }
         }
         Button("未読チェック") { state.toggleUnread(ids: ids) }
+        // G12b-2 Task 4: お気に入り 追加/削除・シェルフに追加（edit 未満では出さない）。
+        // シェルフに追加の対象は「スマートでなく、お気に入りでもない」棚（RemoteSidebarView.userShelves
+        // と同じ判定）。kind=="user" だけだとスマート棚も含んでしまう（サーバは kind を常に "user" で
+        // 発行し isSmart で区別するため）。スマート棚は membership 変更不可（サーバ 409）なので必ず除外する。
+        if state.canEdit {
+            if let fid = state.favoritesShelfID {
+                Button("お気に入りに追加") { Task { await state.addSelectionToShelf(fid, ids: ids) } }
+                Button("お気に入りから削除") { Task { await state.removeSelectionFromShelf(fid, ids: ids) } }
+            }
+            let userShelves = state.shelves.filter { !$0.isSmart && $0.kind != "favorites" }
+            if !userShelves.isEmpty {
+                Menu("シェルフに追加") {
+                    ForEach(userShelves, id: \.id) { sh in
+                        Button(sh.title) { Task { await state.addSelectionToShelf(sh.id, ids: ids) } }
+                    }
+                }
+            }
+        }
     }
 
     /// 4.2c-4: グリッドセル右クリックの並び替え。state.sortKey/ascending を設定して reload する。
