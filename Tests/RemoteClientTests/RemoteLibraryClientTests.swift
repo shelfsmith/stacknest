@@ -106,6 +106,59 @@ struct StubBackedRemoteClientTests {
             _ = try await client.fetchBooks(libraryUUID: "u1", query: nil as String?, sort: "title", ascending: true, page: 1, per: 100, libraryToken: nil)
             #expect(StubURLProtocol.lastRequest?.cachePolicy == .useProtocolCachePolicy)
         }
+
+        // MARK: - G12b-2: 取り込み設定 / ロック / シェルフ membership / 重複スキャン
+
+        @Test func getImportConfigDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(ImportConfigDTO(autoClassifyEnabled: true, thickBookThreshold: 40)))
+            let dto = try await makeClient().getImportConfig(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/import-config") == true)
+            #expect(dto.autoClassifyEnabled == true)
+            #expect(dto.thickBookThreshold == 40)
+        }
+        @Test func putImportConfigSendsBody() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(ImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: nil)))
+            _ = try await makeClient().putImportConfig(
+                ImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: nil),
+                libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "PUT")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/import-config") == true)
+        }
+        @Test func setLockPostsPassword() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().setLock(password: "pw", libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/lock") == true)
+        }
+        @Test func clearLockDeletes() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().clearLock(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "DELETE")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/lock") == true)
+        }
+        @Test func addBooksToShelfPosts() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().addBooksToShelf(shelfID: 7, bookIDs: [1, 2], libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/shelves/7/books") == true)
+        }
+        @Test func removeBooksFromShelfDeletes() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().removeBooksFromShelf(shelfID: 7, bookIDs: [1], libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "DELETE")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/shelves/7/books") == true)
+        }
+        @Test func scanDuplicatesDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(DuplicateScanReply(exact: [], possible: [], candidateCount: 3, hashedCount: 3, missingCount: 0)))
+            let reply = try await makeClient().scanDuplicates(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/duplicates/scan") == true)
+            #expect(reply.candidateCount == 3)
+        }
     }
 
     @Suite("RemoteLibraryClient browse")

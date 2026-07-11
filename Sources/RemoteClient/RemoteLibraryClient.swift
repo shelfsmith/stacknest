@@ -374,6 +374,60 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(LabelSettingsDTO.self, data)
     }
 
+    // MARK: - G12b-2: 取り込み設定 / ロック / シェルフ membership / 重複スキャン
+
+    /// GET import-config — per-library 取り込み設定（未設定フィールドは nil=グローバル既定に委譲）。
+    public func getImportConfig(libraryUUID: String, libraryToken: String?) async throws -> ImportConfigDTO {
+        let url = makeURL("libraries/\(libraryUUID)/import-config")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(ImportConfigDTO.self, data)
+    }
+
+    /// PUT import-config — per-library 取り込み設定を保存し、保存後の DTO を返す（RW）。
+    @discardableResult
+    public func putImportConfig(_ dto: ImportConfigDTO, libraryUUID: String, libraryToken: String?) async throws -> ImportConfigDTO {
+        let body = try JSONEncoder().encode(dto)
+        let url = makeURL("libraries/\(libraryUUID)/import-config")
+        let data = try await send(request(url, method: "PUT", libraryToken: libraryToken, body: body, contentType: "application/json"))
+        return try decode(ImportConfigDTO.self, data)
+    }
+
+    /// POST lock — ライブラリにパスワードロックを設定する（RW/admin）。
+    public func setLock(password: String, libraryUUID: String, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(LockRequest(password: password))
+        let url = makeURL("libraries/\(libraryUUID)/lock")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
+    /// DELETE lock — ライブラリのパスワードロックを解除する（RW/admin）。
+    public func clearLock(libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/lock")
+        _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken))
+    }
+
+    /// POST shelves/:id/books — 手動棚へ本を追加する（RW）。
+    public func addBooksToShelf(shelfID: Int64, bookIDs: [Int], libraryUUID: String, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(ShelfBooksRequest(bookIDs: bookIDs))
+        let url = makeURL("libraries/\(libraryUUID)/shelves/\(shelfID)/books")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
+    /// DELETE shelves/:id/books — 手動棚から本を除去する（RW）。サーバは DELETE でも body(JSON) を読む
+    /// ため（`Sources/LibraryServer/LibraryServerCore.swift:377` 付近の `request.decode` 参照）、
+    /// URLRequest に httpBody を積んで送る（`request(...)` は method 不問で body を許容する）。
+    public func removeBooksFromShelf(shelfID: Int64, bookIDs: [Int], libraryUUID: String, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(ShelfBooksRequest(bookIDs: bookIDs))
+        let url = makeURL("libraries/\(libraryUUID)/shelves/\(shelfID)/books")
+        _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
+    /// POST duplicates/scan — 重複候補スキャンを実行し、exact/possible グループ＋統計を返す（RW/admin）。
+    public func scanDuplicates(libraryUUID: String, libraryToken: String?) async throws -> DuplicateScanReply {
+        let url = makeURL("libraries/\(libraryUUID)/duplicates/scan")
+        let data = try await send(request(url, method: "POST", libraryToken: libraryToken))
+        return try decode(DuplicateScanReply.self, data)
+    }
+
     // MARK: - G8a: ライブ同期（SSE）
 
     /// G8a: ライブ同期イベントを購読する（SSE・Design 1）。
