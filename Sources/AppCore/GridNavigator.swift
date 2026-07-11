@@ -59,4 +59,20 @@ public enum GridNavigator {
     public static func lastIndex(total: Int) -> Int? {
         total > 0 ? total - 1 : nil
     }
+
+    /// current から columns*rows 分だけ上/下へ移動した index。[0, total-1] にクランプ。
+    /// total/columns/rows が非正なら nil。
+    public static func pageIndex(current: Int, total: Int, columns: Int, rows: Int, up: Bool) -> Int? {
+        guard total > 0, columns > 0, rows > 0 else { return nil }
+        let delta = columns * rows * (up ? -1 : 1)
+        let raw = current + delta
+        return min(max(raw, 0), total - 1)
+    }
+
+    /// anchor〜target の連続 index（昇順・両端含む）。⇧矢印の範囲選択で使う。
+    public static func rangeIndices(anchor: Int, target: Int) -> [Int] {
+        let lo = min(anchor, target), hi = max(anchor, target)
+        guard lo <= hi else { return [] }
+        return Array(lo...hi)
+    }
 }
