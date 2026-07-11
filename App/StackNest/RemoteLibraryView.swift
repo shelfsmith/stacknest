@@ -18,6 +18,10 @@ struct RemoteLibraryView: View {
     /// D1: グリッドに focus を与えて .onKeyPress(.return) を確実に発火させる。
     @FocusState private var listFocused: Bool
 
+    /// G12b-1 Task 5 Fix: 自 window への参照。メインメニュー由来の削除通知（⌫/⌘⌫）を
+    /// frontmost（key）window のみで処理するための判定に使う（ローカル LibraryBrowserView と同方針）。
+    @State private var hostWindow: NSWindow?
+
     /// 4.2c-4: グリッドの ⌘/Shift クリック複数選択用。NSEvent ローカルモニタで連続追跡する。
     @State private var currentModifiers: NSEvent.ModifierFlags = []
     @State private var modifierMonitor: Any?
@@ -51,6 +55,10 @@ struct RemoteLibraryView: View {
                 splitView
             }
         }
+        // G12b-1 Task 5 Fix: hostWindow を捕捉（メニュー削除通知の frontmost 判定用）。
+        .background(WindowAccessor { window in
+            if self.hostWindow == nil { self.hostWindow = window }
+        })
         // 4.2c-3 (A3): タイトルはツールバー中央(principal)ではなく、ウィンドウタイトル
         // （左・背景なし・プレーン）として表示する（ローカルと同方針）。
         .navigationTitle("StackNest Remote – \(state.libraryName)")
@@ -129,14 +137,21 @@ struct RemoteLibraryView: View {
             state.multiSelection = Set(state.books.map(\.id))
         }
         // Phase C-②.1: File メニュー「ライブラリから削除（⌫）」/「ファイルをゴミ箱に移動（⌘⌫）」を
-        // admin リモートで受信。複数ウィンドウでは focus 中（listFocused）のリモートのみ反応。
+        // admin リモートで受信。
+        // G12b-1 Task 5 Fix: メインメニューの keyboardShortcut がテーブル/グリッドの keyDown より
+        // 先に消費するため、grid/list どちらの表示でもこの通知経路が唯一の到達点になる。よって
+        // listFocused（grid 専用フォーカス）ではなく、ローカル LibraryBrowserView と同じ
+        // hostWindow（frontmost/key window）ガードに揃える。複数リモートウィンドウでは
+        // フロント窓のみが反応する。
         .onReceive(NotificationCenter.default.publisher(for: .stacknestDeleteFromLibraryRequest)) { _ in
-            guard listFocused, state.canDelete else { return }
+            guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
+            guard state.canDelete else { return }
             let ids = !state.multiSelection.isEmpty ? state.multiSelection : (state.selection.map { Set([$0]) } ?? [])
             RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: false)
         }
         .onReceive(NotificationCenter.default.publisher(for: .stacknestMoveToTrashRequest)) { _ in
-            guard listFocused, state.canDelete else { return }
+            guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
+            guard state.canDelete else { return }
             let ids = !state.multiSelection.isEmpty ? state.multiSelection : (state.selection.map { Set([$0]) } ?? [])
             RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: true)
         }

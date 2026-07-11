@@ -7,10 +7,6 @@ import LibraryServerAPI
 /// Return/Enter で選択本を開くための NSTableView サブクラス。
 final class RemoteKeyTableView: NSTableView {
     var onReturnKey: (() -> Void)?
-    /// G12b-1 Task 5: list 表示中は grid の `listFocused`（.focused($listFocused) + .task）経路が
-    /// 機能しないため、削除キー（⌫/⌘⌫）は RemoteLibraryView の onReceive ではなく
-    /// keyDown から直接処理する。trash=true は ⌘⌫（ゴミ箱へ移動）。
-    var onDeleteKey: ((_ trash: Bool) -> Void)?
     /// Home/End/PageUp/PageDown での選択移動（ローカル list 相当）。
     var onNavKey: ((_ kind: NavKind) -> Void)?
     enum NavKind { case home, end, pageUp, pageDown }
@@ -34,8 +30,6 @@ final class RemoteKeyTableView: NSTableView {
         switch event.keyCode {
         case 36, 76:   // Return / テンキー Enter
             onReturnKey?()
-        case 51:       // Delete(⌫)
-            onDeleteKey?(event.modifierFlags.contains(.command))  // ⌘⌫=trash
         case 115: onNavKey?(.home)
         case 119: onNavKey?(.end)
         case 116: onNavKey?(.pageUp)
@@ -67,16 +61,6 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
         context.coordinator.tableView = table
         table.onReturnKey = { [weak coordinator = context.coordinator] in
             coordinator?.handleOpenSelected()
-        }
-        // G12b-1 Task 5: list 表示中は grid の listFocused 経路（RemoteLibraryView の onReceive）が
-        // 発火しないため、削除キー（⌫/⌘⌫）は list 側で直接処理する。
-        table.onDeleteKey = { trash in
-            guard state.canDelete else { return }
-            let ids: Set<Int> = state.multiSelection.isEmpty
-                ? (state.selection.map { Set([$0]) } ?? [])
-                : state.multiSelection
-            guard !ids.isEmpty else { return }
-            RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: trash)
         }
         // Home/End/PageUp/PageDown での選択移動（ローカル list の
         // computeRowsPerPage/selectAndScrollTable 相当・list は columns=1）。
