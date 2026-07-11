@@ -43,6 +43,11 @@ struct RemoteLibraryView: View {
     /// 4.2c-8 B1(v2): リモートライブラリ設定シート（現状ラベルのみ・RW）の表示フラグ。
     @State private var showRemoteSettings = false
 
+    /// G12b-2 Task 5: 重複検出結果（`.sheet(item:)` 提示用の Identifiable ラッパ）。nil = 非表示。
+    @State private var dupScanResult: RemoteDuplicateScanResult?
+    /// G12b-2 Task 5: 重複スキャン実行中フラグ（メニュー連打の多重起動防止 + 簡易 ProgressView 表示用）。
+    @State private var isScanningDuplicates = false
+
     /// 解錠フォーム（未解錠の保護ライブラリ）を表示中か。body の分岐と .toolbar の出し分けで共有する。
     private var isUnlockFormShown: Bool { state.locked && state.libraryToken == nil }
 
@@ -154,6 +159,29 @@ struct RemoteLibraryView: View {
             guard state.canDelete else { return }
             let ids = !state.multiSelection.isEmpty ? state.multiSelection : (state.selection.map { Set([$0]) } ?? [])
             RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: true)
+        }
+        // G12b-2 Task 5: WindowCommands「重複を検出…」（.openDuplicateScan）をローカルと同じ
+        // hostWindow（frontmost/key window）ガードで受信する。edit 未満（read）では起動しない。
+        .onReceive(NotificationCenter.default.publisher(for: .openDuplicateScan)) { _ in
+            guard hostWindow == nil || NSApp.keyWindow === hostWindow else { return }
+            guard state.canEdit, !isScanningDuplicates else { return }
+            isScanningDuplicates = true
+            Task {
+                let reply = await state.scanDuplicatesNow()
+                isScanningDuplicates = false
+                if let reply { dupScanResult = RemoteDuplicateScanResult(reply: reply) }
+            }
+        }
+        .sheet(item: $dupScanResult) { result in
+            RemoteDuplicateScanSheet(reply: result.reply, state: state)
+        }
+        // G12b-2 Task 5: スキャン中の簡易インジケータ（サーバ側ハッシュ算出に時間がかかりうる）。
+        .overlay {
+            if isScanningDuplicates {
+                ProgressView("重複を検索中…")
+                    .padding(16)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            }
         }
     }
 

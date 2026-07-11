@@ -832,12 +832,17 @@ struct WindowCommands: Commands {
             .disabled(target?.librarySettingsForColumns == nil)
         }
 
-        // Phase 2.7: 重複検出シートを開く。key window の LibraryBrowserView が通知を受ける。
+        // Phase 2.7: 重複検出シートを開く。key window の LibraryBrowserView / RemoteLibraryView が通知を受ける。
+        // G12b-2 Task 5: 従来は appState(ローカル専用 FocusedValue) で disabled 判定していたため、
+        // リモートウィンドウがフロントの間は appState が常に nil となりメニューが恒久的に disabled
+        // になっていた（RemoteLibraryView は \.appState を設定しない）。ローカル/リモート共通の
+        // target(browserCommandTarget).canEditMeta（ローカル=true固定・リモート=state.canEdit）に
+        // 揃えて、edit 以上のリモート接続でも起動できるようにする。
         CommandGroup(after: .toolbar) {
             Button("重複を検出…") {
                 NotificationCenter.default.post(name: .openDuplicateScan, object: nil)
             }
-            .disabled(appState == nil)
+            .disabled(!(target?.canEditMeta ?? false))
         }
 
         // Phase 2.5c spec a / 2.5c spec b v14-v15: Undo / Redo を AppState.undoManager にバインド。
