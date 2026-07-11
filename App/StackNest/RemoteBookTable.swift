@@ -7,6 +7,14 @@ import LibraryServerAPI
 /// Return/Enter で選択本を開くための NSTableView サブクラス。
 final class RemoteKeyTableView: NSTableView {
     var onReturnKey: (() -> Void)?
+    /// G12b-1 Task 5: list 表示中は grid の `listFocused`（.focused($listFocused) + .task）経路が
+    /// 機能しないため、削除キー（⌫/⌘⌫）は RemoteLibraryView の onReceive ではなく
+    /// keyDown から直接処理する。trash=true は ⌘⌫（ゴミ箱へ移動）。
+    var onDeleteKey: ((_ trash: Bool) -> Void)?
+    /// Home/End/PageUp/PageDown での選択移動（ローカル list 相当）。
+    var onNavKey: ((_ kind: NavKind) -> Void)?
+    enum NavKind { case home, end, pageUp, pageDown }
+
     /// クリック処理中ガード（ローカル GatedTableView と同方針）。DL 中など updateNSView が高頻度で
     /// 走るとき、クリック追跡中に syncFromState の reloadData/selectRowIndexes が割り込むと
     /// ユーザーの選択が即座に巻き戻る。mouseDown の間はテーブル変更をバッファして click 後に流す。
@@ -23,10 +31,16 @@ final class RemoteKeyTableView: NSTableView {
     }
 
     override func keyDown(with event: NSEvent) {
-        // 36 = Return, 76 = Enter(テンキー)
-        if event.keyCode == 36 || event.keyCode == 76 {
+        switch event.keyCode {
+        case 36, 76:   // Return / テンキー Enter
             onReturnKey?()
-        } else {
+        case 51:       // Delete(⌫)
+            onDeleteKey?(event.modifierFlags.contains(.command))  // ⌘⌫=trash
+        case 115: onNavKey?(.home)
+        case 119: onNavKey?(.end)
+        case 116: onNavKey?(.pageUp)
+        case 121: onNavKey?(.pageDown)
+        default:
             super.keyDown(with: event)
         }
     }
@@ -53,6 +67,41 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
         context.coordinator.tableView = table
         table.onReturnKey = { [weak coordinator = context.coordinator] in
             coordinator?.handleOpenSelected()
+        }
+        // G12b-1 Task 5: list 表示中は grid の listFocused 経路（RemoteLibraryView の onReceive）が
+        // 発火しないため、削除キー（⌫/⌘⌫）は list 側で直接処理する。
+        table.onDeleteKey = { trash in
+            guard state.canDelete else { return }
+            let ids: Set<Int> = state.multiSelection.isEmpty
+                ? (state.selection.map { Set([$0]) } ?? [])
+                : state.multiSelection
+            guard !ids.isEmpty else { return }
+            RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: trash)
+        }
+        // Home/End/PageUp/PageDown での選択移動（ローカル list の
+        // computeRowsPerPage/selectAndScrollTable 相当・list は columns=1）。
+        table.onNavKey = { [weak table] kind in
+            let books = state.books
+            guard !books.isEmpty else { return }
+            let cur = state.selection.flatMap { id in books.firstIndex(where: { $0.id == id }) } ?? 0
+            let rowsPerPage: Int = {
+                guard let table else { return 20 }
+                let viewportHeight = table.enclosingScrollView?.documentVisibleRect.height ?? table.bounds.height
+                let rowHeight = table.rowHeight + table.intercellSpacing.height
+                guard rowHeight > 0, viewportHeight > 0 else { return 20 }
+                return max(1, Int(viewportHeight / rowHeight))
+            }()
+            let t: Int?
+            switch kind {
+            case .home:     t = GridNavigator.firstIndex(total: books.count)
+            case .end:      t = GridNavigator.lastIndex(total: books.count)
+            case .pageUp:   t = GridNavigator.pageIndex(current: cur, total: books.count, columns: 1, rows: rowsPerPage, up: true)
+            case .pageDown: t = GridNavigator.pageIndex(current: cur, total: books.count, columns: 1, rows: rowsPerPage, up: false)
+            }
+            guard let t else { return }
+            // state.selectBook の反映（syncFromState）を待たず、その場でスクロール追従させる。
+            table?.scrollRowToVisible(t)
+            Task { await state.selectBook(books[t].id) }
         }
         context.coordinator.installColumns(in: table)
 
