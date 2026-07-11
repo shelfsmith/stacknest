@@ -568,6 +568,9 @@ struct RemoteLibraryView: View {
     /// O6: グリッド幅を GeometryReader で取得し、列数計算に使う。
     @State private var gridWidth: CGFloat = 0
 
+    /// G12b-1 Task 4: グリッド可視高さ（GeometryReader）。PageUp/PageDown の可視行数近似に使う。
+    @State private var gridHeight: CGFloat = 0
+
     /// 4.2c-4: グリッドのセルサイズは LibrarySettings.gridItemSize（GridSubToolbar スライダー・100...300）
     /// に従う。ローカルグリッドと同様 minimum=maximum を同値にして連続的にサイズ変更を反映する。
     private var gridColumns: [GridItem] {
@@ -578,6 +581,14 @@ struct RemoteLibraryView: View {
     /// O6: 現在の列数（GridColumnCalculator を使用）。itemMinSize は gridItemSize に従う。
     private var currentColumnCount: Int {
         GridColumnCalculator.columns(viewportWidth: gridWidth, itemMinSize: settings.gridItemSize, spacing: gridSpacing)
+    }
+
+    /// G12b-1 Task 4: PageUp/PageDown の 1 ページ相当の行数。可視高さ / セル高さで近似。
+    /// gridHeight が未計測（0）等の病的値では 4 行にフォールバックする。
+    private var currentPageRows: Int {
+        let cellExtent = settings.gridItemSize + gridSpacing
+        guard gridHeight > 0, cellExtent > 0 else { return 4 }
+        return max(1, Int(gridHeight / cellExtent))
     }
 
     private var gridView: some View {
@@ -640,15 +651,20 @@ struct RemoteLibraryView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
             }
-            .onAppear { gridWidth = geo.size.width }
+            .onAppear { gridWidth = geo.size.width; gridHeight = geo.size.height }
             .onChange(of: geo.size.width) { _, w in gridWidth = w }
+            .onChange(of: geo.size.height) { _, h in gridHeight = h }
             // D1: グリッドでも Return で選択中の本を開く。
             .focusable()
             // 自由記載#1: フォーカスリングでグリッド全体が選択状態に見えるのを抑止（ローカル相当）。
             .focusEffectDisabled()
             .focused($listFocused)
             .onKeyPress(.return) { openSelected() }
+            // G12b-1 Task 4: テンキー Enter（keyCode 76 / character 0x03）でも選択中の本を開く。
+            // メインの Return（0x0D）とは character が異なるため別 KeyEquivalent として登録する。
+            .onKeyPress(keys: [KeyEquivalent("\u{3}")], phases: .down) { _ in openSelected() }
             // O6: 矢印キーでグリッドセルを移動する（4.2c-4: multiSelection を単一に置換しながら移動）。
+            // G12b-1 Task 4: ⌘↑/⌘↓ で先頭/末尾へ、⇧+矢印で anchor 基準の範囲選択を追加。
             .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow], phases: .down) { press in
                 let books = state.books
                 guard !books.isEmpty else { return .ignored }
@@ -656,6 +672,18 @@ struct RemoteLibraryView: View {
                 let total = books.count
                 let cur = anchorBookID.flatMap { id in books.firstIndex(where: { $0.id == id }) }
                     ?? state.multiSelection.first.flatMap { id in books.firstIndex(where: { $0.id == id }) }
+
+                // ⌘↑/⌘↓: 先頭/末尾へジャンプ（単一選択に置換）。
+                if press.modifiers.contains(.command), press.key == .upArrow || press.key == .downArrow {
+                    let t = press.key == .upArrow ? GridNavigator.firstIndex(total: total) : GridNavigator.lastIndex(total: total)
+                    guard let t else { return .handled }
+                    let id = books[t].id
+                    state.multiSelection = [id]
+                    anchorBookID = id
+                    Task { await state.selectBook(id) }
+                    return .handled
+                }
+
                 let direction: GridNavigator.Direction
                 switch press.key {
                 case .upArrow:    direction = .up
@@ -673,7 +701,37 @@ struct RemoteLibraryView: View {
                 } else {
                     targetIdx = 0  // 未選択 + 矢印 → 先頭
                 }
+
+                // ⇧+矢印: anchor 基準の範囲選択（anchor は据え置き）。anchor 未設定時は通常の単一選択にフォールバック。
+                if press.modifiers.contains(.shift),
+                   let a = anchorBookID.flatMap({ id in books.firstIndex(where: { $0.id == id }) }) {
+                    state.multiSelection = Set(GridNavigator.rangeIndices(anchor: a, target: targetIdx).map { books[$0].id })
+                    syncDetailAfterMulti()
+                    return .handled
+                }
+
                 let id = books[targetIdx].id
+                state.multiSelection = [id]
+                anchorBookID = id
+                Task { await state.selectBook(id) }
+                return .handled
+            }
+            // G12b-1 Task 4: Home/End/PageUp/PageDown でジャンプ移動（単一選択に置換）。
+            .onKeyPress(keys: [.home, .end, .pageUp, .pageDown], phases: .down) { press in
+                let books = state.books
+                guard !books.isEmpty else { return .ignored }
+                let cols = max(1, currentColumnCount)
+                let cur = anchorBookID.flatMap { id in books.firstIndex(where: { $0.id == id }) } ?? 0
+                let target: Int?
+                switch press.key {
+                case .home:     target = GridNavigator.firstIndex(total: books.count)
+                case .end:      target = GridNavigator.lastIndex(total: books.count)
+                case .pageUp:   target = GridNavigator.pageIndex(current: cur, total: books.count, columns: cols, rows: currentPageRows, up: true)
+                case .pageDown: target = GridNavigator.pageIndex(current: cur, total: books.count, columns: cols, rows: currentPageRows, up: false)
+                default:        target = nil
+                }
+                guard let t = target else { return .handled }
+                let id = books[t].id
                 state.multiSelection = [id]
                 anchorBookID = id
                 Task { await state.selectBook(id) }
