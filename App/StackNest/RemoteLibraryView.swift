@@ -662,7 +662,7 @@ struct RemoteLibraryView: View {
                                         } label: { Label("ライブラリから削除", systemImage: "trash") }
                                         Button(role: .destructive) {
                                             RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: true)
-                                        } label: { Label("ゴミ箱に移動", systemImage: "trash.slash") }
+                                        } label: { Label("ファイルをゴミ箱に移動…", systemImage: "trash.slash") }
                                     }
                                     Divider()
                                     sortMenu()

@@ -83,6 +83,9 @@ struct RemoteBookTableViewRepresentable: NSViewRepresentable {
             case .pageDown: t = GridNavigator.pageIndex(current: cur, total: books.count, columns: 1, rows: rowsPerPage, up: false)
             }
             guard let t else { return }
+            // C2 fix: syncFromState は multiSelection 優先で行選択を復元するため選択集合も更新する
+            // （selectBook＝state.selection だけだと非空 multiSelection に隠れてハイライトが動かない）。
+            state.multiSelection = [books[t].id]
             // state.selectBook の反映（syncFromState）を待たず、その場でスクロール追従させる。
             table?.scrollRowToVisible(t)
             Task { await state.selectBook(books[t].id) }
@@ -466,7 +469,7 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
                                     action: #selector(ctxDeleteLibrary(_:)), keyEquivalent: "")
             delLib.target = self
             menu.addItem(delLib)
-            let delTrash = NSMenuItem(title: String(localized: "ゴミ箱に移動"),
+            let delTrash = NSMenuItem(title: String(localized: "ファイルをゴミ箱に移動…"),
                                       action: #selector(ctxDeleteTrash(_:)), keyEquivalent: "")
             delTrash.target = self
             menu.addItem(delTrash)
