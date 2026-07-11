@@ -23,6 +23,10 @@ struct RemoteLibraryView: View {
     @State private var modifierMonitor: Any?
     /// Shift クリックの範囲選択アンカー。
     @State private var anchorBookID: Int?
+    /// G12b-1 Task 4 Fix: ⇧+矢印による範囲選択の伸長先（lead）。⇧ シーケンス中は anchor を
+    /// 据え置きつつ lead だけを 1 マスずつ進める（Finder 同様の累積拡張）。非 shift の選択操作
+    /// （anchor が動く操作）が起きたら nil にリセットし、次の ⇧ シーケンス開始時に anchor から再 seed する。
+    @State private var rangeLeadBookID: Int?
 
     /// Task 3: paged per の TextField 入力（数字のみ・commit 時に clamp）。
     @State private var perInput = ""
@@ -450,6 +454,7 @@ struct RemoteLibraryView: View {
     private func replaceSelection(_ book: BookListItemDTO) {
         state.multiSelection = [book.id]
         anchorBookID = book.id
+        rangeLeadBookID = nil  // Fix: anchor が動くので lead をリセット（次回 ⇧ 開始時に再 seed）
         Task { await state.selectBook(book.id) }
     }
 
@@ -460,6 +465,7 @@ struct RemoteLibraryView: View {
         } else {
             state.multiSelection.insert(book.id)
             anchorBookID = book.id
+            rangeLeadBookID = nil  // Fix: anchor が動くので lead をリセット
         }
         syncDetailAfterMulti()
     }
@@ -475,6 +481,8 @@ struct RemoteLibraryView: View {
         }
         let lo = min(a, c), hi = max(a, c)
         state.multiSelection = Set(books[lo...hi].map(\.id))
+        // Fix: 以降 ⇧+矢印で続けて伸ばすとき、クリックした位置から再開できるよう lead を同期する。
+        rangeLeadBookID = book.id
         syncDetailAfterMulti()
     }
 
@@ -489,6 +497,7 @@ struct RemoteLibraryView: View {
     private func clearGridSelection() {
         state.multiSelection = []
         anchorBookID = nil
+        rangeLeadBookID = nil  // Fix: 選択解除で anchor も消えるので lead もリセット
         Task { await state.selectBook(nil) }
     }
 
@@ -680,6 +689,7 @@ struct RemoteLibraryView: View {
                     let id = books[t].id
                     state.multiSelection = [id]
                     anchorBookID = id
+                    rangeLeadBookID = nil  // Fix: anchor が動くので lead をリセット
                     Task { await state.selectBook(id) }
                     return .handled
                 }
@@ -692,6 +702,24 @@ struct RemoteLibraryView: View {
                 case .rightArrow: direction = .right
                 default: return .ignored
                 }
+                // ⇧+矢印: anchor 基準の範囲選択。lead（伸長先）を anchor とは別に @State で追跡し、
+                // ⇧+矢印を押すたびに lead の index から nextIndex で 1 マスずつ伸ばす（anchor は据え置き）。
+                // これにより Finder 同様、⇧+矢印の連打で選択範囲が累積的に拡張される
+                // （Fix: 従来は毎回 anchor を起点に nextIndex していたため、範囲が [anchor, anchor+1] に固定されていた）。
+                // ⇧ シーケンス開始時（lead 未 seed＝直前が非 shift 操作）は anchor の位置から seed する。
+                // anchor 未設定時は通常の単一選択にフォールバック。
+                if press.modifiers.contains(.shift),
+                   let a = anchorBookID.flatMap({ id in books.firstIndex(where: { $0.id == id }) }) {
+                    let leadCur = rangeLeadBookID.flatMap { id in books.firstIndex(where: { $0.id == id }) } ?? a
+                    guard let leadTarget = GridNavigator.nextIndex(current: leadCur, direction: direction, total: total, columns: cols) else {
+                        return .handled  // 端で消費（スクロール等に伝播させない）
+                    }
+                    state.multiSelection = Set(GridNavigator.rangeIndices(anchor: a, target: leadTarget).map { books[$0].id })
+                    rangeLeadBookID = books[leadTarget].id
+                    syncDetailAfterMulti()
+                    return .handled
+                }
+
                 let targetIdx: Int
                 if let cur {
                     guard let next = GridNavigator.nextIndex(current: cur, direction: direction, total: total, columns: cols) else {
@@ -702,17 +730,10 @@ struct RemoteLibraryView: View {
                     targetIdx = 0  // 未選択 + 矢印 → 先頭
                 }
 
-                // ⇧+矢印: anchor 基準の範囲選択（anchor は据え置き）。anchor 未設定時は通常の単一選択にフォールバック。
-                if press.modifiers.contains(.shift),
-                   let a = anchorBookID.flatMap({ id in books.firstIndex(where: { $0.id == id }) }) {
-                    state.multiSelection = Set(GridNavigator.rangeIndices(anchor: a, target: targetIdx).map { books[$0].id })
-                    syncDetailAfterMulti()
-                    return .handled
-                }
-
                 let id = books[targetIdx].id
                 state.multiSelection = [id]
                 anchorBookID = id
+                rangeLeadBookID = nil  // Fix: 非 shift 選択で anchor が動いたので lead をリセット（次回 ⇧ 開始時に再 seed）
                 Task { await state.selectBook(id) }
                 return .handled
             }
@@ -734,6 +755,7 @@ struct RemoteLibraryView: View {
                 let id = books[t].id
                 state.multiSelection = [id]
                 anchorBookID = id
+                rangeLeadBookID = nil  // Fix: anchor が動くので lead をリセット
                 Task { await state.selectBook(id) }
                 return .handled
             }
