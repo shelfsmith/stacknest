@@ -511,6 +511,27 @@ struct RemoteLibraryView: View {
         }
     }
 
+    /// Task 3: グリッドセル右クリックのレート/種類/未読/開く（list の row context menu と同等）。
+    /// レート/未読は共有状態のため canEdit ゲート不要。種類のみ canEdit でゲートする。
+    @ViewBuilder
+    private func rateTypeUnreadOpenMenu(_ book: BookListItemDTO) -> some View {
+        Button("ビューワで開く") { state.openViewer(book: book) }
+        Menu("レート") {
+            Button("レートなし") { state.setRatingForSelection(0) }
+            ForEach(1...5, id: \.self) { s in
+                Button(String(repeating: "★", count: s)) { state.setRatingForSelection(s) }
+            }
+        }
+        if state.canEdit {
+            Menu("種類") {
+                ForEach(0...5, id: \.self) { t in
+                    Button(settings.bookTypeLabel(t)) { state.setBookTypeForSelection(t) }
+                }
+            }
+        }
+        Button("未読チェック") { state.toggleUnreadForSelection() }
+    }
+
     /// 4.2c-4: グリッドセル右クリックの並び替え。state.sortKey/ascending を設定して reload する。
     /// リスト（NSTableView ヘッダ並び替え）とは state.sortKey を共有するため自動的に相互同期する。
     /// smoke v2 要望: リストは列ヘッダで全列を並び替えできるため、グリッドのメニューも
@@ -591,6 +612,8 @@ struct RemoteLibraryView: View {
                                 .onTapGesture { handleGridClick(book) }
                                 .contextMenu {
                                     downloadMenu(book)
+                                    Divider()
+                                    rateTypeUnreadOpenMenu(book)
                                     if state.canDelete {
                                         Divider()
                                         let ids = (state.multiSelection.contains(book.id) && !state.multiSelection.isEmpty)

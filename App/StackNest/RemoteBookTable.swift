@@ -363,7 +363,11 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         }
         menu.removeAllItems()
         menu.autoenablesItems = false
-        guard let table = tableView, table.clickedRow >= 0, table.clickedRow < state.books.count else { return }
+        guard let table = tableView, table.clickedRow >= 0, table.clickedRow < state.books.count else {
+            // 空白（clickedRow < 0）右クリック: grid の空白右クリックと同じ「並び替え」submenu を出す。
+            menu.addItem(buildSortMenuItem())
+            return
+        }
         let book = state.books[table.clickedRow]
         if !table.selectedRowIndexes.contains(table.clickedRow) {
             table.selectRowIndexes([table.clickedRow], byExtendingSelection: false)
@@ -392,6 +396,36 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
             dlItem.isEnabled = !state.isDownloaded(book.id)
             menu.addItem(dlItem)
         }
+        menu.addItem(NSMenuItem.separator())
+
+        // レート submenu（0=レートなし, 1-5=★）。共有状態のため canEdit ゲート不要（ローカル同等）。
+        let rateItem = NSMenuItem(title: String(localized: "レート"), action: nil, keyEquivalent: "")
+        let rateSub = NSMenu()
+        let noRate = NSMenuItem(title: String(localized: "レートなし"), action: #selector(ctxSetRating(_:)), keyEquivalent: "")
+        noRate.target = self; noRate.representedObject = 0; rateSub.addItem(noRate)
+        for s in 1...5 {
+            let it = NSMenuItem(title: String(repeating: "★", count: s), action: #selector(ctxSetRating(_:)), keyEquivalent: "")
+            it.target = self; it.representedObject = s; rateSub.addItem(it)
+        }
+        rateItem.submenu = rateSub
+        menu.addItem(rateItem)
+
+        // 種類 submenu（0...5・カスタムラベル反映）。編集権限（canEdit）でゲート。
+        if state.canEdit {
+            let typeItem = NSMenuItem(title: String(localized: "種類"), action: nil, keyEquivalent: "")
+            let typeSub = NSMenu()
+            for t in 0...5 {
+                let it = NSMenuItem(title: settings.bookTypeLabel(t), action: #selector(ctxSetBookType(_:)), keyEquivalent: "")
+                it.target = self; it.representedObject = t; typeSub.addItem(it)
+            }
+            typeItem.submenu = typeSub
+            menu.addItem(typeItem)
+        }
+
+        // 未読チェック トグル。共有状態のため canEdit ゲート不要。
+        let unread = NSMenuItem(title: String(localized: "未読チェック"), action: #selector(ctxToggleUnread(_:)), keyEquivalent: "")
+        unread.target = self; menu.addItem(unread)
+
         // Phase C-②.1: 削除（admin のみ）。File メニュー/grid と同じ 2 コマンド。
         if state.canDelete {
             menu.addItem(NSMenuItem.separator())
@@ -404,6 +438,30 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
             delTrash.target = self
             menu.addItem(delTrash)
         }
+
+        // 並び替え submenu（grid の sortMenu() と同じロジック・全列・現在の sort に ✓/↑↓）。
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(buildSortMenuItem())
+    }
+
+    /// 「並び替え」submenu を構築する（行右クリック末尾／空白右クリックの両方で使用）。
+    /// grid（RemoteLibraryView.sortMenu()）と同じ state.sortKey/ascending トグルロジックを共有する。
+    private func buildSortMenuItem() -> NSMenuItem {
+        let sortItem = NSMenuItem(title: String(localized: "並び替え"), action: nil, keyEquivalent: "")
+        let sortSub = NSMenu()
+        for col in BookColumn.allCases {
+            let key = col.serverSortKey
+            let it = NSMenuItem(title: settings.label(for: col), action: #selector(ctxSetSort(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = key
+            if state.sortKey == key {
+                it.image = NSImage(systemSymbolName: state.ascending ? "chevron.up" : "chevron.down",
+                                   accessibilityDescription: nil)
+            }
+            sortSub.addItem(it)
+        }
+        sortItem.submenu = sortSub
+        return sortItem
     }
 
     @objc private func ctxOpen(_ sender: NSMenuItem) {
@@ -432,5 +490,25 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
     /// Phase C-②.1: ゴミ箱に移動（ファイル＋DB）。
     @objc private func ctxDeleteTrash(_ sender: NSMenuItem) {
         RemoteDeleteCommand.confirmAndDelete(ids: selectedBookIDs(), state: state, trash: true)
+    }
+    @objc private func ctxSetRating(_ sender: NSMenuItem) {
+        state.setRatingForSelection((sender.representedObject as? Int) ?? 0)
+    }
+    @objc private func ctxSetBookType(_ sender: NSMenuItem) {
+        state.setBookTypeForSelection((sender.representedObject as? Int) ?? 0)
+    }
+    @objc private func ctxToggleUnread(_ sender: NSMenuItem) {
+        state.toggleUnreadForSelection()
+    }
+    /// 「並び替え」submenu 項目のアクション（grid の sortMenu() と同じロジック）。
+    @objc private func ctxSetSort(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String else { return }
+        if state.sortKey == key {
+            state.ascending.toggle()
+        } else {
+            state.sortKey = key
+            state.ascending = true
+        }
+        Task { await state.reload() }
     }
 }
