@@ -33,12 +33,20 @@ struct RemoteSidebarView: View {
 
     var body: some View {
         List(selection: selectionBinding) {
-            Label("ライブラリ", systemImage: "books.vertical.fill")
-                .tag(RemoteLibraryState.RemoteSidebarSelection.library)
+            HStack {
+                Label("ライブラリ", systemImage: "books.vertical.fill")
+                Spacer()
+                Text("\(state.total)").foregroundStyle(.secondary).monospacedDigit()
+            }
+            .tag(RemoteLibraryState.RemoteSidebarSelection.library)
 
             if let fav = favoritesShelf {
-                Label("お気に入り", systemImage: "star.fill")
-                    .tag(RemoteLibraryState.RemoteSidebarSelection.favorites(fav.id))
+                HStack {
+                    Label("お気に入り", systemImage: "star.fill")
+                    Spacer()
+                    Text("\(fav.bookCount)").foregroundStyle(.secondary).monospacedDigit()
+                }
+                .tag(RemoteLibraryState.RemoteSidebarSelection.favorites(fav.id))
             }
 
             Label("最近の項目", systemImage: "clock")
@@ -47,8 +55,12 @@ struct RemoteSidebarView: View {
             if !userShelves.isEmpty {
                 Section("シェルフ") {
                     ForEach(userShelves, id: \.id) { shelf in
-                        Label(shelf.title, systemImage: "books.vertical")
-                            .tag(RemoteLibraryState.RemoteSidebarSelection.shelf(shelf.id))
+                        HStack {
+                            Label(shelf.title, systemImage: "books.vertical")
+                            Spacer()
+                            Text("\(shelf.bookCount)").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                        .tag(RemoteLibraryState.RemoteSidebarSelection.shelf(shelf.id))
                     }
                 }
             }
@@ -56,8 +68,12 @@ struct RemoteSidebarView: View {
             if !smartShelves.isEmpty {
                 Section("スマートシェルフ") {
                     ForEach(smartShelves, id: \.id) { shelf in
-                        Label(shelf.title, systemImage: "gearshape")
-                            .tag(RemoteLibraryState.RemoteSidebarSelection.smartShelf(shelf.id))
+                        HStack {
+                            Label(shelf.title, systemImage: "gearshape")
+                            Spacer()
+                            Text("\(shelf.bookCount)").foregroundStyle(.secondary).monospacedDigit()
+                        }
+                        .tag(RemoteLibraryState.RemoteSidebarSelection.smartShelf(shelf.id))
                     }
                 }
             }
