@@ -635,11 +635,20 @@ body {
   justify-content: center;
   gap: 0;
   max-width: 100%;
-  max-height: 100%;
+  /* コンテナ高を確定させ、子ページの max-height:100% を解決可能にする。
+     旧 max-height:100% だと大きなビューポートで各ページが個別にネイティブ寸法で描画され、
+     同一アスペクトでも解像度違いのページ（例: 1131x1608 と 1351x1920 混在）で
+     低解像度側が小さく表示された（内蔵ビューアの CanvasFitMath.heightNormalized と同趣旨）。 */
+  height: 100%;
 }
 
 .reader-spread .reader-page {
-  max-width: 50%;
+  /* 各ページ幅を 50% 固定 + 高さ auto → 同一アスペクトなら常に等高。
+     通常はレターボックス無し（高さが幅追従）、縦超過時のみ max-height:100% で抑制。
+     object-fit:contain（.reader-page 基底）でアスペクト保存（歪みなし）。 */
+  width: 50%;
+  height: auto;
+  max-height: 100%;
 }
 
 /* ---- タップゾーン（透明操作領域） ---- */
