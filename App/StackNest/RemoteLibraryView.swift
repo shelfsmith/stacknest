@@ -708,12 +708,12 @@ struct RemoteLibraryView: View {
                                         Divider()
                                         let ids = (state.multiSelection.contains(book.id) && !state.multiSelection.isEmpty)
                                             ? state.multiSelection : Set([book.id])
-                                        Button(role: .destructive) {
+                                        Button("ライブラリから削除", role: .destructive) {
                                             RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: false)
-                                        } label: { Label("ライブラリから削除", systemImage: "trash") }
-                                        Button(role: .destructive) {
+                                        }
+                                        Button("ファイルをゴミ箱に移動…", role: .destructive) {
                                             RemoteDeleteCommand.confirmAndDelete(ids: ids, state: state, trash: true)
-                                        } label: { Label("ファイルをゴミ箱に移動…", systemImage: "trash.slash") }
+                                        }
                                     }
                                     Divider()
                                     sortMenu()

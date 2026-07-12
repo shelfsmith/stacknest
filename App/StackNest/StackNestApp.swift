@@ -773,6 +773,14 @@ struct FileCommands: Commands {
             }
             .disabled(!(target?.canManageFiles ?? false))
 
+            // G12b-2 smoke: 「重複を検出…」は表示メニューではなく File メニューの
+            // 「リンク切れを検出…」の下が適切（ユーザー要望）。gate はローカル/リモート共通の
+            // canEditMeta（ローカル=true固定・リモート=state.canEdit）。
+            Button("重複を検出…") {
+                NotificationCenter.default.post(name: .openDuplicateScan, object: nil)
+            }
+            .disabled(!(target?.canEditMeta ?? false))
+
             Divider()
             Button("ライブラリから削除") {
                 NotificationCenter.default.post(name: .stacknestDeleteFromLibraryRequest, object: nil)
@@ -836,14 +844,8 @@ struct WindowCommands: Commands {
         // G12b-2 Task 5: 従来は appState(ローカル専用 FocusedValue) で disabled 判定していたため、
         // リモートウィンドウがフロントの間は appState が常に nil となりメニューが恒久的に disabled
         // になっていた（RemoteLibraryView は \.appState を設定しない）。ローカル/リモート共通の
-        // target(browserCommandTarget).canEditMeta（ローカル=true固定・リモート=state.canEdit）に
-        // 揃えて、edit 以上のリモート接続でも起動できるようにする。
-        CommandGroup(after: .toolbar) {
-            Button("重複を検出…") {
-                NotificationCenter.default.post(name: .openDuplicateScan, object: nil)
-            }
-            .disabled(!(target?.canEditMeta ?? false))
-        }
+        // target(browserCommandTarget).canEditMeta に揃えた。G12b-2 smoke の要望で、メニュー項目は
+        // 表示メニューから File メニュー（リンク切れを検出の下）へ移設済み（上記 .newItem グループ）。
 
         // Phase 2.5c spec a / 2.5c spec b v14-v15: Undo / Redo を AppState.undoManager にバインド。
         //
