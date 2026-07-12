@@ -643,12 +643,12 @@ body {
 }
 
 .reader-spread .reader-page {
-  /* 各ページ幅を 50% 固定 + 高さ auto → 同一アスペクトなら常に等高。
-     通常はレターボックス無し（高さが幅追従）、縦超過時のみ max-height:100% で抑制。
-     object-fit:contain（.reader-page 基底）でアスペクト保存（歪みなし）。 */
-  width: 50%;
-  height: auto;
-  max-height: 100%;
+  /* 高さ 100% で両ページ等高、幅 auto で箱が内容幅に一致（＝2ページが隣接し中央寄せ・
+     中央に隙間が出ない）、max-width:50% で片側上限。object-fit:contain（基底）でアスペクト保存。
+     width を 50% 固定にすると箱が内容より広くなり画像が各半分の中で中央寄せ＝中央に隙間が出るため不可。 */
+  height: 100%;
+  width: auto;
+  max-width: 50%;
 }
 
 /* ---- タップゾーン（透明操作領域） ---- */
