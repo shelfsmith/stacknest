@@ -3,18 +3,23 @@ import Foundation
 
 /// サーバ→クライアントのライブ変更イベント（SSE）。`library` は対象ライブラリ UUID。
 public enum LiveEvent: Equatable, Sendable {
+    case connected        // G13: クライアント側で SSE 接続確立時に合成（サーバは emit しない）
     case bookChanged(library: String, bookID: Int)
     case structureChanged(library: String)
     case settingsChanged(library: String)
 
+    /// G13: `.connected` はクライアント合成イベントで対象ライブラリを持たない。サーバは emit しない
+    /// （EventHub.publish の scope フィルタにも渡らない）ため値は実質未使用だが、switch 網羅のため空文字を返す。
     public var library: String {
         switch self {
+        case .connected: return ""
         case .bookChanged(let l, _), .structureChanged(let l), .settingsChanged(let l): return l
         }
     }
 
     private var eventName: String {
         switch self {
+        case .connected: return "connected"   // G13: サーバは emit しないため sseFrame() は実運用で呼ばれない
         case .bookChanged: return "bookChanged"
         case .structureChanged: return "structureChanged"
         case .settingsChanged: return "settingsChanged"
@@ -23,6 +28,7 @@ public enum LiveEvent: Equatable, Sendable {
 
     private var jsonData: String {
         switch self {
+        case .connected: return "{}"
         case .bookChanged(let l, let id):
             return #"{"library":\#(quote(l)),"bookId":\#(id)}"#
         case .structureChanged(let l), .settingsChanged(let l):

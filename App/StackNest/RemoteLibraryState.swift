@@ -1348,8 +1348,17 @@ final class RemoteLibraryState {
     /// 一括編集（applyPatch(bookIDs:)）は N 件の .bookChanged を連続送出するため、~200ms のデバウンス窓で
     /// 1 回の reload/選択再取得/スタンプ再読込に集約し、大量一括編集時の reload storm（体感カクつき）を防ぐ。
     private func handleLiveEvent(_ event: LiveEvent) {
-        guard event.library == libraryUUID else { return }   // scope で絞られるが念のため
+        // G13: .connected はクライアント合成イベントで対象ライブラリを持たない（library == ""）ため、
+        // 他イベントと違い library スコープ guard の対象外にする（誤って早期 return されると reload が発火しない）。
+        if case .connected = event {
+        } else {
+            guard event.library == libraryUUID else { return }   // scope で絞られるが念のため
+        }
         switch event {
+        case .connected:
+            // G13: SSE 接続（再接続含む）確立時に一覧を再取得。reload 冒頭で errorText=nil、
+            // 成功で赤字が消える（サーバ再起動→復帰後の残留を解消）。取りこぼしも回収。
+            Task { await reload(clearFirst: false) }
         case .bookChanged(_, let bookID):
             // setRating/setUnseen と同一の反映イディオム（単一本 GET は無い・progress 非 publish で低頻度）。
             pendingLiveReload = true
