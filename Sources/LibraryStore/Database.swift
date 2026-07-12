@@ -1338,6 +1338,18 @@ public final class Database: @unchecked Sendable {
         return Self.dedupeMultiValue(rawValues, column: column)
     }
 
+    /// `#<id>` 形式の検索クエリから book id を抽出する。
+    /// AppCore の `SearchQueryParser.bookID(from:)` と同一ロジック。
+    /// LibraryStore は AppCore に依存できない（AppCore→LibraryStore の既存依存と循環するため）ため、
+    /// ここに private static helper として複製している。ロジック変更時は両方を同期すること。
+    private static func bookIDFromSearch(_ query: String) -> Int? {
+        let t = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard t.hasPrefix("#") else { return nil }
+        let rest = t.dropFirst().trimmingCharacters(in: .whitespaces)
+        guard !rest.isEmpty, rest.allSatisfy({ $0.isNumber }) else { return nil }
+        return Int(rest)
+    }
+
     /// Full-text search via FTS5. Empty query returns all books for the scope.
     public func searchBooks(
         query: String,
@@ -1347,6 +1359,11 @@ public final class Database: @unchecked Sendable {
         limit: Int? = nil
     ) throws -> [BookRow] {
         guard let q = queue else { return [] }
+        // G13: 検索欄 `#<id>` は book ID 完全一致(ライブラリ全体・scope/filter 無視)。
+        // ローカル list もサーバ BooksQuery も本関数に委譲するため、ここ1箇所で両方に効く。
+        if let bid = Self.bookIDFromSearch(query) {
+            return (try fetchBook(id: bid)).map { [$0] } ?? []
+        }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCount = trimmed.count
         let (filterSQL, filterArgs) = Self.buildFilterClause(filter)
