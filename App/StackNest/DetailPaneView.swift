@@ -274,6 +274,13 @@ struct DetailPaneView: View {
             // Title
             if !snapshotIsMulti, let book = snapshotBooks.first {
                 titleFieldCaptured(book: book)
+                // G13 F2a: app-global トグル ON 時のみ、単一選択で book ID を表示（複数選択は非表示）。
+                if ViewerSettings.shared.showBookIDInDetail {
+                    Text("ID: \(book.id)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             } else if snapshotIsMulti {
                 titleDisabledRow
             }

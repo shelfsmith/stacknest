@@ -29,6 +29,7 @@ public final class ViewerSettings {
     private let tabSkipPageCountKey = "viewerTabSkipPageCount"
     private let spreadByDefaultKey = "viewerSpreadByDefault"
     private let openFullScreenByDefaultKey = "viewerOpenFullScreenByDefault"
+    private let showBookIDInDetailKey = "showBookIDInDetail"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -94,6 +95,11 @@ public final class ViewerSettings {
     /// UserDefaults key "viewerOpenFullScreenByDefault"、初期値 false。
     public var openFullScreenByDefault: Bool {
         didSet { defaults.set(openFullScreenByDefault, forKey: openFullScreenByDefaultKey) }
+    }
+
+    /// G13 F2a: 詳細ペインに book ID を表示するか（app-global・ローカル/リモート共有・既定 false）。
+    public var showBookIDInDetail: Bool {
+        didSet { defaults.set(showBookIDInDetail, forKey: showBookIDInDetailKey) }
     }
 
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
@@ -177,6 +183,9 @@ public final class ViewerSettings {
         } else {
             self.openFullScreenByDefault = defaults.bool(forKey: openFullScreenByDefaultKey)
         }
+        // G13 F2a: showBookIDInDetail は key 不在で false (defaults.bool(forKey:) の既定と一致するため
+        // first-run 特別扱い不要)。
+        self.showBookIDInDetail = defaults.bool(forKey: showBookIDInDetailKey)
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve
         // partial state when a BookCategory case is later renamed/removed.

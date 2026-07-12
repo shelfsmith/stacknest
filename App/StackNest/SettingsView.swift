@@ -209,6 +209,10 @@ struct SettingsView: View {
                     BuiltInViewerSettingsForm(settings: settings)
                 }
 
+                Section("詳細ペイン") {
+                    Toggle("詳細ペインに book ID を表示", isOn: $settings.showBookIDInDetail)
+                }
+
                 Section("外部ビューワ") {
                     viewerSettingsRow(
                         label: "デフォルト",
