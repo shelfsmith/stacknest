@@ -274,13 +274,7 @@ struct DetailPaneView: View {
             // Title
             if !snapshotIsMulti, let book = snapshotBooks.first {
                 titleFieldCaptured(book: book)
-                // G13 F2a: app-global トグル ON 時のみ、単一選択で book ID を表示（複数選択は非表示）。
-                if ViewerSettings.shared.showBookIDInDetail {
-                    Text("ID: \(book.id)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+                // G13 F2a: book ID は readOnlyMetadata の「ファイル形式」の下に二段表示（編集不可）で出す。
             } else if snapshotIsMulti {
                 titleDisabledRow
             }
@@ -771,6 +765,10 @@ struct DetailPaneView: View {
             dateRow(label: "登録した日", date: book.dateAdded)
             dateRow(label: "最後に読んだ日", date: book.playDate)
             fieldRow(label: "ファイル形式", value: fileFormatLabel(book))
+            // G13 F2a: app-global トグル ON 時のみ book ID を二段表示（編集不可・コピー可・ファイル形式の下）。
+            if ViewerSettings.shared.showBookIDInDetail {
+                fieldRow(label: "ID", value: "\(book.id)")
+            }
         }
     }
 
