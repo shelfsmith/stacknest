@@ -52,7 +52,11 @@ final class ViewerCanvasView: NSView {
     }
 
     /// 各画像のサイズ（描画と幾何計算に使う）。
-    private var imageSizes: [CGSize] { images.map { $0.size } }
+    /// 見開きの facing ページを同じ表示高さに揃えるため、共通高さへ正規化する（アスペクト比は各画像で保存）。
+    /// これが無いと単一 scale がネイティブ px に乗算され、同一アスペクトでも解像度違いのページ
+    /// （例: 1131x1608 と 1351x1920 が同一巻に混在する漫画）で低解像度側が小さく描画される。
+    /// n=1・均一サイズでは素通し（従来と同一）。native 画像は同一アスペクトの矩形へ描くので歪まない。
+    private var imageSizes: [CGSize] { CanvasFitMath.heightNormalized(images.map { $0.size }) }
 
     /// 見開き全体の合計サイズ（scale=1 基準）。クランプ計算に使う。
     /// 横 = Σ幅 + ガター*(n-1)、縦 = 最大高。

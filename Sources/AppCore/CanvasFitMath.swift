@@ -37,6 +37,22 @@ public enum CanvasFitMath {
         return CGRect(x: originX, y: originY, width: scaled.width, height: scaled.height)
     }
 
+    /// 見開き配置前に、各画像を「共通の高さ」へ揃えた論理サイズに正規化する（アスペクト比は各画像で保存）。
+    /// 見開きの facing ページは同じ表示高さで並ぶべきなのに、`spreadFitScale`/`spreadDrawRects` は
+    /// 単一 scale をネイティブ px サイズに乗算するため、同一アスペクト比でも解像度が異なると
+    /// 低解像度側が小さく描画される（実写: 同一巻に 1131x1608 と 1351x1920 が混在する漫画で発生）。
+    /// この関数で全ページを最大高さに正規化してから spread 計算へ渡すと、両ページが同じ表示高さになる。
+    /// native 画像は正規化後サイズと同一アスペクトの矩形へ描画されるため歪まない。空配列・不正サイズは素通し。
+    public static func heightNormalized(_ images: [CGSize]) -> [CGSize] {
+        let maxH = images.reduce(0) { max($0, $1.height) }
+        guard maxH > 0 else { return images }
+        return images.map { img in
+            guard img.width > 0, img.height > 0 else { return img }
+            let s = maxH / img.height
+            return CGSize(width: img.width * s, height: maxH)
+        }
+    }
+
     /// 1〜2 枚を横並び（中央ガター）に配置するときの共通フィット倍率。
     /// 横方向: 全幅 + ガター ≤ viewW、縦方向: 最大高 ≤ viewH を同時に満たす最大の s。
     /// n=1 では fitScale と一致する。空配列・不正サイズは 1。
