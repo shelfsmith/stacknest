@@ -23,6 +23,10 @@ struct ShelfApiEndpointTests {
         try JSONDecoder().decode(ShelfDTO.self, from: Data(buffer: buffer))
     }
 
+    private func decodeShelves(_ buffer: ByteBuffer) throws -> [ShelfDTO] {
+        try JSONDecoder().decode([ShelfDTO].self, from: Data(buffer: buffer))
+    }
+
     private func decodeConditions(_ buffer: ByteBuffer) throws -> SmartShelfConditions {
         try JSONDecoder().decode(SmartShelfConditions.self, from: Data(buffer: buffer))
     }
@@ -302,6 +306,55 @@ struct ShelfApiEndpointTests {
                 headers: [.authorization: "Bearer R"]
             ) { response in
                 #expect(response.status == .conflict)
+            }
+        }
+    }
+
+    // MARK: - ⑥-b G13/F1: listShelves が bookCount を返す
+
+    /// GET /shelves → 手動棚/お気に入り棚は playlist 所属数、スマート棚は条件評価数が
+    /// 各 ShelfDTO.bookCount に一致すること。
+    @Test func listShelvesReturnsBookCounts() async throws {
+        let fixture = try TestLibraryFixture(name: "ShelfCounts", bookCount: 0)
+        defer { fixture.cleanup() }
+
+        // 3冊挿入
+        let id1 = try fixture.db.insertBookReturningID(BookRecord(id: 0, title: "Book1", dateAdded: Date()))
+        let id2 = try fixture.db.insertBookReturningID(BookRecord(id: 0, title: "Book2", dateAdded: Date()))
+        let id3 = try fixture.db.insertBookReturningID(BookRecord(id: 0, title: "Book3", dateAdded: Date()))
+
+        // 手動棚: 2冊所属
+        let shelfID = try fixture.db.createUserShelf(title: "Manual")
+        try fixture.db.appendBooksToShelf(playlistID: shelfID, bookIDs: [id1, id2])
+
+        // お気に入り棚: 1冊所属
+        let favID = try fixture.db.ensureFavoritesShelf()
+        try fixture.db.appendBooksToShelf(playlistID: favID, bookIDs: [id3])
+
+        // スマート棚: rating >= 0 で全冊(3冊)にマッチする条件
+        let cond = SmartShelfConditions(
+            version: 1, match: .all,
+            rules: [SmartShelfRule(id: UUID(), field: .rating, op: .gte, value: .int(0))]
+        )
+        let smartID = try fixture.db.createSmartShelf(title: "Smart", conditions: cond)
+
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/shelves",
+                method: .get,
+                headers: [.authorization: "Bearer R"]
+            ) { response in
+                #expect(response.status == .ok)
+                let shelves = try decodeShelves(response.body)
+                let manual = shelves.first { $0.id == shelfID }
+                let favorites = shelves.first { $0.id == favID }
+                let smart = shelves.first { $0.id == smartID }
+                #expect(manual?.bookCount == 2)
+                #expect(favorites?.bookCount == 1)
+                #expect(smart?.bookCount == 3)
             }
         }
     }

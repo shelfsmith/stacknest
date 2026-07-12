@@ -277,8 +277,14 @@ public struct LibraryServerCore: Sendable {
                 throw HTTPError(.notFound)
             }
             let rows = try lib.db.fetchAllShelves()
+            // G13/F1: リモートサイドバー件数。手動棚/お気に入り=playlist 所属数、スマート棚=条件評価数。
+            // ローカル AppState:549 (smartShelfBookCount) / SidebarView:129 (fetchPlaylistBookCount) と同型。
             return rows.map { row in
-                ShelfDTO(id: row.id, title: row.title, kind: row.kind, isSmart: row.isSmart)
+                let scope: SidebarScope = row.isSmart
+                    ? .smartShelf(playlistID: row.id)
+                    : (row.kind == "favorites" ? .favorites(playlistID: row.id) : .shelf(playlistID: row.id))
+                let count = (try? lib.db.searchBooks(query: "", sidebarScope: scope).count) ?? 0
+                return ShelfDTO(id: row.id, title: row.title, kind: row.kind, isSmart: row.isSmart, bookCount: count)
             }
         }
         // A1: 棚の作成（RW・手動 or スマート）。

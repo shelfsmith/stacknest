@@ -279,8 +279,20 @@ public struct ShelfDTO: Codable, Sendable {
     public let title: String
     public let kind: String
     public let isSmart: Bool
-    public init(id: Int64, title: String, kind: String, isSmart: Bool) {
-        self.id = id; self.title = title; self.kind = kind; self.isSmart = isSmart
+    /// G13/F1: 棚の所属件数（手動棚/お気に入り=playlist 所属数、スマート棚=条件評価数）。
+    /// 未提供の生成箇所（create/patch 応答等）は既定 0。
+    public let bookCount: Int
+    public init(id: Int64, title: String, kind: String, isSmart: Bool, bookCount: Int = 0) {
+        self.id = id; self.title = title; self.kind = kind; self.isSmart = isSmart; self.bookCount = bookCount
+    }
+    // 後方互換: 旧レスポンス（bookCount 欠落）は 0 として decode する。
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int64.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        kind = try c.decode(String.self, forKey: .kind)
+        isSmart = try c.decode(Bool.self, forKey: .isSmart)
+        bookCount = try c.decodeIfPresent(Int.self, forKey: .bookCount) ?? 0
     }
 }
 
