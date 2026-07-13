@@ -992,12 +992,14 @@ public struct LibraryServerCore: Sendable {
                 for await ev in events { cont.yield(ByteBuffer(string: ev.sseFrame())) }
                 cont.finish()
             }
-            // ~20s ハートビート（プロキシ/中間機器によるアイドル切断を防ぐ）。
+            // ~5s ハートビート（プロキシ/中間機器によるアイドル切断を防ぐ）。
+            // G14 reconnect fix: 5s ハートビートでクライアントの有限アイドルタイムアウト(12s)未満に保ち、
+            // 生存中の接続を維持しつつ、死んだ/到達不能サーバは早期にタイムアウト検知される。
             // グラントモードでは同時に grant の現存/scope を再検証し、失効・scope 変更を検知したら
             // ストリームを終了する（client は再接続時に BearerAuthMiddleware で 401 を受け取り停止する）。
             let heartbeat = Task {
                 while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(20))
+                    try? await Task.sleep(for: .seconds(5))
                     if let grantsProvider, let presentedToken {
                         if !liveConnectionStillAuthorized(presentedToken: presentedToken,
                                                           subscribedScope: subscribedScope,

@@ -351,4 +351,27 @@ struct StubBackedRemoteClientTests {
             #expect(url?.query?.contains("maxw=1600") == true)
         }
     }
+
+    @Suite("RemoteLibraryClient events (G8a/G14)")
+    struct RemoteLibraryClientEventsTests {
+        private func makeClient() -> RemoteLibraryClient {
+            let cfg = URLSessionConfiguration.ephemeral
+            cfg.protocolClasses = [StubURLProtocol.self]
+            let session = URLSession(configuration: cfg)
+            return RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "dtok", session: session)
+        }
+
+        /// G14: SSE ストリーミングリクエストは無期限タイムアウトではなく、
+        /// サーバの短縮ハートビート(5s)より少し長い有限アイドルタイムアウト(12s)を持つこと。
+        /// 無期限のままだと Tailscale 経由でダウンしたサーバへの再接続が OS の TCP connect
+        /// タイムアウト(~60s)までハングし、赤字バナーの自動復帰が遅延する。
+        @Test func eventsRequestUsesFiniteTimeout() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
+            let client = makeClient()
+            let stream = client.events(libraryToken: nil)
+            for try await _ in stream { break }   // 最初の .connected を受けたら打ち切り、リクエストが発行済みであることを保証
+            #expect(StubURLProtocol.lastRequest?.timeoutInterval == 12)
+            #expect(StubURLProtocol.lastRequest?.timeoutInterval != .infinity)
+        }
+    }
 }

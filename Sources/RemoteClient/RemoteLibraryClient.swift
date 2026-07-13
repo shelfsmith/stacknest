@@ -445,7 +445,7 @@ public struct RemoteLibraryClient: Sendable {
         let url = makeURL("events")
         let req: URLRequest = {
             var r = request(url, libraryToken: libraryToken)
-            r.timeoutInterval = .infinity         // ストリーミングは無期限
+            r.timeoutInterval = 12                 // G14: 有限アイドルタイムアウト(12s>サーバ5s HB)。生存接続はHBで維持、死んだ/到達不能サーバは~12sで失敗→backoff再接続。無期限だとTailscaleでconnectがOS~60sまでハングし赤字が長期残留する
             return r
         }()
         let session = self.session
