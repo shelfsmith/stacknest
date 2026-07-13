@@ -47,6 +47,7 @@ struct LibraryCountsEndpointTests {
                 let dto = try JSONDecoder().decode(LibraryCountsDTO.self, from: Data(buffer: resp.body))
                 #expect(dto.libraryTotal == 7)
                 #expect(dto.recentCount == 3)
+                #expect(dto.recentDays == 14)
             }
         }
     }
@@ -71,6 +72,7 @@ struct LibraryCountsEndpointTests {
                 let dto = try JSONDecoder().decode(LibraryCountsDTO.self, from: Data(buffer: resp.body))
                 #expect(dto.libraryTotal == 2)
                 #expect(dto.recentCount == 1)
+                #expect(dto.recentDays == 2)
             }
         }
     }

@@ -69,6 +69,8 @@ final class RemoteLibraryState {
     var libraryTotal: Int = 0
     /// G14: サイドバー用の最近件数。
     var recentCount: Int = 0
+    /// G14: サーバ側 recent_days 設定値（バッジと .recent scope の一覧取得の両方に使う。既定 14）。
+    var recentDaysSetting: Int = 14
     var page = 1
     var per: Int
     var query = ""
@@ -194,7 +196,7 @@ final class RemoteLibraryState {
         switch sidebarSelection {
         case .library: return (nil, nil, nil)
         case .favorites(let id): return ("favorites", id, nil)
-        case .recent: return ("recent", nil, 7)
+        case .recent: return ("recent", nil, recentDaysSetting)
         case .shelf(let id): return ("shelf", id, nil)
         case .smartShelf(let id): return ("smartShelf", id, nil)
         }
@@ -522,6 +524,7 @@ final class RemoteLibraryState {
         guard let c = try? await client.fetchCounts(libraryUUID: libraryUUID, libraryToken: libraryToken) else { return }
         libraryTotal = c.libraryTotal
         recentCount = c.recentCount
+        recentDaysSetting = c.recentDays
     }
 
     func setSidebar(_ s: RemoteSidebarSelection) {

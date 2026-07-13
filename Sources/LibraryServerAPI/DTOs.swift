@@ -617,8 +617,9 @@ public struct GrantCreateRequest: Codable, Sendable {
 public struct LibraryCountsDTO: Codable, Sendable {
     public var libraryTotal: Int
     public var recentCount: Int
-    public init(libraryTotal: Int, recentCount: Int) {
-        self.libraryTotal = libraryTotal; self.recentCount = recentCount
+    public var recentDays: Int
+    public init(libraryTotal: Int, recentCount: Int, recentDays: Int = 14) {
+        self.libraryTotal = libraryTotal; self.recentCount = recentCount; self.recentDays = recentDays
     }
 }
 

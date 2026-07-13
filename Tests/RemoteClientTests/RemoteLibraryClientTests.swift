@@ -162,12 +162,13 @@ struct StubBackedRemoteClientTests {
 
         @Test func fetchCountsDecodes() async throws {
             StubURLProtocol.stub = .init(status: 200, headers: [:],
-                body: try enc().encode(LibraryCountsDTO(libraryTotal: 42, recentCount: 7)))
+                body: try enc().encode(LibraryCountsDTO(libraryTotal: 42, recentCount: 7, recentDays: 30)))
             let dto = try await makeClient().fetchCounts(libraryUUID: "U", libraryToken: nil)
             #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
             #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/counts") == true)
             #expect(dto.libraryTotal == 42)
             #expect(dto.recentCount == 7)
+            #expect(dto.recentDays == 30)
         }
     }
 

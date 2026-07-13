@@ -770,7 +770,7 @@ public struct LibraryServerCore: Sendable {
             let recentDays = ((try? lib.db.getLibrarySetting(key: "recent_days")) ?? nil).flatMap { Int($0) } ?? 14
             let libraryTotal = (try? lib.db.fetchBookCount()) ?? 0
             let recentCount = (try? lib.db.fetchRecentBookCount(days: recentDays)) ?? 0
-            return LibraryCountsDTO(libraryTotal: libraryTotal, recentCount: recentCount)
+            return LibraryCountsDTO(libraryTotal: libraryTotal, recentCount: recentCount, recentDays: recentDays)
         }
         // A2: グローバル取り込み既定の取得（庫非依存・R 可）。サーバ canonical（UserDefaults）。
         api.get("import-config") { _, _ in
