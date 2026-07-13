@@ -26,10 +26,20 @@ public struct RemoteLibraryClient: Sendable {
         return comps.url!
     }
 
+    /// 非 SSE リクエストの既定アイドルタイムアウト（秒）。既定 60s だと、サーバ不達時に
+    /// runLiveSync の reload が最長 60s ハングし、サーバ復帰後もそのリクエストが返るまで再接続を
+    /// 試せず赤字復帰が ~40s まで遅れる。10s に短縮（アイドルベース＝データ到着でリセットされるため
+    /// 大容量 DL/UP は安全）。ただしサーバ側処理が長く応答バイトが 10s 以上来ないエンドポイント
+    /// （重複スキャン等）は呼び出し側で長い timeout を渡す。
+    static let defaultRequestTimeout: TimeInterval = 10
+
     private func request(_ url: URL, method: String = "GET", libraryToken: String? = nil,
                          body: Data? = nil, contentType: String? = nil,
-                         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy) -> URLRequest {
+                         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy,
+                         timeout: TimeInterval = RemoteLibraryClient.defaultRequestTimeout) -> URLRequest {
         var req = URLRequest(url: url, cachePolicy: cachePolicy)
+        // SSE(events) は本ビルダの後に自前で timeoutInterval=12 に上書きするため影響しない。
+        req.timeoutInterval = timeout
         req.httpMethod = method
         req.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
         if let libraryToken { req.setValue(libraryToken, forHTTPHeaderField: "X-Library-Token") }
@@ -155,7 +165,9 @@ public struct RemoteLibraryClient: Sendable {
 
     public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> Data {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
-        return try await send(request(url, libraryToken: libraryToken))
+        // サーバは全ファイルをメモリに読んでから応答するため、大容量アーカイブ×低速ストレージでは
+        // 最初のバイトまで 10s を超え得る。既定の短いタイムアウトではなく長め（120s）を渡す。
+        return try await send(request(url, libraryToken: libraryToken, timeout: 120))
     }
 
     /// 受信/総バイトから進捗を算出。総量不明(<=0)は nil。
@@ -172,7 +184,8 @@ public struct RemoteLibraryClient: Sendable {
                          onProgress: (@Sendable (Double) -> Void)?,
                          shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> Data {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
-        let req = request(url, libraryToken: libraryToken)
+        // サーバは全ファイルをメモリに読んでから応答するため最初のバイトまで 10s を超え得る（上の非進捗版と同様）。
+        let req = request(url, libraryToken: libraryToken, timeout: 120)
         let (bytes, response) = try await session.bytes(for: req)
         // URLSession は 4xx/5xx で throw しない。ステータスを検証しないとエラー本文を
         // そのままファイルとして保存してしまうため、send(_:) と同じ判定をストリーム消費前に行う。
@@ -305,8 +318,9 @@ public struct RemoteLibraryClient: Sendable {
         let body = try JSONEncoder().encode(
             StampApplyRequest(field: field, value: value, clear: clear, bookIDs: bookIDs))
         let url = makeURL("libraries/\(libraryUUID)/books/stamp")
+        // 一括適用はサーバ側で N 件更新するため応答まで 10s を超え得る。長め（60s）を渡す。
         let data = try await send(request(url, method: "POST", libraryToken: libraryToken,
-                                          body: body, contentType: "application/json"))
+                                          body: body, contentType: "application/json", timeout: 60))
         return try decode(StampApplyReply.self, data).updated
     }
 
@@ -336,8 +350,10 @@ public struct RemoteLibraryClient: Sendable {
             coverImageName: coverImageName, setCoverImageName: setName,
             coverCropRect: coverCropRectJSON, setCoverCropRect: setCrop))
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover")
+        // ページ変更時サーバが archive からページ抽出＋サムネ再生成してから応答する（cover-image と同類）。
+        // 10s を超え得るため長め（30s）を渡す。
         let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
-                                          body: body, contentType: "application/json"))
+                                          body: body, contentType: "application/json", timeout: 30))
         return try decode(BookDetailDTO.self, data)
     }
 
@@ -348,8 +364,9 @@ public struct RemoteLibraryClient: Sendable {
         var q: [URLQueryItem] = []
         if let cropJSON { q.append(URLQueryItem(name: "crop", value: cropJSON)) }
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover-image", query: q)
+        // アップロード後にサーバがクロップ＋サムネ再生成してから応答するため 10s を超え得る。長め（30s）を渡す。
         let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
-                                          body: imageData, contentType: "image/jpeg"))
+                                          body: imageData, contentType: "image/jpeg", timeout: 30))
         return try decode(BookDetailDTO.self, data)
     }
 
@@ -424,7 +441,9 @@ public struct RemoteLibraryClient: Sendable {
     /// POST duplicates/scan — 重複候補スキャンを実行し、exact/possible グループ＋統計を返す（RW/admin）。
     public func scanDuplicates(libraryUUID: String, libraryToken: String?) async throws -> DuplicateScanReply {
         let url = makeURL("libraries/\(libraryUUID)/duplicates/scan")
-        let data = try await send(request(url, method: "POST", libraryToken: libraryToken))
+        // 大規模ライブラリではサーバ側のハッシュ計算で最初の応答バイトまで 10s を超え得るため、
+        // 既定の短いタイムアウトではなく長め（120s）を渡して誤タイムアウトを避ける。
+        let data = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 120))
         return try decode(DuplicateScanReply.self, data)
     }
 

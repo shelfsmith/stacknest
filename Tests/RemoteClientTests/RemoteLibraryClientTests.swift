@@ -158,6 +158,8 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
             #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/duplicates/scan") == true)
             #expect(reply.candidateCount == 3)
+            // 大規模ライブラリでサーバ側処理が長いため、短い既定タイムアウト(10s)ではなく長めであること。
+            #expect((StubURLProtocol.lastRequest?.timeoutInterval ?? 0) > 15)
         }
 
         @Test func fetchCountsDecodes() async throws {
@@ -169,6 +171,18 @@ struct StubBackedRemoteClientTests {
             #expect(dto.libraryTotal == 42)
             #expect(dto.recentCount == 7)
             #expect(dto.recentDays == 30)
+        }
+
+        /// G14 follow-up: 非 SSE リクエストは有限の短いタイムアウトを持つこと。
+        /// 既定の 60s だと、サーバ不達時に runLiveSync の reload が最長 60s ハングし、
+        /// サーバ復帰後もそのリクエストが返るまで再接続を試せず赤字の復帰が ~40s まで遅れる。
+        @Test func nonSSERequestsUseBoundedTimeout() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(BookPageDTO(items: [], total: 0, page: 1, perPage: 100)))
+            _ = try await makeClient().fetchBooks(libraryUUID: "u1", query: nil, sort: "title",
+                ascending: true, page: 1, per: 100, libraryToken: nil)
+            let t = try #require(StubURLProtocol.lastRequest?.timeoutInterval)
+            #expect(t > 0 && t <= 15)   // 既定 60s を排除。SSE(12s) と揃う短いアイドルタイムアウト
         }
     }
 
