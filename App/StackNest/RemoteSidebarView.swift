@@ -36,7 +36,7 @@ struct RemoteSidebarView: View {
             HStack {
                 Label("ライブラリ", systemImage: "books.vertical.fill")
                 Spacer()
-                Text("\(state.total)").foregroundStyle(.secondary).monospacedDigit()
+                Text("\(state.libraryTotal)").foregroundStyle(.secondary).monospacedDigit()
             }
             .tag(RemoteLibraryState.RemoteSidebarSelection.library)
 
@@ -49,8 +49,12 @@ struct RemoteSidebarView: View {
                 .tag(RemoteLibraryState.RemoteSidebarSelection.favorites(fav.id))
             }
 
-            Label("最近の項目", systemImage: "clock")
-                .tag(RemoteLibraryState.RemoteSidebarSelection.recent)
+            HStack {
+                Label("最近の項目", systemImage: "clock")
+                Spacer()
+                Text("\(state.recentCount)").foregroundStyle(.secondary).monospacedDigit()
+            }
+            .tag(RemoteLibraryState.RemoteSidebarSelection.recent)
 
             if !userShelves.isEmpty {
                 Section("シェルフ") {

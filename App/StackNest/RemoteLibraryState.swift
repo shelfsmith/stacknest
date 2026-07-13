@@ -65,6 +65,10 @@ final class RemoteLibraryState {
     /// settings 変更時に更新する。
     var requestedFields: Set<String> = []
     var total = 0
+    /// G14: サイドバー用の安定なライブラリ総数（現在 scope の total とは別）。
+    var libraryTotal: Int = 0
+    /// G14: サイドバー用の最近件数。
+    var recentCount: Int = 0
     var page = 1
     var per: Int
     var query = ""
@@ -509,6 +513,14 @@ final class RemoteLibraryState {
         default:
             break
         }
+        await refreshCounts()
+    }
+
+    /// G14: サイドバー用の安定件数（scope 非依存のライブラリ総数＋最近件数）を取得する。
+    func refreshCounts() async {
+        guard let c = try? await client.fetchCounts(libraryUUID: libraryUUID, libraryToken: libraryToken) else { return }
+        libraryTotal = c.libraryTotal
+        recentCount = c.recentCount
     }
 
     func setSidebar(_ s: RemoteSidebarSelection) {
@@ -1365,6 +1377,7 @@ final class RemoteLibraryState {
             if selection == bookID { pendingLiveSelectionRefresh = bookID }
         case .structureChanged:
             pendingLiveReload = true
+            Task { await refreshCounts() }   // G14: 本の追加/削除で総数が変わるためサイドバー件数も更新
         case .settingsChanged:
             pendingLiveStampReload = true
         }
