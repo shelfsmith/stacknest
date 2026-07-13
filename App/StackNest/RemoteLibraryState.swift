@@ -673,7 +673,15 @@ final class RemoteLibraryState {
     /// 選択集合（multiSelection 優先・無ければ selection）が空でなく全てお気に入りなら true。
     var allSelectedAreFavorites: Bool {
         let ids: Set<Int> = multiSelection.isEmpty ? Set(selection.map { [$0] } ?? []) : multiSelection
-        return !ids.isEmpty && ids.isSubset(of: favoriteBookIDs)
+        return allAreFavorites(ids)
+    }
+
+    /// 指定 ids が空でなく全てお気に入りなら true（grid 右クリック等・選択外 ids にも使える汎用版）。
+    /// G14 Task 5 レビュー修正: grid の .contextMenu は右クリックで選択を更新しないため、
+    /// 選択外の本を右クリックした際は allSelectedAreFavorites（selection/multiSelection 由来）
+    /// ではなくトグル対象の ids そのものを判定に使う必要がある。
+    func allAreFavorites(_ ids: Set<Int>) -> Bool {
+        !ids.isEmpty && ids.isSubset(of: favoriteBookIDs)
     }
 
     /// G14: お気に入りシェルフの所属 book ID 集合を取得する。favoritesShelfID 未解決時は空にする。

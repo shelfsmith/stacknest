@@ -597,8 +597,11 @@ struct RemoteLibraryView: View {
         // 発行し isSmart で区別するため）。スマート棚は membership 変更不可（サーバ 409）なので必ず除外する。
         if state.canEdit {
             if state.favoritesShelfID != nil {
-                // G14: 選択が全てお気に入りなら「削除」・else「追加」の単一動的トグル（ローカル同様）。
-                let add = !state.allSelectedAreFavorites
+                // G14 Task 5 レビュー修正: 判定はトグル対象の ids（右クリック起点。multiSelection に
+                // 含まれていれば選択集合、無ければ右クリックしたセル単体）で行う。.contextMenu は
+                // 右クリックで選択を更新しないため、allSelectedAreFavorites（selection/multiSelection
+                // 由来）だと選択外セルの右クリックでラベルと実対象が食い違う。
+                let add = !state.allAreFavorites(ids)
                 Button(add ? "お気に入りに追加" : "お気に入りから削除") {
                     Task { await state.toggleFavorite(ids: ids, add: add) }
                 }
