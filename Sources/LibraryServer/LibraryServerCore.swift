@@ -763,6 +763,15 @@ public struct LibraryServerCore: Sendable {
             self.notifySettingsChanged(lib.uuid)
             return dto
         }
+        // G14: リモートサイドバーの安定件数（ライブラリ総数・最近件数）。scope 非依存。read で可。
+        api.get("libraries/:lib/counts") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let recentDays = ((try? lib.db.getLibrarySetting(key: "recent_days")) ?? nil).flatMap { Int($0) } ?? 14
+            let libraryTotal = (try? lib.db.fetchBookCount()) ?? 0
+            let recentCount = (try? lib.db.fetchRecentBookCount(days: recentDays)) ?? 0
+            return LibraryCountsDTO(libraryTotal: libraryTotal, recentCount: recentCount)
+        }
         // A2: グローバル取り込み既定の取得（庫非依存・R 可）。サーバ canonical（UserDefaults）。
         api.get("import-config") { _, _ in
             GlobalImportConfigDTO(autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold())

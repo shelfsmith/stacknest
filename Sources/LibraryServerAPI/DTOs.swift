@@ -611,6 +611,17 @@ public struct GrantCreateRequest: Codable, Sendable {
     }
 }
 
+// MARK: - G14: リモートサイドバー安定件数
+
+/// リモートサイドバーの安定件数（現在の browse scope に依存しない）。
+public struct LibraryCountsDTO: Codable, Sendable {
+    public var libraryTotal: Int
+    public var recentCount: Int
+    public init(libraryTotal: Int, recentCount: Int) {
+        self.libraryTotal = libraryTotal; self.recentCount = recentCount
+    }
+}
+
 /// PATCH /api/v1/grants/:id リクエスト。nil = 変更しない。
 public struct GrantUpdateRequest: Codable, Sendable {
     public var label: String?
