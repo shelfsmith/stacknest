@@ -428,6 +428,15 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(DuplicateScanReply.self, data)
     }
 
+    // MARK: - G14: サイドバー件数
+
+    /// GET counts — サイドバー用のライブラリ総数/直近件数（R 可）。
+    public func fetchCounts(libraryUUID: String, libraryToken: String?) async throws -> LibraryCountsDTO {
+        let url = makeURL("libraries/\(libraryUUID)/counts")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(LibraryCountsDTO.self, data)
+    }
+
     // MARK: - G8a: ライブ同期（SSE）
 
     /// G8a: ライブ同期イベントを購読する（SSE・Design 1）。
