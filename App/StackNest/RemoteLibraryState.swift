@@ -514,6 +514,7 @@ final class RemoteLibraryState {
             break
         }
         await refreshCounts()
+        await refreshFavoriteIDs()
     }
 
     /// G14: サイドバー用の安定件数（scope 非依存のライブラリ総数＋最近件数）を取得する。
@@ -666,6 +667,27 @@ final class RemoteLibraryState {
     /// 必要に応じて loadShelves() 済みであることを前提とする）。
     var favoritesShelfID: Int64? { shelves.first { $0.kind == "favorites" }?.id }
 
+    /// G14: お気に入り所属 book ID（動的トグル判定用・ローカル favoritesBookIDs 同型）。
+    var favoriteBookIDs: Set<Int> = []
+
+    /// 選択集合（multiSelection 優先・無ければ selection）が空でなく全てお気に入りなら true。
+    var allSelectedAreFavorites: Bool {
+        let ids: Set<Int> = multiSelection.isEmpty ? Set(selection.map { [$0] } ?? []) : multiSelection
+        return !ids.isEmpty && ids.isSubset(of: favoriteBookIDs)
+    }
+
+    /// G14: お気に入りシェルフの所属 book ID 集合を取得する。favoritesShelfID 未解決時は空にする。
+    /// per:500 上限。お気に入りが 500 超は overflow 判定が近似（実運用でまれ・許容）。
+    func refreshFavoriteIDs() async {
+        guard let favID = favoritesShelfID else { favoriteBookIDs = []; return }
+        if let page = try? await client.fetchBooks(
+            libraryUUID: libraryUUID, query: nil, sort: "dateAdded", ascending: false,
+            page: 1, per: 500, libraryToken: libraryToken,
+            scope: "favorites", scopeId: favID, recentDays: nil, fields: ["id"]) {
+            favoriteBookIDs = Set(page.items.map { $0.id })
+        }
+    }
+
     /// 取り込み設定を取得（RW 不要・閲覧のみでも表示可）。失敗時は errorText を立て nil。
     func loadImportConfig() async -> ImportConfigDTO? {
         do {
@@ -739,6 +761,7 @@ final class RemoteLibraryState {
             return
         }
         if add { await addSelectionToShelf(fid, ids: ids) } else { await removeSelectionFromShelf(fid, ids: ids) }
+        await refreshFavoriteIDs()   // G14: 所属変化を反映（動的トグル判定用）
     }
 
     /// 重複スキャンを実行（RW 必須）。失敗時は errorText を立て nil。

@@ -596,9 +596,12 @@ struct RemoteLibraryView: View {
         // と同じ判定）。kind=="user" だけだとスマート棚も含んでしまう（サーバは kind を常に "user" で
         // 発行し isSmart で区別するため）。スマート棚は membership 変更不可（サーバ 409）なので必ず除外する。
         if state.canEdit {
-            if let fid = state.favoritesShelfID {
-                Button("お気に入りに追加") { Task { await state.addSelectionToShelf(fid, ids: ids) } }
-                Button("お気に入りから削除") { Task { await state.removeSelectionFromShelf(fid, ids: ids) } }
+            if state.favoritesShelfID != nil {
+                // G14: 選択が全てお気に入りなら「削除」・else「追加」の単一動的トグル（ローカル同様）。
+                let add = !state.allSelectedAreFavorites
+                Button(add ? "お気に入りに追加" : "お気に入りから削除") {
+                    Task { await state.toggleFavorite(ids: ids, add: add) }
+                }
             }
             let userShelves = state.shelves.filter { !$0.isSmart && $0.kind != "favorites" }
             if !userShelves.isEmpty {

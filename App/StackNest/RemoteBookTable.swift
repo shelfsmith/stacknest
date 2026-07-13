@@ -468,14 +468,14 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         // kind だけでは区別できず、isSmart を必ず併用する（スマート棚は membership 変更不可＝サーバ 409）。
         if state.canEdit {
             if state.favoritesShelfID != nil {
-                let favAdd = NSMenuItem(title: String(localized: "お気に入りに追加"),
-                                        action: #selector(ctxToggleFavorite(_:)), keyEquivalent: "")
-                favAdd.target = self; favAdd.representedObject = true
-                menu.addItem(favAdd)
-                let favRemove = NSMenuItem(title: String(localized: "お気に入りから削除"),
-                                           action: #selector(ctxToggleFavorite(_:)), keyEquivalent: "")
-                favRemove.target = self; favRemove.representedObject = false
-                menu.addItem(favRemove)
+                // G14: 選択が全てお気に入りなら「削除」・else「追加」の単一動的トグル（ローカル同様）。
+                let title = state.allSelectedAreFavorites
+                    ? String(localized: "お気に入りから削除")
+                    : String(localized: "お気に入りに追加")
+                let fav = NSMenuItem(title: title, action: #selector(ctxToggleFavorite(_:)), keyEquivalent: "")
+                fav.target = self
+                fav.representedObject = !state.allSelectedAreFavorites   // add フラグ
+                menu.addItem(fav)
             }
             let userShelves = state.shelves.filter { !$0.isSmart && $0.kind != "favorites" }
             if !userShelves.isEmpty {
