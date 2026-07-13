@@ -242,6 +242,9 @@ final class RemoteLibraryState {
             if !roleResolved, let me = try? await client.me(libraryToken: libraryToken) {
                 tier = me.tier
                 roleResolved = true
+                // Minor #4: loadShelves が tier 解決前（.read）にお気に入り取得をスキップしている
+                // 可能性があるため、edit 判明時に一度取得しておく（favoriteBookIDs 内で canEdit gate 済み）。
+                await refreshFavoriteIDs()
             }
             // Phase 4.2c-2: 最初の本一覧ロード成功後に resume 意図を 1 回だけ消費する。
             // self-clear するため再 reload では再発火しない。
@@ -690,6 +693,11 @@ final class RemoteLibraryState {
     /// G14: お気に入りシェルフの所属 book ID 集合を取得する。favoritesShelfID 未解決時は空にする。
     /// per:500 上限。お気に入りが 500 超は overflow 判定が近似（実運用でまれ・許容）。
     func refreshFavoriteIDs() async {
+        // Minor #4: favoriteBookIDs はお気に入り右クリックトグル（edit 専用導線）の判定にのみ使う。
+        // read 接続ではトグルが出ないため取得しない（無駄な /books 呼び出しを避ける）。
+        // tier 解決前（fail-closed .read）に loadShelves がスキップしても、reload の tier 解決後に
+        // 再度呼ばれるため edit 接続では確実に読み込まれる。
+        guard canEdit else { favoriteBookIDs = []; return }
         guard let favID = favoritesShelfID else { favoriteBookIDs = []; return }
         if let page = try? await client.fetchBooks(
             libraryUUID: libraryUUID, query: nil, sort: "dateAdded", ascending: false,
@@ -1404,7 +1412,11 @@ final class RemoteLibraryState {
         case .connected:
             // G13: SSE 接続（再接続含む）確立時に一覧を再取得。reload 冒頭で errorText=nil、
             // 成功で赤字が消える（サーバ再起動→復帰後の残留を解消）。取りこぼしも回収。
+            // Minor #3: 切断中に他クライアントで本/お気に入りが増減している可能性があるため、
+            // 再接続時にサイドバー件数とお気に入り判定も更新する（favoriteBookIDs は canEdit gate 済み）。
             Task { await reload(clearFirst: false) }
+            Task { await refreshCounts() }
+            Task { await refreshFavoriteIDs() }
         case .bookChanged(_, let bookID):
             // setRating/setUnseen と同一の反映イディオム（単一本 GET は無い・progress 非 publish で低頻度）。
             pendingLiveReload = true
@@ -1412,6 +1424,9 @@ final class RemoteLibraryState {
         case .structureChanged:
             pendingLiveReload = true
             Task { await refreshCounts() }   // G14: 本の追加/削除で総数が変わるためサイドバー件数も更新
+            // Minor #2: 本の追加/削除・お気に入りシェルフ所属変更で favoriteBookIDs が stale になり、
+            // お気に入りトグルのラベル（追加/削除）がずれるため再取得する（canEdit gate 済み）。
+            Task { await refreshFavoriteIDs() }
         case .settingsChanged:
             pendingLiveStampReload = true
         }
