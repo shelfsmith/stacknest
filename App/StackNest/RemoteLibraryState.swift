@@ -1312,7 +1312,7 @@ final class RemoteLibraryState {
     /// View の `.task {}` から `await` で呼ぶ（view 消滅で .task がキャンセル→ループ終了）。
     func runLiveSync() async {
         var backoff: Duration = .seconds(1)              // 1s→2s→4s…→最大30s（エラー時のみ増加）
-        let maxBackoff: Duration = .seconds(30)
+        let maxBackoff: Duration = .seconds(5)   // G14: 30s→5s。接続エラー赤字の自動復帰を最大~5秒に短縮。
         while !Task.isCancelled {
             do {
                 // throwing 購読。events() は非200/URLError を型付き RemoteClientError で終端 throw、
