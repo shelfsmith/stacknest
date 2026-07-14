@@ -704,18 +704,46 @@ public struct LibraryServerCore: Sendable {
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             return try Self.buildWatchConfigDTO(lib: lib)
         }
-        // A2: 監視フォルダ設定の更新（RW）。
+        // A2: 監視フォルダ設定の更新（RW）。blind-replace ではなく id マージ:
+        // 既存 id は baseline をサーバ保持・編集反映／新規 id はパス検証＋baseline スキャン／消えた id は削除。
         api.put("libraries/:lib/watch-config") { [self] request, context in
             try context.requireEdit()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: WatchConfigDTO.self, context: context)
-            let folders = dto.folders.map { WatchedFolder(id: $0.id, path: $0.path, enabled: $0.enabled, presetID: $0.presetID, baseline: $0.baseline) }
+
+            // 既存保管フォルダを id でマップ
+            let existingJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
+            let existing: [WatchedFolder] = existingJSON.flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
+            let existingByID = Dictionary(uniqueKeysWithValues: existing.map { ($0.id, $0) })
+
+            var merged: [WatchedFolder] = []
+            for f in dto.folders {
+                let mode = WatchedFolder.SubfolderMode(rawValue: f.subfolderMode.rawValue) ?? .topLevelOnly
+                if let prior = existingByID[f.id] {
+                    // 既存: baseline はサーバ保持、編集フィールドを反映
+                    merged.append(WatchedFolder(id: f.id, path: f.path, enabled: f.enabled,
+                                                presetID: f.presetID, baseline: prior.baseline, subfolderMode: mode))
+                } else {
+                    // 新規: パス検証（実在＋ディレクトリ）
+                    var isDir: ObjCBool = false
+                    guard FileManager.default.fileExists(atPath: f.path, isDirectory: &isDir), isDir.boolValue else {
+                        throw HTTPError(.badRequest, message: "監視フォルダのパスが無効です: \(f.path)")
+                    }
+                    // baseline = 現在の中身（既存スキップ）
+                    let baseline = WatchFolderScanner.enumerateCandidates(
+                        folder: URL(fileURLWithPath: f.path), recurse: mode == .recurse).map { $0.path }
+                    merged.append(WatchedFolder(id: f.id, path: f.path, enabled: f.enabled,
+                                                presetID: f.presetID, baseline: baseline, subfolderMode: mode))
+                }
+            }
+
             try lib.db.setLibrarySetting(key: "folder_watch_enabled", value: dto.enabled ? "true" : "false")
-            let data = try JSONEncoder().encode(folders)
+            let data = try JSONEncoder().encode(merged)
             try lib.db.setLibrarySetting(key: "watched_folders", value: String(decoding: data, as: UTF8.self))
             self.notifySettingsChanged(lib.uuid)
-            return dto
+            return try Self.buildWatchConfigDTO(lib: lib)
         }
         // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
         api.post("libraries/:lib/lock") { [self] request, context in
