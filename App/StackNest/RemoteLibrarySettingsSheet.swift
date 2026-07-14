@@ -42,6 +42,11 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var passwordConfirm = ""
     @State private var confirmingDisableLock = false
 
+    // MARK: 監視タブ（canEdit 以上）
+    @State private var watchConfig: WatchConfigDTO?
+    @State private var watchLoaded = false
+    @State private var newFolderPath = ""
+
     var body: some View {
         VStack(spacing: 0) {
             Text("ライブラリ設定")
@@ -65,6 +70,12 @@ struct RemoteLibrarySettingsSheet: View {
                     ScrollView { lockTab().padding(16) }
                         .tabItem { Label("ロック", systemImage: "lock") }
                         .tag(2)
+                }
+
+                if state.canEdit {
+                    ScrollView { watchTab().padding(16) }
+                        .tabItem { Label("監視", systemImage: "folder.badge.gearshape") }
+                        .tag(3)
                 }
             }
             .padding(.horizontal, 12)
@@ -336,7 +347,114 @@ struct RemoteLibrarySettingsSheet: View {
         case 0: await saveLabels()
         case 1: await saveImport()
         case 2: await saveLock()
+        case 3: await saveWatch()
         default: break
+        }
+    }
+
+    // MARK: - 監視タブ（canEdit 以上）
+
+    @ViewBuilder
+    private func watchTab() -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Toggle("自動追加を有効にする", isOn: Binding(
+                get: { watchConfig?.enabled ?? false },
+                set: { watchConfig?.enabled = $0 }
+            ))
+            Text("監視フォルダに入った本を自動でライブラリに追加します（ホスト側で実行）。")
+                .font(.caption).foregroundStyle(.secondary)
+
+            Divider()
+
+            if let cfg = watchConfig {
+                if cfg.folders.isEmpty {
+                    Text("監視フォルダが未設定です。下の入力で追加してください。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                ForEach(cfg.folders.indices, id: \.self) { i in
+                    watchFolderRow(i)
+                    Divider()
+                }
+            } else {
+                ProgressView().controlSize(.small)
+            }
+
+            HStack {
+                TextField("追加する監視フォルダのホスト絶対パス（例: /Users/you/Watch）", text: $newFolderPath)
+                    .textFieldStyle(.roundedBorder)
+                Button("フォルダを追加") { addWatchFolderRow() }
+                    .disabled(newFolderPath.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            Text("パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .task {
+            guard !watchLoaded else { return }
+            watchLoaded = true
+            watchConfig = await state.loadWatchConfig()
+        }
+    }
+
+    @ViewBuilder
+    private func watchFolderRow(_ i: Int) -> some View {
+        if let cfg = watchConfig, cfg.folders.indices.contains(i) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Toggle("", isOn: Binding(
+                        get: { watchConfig?.folders[i].enabled ?? false },
+                        set: { watchConfig?.folders[i].enabled = $0 }
+                    )).labelsHidden()
+                    Text(cfg.folders[i].path).font(.callout).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button(role: .destructive) {
+                        watchConfig?.folders.remove(at: i)
+                    } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
+                }
+                HStack {
+                    Text("フォーマット").font(.caption).foregroundStyle(.secondary)
+                    Picker("", selection: Binding(
+                        get: { watchConfig?.folders[i].presetID ?? "" },
+                        set: { watchConfig?.folders[i].presetID = $0.isEmpty ? nil : $0 }
+                    )) {
+                        Text("ライブラリ既定").tag("")
+                        ForEach(cfg.presets ?? [], id: \.id) { p in Text(p.name).tag(p.id) }
+                    }.labelsHidden().frame(maxWidth: 240)
+                }
+                HStack {
+                    Text("サブフォルダ").font(.caption).foregroundStyle(.secondary)
+                    Picker("", selection: Binding(
+                        get: { watchConfig?.folders[i].subfolderMode ?? .topLevelOnly },
+                        set: { watchConfig?.folders[i].subfolderMode = $0 }
+                    )) {
+                        Text("サブフォルダを取り込まない").tag(WatchedFolderDTO.SubfolderMode.topLevelOnly)
+                        Text("サブフォルダの中も取り込む").tag(WatchedFolderDTO.SubfolderMode.recurse)
+                    }.labelsHidden().frame(maxWidth: 260)
+                }
+            }
+        }
+    }
+
+    private func addWatchFolderRow() {
+        let path = newFolderPath.trimmingCharacters(in: .whitespaces)
+        guard !path.isEmpty else { return }
+        let folder = WatchedFolderDTO(id: UUID().uuidString, path: path, enabled: true)
+        if watchConfig == nil { watchConfig = WatchConfigDTO(enabled: true, folders: []) }
+        watchConfig?.folders.append(folder)
+        newFolderPath = ""
+    }
+
+    private func saveWatch() async {
+        guard let cfg = watchConfig else { return }
+        errorText = nil
+        saving = true
+        defer { saving = false }
+        if let applied = await state.saveWatchConfig(cfg) {
+            watchConfig = applied   // 適用後（新規 baseline 等）で置換
+            errorText = nil
+            dismiss()
+        } else {
+            // 失敗時は state.errorText に文言が立つ。ローカル errorText に反映してシートに表示する（シートは閉じない）。
+            errorText = state.errorText
         }
     }
 }
