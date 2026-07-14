@@ -375,6 +375,14 @@ struct RemoteLibrarySettingsSheet: View {
                     watchFolderRow(i)
                     Divider()
                 }
+            } else if errorText != nil {
+                Button("再読み込み") {
+                    Task {
+                        errorText = nil
+                        watchConfig = await state.loadWatchConfig()
+                        if watchConfig == nil { errorText = state.errorText }
+                    }
+                }
             } else {
                 ProgressView().controlSize(.small)
             }
@@ -392,6 +400,7 @@ struct RemoteLibrarySettingsSheet: View {
             guard !watchLoaded else { return }
             watchLoaded = true
             watchConfig = await state.loadWatchConfig()
+            if watchConfig == nil { errorText = state.errorText }
         }
     }
 
