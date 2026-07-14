@@ -391,7 +391,7 @@ struct RemoteLibrarySettingsSheet: View {
                 TextField("追加する監視フォルダのホスト絶対パス（例: /Users/you/Watch）", text: $newFolderPath)
                     .textFieldStyle(.roundedBorder)
                 Button("フォルダを追加") { addWatchFolderRow() }
-                    .disabled(newFolderPath.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(watchConfig == nil || newFolderPath.trimmingCharacters(in: .whitespaces).isEmpty)
             }
             Text("パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。")
                 .font(.caption2).foregroundStyle(.secondary)
@@ -447,7 +447,7 @@ struct RemoteLibrarySettingsSheet: View {
         let path = newFolderPath.trimmingCharacters(in: .whitespaces)
         guard !path.isEmpty else { return }
         let folder = WatchedFolderDTO(id: UUID().uuidString, path: path, enabled: true)
-        if watchConfig == nil { watchConfig = WatchConfigDTO(enabled: true, folders: []) }
+        guard watchConfig != nil else { return }   // ロード失敗時は config を捏造しない（既存監視フォルダの全消しを防ぐ）
         watchConfig?.folders.append(folder)
         newFolderPath = ""
     }
