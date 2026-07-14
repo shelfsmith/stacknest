@@ -187,6 +187,31 @@ struct WatchConfigEndpointTests {
         }
     }
 
+    /// G12b-2c: PUT は新規 folder id のパス検証で「実在するがディレクトリでない（ファイル）」も 400 にする。
+    @Test func putRejectsNewFolderWithFilePathNotDirectory() async throws {
+        let fixture = try TestLibraryFixture(name: "WCFileNotDir", bookCount: 0)
+        defer { fixture.cleanup() }
+        let filePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wc-notadir-\(UUID().uuidString).txt")
+        try Data("x".utf8).write(to: filePath)
+        defer { try? FileManager.default.removeItem(at: filePath) }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+        try await app.test(.router) { client in
+            let folder = WatchedFolderDTO(id: "f2b", path: filePath.path, enabled: true)
+            let putBody = WatchConfigDTO(enabled: true, folders: [folder])
+            let bodyData = try JSONEncoder().encode(putBody)
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(bodyData))
+            ) { response in
+                #expect(response.status == .badRequest)
+            }
+        }
+    }
+
     /// G12b-2c: PUT は新規 folder id の baseline を現在の中身でスキャンする（既存スキップ）。
     @Test func putScansBaselineForNewValidFolder() async throws {
         let fixture = try TestLibraryFixture(name: "WCScanBaseline", bookCount: 0)
