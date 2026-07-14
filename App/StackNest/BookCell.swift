@@ -10,6 +10,9 @@ struct BookCell: View {
     let loader: ThumbnailLoader?
     /// G4c: 表紙差し替え（メタ不変）でも再描画/再取得させる版数。ローカルグリッド用。
     var coverVersion: Int = 0
+    /// G14 fu: お気に入り所属。親が ForEach body で favoritesBookIDs を読んで算出することで
+    /// お気に入り変更時にセルへ observation 依存を張り、ハート表示を即時更新する（リモート grid と同様）。
+    var favorited: Bool = false
 
     @State private var thumbnail: CGImage?
 
@@ -41,6 +44,17 @@ struct BookCell: View {
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .shadow(radius: 2, y: 1)
+            .overlay(alignment: .topLeading) {
+                // G14 fu: お気に入りをグリッドで視認できるように（リモート grid と同じ見た目）。
+                if favorited {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(.pink)
+                        .padding(4)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(4)
+                        .help("お気に入り")
+                }
+            }
 
             Text(book.title)
                 .font(.caption)

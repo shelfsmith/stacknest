@@ -424,7 +424,8 @@ struct LibraryBrowserView: View {
 
                 LazyVGrid(columns: gridColumns, alignment: .leading, spacing: 16) {
                     ForEach(appState.sortedDisplayedBooks, id: \.id) { book in
-                        BookCell(book: book, loader: appState.thumbnailLoader, coverVersion: appState.coverVersionByBook[book.id] ?? 0)
+                        BookCell(book: book, loader: appState.thumbnailLoader, coverVersion: appState.coverVersionByBook[book.id] ?? 0,
+                                 favorited: appState.favoritesBookIDs.contains(book.id))
                             .id(book.id)  // Phase 2.5k: scrollProxy.scrollTo(book.id) で参照
                             // FX3 A4: 選択中セルを drag したときは選択全体を運ぶ。
                             // 複数選択は comma-joined 文字列 ("1,2,3")、単体は "5"。
