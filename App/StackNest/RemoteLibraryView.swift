@@ -700,9 +700,14 @@ struct RemoteLibraryView: View {
                     LazyVGrid(columns: gridColumns, spacing: gridSpacing) {
                         ForEach(state.books, id: \.id) { book in
                             // 4.2c-4: ハイライトは multiSelection に従う（リストと共有）。
+                            // G14 fu(smoke バグ2): favorited を ForEach body で読むことで、この行に
+                            // favoriteBookIDs への observation 依存を張る。これが無いと favoriteBookIDs
+                            // 変更でセルが再評価されず、.contextMenu closure（lazy 評価）内の
+                            // allAreFavorites が古いまま＝再選択するまでラベルが反映されない。
                             RemoteBookCell(book: book, state: state,
                                            selected: state.multiSelection.contains(book.id),
-                                           downloaded: downloadedBadge(book.id))
+                                           downloaded: downloadedBadge(book.id),
+                                           favorited: state.favoriteBookIDs.contains(book.id))
                                 .onTapGesture(count: 2) { state.openViewer(book: book) }
                                 // 4.2c-4: 単一クリックは修飾子で分岐（⌘トグル / ⇧範囲 / 無修飾置換）。
                                 .onTapGesture { handleGridClick(book) }
@@ -964,6 +969,9 @@ private struct RemoteBookCell: View {
     let selected: Bool
     /// Task 4: ダウンロード済みバッジ表示フラグ（親が downloadedVersion 参照込みで算出）。
     let downloaded: Bool
+    /// G14 fu(smoke バグ2): お気に入り所属。親が ForEach body で favoriteBookIDs を読んで算出することで
+    /// この行に observation 依存を張る（右クリックの動的トグルラベルを即時反映させるため）。表示にも使う。
+    let favorited: Bool
 
     @State private var thumbnail: CGImage?
 
@@ -993,6 +1001,17 @@ private struct RemoteBookCell: View {
                         .background(.thinMaterial, in: Circle())
                         .padding(4)
                         .help("オフライン保存済み")
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                // G14 fu(smoke バグ2): お気に入りをグリッドでも視認できるように（favorited 依存の可視化も兼ねる）。
+                if favorited {
+                    Image(systemName: "heart.fill")
+                        .foregroundStyle(.pink)
+                        .padding(4)
+                        .background(.thinMaterial, in: Circle())
+                        .padding(4)
+                        .help("お気に入り")
                 }
             }
             .overlay(

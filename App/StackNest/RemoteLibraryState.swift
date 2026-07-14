@@ -780,7 +780,14 @@ final class RemoteLibraryState {
             return
         }
         if add { await addSelectionToShelf(fid, ids: ids) } else { await removeSelectionFromShelf(fid, ids: ids) }
-        await refreshFavoriteIDs()   // G14: 所属変化を反映（動的トグル判定用）
+        // G14 fu: サイドバーのお気に入り件数は ShelfDTO.bookCount（listShelves 由来）なので、
+        // loadShelves で shelves を取り直さないと更新されない（smoke バグ1）。loadShelves は
+        // refreshCounts / refreshFavoriteIDs（動的トグル判定の再取得）も内包する。
+        await loadShelves()
+        // loadShelves 内の再取得がサーバ反映ラグ/キャッシュで所属を取りこぼしても、トグル直後の
+        // ラベルが確実に正しくなるよう favoriteBookIDs を楽観更新（source of truth を上書きしない
+        // 加減算・最後に適用して勝たせる）。smoke バグ2 の値側の担保。
+        if add { favoriteBookIDs.formUnion(ids) } else { favoriteBookIDs.subtract(ids) }
     }
 
     /// 重複スキャンを実行（RW 必須）。失敗時は errorText を立て nil。
