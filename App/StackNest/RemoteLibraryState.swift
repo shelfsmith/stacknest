@@ -727,6 +727,28 @@ final class RemoteLibraryState {
         }
     }
 
+    // MARK: - G12b-2c: 監視フォルダ設定
+
+    /// 監視設定を取得（RW 必須ではないが本タブは canEdit で表示）。失敗時は errorText を立て nil。
+    func loadWatchConfig() async -> WatchConfigDTO? {
+        do { return try await client.fetchWatchConfig(libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch { errorText = "監視設定の取得に失敗しました"; return nil }
+    }
+
+    /// 監視設定を保存（RW 必須）。パス検証エラー(400)・権限(403)を文言で提示。成功で適用後 DTO を返す。
+    @discardableResult
+    func saveWatchConfig(_ dto: WatchConfigDTO) async -> WatchConfigDTO? {
+        do { return try await client.putWatchConfig(dto, libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch let e as RemoteClientError {
+            switch e {
+            case .server(400): errorText = "監視フォルダのパスが無効です（ホストに存在しないか、フォルダではありません）"
+            case .forbidden: errorText = "編集権限がありません"
+            default: errorText = "監視設定の保存に失敗しました"
+            }
+            return nil
+        } catch { errorText = "監視設定の保存に失敗しました"; return nil }
+    }
+
     /// ライブラリロックを設定（admin 必須）。
     func setLibraryLock(password: String) async {
         guard canDelete else { return }   // lock=admin
