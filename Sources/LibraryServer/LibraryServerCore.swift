@@ -698,14 +698,11 @@ public struct LibraryServerCore: Sendable {
                 customFieldLabels: body.customFieldLabels.filter { !$0.value.isEmpty },
                 customBookTypeLabels: body.customBookTypeLabels.filter { !$0.value.isEmpty })
         }
-        // A2: 監視フォルダ設定の取得（R 可）。
+        // A2: 監視フォルダ設定の取得（R 可）。G12b-2c: subfolderMode ＋ presets を同梱。
         api.get("libraries/:lib/watch-config") { request, context in
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
-            let enabled = ((try? lib.db.getLibrarySetting(key: "folder_watch_enabled")) ?? nil).map { $0 == "1" || $0 == "true" } ?? false
-            let foldersJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
-            let folders: [WatchedFolder] = foldersJSON.flatMap { $0.data(using: .utf8) }.flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
-            return WatchConfigDTO(enabled: enabled, folders: folders.map { WatchedFolderDTO(id: $0.id, path: $0.path, enabled: $0.enabled, presetID: $0.presetID, baseline: $0.baseline) })
+            return try Self.buildWatchConfigDTO(lib: lib)
         }
         // A2: 監視フォルダ設定の更新（RW）。
         api.put("libraries/:lib/watch-config") { [self] request, context in
@@ -1078,6 +1075,25 @@ public struct LibraryServerCore: Sendable {
         let url = coverURL(bundleURL: bundleURL, bookID: bookID)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try resized.write(to: url)
+    }
+
+    /// G12b-2c: GET/PUT 応答用に現在の監視設定を DTO 化する（folders に subfolderMode 反映＋presets 同梱）。
+    static func buildWatchConfigDTO(lib: ServedLibrary) throws -> WatchConfigDTO {
+        let enabled = ((try? lib.db.getLibrarySetting(key: "folder_watch_enabled")) ?? nil)
+            .map { $0 == "1" || $0 == "true" } ?? false
+        let foldersJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
+        let folders: [WatchedFolder] = foldersJSON.flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
+        let presetsJSON = (try? lib.db.getLibrarySetting(key: "filename_format_presets")) ?? nil
+        let presets: [FilenameFormatPreset] = presetsJSON.flatMap { $0.data(using: .utf8) }
+            .flatMap { try? JSONDecoder().decode([FilenameFormatPreset].self, from: $0) } ?? []
+        let folderDTOs = folders.map { f in
+            WatchedFolderDTO(id: f.id, path: f.path, enabled: f.enabled, presetID: f.presetID,
+                             baseline: f.baseline,
+                             subfolderMode: WatchedFolderDTO.SubfolderMode(rawValue: f.subfolderMode.rawValue) ?? .topLevelOnly)
+        }
+        let presetDTOs = presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.displayName) }
+        return WatchConfigDTO(enabled: enabled, folders: folderDTOs, presets: presetDTOs)
     }
 }
 
