@@ -173,6 +173,30 @@ struct StubBackedRemoteClientTests {
             #expect(dto.recentDays == 30)
         }
 
+        // MARK: - G12b-2c: 監視フォルダ設定
+
+        @Test func fetchWatchConfigDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(WatchConfigDTO(enabled: true,
+                    folders: [WatchedFolderDTO(id: "f1", path: "/x", enabled: true, subfolderMode: .recurse)],
+                    presets: [FilenameFormatPresetDTO(id: "p1", name: "コミック")])))
+            let dto = try await makeClient().fetchWatchConfig(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/watch-config") == true)
+            #expect(dto.folders.first?.subfolderMode == .recurse)
+            #expect(dto.presets?.first?.id == "p1")
+        }
+
+        @Test func putWatchConfigSendsPUT() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(WatchConfigDTO(enabled: false, folders: [])))
+            _ = try await makeClient().putWatchConfig(
+                WatchConfigDTO(enabled: false, folders: []), libraryUUID: "U", libraryToken: "LT")
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "PUT")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/watch-config") == true)
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+        }
+
         /// G14 follow-up: 非 SSE リクエストは有限の短いタイムアウトを持つこと。
         /// 既定の 60s だと、サーバ不達時に runLiveSync の reload が最長 60s ハングし、
         /// サーバ復帰後もそのリクエストが返るまで再接続を試せず赤字の復帰が ~40s まで遅れる。

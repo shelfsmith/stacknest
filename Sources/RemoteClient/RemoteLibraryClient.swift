@@ -456,6 +456,26 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(LibraryCountsDTO.self, data)
     }
 
+    // MARK: - G12b-2c: 監視フォルダ設定
+
+    /// GET watch-config — 監視フォルダ設定＋プリセット一覧（R 可）。
+    public func fetchWatchConfig(libraryUUID: String, libraryToken: String?) async throws -> WatchConfigDTO {
+        let url = makeURL("libraries/\(libraryUUID)/watch-config")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(WatchConfigDTO.self, data)
+    }
+
+    /// PUT watch-config — 監視フォルダ設定を保存し、適用後の設定を返す（RW）。
+    /// baseline スキャン（新規フォルダ追加）でサーバ処理が伸びうるため長め（30s）。
+    @discardableResult
+    public func putWatchConfig(_ dto: WatchConfigDTO, libraryUUID: String, libraryToken: String?) async throws -> WatchConfigDTO {
+        let url = makeURL("libraries/\(libraryUUID)/watch-config")
+        let body = try JSONEncoder().encode(dto)
+        let data = try await send(request(url, method: "PUT", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json", timeout: 30))
+        return try decode(WatchConfigDTO.self, data)
+    }
+
     // MARK: - G8a: ライブ同期（SSE）
 
     /// G8a: ライブ同期イベントを購読する（SSE・Design 1）。
