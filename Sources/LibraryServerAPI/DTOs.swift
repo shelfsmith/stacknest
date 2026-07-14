@@ -514,22 +514,50 @@ public struct ShelfBooksRequest: Codable, Sendable {
 
 /// 監視フォルダ 1 件の DTO（per-library）。
 public struct WatchedFolderDTO: Codable, Sendable {
+    /// G9: サブフォルダの扱い。AppCore.WatchedFolder.SubfolderMode と同 raw 値（DTO 層は AppCore を import 不可）。
+    public enum SubfolderMode: String, Codable, Sendable {
+        case topLevelOnly
+        case recurse
+    }
     public var id: String
     public var path: String
     public var enabled: Bool
     public var presetID: String?
     public var baseline: [String]
-    public init(id: String, path: String, enabled: Bool, presetID: String? = nil, baseline: [String] = []) {
-        self.id = id; self.path = path; self.enabled = enabled; self.presetID = presetID; self.baseline = baseline
+    public var subfolderMode: SubfolderMode
+    public init(id: String, path: String, enabled: Bool, presetID: String? = nil,
+                baseline: [String] = [], subfolderMode: SubfolderMode = .topLevelOnly) {
+        self.id = id; self.path = path; self.enabled = enabled
+        self.presetID = presetID; self.baseline = baseline; self.subfolderMode = subfolderMode
     }
+    private enum CodingKeys: String, CodingKey { case id, path, enabled, presetID, baseline, subfolderMode }
+    // 後方互換: 旧 JSON（subfolderMode 欠落）は .topLevelOnly。
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        path = try c.decode(String.self, forKey: .path)
+        enabled = try c.decode(Bool.self, forKey: .enabled)
+        presetID = try c.decodeIfPresent(String.self, forKey: .presetID)
+        baseline = try c.decodeIfPresent([String].self, forKey: .baseline) ?? []
+        subfolderMode = try c.decodeIfPresent(SubfolderMode.self, forKey: .subfolderMode) ?? .topLevelOnly
+    }
+}
+
+/// 命名プリセット 1 件の DTO（GET 専用・名前選択用。format 本文は不要）。
+public struct FilenameFormatPresetDTO: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public init(id: String, name: String) { self.id = id; self.name = name }
 }
 
 /// 監視フォルダ設定全体の DTO（enabled フラグ＋フォルダ一覧）。
 public struct WatchConfigDTO: Codable, Sendable {
     public var enabled: Bool
     public var folders: [WatchedFolderDTO]
-    public init(enabled: Bool, folders: [WatchedFolderDTO]) {
-        self.enabled = enabled; self.folders = folders
+    /// GET 専用。ライブラリの命名プリセット一覧（リモート Picker の名前表示用）。PUT では無視。
+    public var presets: [FilenameFormatPresetDTO]?
+    public init(enabled: Bool, folders: [WatchedFolderDTO], presets: [FilenameFormatPresetDTO]? = nil) {
+        self.enabled = enabled; self.folders = folders; self.presets = presets
     }
 }
 
