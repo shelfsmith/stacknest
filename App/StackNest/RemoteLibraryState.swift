@@ -752,6 +752,44 @@ final class RemoteLibraryState {
         } catch { errorText = "監視設定の保存に失敗しました"; return nil }
     }
 
+    // MARK: - G12b-3a: 一般設定・保守・scan-now
+
+    func loadGeneralSettings() async -> GeneralSettingsDTO? {
+        do { return try await client.fetchGeneralSettings(libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch { errorText = "一般設定の取得に失敗しました"; return nil }
+    }
+    @discardableResult
+    func saveGeneralSettings(_ dto: GeneralSettingsDTO) async -> GeneralSettingsDTO? {
+        do { return try await client.putGeneralSettings(dto, libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch let e as RemoteClientError {
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "一般設定の保存に失敗しました" } }()
+            return nil
+        } catch { errorText = "一般設定の保存に失敗しました"; return nil }
+    }
+    func runIntegrityCheck() async -> IntegrityCheckDTO? {
+        do { return try await client.checkIntegrity(libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch let e as RemoteClientError {
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "整合性チェックに失敗しました" } }()
+            return nil
+        } catch { errorText = "整合性チェックに失敗しました"; return nil }
+    }
+    @discardableResult
+    func runBackupNow() async -> Bool {
+        do { try await client.backupNow(libraryUUID: libraryUUID, libraryToken: libraryToken); return true }
+        catch let e as RemoteClientError {
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "バックアップに失敗しました" } }()
+            return false
+        } catch { errorText = "バックアップに失敗しました"; return false }
+    }
+    @discardableResult
+    func runScanNow() async -> Bool {
+        do { try await client.scanWatchedFoldersNow(libraryUUID: libraryUUID, libraryToken: libraryToken); return true }
+        catch let e as RemoteClientError {
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "スキャンの開始に失敗しました" } }()
+            return false
+        } catch { errorText = "スキャンの開始に失敗しました"; return false }
+    }
+
     /// ライブラリロックを設定（admin 必須）。
     func setLibraryLock(password: String) async {
         guard canDelete else { return }   // lock=admin
