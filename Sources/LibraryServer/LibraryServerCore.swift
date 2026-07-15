@@ -821,7 +821,7 @@ public struct LibraryServerCore: Sendable {
             return IntegrityCheckDTO(healthy: rows == ["ok"], rows: rows)
         }
         // G12b-3a: 今すぐバックアップ（admin）。同一 lib.db から作成し世代 prune。
-        api.post("libraries/:lib/backup-now") { [self] request, context in
+        api.post("libraries/:lib/backup-now") { request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
