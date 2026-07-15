@@ -49,6 +49,9 @@ targets:
           - en
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
         NSFaceIDUsageDescription: "ライブラリのロックを解除するために使用されます。"
+        NSDownloadsFolderUsageDescription: "本の画像アーカイブを読み込むために使用します。"
+        NSDocumentsFolderUsageDescription: "本の画像アーカイブを読み込むために使用します。"
+        NSDesktopFolderUsageDescription: "本の画像アーカイブを読み込むために使用します。"
         NSPrincipalClass: NSApplication
         NSSupportsAutomaticTermination: YES
         NSSupportsSuddenTermination: YES

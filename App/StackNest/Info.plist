@@ -51,6 +51,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>本の画像アーカイブを読み込むために使用します。</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>本の画像アーカイブを読み込むために使用します。</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>本の画像アーカイブを読み込むために使用します。</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>ライブラリのロックを解除するために使用されます。</string>
 	<key>NSHighResolutionCapable</key>
