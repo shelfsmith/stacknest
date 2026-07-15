@@ -173,6 +173,30 @@ struct StubBackedRemoteClientTests {
             #expect(dto.recentDays == 30)
         }
 
+        // MARK: - G12b-3a: 一般設定・保守・scan-now
+
+        @Test func generalSettingsClientRoundTrip() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(GeneralSettingsDTO(displayName: "L", backupEnabled: true, backupGenerations: 4)))
+            let dto = try await makeClient().fetchGeneralSettings(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/general-settings") == true)
+            #expect(dto.backupGenerations == 4)
+        }
+        @Test func integrityClientDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(IntegrityCheckDTO(healthy: true, rows: ["ok"])))
+            let dto = try await makeClient().checkIntegrity(libraryUUID: "U", libraryToken: "LT")
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/integrity-check") == true)
+            #expect(dto.healthy == true)
+        }
+        @Test func scanNowSendsPOST() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().scanWatchedFoldersNow(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/watch/scan-now") == true)
+        }
+
         // MARK: - G12b-2c: 監視フォルダ設定
 
         @Test func fetchWatchConfigDecodes() async throws {

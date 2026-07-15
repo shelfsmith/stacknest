@@ -472,6 +472,31 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(LibraryCountsDTO.self, data)
     }
 
+    // MARK: - G12b-3a: 一般設定・保守・scan-now
+
+    public func fetchGeneralSettings(libraryUUID: String, libraryToken: String?) async throws -> GeneralSettingsDTO {
+        let url = makeURL("libraries/\(libraryUUID)/general-settings")
+        return try decode(GeneralSettingsDTO.self, try await send(request(url, method: "GET", libraryToken: libraryToken)))
+    }
+    @discardableResult
+    public func putGeneralSettings(_ dto: GeneralSettingsDTO, libraryUUID: String, libraryToken: String?) async throws -> GeneralSettingsDTO {
+        let url = makeURL("libraries/\(libraryUUID)/general-settings")
+        let body = try JSONEncoder().encode(dto)
+        return try decode(GeneralSettingsDTO.self, try await send(request(url, method: "PUT", libraryToken: libraryToken, body: body, contentType: "application/json", timeout: 30)))
+    }
+    public func checkIntegrity(libraryUUID: String, libraryToken: String?) async throws -> IntegrityCheckDTO {
+        let url = makeURL("libraries/\(libraryUUID)/integrity-check")
+        return try decode(IntegrityCheckDTO.self, try await send(request(url, method: "GET", libraryToken: libraryToken, timeout: 60)))
+    }
+    public func backupNow(libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/backup-now")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 120))
+    }
+    public func scanWatchedFoldersNow(libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/watch/scan-now")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
+    }
+
     // MARK: - G12b-2c: 監視フォルダ設定
 
     /// GET watch-config — 監視フォルダ設定＋プリセット一覧（R 可）。
