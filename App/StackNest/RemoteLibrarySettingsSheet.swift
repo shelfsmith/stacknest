@@ -29,7 +29,7 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var stagedFieldLabels: [String: String] = [:]
     @State private var stagedBookTypeLabels: [String: String] = [:]
 
-    // MARK: 取り込みタブ（canEdit 以上）
+    // MARK: 取り込みタブ（canDelete 以上）
 
     @State private var importAutoClassify: Bool?
     @State private var thickThreshold: Int?
@@ -140,7 +140,7 @@ struct RemoteLibrarySettingsSheet: View {
         }
     }
 
-    // MARK: - 取り込みタブ（canEdit 以上）
+    // MARK: - 取り込みタブ（canDelete 以上）
 
     @ViewBuilder
     private func importTab() -> some View {
@@ -384,12 +384,15 @@ struct RemoteLibrarySettingsSheet: View {
 
                     HStack {
                         Button("今すぐバックアップ") {
-                            Task { _ = await state.runBackupNow() }
+                            Task {
+                                if await state.runBackupNow() == false { errorText = state.errorText }
+                            }
                         }
                         .disabled(general == nil)
                         Button("整合性をチェック") {
                             Task {
                                 integrityResult = await state.runIntegrityCheck()
+                                if integrityResult == nil { errorText = state.errorText }
                                 showIntegrity = integrityResult != nil
                             }
                         }
