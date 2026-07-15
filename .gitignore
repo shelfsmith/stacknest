@@ -41,8 +41,9 @@ coverage.lcov
 *.local.swift
 local-config/
 
-# 開発者ローカルの Claude Code 指示書（private ワークスペース/ロードマップ参照を含むため公開しない）
+# 開発者ローカルの Claude Code / Codex 指示書（private ワークスペース/ロードマップ参照を含むため公開しない）
 CLAUDE.md
+AGENTS.md
 
 # アイコン制作の元素材（公開不要・ビルド済みアイコンは App/StackNest/Assets.xcassets に同梱）
 StackNest_simplified_icons_16_32_64/
