@@ -46,9 +46,10 @@ struct AccessTierTests {
             try await client.execute(uri: "/api/v1/import-config", method: .put,
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: ByteBuffer(string: #"{"autoClassifyEnabled":true,"thickBookThreshold":20}"#)) { r in #expect(r.status == .forbidden) }
+            // G12b-3a: watch-config PUT は admin 専用へ再分類（file operations + data/root settings）。
             try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/watch-config", method: .put,
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
-                body: ByteBuffer(string: #"{"enabled":false,"folders":[]}"#)) { r in #expect(r.status == .ok) }
+                body: ByteBuffer(string: #"{"enabled":false,"folders":[]}"#)) { r in #expect(r.status == .forbidden) }
         }
     }
     @Test func adminEndpointAllowsAdminOps() async throws {
@@ -58,6 +59,10 @@ struct AccessTierTests {
             try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/lock", method: .post,
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: ByteBuffer(string: #"{"password":"x"}"#)) { r in #expect(r.status == .noContent) }
+            // G12b-3a: watch-config PUT は admin トークンで成功する。
+            try await client.execute(uri: "/api/v1/libraries/\(lib.uuid)/watch-config", method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"enabled":false,"folders":[]}"#)) { r in #expect(r.status == .ok) }
         }
     }
     @Test func deleteTrashRequiresAdmin() async throws {

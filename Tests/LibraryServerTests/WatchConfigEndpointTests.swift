@@ -10,9 +10,9 @@ import AppCore
 @Suite("GET/PUT /watch-config endpoint")
 struct WatchConfigEndpointTests {
 
-    private func makeApp(fixture: TestLibraryFixture) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W"),
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -42,7 +42,7 @@ struct WatchConfigEndpointTests {
         let fixture = try TestLibraryFixture(name: "WCRoundtrip", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         // G12b-2c: 新規 folder id はパス検証（実在＋ディレクトリ）が入るため実ディレクトリを使う。
         let tmpDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("wc-roundtrip-\(UUID().uuidString)")
@@ -95,6 +95,43 @@ struct WatchConfigEndpointTests {
         }
     }
 
+    /// G12b-3a: PUT は admin 専用 — edit トークンでは 403、admin トークンでは 2xx。
+    @Test func putWatchConfigRequiresAdmin() async throws {
+        let bodyData = try JSONEncoder().encode(WatchConfigDTO(enabled: false, folders: []))
+
+        // edit トークン（adminTier: false, Bearer W）→ 403
+        let editFixture = try TestLibraryFixture(name: "WCAdminTierEdit", bookCount: 0)
+        defer { editFixture.cleanup() }
+        let editLib = editFixture.servedLibrary()
+        let editApp = makeApp(fixture: editFixture, adminTier: false)
+        try await editApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(editLib.uuid)/watch-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(bodyData))
+            ) { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+
+        // admin トークン（adminTier: true, Bearer W）→ 2xx
+        let adminFixture = try TestLibraryFixture(name: "WCAdminTierAdmin", bookCount: 0)
+        defer { adminFixture.cleanup() }
+        let adminLib = adminFixture.servedLibrary()
+        let adminApp = makeApp(fixture: adminFixture, adminTier: true)
+        try await adminApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(adminLib.uuid)/watch-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(bodyData))
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+    }
+
     /// G12b-2c: GET が folders[].subfolderMode（recurse）と presets（命名プリセット一覧）を返す。
     @Test func getReturnsSubfolderModeAndPresets() async throws {
         let fixture = try TestLibraryFixture(name: "WCSubfolderPresets", bookCount: 0)
@@ -135,7 +172,7 @@ struct WatchConfigEndpointTests {
         try fixture.db.setLibrarySetting(key: "watched_folders", value: String(decoding: existingData, as: UTF8.self))
         try fixture.db.setLibrarySetting(key: "folder_watch_enabled", value: "true")
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         try await app.test(.router) { client in
             // 実行: PUT で f1 の enabled を false に（baseline は空で送る）
             let folder = WatchedFolderDTO(id: "f1", path: "/tmp/wc-f1", enabled: false, baseline: [])
@@ -169,7 +206,7 @@ struct WatchConfigEndpointTests {
         let fixture = try TestLibraryFixture(name: "WCInvalidPath", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         try await app.test(.router) { client in
             // 実行: PUT で新規 id=f2, path="/no/such/dir" を送る
             let folder = WatchedFolderDTO(id: "f2", path: "/no/such/dir", enabled: true)
@@ -201,7 +238,7 @@ struct WatchConfigEndpointTests {
         try Data("x".utf8).write(to: filePath)
         defer { try? FileManager.default.removeItem(at: filePath) }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         try await app.test(.router) { client in
             let folder = WatchedFolderDTO(id: "f2b", path: filePath.path, enabled: true)
             let putBody = WatchConfigDTO(enabled: true, folders: [folder])
@@ -229,7 +266,7 @@ struct WatchConfigEndpointTests {
         let existingFile = tmpDir.appendingPathComponent("existing.zip")
         try Data("dummy".utf8).write(to: existingFile)
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         try await app.test(.router) { client in
             // 実行: PUT で新規 id=f3, path=一時dir, subfolderMode=topLevelOnly を送る（baseline 空）
             let folder = WatchedFolderDTO(id: "f3", path: tmpDir.path, enabled: true,
@@ -270,7 +307,7 @@ struct WatchConfigEndpointTests {
         try fixture.db.setLibrarySetting(key: "watched_folders", value: String(decoding: existingData, as: UTF8.self))
         try fixture.db.setLibrarySetting(key: "folder_watch_enabled", value: "true")
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         try await app.test(.router) { client in
             // 実行: PUT で folders=[]（f1 を含めない）
             let putBody = WatchConfigDTO(enabled: true, folders: [])

@@ -707,7 +707,7 @@ public struct LibraryServerCore: Sendable {
         // A2: 監視フォルダ設定の更新（RW）。blind-replace ではなく id マージ:
         // 既存 id は baseline をサーバ保持・編集反映／新規 id はパス検証＋baseline スキャン／消えた id は削除。
         api.put("libraries/:lib/watch-config") { [self] request, context in
-            try context.requireEdit()
+            try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: WatchConfigDTO.self, context: context)
@@ -779,7 +779,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: per-library 取り込み設定の更新（RW）。nil 指定は override 削除（= グローバル既定へ戻す）。
         api.put("libraries/:lib/import-config") { [self] request, context in
-            try context.requireEdit()
+            try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: ImportConfigDTO.self, context: context)

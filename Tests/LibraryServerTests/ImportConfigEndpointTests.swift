@@ -46,7 +46,7 @@ struct ImportConfigEndpointTests {
         let fixture = try TestLibraryFixture(name: "ICLibRound", bookCount: 0)
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let body = try JSONEncoder().encode(ImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: 50))
         try await app.test(.router) { client in
             try await client.execute(
@@ -74,7 +74,7 @@ struct ImportConfigEndpointTests {
         try fixture.db.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: "false")
         try fixture.db.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: "42")
         let lib = fixture.servedLibrary()
-        let app = makeApp(fixture: fixture)
+        let app = makeApp(fixture: fixture, adminTier: true)
         let body = try JSONEncoder().encode(ImportConfigDTO(autoClassifyEnabled: nil, thickBookThreshold: nil))
         try await app.test(.router) { client in
             try await client.execute(
@@ -108,6 +108,39 @@ struct ImportConfigEndpointTests {
                 headers: [.authorization: "Bearer R", .contentType: "application/json"],
                 body: .init(bytes: Array(body))
             ) { resp in #expect(resp.status == .forbidden) }
+        }
+    }
+
+    /// G12b-3a: per-library PUT は admin 専用 — edit トークンでは 403、admin トークンでは 2xx。
+    @Test func putImportConfigRequiresAdmin() async throws {
+        let body = try JSONEncoder().encode(ImportConfigDTO(autoClassifyEnabled: true, thickBookThreshold: nil))
+
+        // edit トークン（adminTier: false, Bearer W）→ 403
+        let editFixture = try TestLibraryFixture(name: "ICAdminTierEdit", bookCount: 0)
+        defer { editFixture.cleanup() }
+        let editLib = editFixture.servedLibrary()
+        let editApp = makeApp(fixture: editFixture, adminTier: false)
+        try await editApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(editLib.uuid)/import-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+
+        // admin トークン（adminTier: true, Bearer W）→ 2xx
+        let adminFixture = try TestLibraryFixture(name: "ICAdminTierAdmin", bookCount: 0)
+        defer { adminFixture.cleanup() }
+        let adminLib = adminFixture.servedLibrary()
+        let adminApp = makeApp(fixture: adminFixture, adminTier: true)
+        try await adminApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(adminLib.uuid)/import-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in #expect(resp.status == .ok) }
         }
     }
 
