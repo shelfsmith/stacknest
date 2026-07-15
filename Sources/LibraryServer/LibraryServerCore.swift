@@ -788,6 +788,30 @@ public struct LibraryServerCore: Sendable {
             self.notifySettingsChanged(lib.uuid)
             return dto
         }
+        // G12b-3a: 一般設定の取得（R 可）。
+        api.get("libraries/:lib/general-settings") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let nameRaw: String? = (try? lib.db.getLibrarySetting(key: "display_name")) ?? nil
+            let name: String = nameRaw ?? ""
+            let enabledRaw: String? = (try? lib.db.getLibrarySetting(key: "backup_enabled")) ?? nil
+            let enabled: Bool = enabledRaw.map { $0 == "1" || $0 == "true" } ?? false
+            let gensRaw: String? = (try? lib.db.getLibrarySetting(key: "backup_generations")) ?? nil
+            let gens: Int = gensRaw.flatMap { Int($0) } ?? 5
+            return GeneralSettingsDTO(displayName: name, backupEnabled: enabled, backupGenerations: gens)
+        }
+        // G12b-3a: 一般設定の更新（admin）。
+        api.put("libraries/:lib/general-settings") { [self] request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let dto = try await request.decode(as: GeneralSettingsDTO.self, context: context)
+            try lib.db.setLibrarySetting(key: "display_name", value: dto.displayName)
+            try lib.db.setLibrarySetting(key: "backup_enabled", value: dto.backupEnabled ? "true" : "false")
+            try lib.db.setLibrarySetting(key: "backup_generations", value: String(max(1, min(20, dto.backupGenerations))))
+            self.notifySettingsChanged(lib.uuid)
+            return dto
+        }
         // G14: リモートサイドバーの安定件数（ライブラリ総数・最近件数）。scope 非依存。read で可。
         api.get("libraries/:lib/counts") { request, context in
             let uuid = try context.parameters.require("lib")
