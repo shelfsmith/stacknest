@@ -41,6 +41,9 @@ public struct LibraryServerConfig: Sendable {
     /// グラント解決クロージャ（毎リクエスト現在値を返す＝ライブ反映・C-③a）。
     /// nil = 旧来の token/editToken 経路。本番は { GrantStore.list() } を注入する。
     public var grantsProvider: (@Sendable () -> [Grant])?
+    /// G12b-3a: 監視フォルダの「今すぐスキャン」がリクエストされたとき App に通知する（libraryUUID）。
+    /// App は該当ライブラリの FolderWatcher の scanNow() を発火する。
+    public var onScanNowRequested: (@Sendable (String) -> Void)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -53,7 +56,8 @@ public struct LibraryServerConfig: Sendable {
                 onLibraryStructureChanged: (@Sendable (String) -> Void)? = nil,
                 apiOnly: Bool = false,
                 adminTier: Bool = false,
-                grantsProvider: (@Sendable () -> [Grant])? = nil) {
+                grantsProvider: (@Sendable () -> [Grant])? = nil,
+                onScanNowRequested: (@Sendable (String) -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -67,6 +71,7 @@ public struct LibraryServerConfig: Sendable {
         self.apiOnly = apiOnly
         self.adminTier = adminTier
         self.grantsProvider = grantsProvider
+        self.onScanNowRequested = onScanNowRequested
     }
 }
 
@@ -744,6 +749,14 @@ public struct LibraryServerCore: Sendable {
             try lib.db.setLibrarySetting(key: "watched_folders", value: String(decoding: data, as: UTF8.self))
             self.notifySettingsChanged(lib.uuid)
             return try Self.buildWatchConfigDTO(lib: lib)
+        }
+        // G12b-3a: 監視フォルダの今すぐスキャン（admin）。ホストの FolderWatcher を発火。
+        api.post("libraries/:lib/watch/scan-now") { [self] request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard (try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope)) != nil else { throw HTTPError(.notFound) }
+            config.onScanNowRequested?(uuid)
+            return HTTPResponse.Status.noContent
         }
         // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
         api.post("libraries/:lib/lock") { [self] request, context in

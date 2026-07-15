@@ -12,9 +12,11 @@ import AppCore
 @Suite("maintenance endpoints (G12b-3a)", .serialized)
 struct MaintenanceEndpointTests {
 
-    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false,
+                          onScanNowRequested: (@Sendable (String) -> Void)? = nil) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier,
+                          onScanNowRequested: onScanNowRequested),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -80,5 +82,41 @@ struct MaintenanceEndpointTests {
         }
         let after = BackupManager.list(in: backupsDir).count
         #expect(after > before)
+    }
+
+    /// POST /watch/scan-now: admin → 204 かつ onScanNowRequested コールバックが当該 uuid で呼ばれる。
+    /// edit トークンは 403 かつコールバック未呼出。
+    @Test func scanNowRequiresAdminAndInvokesCallback() async throws {
+        // edit トークン（adminTier: false, Bearer W）→ 403、callback 未呼出
+        nonisolated(unsafe) var editCalledUUID: String?
+        let editFixture = try TestLibraryFixture(name: "SNEdit", bookCount: 0)
+        defer { editFixture.cleanup() }
+        let editLib = editFixture.servedLibrary()
+        let editApp = makeApp(fixture: editFixture, adminTier: false, onScanNowRequested: { uuid in
+            editCalledUUID = uuid
+        })
+        try await editApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(editLib.uuid)/watch/scan-now",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+        #expect(editCalledUUID == nil)
+
+        // admin トークン（adminTier: true, Bearer W）→ 204、callback が当該 uuid で呼ばれる
+        nonisolated(unsafe) var adminCalledUUID: String?
+        let adminFixture = try TestLibraryFixture(name: "SNAdmin", bookCount: 0)
+        defer { adminFixture.cleanup() }
+        let adminLib = adminFixture.servedLibrary()
+        let adminApp = makeApp(fixture: adminFixture, adminTier: true, onScanNowRequested: { uuid in
+            adminCalledUUID = uuid
+        })
+        try await adminApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(adminLib.uuid)/watch/scan-now",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .noContent) }
+        }
+        #expect(adminCalledUUID == adminLib.uuid)
     }
 }

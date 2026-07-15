@@ -88,7 +88,17 @@ final class ServerController {
                     }
                 }
             },
-            grantsProvider: { GrantStore.list() }   // C-③a: 毎リクエスト現在のグラントを参照（ライブ反映/即時失効）
+            grantsProvider: { GrantStore.list() },  // C-③a: 毎リクエスト現在のグラントを参照（ライブ反映/即時失効）
+            onScanNowRequested: { uuid in
+                // G12b-3a: リモートの「今すぐスキャン」を、該当ライブラリを開いているローカル
+                // AppState の FolderWatcher で即時発火する。
+                Task { @MainActor in
+                    for state in AppState.activeInstances.allObjects
+                    where state.librarySettings?.libraryUUID == uuid {
+                        state.scanWatchedFoldersNow()
+                    }
+                }
+            }
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         self.runningCore = core
