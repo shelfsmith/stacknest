@@ -91,6 +91,30 @@ struct RemoteBrowseEndpointsTests {
         }
     }
 
+    /// G12b-3a Task 6: detail は path のフル秘匿を保ちつつ filename（basename のみ）を返す。
+    @Test func bookDetailReturnsFilenameBasenameOnly() async throws {
+        let fixture = try TestLibraryFixture(name: "Fn", bookCount: 0)
+        defer { fixture.cleanup() }
+        let id = try fixture.addRealBook(zipFixtureNamed: "three_pages")
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)/detail", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { resp in
+                #expect(resp.status == .ok)
+                let d = try dec().decode(BookDetailDTO.self, from: Data(buffer: resp.body))
+                #expect(d.filename == "three_pages.zip")
+                #expect(d.filename?.contains("/") == false)   // フルパス漏洩なし
+                #expect(d.path == nil)   // path 自体は秘匿
+            }
+        }
+    }
+
     /// 4.2c-6b R2: books 一覧は coverCropRectJSON を返す（リモートグリッドのクロップ適用用）。
     @Test func booksListIncludesCoverCropRect() async throws {
         let fixture = try TestLibraryFixture(name: "Crop", bookCount: 0)

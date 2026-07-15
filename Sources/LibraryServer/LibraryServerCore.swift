@@ -432,7 +432,9 @@ public struct LibraryServerCore: Sendable {
                 coverCropRectJSON: row.coverCropRect.map(BookRow.encodeCoverCropRect),
                 pageDirection: row.pageDirection.map { directionString($0) },
                 // 4.2c-6b: path 自体は秘匿。拡張子だけ返してリモートの「ファイル形式」表示に使う。
-                fileExtension: row.path.map { ($0 as NSString).pathExtension.lowercased() }
+                fileExtension: row.path.map { ($0 as NSString).pathExtension.lowercased() },
+                // G12b-3a Task 6: basename のみ返す（フルパスは秘匿のまま）。
+                filename: row.path.map { ($0 as NSString).lastPathComponent }
             )
         }
 
