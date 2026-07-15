@@ -73,6 +73,9 @@ final class ServerController {
                         // FolderWatcher をライブ再構成する（追加した監視フォルダを即スキャン開始）。
                         state.librarySettings?.reloadWatchedFolders()
                         state.reloadFolderWatcher()
+                        // G12b-3a: リモートの general-settings PUT（displayName/backup_*）を
+                        // DB から再読込してホストのローカル UI・配信名へライブ反映する。
+                        state.librarySettings?.reloadGeneralSettings()
                     }
                 }
             },

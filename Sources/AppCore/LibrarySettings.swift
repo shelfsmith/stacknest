@@ -725,6 +725,18 @@ public final class LibrarySettings {
         }
     }
 
+    /// G12b-3a: 外部（リモートの general-settings PUT 等）が DB の display_name/backup_* を
+    /// 直接書き換えたとき、DB から再読込してメモリへ反映する（ホスト UI・配信名へライブ反映）。
+    public func reloadGeneralSettings() {
+        if let v = (try? database.getLibrarySetting(key: Self.displayNameKey)) ?? nil { displayName = v }
+        if let v = (try? database.getLibrarySetting(key: Self.backupEnabledKey)) ?? nil {
+            backupEnabled = (v == "1" || v == "true")
+        }
+        if let v = (try? database.getLibrarySetting(key: Self.backupGenerationsKey)) ?? nil, let n = Int(v) {
+            backupGenerations = n
+        }
+    }
+
     private func persistIgnoredDuplicateKeys() {
         do {
             let data = try JSONEncoder().encode(ignoredDuplicateKeys)
