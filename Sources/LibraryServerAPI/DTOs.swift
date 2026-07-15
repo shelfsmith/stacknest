@@ -338,13 +338,16 @@ public struct BookDetailDTO: Codable, Sendable {
     /// 4.2c-6b: ファイル拡張子（"zip"/"rar"/""=フォルダ/nil=不明）。path は秘匿で返さないため、
     /// リモート詳細ペインの「ファイル形式」表示用に拡張子だけを別途返す。
     public let fileExtension: String?
+    /// G12b-3a: リモート一般タブ等での表示用ファイル名（拡張子込み）。旧サーバ/旧 JSON には無いため後方互換で nil 許容。
+    public let filename: String?
     public init(id: Int, title: String, author: String?, genre: String?, path: String?,
                 dateAdded: Date, playDate: Date?, bookType: Int, fileType: Int, pages: Int?,
                 lastPage: Int? = nil,
                 rating: Int, unseen: Bool, keywordA: String?, keywordB: String?, keywordC: String?,
                 neta: String?, memo: String?, series: String?, volume: Double?,
                 coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?,
-                fileExtension: String? = nil) {
+                fileExtension: String? = nil,
+                filename: String? = nil) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate; self.bookType = bookType
         self.fileType = fileType; self.pages = pages; self.lastPage = lastPage
@@ -354,6 +357,7 @@ public struct BookDetailDTO: Codable, Sendable {
         self.coverImageName = coverImageName; self.coverCropRectJSON = coverCropRectJSON
         self.pageDirection = pageDirection
         self.fileExtension = fileExtension
+        self.filename = filename
     }
 }
 
@@ -548,6 +552,24 @@ public struct FilenameFormatPresetDTO: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
     public init(id: String, name: String) { self.id = id; self.name = name }
+}
+
+/// 一般タブ設定（ライブラリ名＋バックアップ設定）。
+public struct GeneralSettingsDTO: Codable, Sendable {
+    public var displayName: String       // 空文字 = 未設定（バンドル名にフォールバック）
+    public var backupEnabled: Bool
+    public var backupGenerations: Int
+    public init(displayName: String, backupEnabled: Bool, backupGenerations: Int) {
+        self.displayName = displayName; self.backupEnabled = backupEnabled
+        self.backupGenerations = backupGenerations
+    }
+}
+
+/// SQLite integrity_check の結果。
+public struct IntegrityCheckDTO: Codable, Sendable {
+    public var healthy: Bool
+    public var rows: [String]
+    public init(healthy: Bool, rows: [String]) { self.healthy = healthy; self.rows = rows }
 }
 
 /// 監視フォルダ設定全体の DTO（enabled フラグ＋フォルダ一覧）。

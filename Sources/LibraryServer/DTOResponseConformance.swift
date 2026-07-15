@@ -25,3 +25,5 @@ extension GlobalImportConfigDTO: ResponseEncodable {}
 extension DuplicateScanReply: ResponseEncodable {}
 extension GrantDTO: ResponseEncodable {}
 extension LibraryCountsDTO: ResponseEncodable {}
+extension GeneralSettingsDTO: ResponseEncodable {}
+extension IntegrityCheckDTO: ResponseEncodable {}
