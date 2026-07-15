@@ -181,8 +181,13 @@ struct WatchConfigEndpointTests {
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: .init(bytes: Array(bodyData))
             ) { response in
-                // 検証: HTTP 400（存在しない/ディレクトリでない）
+                // 検証: HTTP 400（存在しない/ディレクトリでない）＋ body の JSON に不正パスを含む
+                // （A3: クライアントがどのパスが不正か提示できるようにするため。Hummingbird は
+                // `{"error":{"message":"..."}}` で message を返す＝クライアントが JSON デコードで復元する）。
                 #expect(response.status == .badRequest)
+                struct HBError: Decodable { struct E: Decodable { let message: String }; let error: E }
+                let parsed = try JSONDecoder().decode(HBError.self, from: Data(buffer: response.body))
+                #expect(parsed.error.message.contains("/no/such/dir"))
             }
         }
     }

@@ -706,6 +706,25 @@ public final class LibrarySettings {
         customBookTypeLabels = decodeMap(Self.customBookTypeLabelsKey)
     }
 
+    /// G12b-2c A2: 外部（リモートの watch-config PUT 等）が DB の folder_watch_enabled /
+    /// watched_folders を直接書き換えたとき、DB から再読込してメモリへ反映する。ホストの
+    /// FolderWatcher をライブ再構成する（`AppState.reloadFolderWatcher()`）ために使う。
+    /// 未設定/デコード失敗時は既定（無効・空）に倒す（init と同じ挙動）。
+    public func reloadWatchedFolders() {
+        if let v = (try? database.getLibrarySetting(key: Self.folderWatchEnabledKey)) ?? nil {
+            folderWatchEnabled = (v == "1" || v == "true")
+        } else {
+            folderWatchEnabled = false
+        }
+        if let json = (try? database.getLibrarySetting(key: Self.watchedFoldersKey)) ?? nil,
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([WatchedFolder].self, from: data) {
+            watchedFolders = decoded
+        } else {
+            watchedFolders = []
+        }
+    }
+
     private func persistIgnoredDuplicateKeys() {
         do {
             let data = try JSONEncoder().encode(ignoredDuplicateKeys)

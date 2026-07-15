@@ -69,6 +69,10 @@ final class ServerController {
                     where state.librarySettings?.libraryUUID == uuid {
                         state.librarySettings?.reloadStampDefinitions()
                         state.librarySettings?.reloadCustomLabels()
+                        // G12b-2c A2: リモートの watch-config PUT を DB から再読込し、ホストの
+                        // FolderWatcher をライブ再構成する（追加した監視フォルダを即スキャン開始）。
+                        state.librarySettings?.reloadWatchedFolders()
+                        state.reloadFolderWatcher()
                     }
                 }
             },

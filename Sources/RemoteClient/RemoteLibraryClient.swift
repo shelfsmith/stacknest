@@ -54,6 +54,7 @@ public struct RemoteLibraryClient: Sendable {
             guard let http = resp as? HTTPURLResponse else { throw RemoteClientError.badResponse }
             switch http.statusCode {
             case 200...299: return data
+            case 400: throw RemoteClientError.badRequest(Self.errorMessage(from: data))
             case 401: throw RemoteClientError.unauthorized
             case 403: throw RemoteClientError.forbidden
             case 404: throw RemoteClientError.notFound
@@ -74,6 +75,21 @@ public struct RemoteLibraryClient: Sendable {
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         do { return try Self.decoder().decode(T.self, from: data) }
         catch { throw RemoteClientError.decoding }
+    }
+
+    /// 400 応答の body からユーザー提示用のエラー文言を取り出す（防御的パース）。
+    /// Hummingbird の `HTTPError(_, message:)` は `{"error":{"message":"..."}}` を返すのでそれを優先、
+    /// 取れなければ生文字列（短ければ）を使う。何も取れなければ nil。
+    private static func errorMessage(from data: Data) -> String? {
+        struct HBError: Decodable { struct E: Decodable { let message: String? }; let error: E? }
+        if let parsed = try? JSONDecoder().decode(HBError.self, from: data),
+           let msg = parsed.error?.message, !msg.isEmpty {
+            return msg
+        }
+        let raw = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        // JSON 断片や巨大 body は避け、短い平文のみ採用。
+        if !raw.isEmpty, !raw.hasPrefix("{"), !raw.hasPrefix("["), raw.count <= 300 { return raw }
+        return nil
     }
 
     // MARK: - API

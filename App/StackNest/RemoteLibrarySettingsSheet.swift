@@ -42,9 +42,8 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var passwordConfirm = ""
     @State private var confirmingDisableLock = false
 
-    // MARK: 監視タブ（canEdit 以上）
+    // MARK: 自動追加（監視フォルダ）— smoke b: 取り込みタブ内。importConfigLoaded でまとめてロード。
     @State private var watchConfig: WatchConfigDTO?
-    @State private var watchLoaded = false
     @State private var newFolderPath = ""
 
     var body: some View {
@@ -70,12 +69,6 @@ struct RemoteLibrarySettingsSheet: View {
                     ScrollView { lockTab().padding(16) }
                         .tabItem { Label("ロック", systemImage: "lock") }
                         .tag(2)
-                }
-
-                if state.canEdit {
-                    ScrollView { watchTab().padding(16) }
-                        .tabItem { Label("監視", systemImage: "folder.badge.gearshape") }
-                        .tag(3)
                 }
             }
             .padding(.horizontal, 12)
@@ -136,6 +129,8 @@ struct RemoteLibrarySettingsSheet: View {
 
     @ViewBuilder
     private func importTab() -> some View {
+        // smoke b: ローカル同様「取り込み」タブに 自動分類（importSection 相当）＋自動追加（watchSection 相当）を並べる。
+        VStack(alignment: .leading, spacing: 16) {
         GroupBox("自動分類") {
             VStack(alignment: .leading, spacing: 12) {
                 Text("「既定に従う」を選ぶと、サーバのグローバル設定を使います。")
@@ -210,6 +205,9 @@ struct RemoteLibrarySettingsSheet: View {
             }
             .padding(8)
         }
+
+        watchSection()
+        }
         .task {
             guard !importConfigLoaded else { return }
             importConfigLoaded = true
@@ -218,6 +216,9 @@ struct RemoteLibrarySettingsSheet: View {
                 thickThreshold = dto.thickBookThreshold
                 if let t = dto.thickBookThreshold { thickThresholdInput = String(t) }
             }
+            // smoke b: 自動追加も同じ「取り込み」タブでロードする。
+            watchConfig = await state.loadWatchConfig()
+            if watchConfig == nil { errorText = state.errorText }
         }
     }
 
@@ -227,20 +228,6 @@ struct RemoteLibrarySettingsSheet: View {
             thickThreshold = max(5, min(100, v))
         }
         thickThresholdInput = String(thickThreshold ?? 20)
-    }
-
-    private func saveImport() async {
-        saving = true
-        defer { saving = false }
-        state.errorText = nil
-        let dto = ImportConfigDTO(autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold)
-        await state.saveImportConfig(dto)
-        if state.errorText == nil {
-            errorText = nil
-            dismiss()
-        } else {
-            errorText = state.errorText
-        }
     }
 
     // MARK: - ロックタブ（canDelete 以上）
@@ -345,62 +332,65 @@ struct RemoteLibrarySettingsSheet: View {
     private func saveCurrentTab() async {
         switch settingsTab {
         case 0: await saveLabels()
-        case 1: await saveImport()
+        case 1: await saveImportAndWatch()   // smoke b: 取り込みタブは 自動分類＋自動追加 を両方保存
         case 2: await saveLock()
-        case 3: await saveWatch()
         default: break
         }
     }
 
-    // MARK: - 監視タブ（canEdit 以上）
+    // MARK: - 自動追加（監視フォルダ）セクション — smoke b: ローカル同様「取り込み」タブ内に置く
 
     @ViewBuilder
-    private func watchTab() -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Toggle("自動追加を有効にする", isOn: Binding(
-                get: { watchConfig?.enabled ?? false },
-                set: { watchConfig?.enabled = $0 }
-            ))
-            Text("監視フォルダに入った本を自動でライブラリに追加します（ホスト側で実行）。")
-                .font(.caption).foregroundStyle(.secondary)
+    private func watchSection() -> some View {
+        // smoke c: 「自動追加を有効にする」OFF のときは関連項目を全てグレーアウトする。
+        let watchEnabled = watchConfig?.enabled ?? false
+        GroupBox("自動追加") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("自動追加を有効にする", isOn: Binding(
+                    get: { watchConfig?.enabled ?? false },
+                    set: { watchConfig?.enabled = $0 }
+                ))
+                .disabled(watchConfig == nil)   // 未ロード時はトグルも触らせない
+                Text("監視フォルダに入った本を自動でライブラリに追加します（ホスト側で実行）。")
+                    .font(.caption).foregroundStyle(.secondary)
 
-            Divider()
+                Divider()
 
-            if let cfg = watchConfig {
-                if cfg.folders.isEmpty {
-                    Text("監視フォルダが未設定です。下の入力で追加してください。")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                ForEach(cfg.folders.indices, id: \.self) { i in
-                    watchFolderRow(i)
-                    Divider()
-                }
-            } else if errorText != nil {
-                Button("再読み込み") {
-                    Task {
-                        errorText = nil
-                        watchConfig = await state.loadWatchConfig()
-                        if watchConfig == nil { errorText = state.errorText }
+                if watchConfig != nil {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let cfg = watchConfig {
+                            if cfg.folders.isEmpty {
+                                Text("監視フォルダが未設定です。下の入力で追加してください。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            ForEach(cfg.folders.indices, id: \.self) { i in
+                                watchFolderRow(i)
+                                Divider()
+                            }
+                        }
+                        HStack {
+                            TextField("追加する監視フォルダのホスト絶対パス（例: /Users/you/Watch）", text: $newFolderPath)
+                                .textFieldStyle(.roundedBorder)
+                            Button("フォルダを追加") { addWatchFolderRow() }
+                                .disabled(newFolderPath.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                        Text("パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
+                    .disabled(!watchEnabled)   // smoke c: 自動追加 OFF なら中身をグレーアウト
+                } else if errorText != nil {
+                    Button("再読み込み") {
+                        Task {
+                            errorText = nil
+                            watchConfig = await state.loadWatchConfig()
+                            if watchConfig == nil { errorText = state.errorText }
+                        }
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
                 }
-            } else {
-                ProgressView().controlSize(.small)
             }
-
-            HStack {
-                TextField("追加する監視フォルダのホスト絶対パス（例: /Users/you/Watch）", text: $newFolderPath)
-                    .textFieldStyle(.roundedBorder)
-                Button("フォルダを追加") { addWatchFolderRow() }
-                    .disabled(watchConfig == nil || newFolderPath.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-            Text("パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。")
-                .font(.caption2).foregroundStyle(.secondary)
-        }
-        .task {
-            guard !watchLoaded else { return }
-            watchLoaded = true
-            watchConfig = await state.loadWatchConfig()
-            if watchConfig == nil { errorText = state.errorText }
+            .padding(8)
         }
     }
 
@@ -452,18 +442,26 @@ struct RemoteLibrarySettingsSheet: View {
         newFolderPath = ""
     }
 
-    private func saveWatch() async {
-        guard let cfg = watchConfig else { return }
-        errorText = nil
+    /// smoke b: 「取り込み」タブの保存 = 取り込み設定 → 監視設定 の順に PUT。どちらか失敗で中断・シート維持。
+    private func saveImportAndWatch() async {
         saving = true
         defer { saving = false }
-        if let applied = await state.saveWatchConfig(cfg) {
-            watchConfig = applied   // 適用後（新規 baseline 等）で置換
-            errorText = nil
-            dismiss()
-        } else {
-            // 失敗時は state.errorText に文言が立つ。ローカル errorText に反映してシートに表示する（シートは閉じない）。
-            errorText = state.errorText
+        state.errorText = nil
+        errorText = nil
+        // 1) 取り込み設定
+        let importDTO = ImportConfigDTO(autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold)
+        await state.saveImportConfig(importDTO)
+        if state.errorText != nil { errorText = state.errorText; return }
+        // 2) 監視設定（ロード済みのときのみ。未ロード=nil のときは触らない＝既存監視フォルダの全消しを防ぐ）
+        if let cfg = watchConfig {
+            if let applied = await state.saveWatchConfig(cfg) {
+                watchConfig = applied   // 適用後（新規 baseline 等）で置換
+            } else {
+                // 400 の不正パス文言など。シートは閉じない。
+                errorText = state.errorText
+                return
+            }
         }
+        dismiss()
     }
 }

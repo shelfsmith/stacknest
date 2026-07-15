@@ -741,7 +741,10 @@ final class RemoteLibraryState {
         do { return try await client.putWatchConfig(dto, libraryUUID: libraryUUID, libraryToken: libraryToken) }
         catch let e as RemoteClientError {
             switch e {
-            case .server(400): errorText = "監視フォルダのパスが無効です（ホストに存在しないか、フォルダではありません）"
+            case .badRequest(let msg):
+                // サーバは不正パスを含む文言（例「監視フォルダのパスが無効です: /no/such/dir」）を返すので、
+                // 複数追加時にどのパスが不正かを提示できるよう、その文言をそのまま出す（A3 smoke 修正）。
+                errorText = msg ?? "監視フォルダのパスが無効です（ホストに存在しないか、フォルダではありません）"
             case .forbidden: errorText = "編集権限がありません"
             default: errorText = "監視設定の保存に失敗しました"
             }
@@ -1501,6 +1504,7 @@ final class RemoteLibraryState {
         case .unauthorized: return "トークンが無効です"
         case .forbidden: return "アクセスが拒否されました"
         case .notFound: return "見つかりませんでした"
+        case .badRequest(let msg): return msg ?? "リクエストが不正です"
         case .server(let code): return "サーバエラー（\(code)）"
         case .decoding: return "応答の解析に失敗しました"
         case .badResponse: return "不正な応答を受信しました"
