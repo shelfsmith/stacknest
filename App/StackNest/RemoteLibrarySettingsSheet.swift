@@ -397,23 +397,26 @@ struct RemoteLibrarySettingsSheet: View {
     @ViewBuilder
     private func watchFolderRow(_ i: Int) -> some View {
         if let cfg = watchConfig, cfg.folders.indices.contains(i) {
+            // Codex review: 行 binding の get/set を bounds-safe にする。削除（特に末尾）と Toggle/Picker の
+            // in-flight 更新が競合しても、範囲外 index を掴んで trap したり別行へ誤適用しないようにする。
+            let inBounds = { self.watchConfig?.folders.indices.contains(i) == true }
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Toggle("", isOn: Binding(
-                        get: { watchConfig?.folders[i].enabled ?? false },
-                        set: { watchConfig?.folders[i].enabled = $0 }
+                        get: { inBounds() ? (watchConfig?.folders[i].enabled ?? false) : false },
+                        set: { if inBounds() { watchConfig?.folders[i].enabled = $0 } }
                     )).labelsHidden()
                     Text(cfg.folders[i].path).font(.callout).lineLimit(1).truncationMode(.middle)
                     Spacer()
                     Button(role: .destructive) {
-                        watchConfig?.folders.remove(at: i)
+                        if inBounds() { watchConfig?.folders.remove(at: i) }
                     } label: { Image(systemName: "trash") }.buttonStyle(.borderless)
                 }
                 HStack {
                     Text("フォーマット").font(.caption).foregroundStyle(.secondary)
                     Picker("", selection: Binding(
-                        get: { watchConfig?.folders[i].presetID ?? "" },
-                        set: { watchConfig?.folders[i].presetID = $0.isEmpty ? nil : $0 }
+                        get: { inBounds() ? (watchConfig?.folders[i].presetID ?? "") : "" },
+                        set: { if inBounds() { watchConfig?.folders[i].presetID = $0.isEmpty ? nil : $0 } }
                     )) {
                         Text("ライブラリ既定").tag("")
                         ForEach(cfg.presets ?? [], id: \.id) { p in Text(p.name).tag(p.id) }
@@ -422,8 +425,8 @@ struct RemoteLibrarySettingsSheet: View {
                 HStack {
                     Text("サブフォルダ").font(.caption).foregroundStyle(.secondary)
                     Picker("", selection: Binding(
-                        get: { watchConfig?.folders[i].subfolderMode ?? .topLevelOnly },
-                        set: { watchConfig?.folders[i].subfolderMode = $0 }
+                        get: { inBounds() ? (watchConfig?.folders[i].subfolderMode ?? .topLevelOnly) : .topLevelOnly },
+                        set: { if inBounds() { watchConfig?.folders[i].subfolderMode = $0 } }
                     )) {
                         Text("サブフォルダを取り込まない").tag(WatchedFolderDTO.SubfolderMode.topLevelOnly)
                         Text("サブフォルダの中も取り込む").tag(WatchedFolderDTO.SubfolderMode.recurse)
@@ -442,26 +445,29 @@ struct RemoteLibrarySettingsSheet: View {
         newFolderPath = ""
     }
 
-    /// smoke b: 「取り込み」タブの保存 = 取り込み設定 → 監視設定 の順に PUT。どちらか失敗で中断・シート維持。
+    /// smoke b: 「取り込み」タブの保存 = 監視設定 → 取り込み設定 の順に PUT。
+    /// Codex review: 検証で失敗し得る監視設定（不正パス 400）を先に PUT し、失敗時は取り込み設定を
+    /// commit しない（非アトミックな部分保存＝ユーザーがキャンセルしても取り込みだけ変わる、を避ける）。
     private func saveImportAndWatch() async {
         saving = true
         defer { saving = false }
         state.errorText = nil
         errorText = nil
-        // 1) 取り込み設定
-        let importDTO = ImportConfigDTO(autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold)
-        await state.saveImportConfig(importDTO)
-        if state.errorText != nil { errorText = state.errorText; return }
-        // 2) 監視設定（ロード済みのときのみ。未ロード=nil のときは触らない＝既存監視フォルダの全消しを防ぐ）
+        // 1) 監視設定（ロード済みのときのみ。未ロード=nil のときは触らない＝既存監視フォルダの全消しを防ぐ）
         if let cfg = watchConfig {
             if let applied = await state.saveWatchConfig(cfg) {
                 watchConfig = applied   // 適用後（新規 baseline 等）で置換
             } else {
-                // 400 の不正パス文言など。シートは閉じない。
+                // 400 の不正パス文言など。取り込み設定は保存しない。シートは閉じない。
                 errorText = state.errorText
                 return
             }
         }
+        // 2) 取り込み設定（監視が通ってから）
+        state.errorText = nil
+        let importDTO = ImportConfigDTO(autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold)
+        await state.saveImportConfig(importDTO)
+        if state.errorText != nil { errorText = state.errorText; return }
         dismiss()
     }
 }
