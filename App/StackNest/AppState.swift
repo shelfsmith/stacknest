@@ -753,23 +753,13 @@ final class AppState {
     private func openInBuiltInViewer(_ book: BookRow, resumeDirect: Bool = false) {
         // Phase 4.2c-2: 「最後に開いた本」を記録する（ローカル）。
         LastReadTracker.shared.record(.local(bundlePath: bundleURL.path, bookID: book.id, title: book.title))
-        // D2: TCC 保護フォルダ(~/Downloads 等)は libarchive の低レベル open では黙って拒否され、
-        // archiveUnreadable → 外部フォールバックとなり「内蔵で開けない」ように見える。ここで Foundation の
-        // 高レベル API（メインスレッド・ユーザー操作起点）で先読みし、per-folder 許可プロンプトを誘発する。
-        // 読めない(権限/不在)なら外部へ黙って落とさず明示エラーにする。offline(openOffline)は本処理を通らない。
+        // D2/D3: TCC 保護フォルダ(~/Downloads 等)は libarchive の低レベル open で黙って拒否され、内蔵で
+        // 開けないように見える。非サンドボックスでは narrow プロンプトが出ないため、読めない時は
+        // NSOpenPanel で親フォルダを選ばせて powerbox 経由の narrow 許可を得てリトライする（FDA 不要）。
         if let probePath = book.path {
             let probeURL = URL(fileURLWithPath: probePath)
-            do {
-                let fh = try FileHandle(forReadingFrom: probeURL)
-                _ = try fh.read(upToCount: 1)
-                try? fh.close()
-            } catch {
-                Self.logger.warning("openInBuiltInViewer: file access probe failed for bookID=\(book.id, privacy: .public) path=\(probePath, privacy: .public): \(String(describing: error), privacy: .public)")
-                let alert = NSAlert()
-                alert.messageText = "本を開けませんでした"
-                alert.informativeText = "ファイルが見つからないか、フォルダへのアクセス許可が必要です。\nシステム設定 → プライバシーとセキュリティ → フルディスクアクセス（または「ファイルとフォルダ」）で StackNest を許可してください。"
-                alert.runModal()
-                return
+            if !Self.fileIsReadable(probeURL) {
+                guard Self.requestFolderAccessAndRecheck(for: probeURL, logger: Self.logger) else { return }
             }
         }
         let content: BookContent
@@ -896,6 +886,43 @@ final class AppState {
             lastPage: stored.lastPage,
             overrides: overrides
         )
+    }
+
+    /// ファイルが読めるか（TCC 含む実アクセスで判定）。1 バイト読んで close。
+    static func fileIsReadable(_ url: URL) -> Bool {
+        do {
+            let fh = try FileHandle(forReadingFrom: url)
+            defer { try? fh.close() }
+            _ = try fh.read(upToCount: 1)
+            return true
+        } catch { return false }
+    }
+
+    /// 読めない時: 親フォルダを NSOpenPanel で選ばせて narrow 許可を得る→再チェック。
+    /// 許可が取れて読めるようになったら true、キャンセル/失敗なら false（呼び出し側は開かず return）。
+    @MainActor
+    static func requestFolderAccessAndRecheck(for fileURL: URL, logger: Logger) -> Bool {
+        logger.warning("openInBuiltInViewer: not readable, prompting for folder access: \(fileURL.path, privacy: .public)")
+        let alert = NSAlert()
+        alert.messageText = "本を開けませんでした"
+        alert.informativeText = "このフォルダへのアクセス許可が必要です。「アクセスを許可…」を押して、この本があるフォルダを選択してください。"
+        alert.addButton(withTitle: "アクセスを許可…")
+        alert.addButton(withTitle: "キャンセル")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = fileURL.deletingLastPathComponent()
+        panel.message = "この本があるフォルダを選んでアクセスを許可してください。"
+        panel.prompt = "許可"
+        guard panel.runModal() == .OK else { return false }
+        if fileIsReadable(fileURL) { return true }
+        let e2 = NSAlert()
+        e2.messageText = "本を開けませんでした"
+        e2.informativeText = "選択したフォルダではこのファイルにアクセスできませんでした。ファイルのある親フォルダを選び直してください。"
+        e2.runModal()
+        return false
     }
 
     /// 選択 books を外部ビューワで起動（従来挙動）。
