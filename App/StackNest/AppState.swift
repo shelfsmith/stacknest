@@ -753,6 +753,25 @@ final class AppState {
     private func openInBuiltInViewer(_ book: BookRow, resumeDirect: Bool = false) {
         // Phase 4.2c-2: 「最後に開いた本」を記録する（ローカル）。
         LastReadTracker.shared.record(.local(bundlePath: bundleURL.path, bookID: book.id, title: book.title))
+        // D2: TCC 保護フォルダ(~/Downloads 等)は libarchive の低レベル open では黙って拒否され、
+        // archiveUnreadable → 外部フォールバックとなり「内蔵で開けない」ように見える。ここで Foundation の
+        // 高レベル API（メインスレッド・ユーザー操作起点）で先読みし、per-folder 許可プロンプトを誘発する。
+        // 読めない(権限/不在)なら外部へ黙って落とさず明示エラーにする。offline(openOffline)は本処理を通らない。
+        if let probePath = book.path {
+            let probeURL = URL(fileURLWithPath: probePath)
+            do {
+                let fh = try FileHandle(forReadingFrom: probeURL)
+                _ = try fh.read(upToCount: 1)
+                try? fh.close()
+            } catch {
+                Self.logger.warning("openInBuiltInViewer: file access probe failed for bookID=\(book.id, privacy: .public) path=\(probePath, privacy: .public): \(String(describing: error), privacy: .public)")
+                let alert = NSAlert()
+                alert.messageText = "本を開けませんでした"
+                alert.informativeText = "ファイルが見つからないか、フォルダへのアクセス許可が必要です。\nシステム設定 → プライバシーとセキュリティ → フルディスクアクセス（または「ファイルとフォルダ」）で StackNest を許可してください。"
+                alert.runModal()
+                return
+            }
+        }
         let content: BookContent
         do {
             content = try BookContentFactory.make(for: book)
