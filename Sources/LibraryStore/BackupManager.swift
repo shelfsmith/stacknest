@@ -19,6 +19,14 @@ public enum BackupManager {
     private static let prefix = "library-"
     private static let suffix = ".sqlite"
 
+    /// バックアップ命名用タイムスタンプ（AppState.backupTimestamp と同書式）。
+    public static func timestampNow() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f.string(from: Date())
+    }
+
     /// バンドル内の世代ディレクトリ `<bundle>/Backups`。
     public static func backupsDir(for bundleURL: URL) -> URL {
         bundleURL.appendingPathComponent("Backups")
