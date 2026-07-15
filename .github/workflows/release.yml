@@ -70,6 +70,21 @@ jobs:
       - name: Verify universal binary
         run: lipo -info build/Build/Products/Release/StackNest.app/Contents/MacOS/StackNest
 
+      # xcodebuild は helper（stacknest-cli）を作らない/埋め込まないため、ここで Universal に
+      # ビルドして Contents/Helpers/ へ同梱する。埋め込みで app の ad-hoc 署名が無効化されるので、
+      # helper→app の順で再署名する（怠ると配布 .app が Gatekeeper で開けない）。
+      - name: Build & embed universal helper (ad-hoc signed)
+        run: |
+          set -euo pipefail
+          swift build -c release --arch x86_64 --arch arm64 --product stacknest-cli
+          APP="build/Build/Products/Release/StackNest.app"
+          mkdir -p "$APP/Contents/Helpers"
+          cp .build/apple/Products/Release/stacknest-cli "$APP/Contents/Helpers/stacknest-cli"
+          lipo -info "$APP/Contents/Helpers/stacknest-cli"   # 期待: x86_64 arm64
+          codesign --force --sign - "$APP/Contents/Helpers/stacknest-cli"
+          codesign --force --sign - --preserve-metadata=entitlements,requirements,flags "$APP"
+          codesign --verify --strict "$APP"
+
       - name: Package app (zip, preserve bundle)
         env:
           TAG: ${{ steps.tag.outputs.tag }}
