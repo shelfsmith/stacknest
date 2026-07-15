@@ -214,6 +214,7 @@ struct RemoteLibraryView: View {
             showCover: state.showDetailCover,
             canShowFinder: false,   // リモートはローカルにファイルが無いため非表示
             remoteFileExtension: state.detail?.fileExtension,
+            remoteFilename: state.detail?.filename,
             ratingEditable: true,   // 4.2c-9: レートは R でも編集可（共有評価）
             onSetRating: { stars, ids in state.setRating(ids: ids, stars) },
             unseenEditable: true,   // 4.2c-9: 未読も R でも編集可（共有閲覧状態）

@@ -30,6 +30,9 @@ struct DetailPaneView: View {
     /// リモートのファイル拡張子（"zip"/""=フォルダ/nil=不明）。path が秘匿のリモートで
     /// 「ファイル形式」を表示するためサーバ由来の拡張子を注入する（ローカルは nil で path 由来）。
     var remoteFileExtension: String? = nil
+    /// G12b-3a: リモートの表示用ファイル名（拡張子込み）。path が秘匿のリモートで「ファイル名」行＋
+    /// コピー ボタンを出すために `BookDetailDTO.filename` を注入する（ローカルは nil で行自体を出さない）。
+    var remoteFilename: String? = nil
     /// 4.2c-9: レートの編集可否（canEdit と分離・リモート R でも可＝共有評価）。nil なら canEdit 連動。
     var ratingEditable: Bool? = nil
     /// 4.2c-9: リモートのレート専用適用（R 可・(rating, bookIDs)）。nil ならローカル patch 経路。
@@ -73,6 +76,7 @@ struct DetailPaneView: View {
         showCover: Bool = true,
         canShowFinder: Bool = true,
         remoteFileExtension: String? = nil,
+        remoteFilename: String? = nil,
         ratingEditable: Bool? = nil,
         onSetRating: ((Int, [Int]) -> Void)? = nil,
         unseenEditable: Bool? = nil,
@@ -100,6 +104,7 @@ struct DetailPaneView: View {
         self.showCover = showCover
         self.canShowFinder = canShowFinder
         self.remoteFileExtension = remoteFileExtension
+        self.remoteFilename = remoteFilename
         self.ratingEditable = ratingEditable
         self.onSetRating = onSetRating
         self.unseenEditable = unseenEditable
@@ -765,9 +770,34 @@ struct DetailPaneView: View {
             dateRow(label: "登録した日", date: book.dateAdded)
             dateRow(label: "最後に読んだ日", date: book.playDate)
             fieldRow(label: "ファイル形式", value: fileFormatLabel(book))
+            // G12b-3a: リモートは path が秘匿のため、サーバ由来の filename があれば「ファイル名」行＋
+            // コピー ボタンを表示する（read・全 tier）。ローカルは remoteFilename が nil なので出さない。
+            if let remoteFilename, !remoteFilename.isEmpty {
+                filenameRow(remoteFilename)
+            }
             // G13 F2a: app-global トグル ON 時のみ book ID を二段表示（編集不可・コピー可・ファイル形式の下）。
             if ViewerSettings.shared.showBookIDInDetail {
                 fieldRow(label: "ID", value: "\(book.id)")
+            }
+        }
+    }
+
+    /// G12b-3a: 「ファイル名」行＋クリップボードへコピーする ボタン（ローカル B24 のファイル名コピー相当）。
+    @ViewBuilder
+    private func filenameRow(_ filename: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("ファイル名").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                Text(filename).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
+                Button {
+                    let pb = NSPasteboard.general
+                    pb.clearContents()
+                    pb.setString(filename, forType: .string)
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                }
+                .buttonStyle(.borderless)
+                .help("ファイル名をコピー")
             }
         }
     }

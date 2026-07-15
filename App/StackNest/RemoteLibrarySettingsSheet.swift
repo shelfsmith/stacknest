@@ -9,8 +9,9 @@ import LibraryServerAPI
 ///
 /// G12b-2 Task 3: タブ化（ラベル / 取り込み / ロック）。tier に応じてタブを出し分ける:
 /// - ラベル: 全 tier（read でも閲覧・編集は不可＝保存ボタンで弾かれるが UI 自体は出す＝既存挙動）
-/// - 取り込み: canEdit（RW）以上のみ
+/// - 取り込み: canDelete（admin）以上のみ（G12b-3a: 監視フォルダ設定も含むため admin へ再分類）
 /// - ロック: canDelete（admin）以上のみ
+/// - 一般: canDelete（admin）以上のみ（G12b-3a: ライブラリ名・バックアップ・整合性チェック）
 /// 保存はタブごとにサーバへ PUT/POST → 成功で state / settings の override を更新する。
 struct RemoteLibrarySettingsSheet: View {
     let state: RemoteLibraryState
@@ -18,7 +19,7 @@ struct RemoteLibrarySettingsSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    /// 現在表示中の設定タブ (0=ラベル / 1=取り込み / 2=ロック)。
+    /// 現在表示中の設定タブ (0=ラベル / 1=取り込み / 2=ロック / 3=一般)。
     @State private var settingsTab = 0
     @State private var errorText: String?
     @State private var saving = false
@@ -45,6 +46,14 @@ struct RemoteLibrarySettingsSheet: View {
     // MARK: 自動追加（監視フォルダ）— smoke b: 取り込みタブ内。importConfigLoaded でまとめてロード。
     @State private var watchConfig: WatchConfigDTO?
     @State private var newFolderPath = ""
+    @State private var scanningNow = false
+
+    // MARK: 一般タブ（canDelete 以上）— G12b-3a: ライブラリ名・バックアップ・整合性チェック・scan-now。
+
+    @State private var general: GeneralSettingsDTO?
+    @State private var generalLoaded = false
+    @State private var integrityResult: IntegrityCheckDTO?
+    @State private var showIntegrity = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -59,7 +68,7 @@ struct RemoteLibrarySettingsSheet: View {
                     .tabItem { Label("ラベル", systemImage: "tag") }
                     .tag(0)
 
-                if state.canEdit {
+                if state.canDelete {
                     ScrollView { importTab().padding(16) }
                         .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
                         .tag(1)
@@ -69,6 +78,12 @@ struct RemoteLibrarySettingsSheet: View {
                     ScrollView { lockTab().padding(16) }
                         .tabItem { Label("ロック", systemImage: "lock") }
                         .tag(2)
+                }
+
+                if state.canDelete {
+                    ScrollView { generalTab().padding(16) }
+                        .tabItem { Label("一般", systemImage: "gearshape") }
+                        .tag(3)
                 }
             }
             .padding(.horizontal, 12)
@@ -327,6 +342,112 @@ struct RemoteLibrarySettingsSheet: View {
         }
     }
 
+    // MARK: - 一般タブ（canDelete 以上）— G12b-3a
+
+    @ViewBuilder
+    private func generalTab() -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            GroupBox("一般") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("ライブラリ名").frame(width: 120, alignment: .leading)
+                        TextField("", text: Binding(
+                            get: { general?.displayName ?? "" },
+                            set: { general?.displayName = $0 }
+                        ))
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(general == nil)
+                    }
+                    Text("ブラウザのタイトルやリモート配信名に使われます。空欄でバンドル名にフォールバックします。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(8)
+            }
+
+            GroupBox("バックアップ") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Toggle("編集後にバックアップを保存", isOn: Binding(
+                        get: { general?.backupEnabled ?? false },
+                        set: { general?.backupEnabled = $0 }
+                    ))
+                    .disabled(general == nil)
+
+                    Stepper(value: Binding(
+                        get: { general?.backupGenerations ?? 1 },
+                        set: { general?.backupGenerations = $0 }
+                    ), in: 1...20) {
+                        Text("保持する世代数: \(general?.backupGenerations ?? 1)")
+                    }
+                    .disabled(general == nil || !(general?.backupEnabled ?? false))
+
+                    Divider()
+
+                    HStack {
+                        Button("今すぐバックアップ") {
+                            Task { _ = await state.runBackupNow() }
+                        }
+                        .disabled(general == nil)
+                        Button("整合性をチェック") {
+                            Task {
+                                integrityResult = await state.runIntegrityCheck()
+                                showIntegrity = integrityResult != nil
+                            }
+                        }
+                        .disabled(general == nil)
+                    }
+
+                    Text("有効にすると、サーバ側でホスト側の設定に従いバックアップ・世代管理を行います。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                .padding(8)
+            }
+
+            if general == nil {
+                if errorText != nil {
+                    Button("再読み込み") {
+                        Task {
+                            errorText = nil
+                            general = await state.loadGeneralSettings()
+                            if general == nil { errorText = state.errorText }
+                        }
+                    }
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+        }
+        .task {
+            guard !generalLoaded else { return }
+            generalLoaded = true
+            general = await state.loadGeneralSettings()
+            if general == nil { errorText = state.errorText }
+        }
+        .alert("整合性チェック", isPresented: $showIntegrity) {
+            Button("OK") {}
+        } message: {
+            if let integrityResult {
+                Text(integrityResult.healthy
+                    ? "問題は見つかりませんでした"
+                    : integrityResult.rows.prefix(20).joined(separator: "\n"))
+            }
+        }
+    }
+
+    private func saveGeneral() async {
+        guard let g = general else { return }
+        saving = true
+        defer { saving = false }
+        state.errorText = nil
+        errorText = nil
+        if let saved = await state.saveGeneralSettings(g) {
+            general = saved
+            errorText = nil
+            dismiss()
+        } else {
+            errorText = state.errorText
+        }
+    }
+
     // MARK: - 保存ディスパッチ
 
     private func saveCurrentTab() async {
@@ -334,6 +455,7 @@ struct RemoteLibrarySettingsSheet: View {
         case 0: await saveLabels()
         case 1: await saveImportAndWatch()   // smoke b: 取り込みタブは 自動分類＋自動追加 を両方保存
         case 2: await saveLock()
+        case 3: await saveGeneral()
         default: break
         }
     }
@@ -353,6 +475,22 @@ struct RemoteLibrarySettingsSheet: View {
                 .disabled(watchConfig == nil)   // 未ロード時はトグルも触らせない
                 Text("監視フォルダに入った本を自動でライブラリに追加します（ホスト側で実行）。")
                     .font(.caption).foregroundStyle(.secondary)
+
+                HStack {
+                    Button {
+                        Task {
+                            scanningNow = true
+                            defer { scanningNow = false }
+                            _ = await state.runScanNow()
+                        }
+                    } label: {
+                        if scanningNow { ProgressView().controlSize(.small) }
+                        Text("今すぐスキャン")
+                    }
+                    .disabled(scanningNow)
+                    Text("自動追加の有効/無効に関わらず、監視フォルダを即座にスキャンします。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
 
                 Divider()
 
