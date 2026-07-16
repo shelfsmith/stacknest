@@ -130,6 +130,10 @@ struct RemoteLibraryView: View {
         .focusedSceneValue(\.browserCommandTarget,
             RemoteCommandTarget(state: state, settings: settings,
                                 openSettingsAction: { showRemoteSettings = true }) as (any BrowserCommandTarget)?)
+        // G12b-3c Task 9: Edit メニューの取り消す/やり直す をこのウィンドウの
+        // RemoteLibraryState.undo()/redo() へルーティングするための FocusedValue 公開。
+        // appState と同じ .focusedSceneValue パターン（ローカル LibraryWindowContainer と対）。
+        .focusedSceneValue(\.remoteState, state)
         // 4.2c-3 (Issue 4): 別ウィンドウ（オフラインビューア等）で DL/削除されたら、リモート一覧の
         // DL バッジを即時再評価する。downloadedVersion を bump → updateNSView 再走 → DL 列再描画。
         .onReceive(NotificationCenter.default.publisher(for: .offlineStoreDidChange)) { _ in

@@ -43,6 +43,20 @@ extension FocusedValues {
     }
 }
 
+// MARK: - FocusedValue for RemoteLibraryState
+// G12b-3c Task 9: appState と同じ仕組みで、フォーカス中リモートウィンドウの
+// RemoteLibraryState をメニューコマンド（Edit > 取り消す/やり直す）から参照できるようにする。
+private struct FocusedRemoteStateKey: FocusedValueKey {
+    typealias Value = RemoteLibraryState
+}
+
+extension FocusedValues {
+    var remoteState: RemoteLibraryState? {
+        get { self[FocusedRemoteStateKey.self] }
+        set { self[FocusedRemoteStateKey.self] = newValue }
+    }
+}
+
 @main
 struct StackNestApp: App {
     @NSApplicationDelegateAdaptor(StackNestAppDelegate.self) var appDelegate
@@ -809,6 +823,8 @@ struct FileCommands: Commands {
 /// rating/unread toggles. Bound to the focused library window's AppState via @FocusedValue.
 struct WindowCommands: Commands {
     @FocusedValue(\.appState) private var appState
+    // G12b-3c Task 9: フォーカス中がリモートウィンドウなら RemoteLibraryState.undo()/redo() を使う。
+    @FocusedValue(\.remoteState) private var remoteState
     // 4.2c-9: 表示/上ペイン/レートはローカル/リモート共通の target 経由でルーティングする。
     @FocusedValue(\.browserCommandTarget) private var target
 
@@ -863,21 +879,41 @@ struct WindowCommands: Commands {
         // v15 追加: `canUndo` / `canRedo` は KVO API で SwiftUI dependency tracking 非対応。
         // `appState.undoStateVersion` (Observable) を closure 内で read することで stack 変化
         // 検知 → menu の disabled state が register 直後にも反映される。
+        // G12b-3c Task 9: フォーカス中がリモートウィンドウなら RemoteLibraryState.undo()/redo()
+        // へルーティングする（\.remoteState が非 nil）。ローカルウィンドウがフォーカス中は
+        // \.remoteState が nil のまま（RemoteLibraryView のみが .focusedSceneValue(\.remoteState,
+        // ...) を設定するため）、従来どおり appState.undoManager にフォールバックする。
         CommandGroup(replacing: .undoRedo) {
             Button("取り消す") {
-                appState?.undoManager.undo()
+                if let remoteState {
+                    Task { await remoteState.undo() }
+                } else {
+                    appState?.undoManager.undo()
+                }
             }
             .keyboardShortcut("z", modifiers: .command)
             .disabled({
+                if let remoteState {
+                    _ = remoteState.undoStateVersion  // dependency tracking
+                    return !remoteState.canUndo
+                }
                 _ = appState?.undoStateVersion  // dependency tracking
                 return !(appState?.undoManager.canUndo ?? false)
             }())
 
             Button("やり直す") {
-                appState?.undoManager.redo()
+                if let remoteState {
+                    Task { await remoteState.redo() }
+                } else {
+                    appState?.undoManager.redo()
+                }
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
             .disabled({
+                if let remoteState {
+                    _ = remoteState.undoStateVersion
+                    return !remoteState.canRedo
+                }
                 _ = appState?.undoStateVersion
                 return !(appState?.undoManager.canRedo ?? false)
             }())
