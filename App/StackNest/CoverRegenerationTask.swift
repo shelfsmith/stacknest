@@ -3,15 +3,25 @@ import Foundation
 import AppKit
 import AppCore
 import LibraryStore
-import ArchiveAdapter
 import OSLog
+
+/// スレッド安全なキャンセルトークン。isCancelled クロージャは AppCore.CoverCompression の
+/// nonisolated loop から呼ばれる（MainActor 外の可能性がある）ため、単純な MainActor プロパティの
+/// キャプチャではなくロック付きフラグで安全に読み書きする（RemoteLibraryState.CancelFlag と同じ設計）。
+private final class CoverRegenerationCancelFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    func cancel() { lock.lock(); value = true; lock.unlock() }
+    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return value }
+}
 
 /// Phase 2.5h B19: ライブラリ内の全 thumbnail.jpg を CoverRefresher で再生成する。
 /// 中断可能、idempotent。中間進捗は永続化しない (再開時はゼロから loop)。
 ///
 /// 単独 .pdf は PDFBookContent 経由、それ以外 (zip/cbz/rar/cbr/7z/フォルダ) は
 /// ArchiveAdapter + CoverRefresher 経由で再抽出する。CoverRefresher が C4 の 1200 px cap を
-/// 内部で適用するため、本 task では追加 resize しない。
+/// 内部で適用するため、本 task では追加 resize しない。ループ本体は AppCore.CoverCompression
+/// （ローカル App とリモートサーバの共有コア）に委譲する。
 @MainActor
 final class CoverRegenerationTask {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "CoverRegeneration")
@@ -19,7 +29,8 @@ final class CoverRegenerationTask {
     let totalCount: Int
     private(set) var processedCount: Int = 0
     private(set) var bytesSavedEstimate: Int64 = 0
-    private(set) var cancelled = false
+    private let cancelFlag = CoverRegenerationCancelFlag()
+    var cancelled: Bool { cancelFlag.isCancelled }
 
     private let bundleURL: URL
     private let database: Database
@@ -32,57 +43,40 @@ final class CoverRegenerationTask {
         self.totalCount = books.count
     }
 
-    func cancel() { cancelled = true }
+    func cancel() { cancelFlag.cancel() }
 
-    /// loop body; progressives は onProgress callback で呼び出し側に通知。
+    /// loop body は AppCore.CoverCompression（ローカル App とリモートサーバの共有コア）へ委譲。
+    /// progressives は onProgress callback で呼び出し側に通知。bytesSavedEstimate は
+    /// コアが per-book delta を返さない（progress は (done,total) のみ）ため、Thumbnails
+    /// ディレクトリ全体のサイズを実行前後でスナップショットして概算する（UI 表示 "約 X MB 削減" を維持）。
     func run(onProgress: @escaping @MainActor (Int, Int) -> Void) async {
         let thumbnailsDir = bundleURL.appendingPathComponent("Thumbnails")
-        for book in books {
-            if cancelled { break }
-            defer {
-                processedCount += 1
-                onProgress(processedCount, totalCount)
-            }
-            if CoverSource.isExternal(book.coverImageName) { continue }   // 外部表紙は再圧縮対象外（上書き防止）
-            guard let pathStr = book.path else { continue }
-            let sourceURL = URL(fileURLWithPath: pathStr)
-            guard FileManager.default.fileExists(atPath: sourceURL.path) else {
-                Self.logger.warning("Source missing, skip book id=\(book.id, privacy: .public): \(pathStr, privacy: .public)")
-                continue
-            }
-            let thumbURL = thumbnailsDir.appendingPathComponent("\(book.id)/thumbnail.jpg")
-            let beforeSize = (try? FileManager.default.attributesOfItem(atPath: thumbURL.path)[.size] as? Int64) ?? 0
-
-            // PDF / extractor 分岐: 単独 PDF は PDFBookContent、それ以外は ArchiveAdapter。
-            if sourceURL.pathExtension.lowercased() == "pdf",
-               let content = PDFBookContent(url: sourceURL),
-               let pdfCover = content.coverJPEG(maxPixelSize: 1200) {
-                let bookDir = thumbURL.deletingLastPathComponent()
-                do {
-                    try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
-                    try pdfCover.write(to: thumbURL)
-                } catch {
-                    Self.logger.warning("PDF cover write failed for book id=\(book.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        let sizeBefore = Self.totalSize(of: thumbnailsDir)
+        let shrunkCount = (try? await CoverCompression.compressOversizedCovers(
+            db: database,
+            bundleURL: bundleURL,
+            progress: { done, total in
+                Task { @MainActor [weak self] in
+                    self?.processedCount = done
+                    onProgress(done, total)
                 }
-            } else if let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) {
-                do {
-                    try await CoverRefresher.regenerate(
-                        bookID: book.id,
-                        sourceURL: sourceURL,
-                        preferredName: book.coverImageName,
-                        thumbnailsDirURL: thumbnailsDir,
-                        extractor: extractor
-                    )
-                } catch {
-                    Self.logger.warning("Cover regenerate failed for book id=\(book.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-            }
+            },
+            isCancelled: { [cancelFlag] in cancelFlag.isCancelled }
+        )) ?? 0
+        let sizeAfter = Self.totalSize(of: thumbnailsDir)
+        bytesSavedEstimate = max(0, sizeBefore - sizeAfter)
+        Self.logger.info("CoverRegenerationTask done: \(self.processedCount, privacy: .public)/\(self.totalCount, privacy: .public), shrunk ~\(shrunkCount, privacy: .public) covers, saved ~\(self.bytesSavedEstimate, privacy: .public) bytes")
+    }
 
-            let afterSize = (try? FileManager.default.attributesOfItem(atPath: thumbURL.path)[.size] as? Int64) ?? 0
-            if beforeSize > afterSize {
-                bytesSavedEstimate += (beforeSize - afterSize)
-            }
+    /// Thumbnails ディレクトリ配下の総ファイルサイズ（bytesSavedEstimate 算出用）。
+    private static func totalSize(of url: URL) -> Int64 {
+        var sum: Int64 = 0
+        guard let en = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) else {
+            return 0
         }
-        Self.logger.info("CoverRegenerationTask done: \(self.processedCount, privacy: .public)/\(self.totalCount, privacy: .public), saved ~\(self.bytesSavedEstimate, privacy: .public) bytes")
+        for case let f as URL in en {
+            sum += Int64((try? f.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
+        }
+        return sum
     }
 }
