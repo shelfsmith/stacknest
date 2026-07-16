@@ -890,6 +890,13 @@ final class AppState {
 
     /// ファイルが読めるか（TCC 含む実アクセスで判定）。1 バイト読んで close。
     static func fileIsReadable(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            // フォルダ型の本は path がディレクトリ。read() は EISDIR で失敗するので、
+            // ディレクトリは「列挙できるか」で可読判定する（TCC で塞がれたディレクトリは
+            // contentsOfDirectory が throw→false のまま許可導線に乗る）。
+            return (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
+        }
         do {
             let fh = try FileHandle(forReadingFrom: url)
             defer { try? fh.close() }
