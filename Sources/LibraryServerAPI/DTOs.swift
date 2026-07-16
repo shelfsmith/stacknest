@@ -588,6 +588,12 @@ public struct WatchConfigDTO: Codable, Sendable {
     }
 }
 
+/// G12b-3c: 既存フォルダ一括再取込リクエスト（対象 folder の baseline をクリアして scan）。
+public struct ImportExistingRequest: Codable, Sendable {
+    public var folderID: String
+    public init(folderID: String) { self.folderID = folderID }
+}
+
 /// ライブラリロック設定リクエスト（パスワード設定）。
 public struct LockRequest: Codable, Sendable {
     public var password: String

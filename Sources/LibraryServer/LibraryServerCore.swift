@@ -775,6 +775,26 @@ public struct LibraryServerCore: Sendable {
             config.onScanNowRequested?(uuid)
             return HTTPResponse.Status.noContent
         }
+        // G12b-3c: 既存フォルダ一括再取込（admin）= 該当 folder の baseline をクリアして scan。
+        // dedup が既取込済みファイルの再取込を防ぐため、baseline を空にしても実害はない。
+        api.post("libraries/:lib/watch/import-existing") { [self] request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let req = try await request.decode(as: ImportExistingRequest.self, context: context)
+
+            // 既存の watched_folders を読み、該当 id の baseline を [] にして保存（他 folder/フィールドは保持）。
+            let existingJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
+            var folders: [WatchedFolder] = existingJSON.flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
+            guard let idx = folders.firstIndex(where: { $0.id == req.folderID }) else { throw HTTPError(.notFound) }
+            folders[idx].baseline = []
+            let data = try JSONEncoder().encode(folders)
+            try lib.db.setLibrarySetting(key: "watched_folders", value: String(decoding: data, as: UTF8.self))
+            self.notifySettingsChanged(lib.uuid)  // ホストが reloadWatchedFolders + reloadFolderWatcher
+            self.config.onScanNowRequested?(lib.uuid)  // G12b-3a と同じ scan 発火経路
+            return HTTPResponse.Status.noContent
+        }
         // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
         api.post("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()

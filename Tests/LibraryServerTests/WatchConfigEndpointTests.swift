@@ -332,4 +332,70 @@ struct WatchConfigEndpointTests {
             }
         }
     }
+
+    /// G12b-3c: POST watch/import-existing は admin 専用（edit トークン → 403）で、
+    /// 対象 folder の baseline をクリアして scan を発火する。他 folder の baseline は不変。
+    @Test func importExistingClearsBaselineAndRequiresAdmin() async throws {
+        let fixture = try TestLibraryFixture(name: "IEEdit", bookCount: 0)
+        defer { fixture.cleanup() }
+        // 準備: watched_folders に baseline 付きフォルダを2件シード（対象外 folder は不変を検証するため）
+        let existing = [
+            WatchedFolder(id: "F1", path: "/tmp/ie-f1", enabled: true, baseline: ["/tmp/ie-f1/a.zip", "/tmp/ie-f1/b.zip"]),
+            WatchedFolder(id: "F2", path: "/tmp/ie-f2", enabled: true, baseline: ["/tmp/ie-f2/c.zip"])
+        ]
+        let existingData = try JSONEncoder().encode(existing)
+        try fixture.db.setLibrarySetting(key: "watched_folders", value: String(decoding: existingData, as: UTF8.self))
+        try fixture.db.setLibrarySetting(key: "folder_watch_enabled", value: "true")
+        let lib = fixture.servedLibrary()
+        let body = try JSONEncoder().encode(ImportExistingRequest(folderID: "F1"))
+
+        // edit トークン（adminTier: false, Bearer W）→ 403
+        let editApp = makeApp(fixture: fixture, adminTier: false)
+        try await editApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch/import-existing",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { response in
+                #expect(response.status == .forbidden)
+            }
+        }
+
+        // admin トークン（adminTier: true, Bearer W）・存在する folderID → 2xx かつ F1.baseline が空に、F2 は不変
+        let adminApp = makeApp(fixture: fixture, adminTier: true)
+        try await adminApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch/import-existing",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { response in
+                #expect(response.status == .noContent)
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch-config",
+                method: .get,
+                headers: [.authorization: "Bearer R"]
+            ) { response in
+                #expect(response.status == .ok)
+                let dto = try JSONDecoder().decode(WatchConfigDTO.self, from: Data(buffer: response.body))
+                #expect(dto.folders.first { $0.id == "F1" }?.baseline == [])
+                #expect(dto.folders.first { $0.id == "F2" }?.baseline == ["/tmp/ie-f2/c.zip"])
+            }
+        }
+
+        // 存在しない folderID → 404
+        let notFoundBody = try JSONEncoder().encode(ImportExistingRequest(folderID: "NOPE"))
+        try await adminApp.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch/import-existing",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(notFoundBody))
+            ) { response in
+                #expect(response.status == .notFound)
+            }
+        }
+    }
 }
