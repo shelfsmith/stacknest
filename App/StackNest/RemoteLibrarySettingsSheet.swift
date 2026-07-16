@@ -48,6 +48,11 @@ struct RemoteLibrarySettingsSheet: View {
     // MARK: 自動追加（監視フォルダ）— smoke b: 取り込みタブ内。importConfigLoaded でまとめてロード。
     @State private var watchConfig: WatchConfigDTO?
     @State private var newFolderPath = ""
+    // S4: 追加時に「既存も取り込む」（ローカル parity・既定 ON）。ON で追加したフォルダのパスを保存後の
+    // importExisting 対象として記録する（保存＝watch-config PUT は新規フォルダを baseline=既存で作るため、
+    // 保存後に該当フォルダの baseline をクリアして既存も取り込む）。
+    @State private var importExistingOnAdd = true
+    @State private var pendingImportPaths: Set<String> = []
     @State private var scanningNow = false
     // G12b-3c: per-folder「既存も取り込む」確認ダイアログ対象（folder.id を保持。行の index ではなく
     // id で追跡し、確認表示中に他行の削除で index がずれても誤爆しないようにする）。
@@ -83,13 +88,20 @@ struct RemoteLibrarySettingsSheet: View {
                 .padding(.bottom, 8)
 
             TabView(selection: $settingsTab) {
-                // G1: ローカル LibrarySettingsSheet のタブ順（一般/フォーマット/取り込み/ラベル/ロック）に
-                // 合わせる。remote に無い「フォーマット」は除外し、順は 一般/取り込み/ラベル/ロック。
+                // ローカル LibrarySettingsSheet のタブ順（一般/フォーマット/取り込み/ラベル/ロック）に
+                // 合わせる。S3: 命名プリセットを「フォーマット」独立タブ（一般と取り込みの間・tag 4）へ。
                 // tag は据え置き（saveCurrentTab / 保存ボタン無効判定が tag 番号を参照するため）。
                 if state.canDelete {
                     ScrollView { generalTab().padding(16) }
                         .tabItem { Label("一般", systemImage: "gearshape") }
                         .tag(3)
+                }
+
+                // S3: フォーマット（命名プリセット）＝ローカル formatSection の独立タブ parity。
+                if state.canDelete {
+                    ScrollView { formatTab().padding(16) }
+                        .tabItem { Label("フォーマット", systemImage: "textformat") }
+                        .tag(4)
                 }
 
                 if state.canDelete {
@@ -246,7 +258,6 @@ struct RemoteLibrarySettingsSheet: View {
         }
 
         watchSection()
-        presetSection()
         }
         .task {
             guard !importConfigLoaded else { return }
@@ -260,11 +271,17 @@ struct RemoteLibrarySettingsSheet: View {
             watchConfig = await state.loadWatchConfig()
             if watchConfig == nil { errorText = state.errorText }
         }
-        .task {
-            guard state.canDelete, !presetsLoaded else { return }
-            presetsLoaded = true
-            await reloadPresetsFromServer()
-        }
+    }
+
+    // MARK: - フォーマット（命名プリセット）タブ — S3: ローカル formatSection の独立タブ parity。
+    @ViewBuilder
+    private func formatTab() -> some View {
+        presetSection()
+            .task {
+                guard state.canDelete, !presetsLoaded else { return }
+                presetsLoaded = true
+                await reloadPresetsFromServer()
+            }
     }
 
     /// サーバから命名プリセット集合を取得し、ステージへ反映する（初回ロード／保存成功後の再同期で共用）。
@@ -536,6 +553,7 @@ struct RemoteLibrarySettingsSheet: View {
         case 1: await saveImportAndWatch()   // smoke b: 取り込みタブは 自動分類＋自動追加 を両方保存
         case 2: await saveLock()
         case 3: await saveGeneral()
+        case 4: await savePresetsNow()       // S3: フォーマットタブ（命名プリセット）
         default: break
         }
     }
@@ -592,6 +610,8 @@ struct RemoteLibrarySettingsSheet: View {
                             Button("フォルダを追加") { addWatchFolderRow() }
                                 .disabled(newFolderPath.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
+                        Toggle("既存ファイルも取り込む（ローカル同様。OFF で以降の新規のみ）", isOn: $importExistingOnAdd)
+                            .font(.caption)
                         Text("パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
@@ -683,6 +703,8 @@ struct RemoteLibrarySettingsSheet: View {
         let folder = WatchedFolderDTO(id: UUID().uuidString, path: path, enabled: true)
         guard watchConfig != nil else { return }   // ロード失敗時は config を捏造しない（既存監視フォルダの全消しを防ぐ）
         watchConfig?.folders.append(folder)
+        // S4: 「既存も取り込む」ON なら保存後の importExisting 対象として path を記録。
+        if importExistingOnAdd { pendingImportPaths.insert(path) }
         newFolderPath = ""
     }
 
@@ -906,6 +928,14 @@ struct RemoteLibrarySettingsSheet: View {
         if let cfg = watchConfig {
             if let applied = await state.saveWatchConfig(cfg) {
                 watchConfig = applied   // 適用後（新規 baseline 等）で置換
+                // S4: 「既存も取り込む」ON で追加したフォルダは、サーバが baseline=既存で作るため、
+                // 保存後に該当フォルダ（path 一致）の baseline をクリアして既存も取り込む（既存 endpoint 再利用）。
+                if !pendingImportPaths.isEmpty {
+                    for f in applied.folders where pendingImportPaths.contains(f.path) {
+                        await state.importExisting(folderID: f.id)
+                    }
+                    pendingImportPaths.removeAll()
+                }
             } else {
                 // 400 の不正パス文言など。取り込み設定は保存しない。シートは閉じない。
                 errorText = state.errorText
