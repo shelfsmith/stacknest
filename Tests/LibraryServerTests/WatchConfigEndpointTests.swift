@@ -10,9 +10,11 @@ import AppCore
 @Suite("GET/PUT /watch-config endpoint")
 struct WatchConfigEndpointTests {
 
-    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false,
+                          onScanNowRequested: (@Sendable (String) -> Void)? = nil) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier,
+                          onScanNowRequested: onScanNowRequested),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -349,8 +351,11 @@ struct WatchConfigEndpointTests {
         let lib = fixture.servedLibrary()
         let body = try JSONEncoder().encode(ImportExistingRequest(folderID: "F1"))
 
-        // edit トークン（adminTier: false, Bearer W）→ 403
-        let editApp = makeApp(fixture: fixture, adminTier: false)
+        // edit トークン（adminTier: false, Bearer W）→ 403、callback 未呼出
+        nonisolated(unsafe) var editCalledUUID: String?
+        let editApp = makeApp(fixture: fixture, adminTier: false, onScanNowRequested: { uuid in
+            editCalledUUID = uuid
+        })
         try await editApp.test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/libraries/\(lib.uuid)/watch/import-existing",
@@ -361,9 +366,14 @@ struct WatchConfigEndpointTests {
                 #expect(response.status == .forbidden)
             }
         }
+        #expect(editCalledUUID == nil)
 
-        // admin トークン（adminTier: true, Bearer W）・存在する folderID → 2xx かつ F1.baseline が空に、F2 は不変
-        let adminApp = makeApp(fixture: fixture, adminTier: true)
+        // admin トークン（adminTier: true, Bearer W）・存在する folderID → 2xx かつ F1.baseline が空に、F2 は不変、
+        // かつ onScanNowRequested コールバックが当該 lib.uuid で呼ばれる（G12b-3a と同じ scan 発火経路）。
+        nonisolated(unsafe) var adminCalledUUID: String?
+        let adminApp = makeApp(fixture: fixture, adminTier: true, onScanNowRequested: { uuid in
+            adminCalledUUID = uuid
+        })
         try await adminApp.test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/libraries/\(lib.uuid)/watch/import-existing",
@@ -384,6 +394,7 @@ struct WatchConfigEndpointTests {
                 #expect(dto.folders.first { $0.id == "F2" }?.baseline == ["/tmp/ie-f2/c.zip"])
             }
         }
+        #expect(adminCalledUUID == lib.uuid)
 
         // 存在しない folderID → 404
         let notFoundBody = try JSONEncoder().encode(ImportExistingRequest(folderID: "NOPE"))
