@@ -8,7 +8,7 @@ import Foundation
 struct MaintenanceJobRegistryTests {
     /// 同一 library で実行中に 2 本目の start を呼ぶと busy(false) になる。
     @Test func secondStartWhileRunningIsRejected() async throws {
-        let reg = MaintenanceJobRegistry()
+        let reg = MaintenanceJobRegistry(onProgress: { _, _, _, _ in }, onFinished: { _, _, _, _ in })
         let gate = AsyncGate()
         let first = await reg.start(library: "L", job: "a") { _, _ in await gate.wait(); return 1 }
         #expect(first == true)
@@ -21,9 +21,11 @@ struct MaintenanceJobRegistryTests {
     /// cancel(library:) を呼ぶと isCancelled() が true を返すようになり、
     /// 完了時の onFinished outcome が "cancelled" になる。
     @Test func cancelStopsAndReportsCancelled() async throws {
-        let reg = MaintenanceJobRegistry()
         nonisolated(unsafe) var finishedOutcome = ""
-        await reg.setOnFinished { _, _, outcome, _ in finishedOutcome = outcome }
+        let reg = MaintenanceJobRegistry(
+            onProgress: { _, _, _, _ in },
+            onFinished: { _, _, outcome, _ in finishedOutcome = outcome }
+        )
         _ = await reg.start(library: "L", job: "a") { _, isCancelled in
             while !(await isCancelled()) { try? await Task.sleep(for: .milliseconds(5)) }
             return 7
@@ -31,6 +33,20 @@ struct MaintenanceJobRegistryTests {
         await reg.cancel(library: "L")
         try await Task.sleep(for: .milliseconds(80))
         #expect(finishedOutcome == "cancelled")
+    }
+
+    /// run が throw すると onFinished outcome は "failed"（Codex review Important #4）。
+    /// (try? …) ?? 0 で握りつぶすと常に "done" になっていた不具合の回帰テスト。
+    @Test func throwingRunReportsFailed() async throws {
+        struct Boom: Error {}
+        nonisolated(unsafe) var finishedOutcome = ""
+        let reg = MaintenanceJobRegistry(
+            onProgress: { _, _, _, _ in },
+            onFinished: { _, _, outcome, _ in finishedOutcome = outcome }
+        )
+        _ = await reg.start(library: "L", job: "a") { _, _ in throw Boom() }
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(finishedOutcome == "failed")
     }
 }
 

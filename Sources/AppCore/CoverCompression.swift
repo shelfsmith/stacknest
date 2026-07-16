@@ -19,7 +19,7 @@ public enum CoverCompression {
         progress: sending (Int, Int) -> Void = { _, _ in },
         isCancelled: sending () async -> Bool = { false }
     ) async throws -> Int {
-        let books = (try? db.fetchAllBooks()) ?? []
+        let books = try db.fetchAllBooks()
         let total = books.count
         let thumbnailsDir = bundleURL.appendingPathComponent("Thumbnails")
         var shrunk = 0
@@ -36,6 +36,12 @@ public enum CoverCompression {
             }
             let thumbURL = thumbnailsDir.appendingPathComponent("\(book.id)/thumbnail.jpg")
             let beforeSize = (try? FileManager.default.attributesOfItem(atPath: thumbURL.path)[.size] as? Int64) ?? 0
+
+            // Codex review Important #3: 書き込み直前に最新状態を再確認する。上の isExternal チェックは
+            // ループ開始時点のスナップショットに対するもので、await isCancelled() や extractor 処理中の
+            // サスペンションの間に別クライアントが外部表紙をアップロードした場合、それをこのジョブが
+            // 上書きしてしまう窓がある（初期スナップショットの skip だけでは防げない）。
+            if let fresh = try? db.fetchBook(id: book.id), CoverSource.isExternal(fresh.coverImageName) { continue }
 
             // PDF / extractor 分岐: 単独 PDF は PDFBookContent、それ以外は ArchiveAdapter。
             if sourceURL.pathExtension.lowercased() == "pdf",

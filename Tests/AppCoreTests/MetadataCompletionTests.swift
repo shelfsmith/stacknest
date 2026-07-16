@@ -56,6 +56,42 @@ struct MetadataCompletionTests {
         #expect(seen == 2)
     }
 
+    /// Codex review Important #2 の回帰テスト: 処理中（1件目完了〜2件目着手の間）に別クライアントが
+    /// 2件目の series を編集した場合、その編集はジョブ起動時の古い推測値で上書きされない。
+    /// 旧実装（`missingSeriesVolumePatches` の事前スナップショット patch をそのまま適用）は、
+    /// ループ開始時点で計算した patch を無条件適用するため、ここで挿入する編集を "作品" で
+    /// 上書きしてしまっていた。新実装は適用直前に DB を再読込して空欄チェックをやり直す。
+    @Test func doesNotOverwriteConcurrentEditDuringRun() async throws {
+        let db = try makeDB()
+        // date_added DESC で fetchAllBooks が並ぶため、id1 を新しい日時にして先頭（先に処理）にする。
+        let id1 = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "作品 第1巻", dateAdded: Date()))
+        let id2 = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "作品 第2巻", dateAdded: Date().addingTimeInterval(-10)))
+
+        let updated = try await MetadataCompletion.fillMissingSeriesVolume(
+            in: db,
+            progress: { done, _ in
+                // id1（1件目）の適用完了直後、id2（2件目）着手前に外部編集が入ったとシミュレート。
+                if done == 1 {
+                    var manual = BookPatch()
+                    manual.series = "他クライアント編集"
+                    try? db.updateBook(id: id2, patch: manual)
+                }
+            },
+            isCancelled: { false })
+
+        let fresh1 = try db.fetchBook(id: id1)!
+        #expect(fresh1.series == "作品")
+        #expect(fresh1.volume == 1)
+
+        let fresh2 = try db.fetchBook(id: id2)!
+        #expect(fresh2.series == "他クライアント編集")   // 古い推測値 "作品" で上書きされない
+        #expect(fresh2.volume == 2)                        // volume は編集と無関係なので埋まる
+
+        #expect(updated == 2)   // id1: series+volume（1回の update）／id2: volume のみ（1回の update）
+    }
+
     @Test func isCancelledFalseProcessesAll() async throws {
         // isCancelledStopsEarly の "== 2" が本当に早期打ち切りの結果であり、
         // 単に全件処理された結果ではないことを対比で示す。
