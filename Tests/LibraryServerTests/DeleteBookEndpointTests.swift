@@ -40,7 +40,7 @@ struct DeleteBookEndpointTests {
 
     // MARK: - 正常系
 
-    /// RW トークンで seed 本を DELETE → 204 ＋ DB から消える。
+    /// RW トークンで seed 本を DELETE → 200＋BookRestoreDTO ＋ DB から消える（G12b-3c S5）。
     @Test func deleteWithWriteTokenRemovesBook() async throws {
         let fixture = try TestLibraryFixture(name: "DelOK", bookCount: 1)
         defer { fixture.cleanup() }
@@ -57,7 +57,7 @@ struct DeleteBookEndpointTests {
                 method: .delete,
                 headers: [.authorization: "Bearer W"]
             ) { response in
-                #expect(response.status == .noContent)
+                #expect(response.status == .ok)
             }
         }
 
@@ -159,7 +159,7 @@ struct DeleteBookEndpointTests {
 
     // MARK: - trash 経路（任意）
 
-    /// trashFile が注入されているとき ?trash=true → closure が呼ばれ 204。
+    /// trashFile が注入されているとき ?trash=true → closure が呼ばれ 200（G12b-3c S5）。
     @Test func deleteWithTrashCallsTrashFile() async throws {
         let fixture = try TestLibraryFixture(name: "DelTrash", bookCount: 0)
         defer { fixture.cleanup() }
@@ -188,7 +188,7 @@ struct DeleteBookEndpointTests {
                 method: .delete,
                 headers: [.authorization: "Bearer W"]
             ) { response in
-                #expect(response.status == .noContent)
+                #expect(response.status == .ok)
             }
         }
         #expect(trashedPaths == [pngPath])

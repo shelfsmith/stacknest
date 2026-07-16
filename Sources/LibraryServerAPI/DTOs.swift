@@ -695,6 +695,67 @@ public struct PresetSetDTO: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - G12b-3c S5: リモート undo（削除→復元）
+
+/// DELETE libraries/:lib/books/:id 応答 ＋ POST libraries/:lib/books/restore の body 要素 DTO。
+/// BookRow の全フィールドを可逆的に運ぶ（往復での欠落を避けるため memberwise で全部保持する）。
+/// Date は epoch 秒（Double）、CGRect は x/y/w/h の 4 optional、PageDirection は
+/// "ltr"/"rtl" 文字列（BookDetailDTO / directionString(_:) と同じ規約）に写像する。
+public struct BookRestoreDTO: Codable, Sendable {
+    public var id: Int
+    public var title: String
+    public var author: String?
+    public var genre: String?
+    public var path: String?
+    public var dateAdded: Double
+    public var playDate: Double?
+    public var bookType: Int
+    public var fileType: Int
+    public var pages: Int?
+    public var rating: Int
+    public var unseen: Bool
+    public var keywordA: String?
+    public var keywordB: String?
+    public var keywordC: String?
+    public var neta: String?
+    public var memo: String?
+    public var series: String?
+    public var volume: Double?
+    public var coverImageName: String?
+    public var coverCropX: Double?
+    public var coverCropY: Double?
+    public var coverCropW: Double?
+    public var coverCropH: Double?
+    public var pageDirection: String?
+    public var contentHash: String?
+    public var fileSize: Int64?
+    public var fileMtime: Double?
+
+    public init(
+        id: Int, title: String, author: String?, genre: String?, path: String?,
+        dateAdded: Double, playDate: Double?, bookType: Int, fileType: Int, pages: Int?,
+        rating: Int, unseen: Bool,
+        keywordA: String?, keywordB: String?, keywordC: String?,
+        neta: String?, memo: String?, series: String?, volume: Double?,
+        coverImageName: String?,
+        coverCropX: Double? = nil, coverCropY: Double? = nil, coverCropW: Double? = nil, coverCropH: Double? = nil,
+        pageDirection: String? = nil,
+        contentHash: String? = nil, fileSize: Int64? = nil, fileMtime: Double? = nil
+    ) {
+        self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
+        self.dateAdded = dateAdded; self.playDate = playDate
+        self.bookType = bookType; self.fileType = fileType; self.pages = pages
+        self.rating = rating; self.unseen = unseen
+        self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC
+        self.neta = neta; self.memo = memo; self.series = series; self.volume = volume
+        self.coverImageName = coverImageName
+        self.coverCropX = coverCropX; self.coverCropY = coverCropY
+        self.coverCropW = coverCropW; self.coverCropH = coverCropH
+        self.pageDirection = pageDirection
+        self.contentHash = contentHash; self.fileSize = fileSize; self.fileMtime = fileMtime
+    }
+}
+
 /// PATCH /api/v1/grants/:id リクエスト。nil = 変更しない。
 public struct GrantUpdateRequest: Codable, Sendable {
     public var label: String?

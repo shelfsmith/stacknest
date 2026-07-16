@@ -453,6 +453,54 @@ public struct LibraryServerCore: Sendable {
             )
         }
 
+        // G12b-3c S5: BookRow ⇄ BookRestoreDTO 変換ヘルパ（DELETE 応答／POST books/restore の body で共用）。
+        // coverCropRect は x/y/w/h、pageDirection は directionString(_:) と同じ "ltr"/"rtl" 文字列、
+        // Date は epoch 秒に写像する（LibraryRequestContext の .iso8601 デコーダ/エンコーダの影響を受けないため）。
+        @Sendable func makeBookRestoreDTO(row: BookRow) -> BookRestoreDTO {
+            BookRestoreDTO(
+                id: row.id, title: row.title, author: row.author, genre: row.genre, path: row.path,
+                dateAdded: row.dateAdded.timeIntervalSince1970,
+                playDate: row.playDate?.timeIntervalSince1970,
+                bookType: row.bookType, fileType: row.fileType, pages: row.pages,
+                rating: row.rating, unseen: row.unseen,
+                keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC,
+                neta: row.neta, memo: row.memo, series: row.series, volume: row.volume,
+                coverImageName: row.coverImageName,
+                coverCropX: row.coverCropRect.map { Double($0.origin.x) },
+                coverCropY: row.coverCropRect.map { Double($0.origin.y) },
+                coverCropW: row.coverCropRect.map { Double($0.size.width) },
+                coverCropH: row.coverCropRect.map { Double($0.size.height) },
+                pageDirection: row.pageDirection.map { directionString($0) },
+                contentHash: row.contentHash, fileSize: row.fileSize, fileMtime: row.fileMtime
+            )
+        }
+        // BookRestoreDTO → BookRow 逆変換（POST books/restore の各要素を Database.restoreBook に渡す前段）。
+        @Sendable func bookRow(from dto: BookRestoreDTO) -> BookRow {
+            let crop: CGRect?
+            if let x = dto.coverCropX, let y = dto.coverCropY, let w = dto.coverCropW, let h = dto.coverCropH {
+                crop = CGRect(x: x, y: y, width: w, height: h)
+            } else {
+                crop = nil
+            }
+            let direction: PageDirection?
+            switch dto.pageDirection {
+            case "rtl": direction = .rightToLeft
+            case "ltr": direction = .leftToRight
+            default: direction = nil
+            }
+            return BookRow(
+                id: dto.id, title: dto.title, author: dto.author, genre: dto.genre, path: dto.path,
+                dateAdded: Date(timeIntervalSince1970: dto.dateAdded),
+                playDate: dto.playDate.map { Date(timeIntervalSince1970: $0) },
+                bookType: dto.bookType, fileType: dto.fileType, pages: dto.pages,
+                rating: dto.rating, unseen: dto.unseen,
+                keywordA: dto.keywordA, keywordB: dto.keywordB, keywordC: dto.keywordC,
+                neta: dto.neta, memo: dto.memo, series: dto.series, volume: dto.volume,
+                coverImageName: dto.coverImageName, coverCropRect: crop, pageDirection: direction,
+                contentHash: dto.contentHash, fileSize: dto.fileSize, fileMtime: dto.fileMtime
+            )
+        }
+
         // BookRow → BookListItemDTO 変換ヘルパ（adjacent / duplicate scan 等で共用）。
         // lastPage は DB アクセスが必要なため nil 固定。呼び出し側で .withLastPage(...) を付与する。
         @Sendable func makeBookListItemDTO(from row: BookRow) -> BookListItemDTO {
@@ -601,7 +649,22 @@ public struct LibraryServerCore: Sendable {
             try? FileManager.default.removeItem(at: thumbDir)
             // 行が消えるので全リロード通知（削除済み本は onBookChanged で扱えない）。
             self.notifyStructureChanged(lib.uuid)
-            return Response(status: .noContent)
+            // G12b-3c S5: リモート undo のため、削除した行を BookRestoreDTO として返す（200＋body）。
+            return makeBookRestoreDTO(row: row)
+        }
+        // G12b-3c S5: リモート undo（削除の取り消し）。DELETE が返した BookRestoreDTO 配列をそのまま渡すと
+        // restoreBook が同じ id で再挿入する。trash=true 削除はファイルが OS ゴミ箱にあるため
+        // ここでは DB 行のみ復元する（path は元のまま＝ファイル欠損の可能性は parity 範囲で許容）。
+        api.post("libraries/:lib/books/restore") { [self] request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
+                throw HTTPError(.notFound)
+            }
+            let dtos = try await request.decode(as: [BookRestoreDTO].self, context: context)
+            for dto in dtos { try lib.db.restoreBook(bookRow(from: dto)) }
+            if !dtos.isEmpty { self.notifyStructureChanged(lib.uuid) }
+            return HTTPResponse.Status.noContent
         }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
         api.get("libraries/:lib/books/:id/cover-candidates") { request, context in

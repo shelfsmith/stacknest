@@ -76,7 +76,7 @@ struct AccessTierTests {
         let lib2 = f2.servedLibrary()
         try await makeApp(admin: false, f2).test(.router) { client in
             try await client.execute(uri: "/api/v1/libraries/\(lib2.uuid)/books/1", method: .delete,
-                headers: [.authorization: "Bearer W"]) { r in #expect(r.status == .noContent) }
+                headers: [.authorization: "Bearer W"]) { r in #expect(r.status == .ok) }   // G12b-3c S5: 200+BookRestoreDTO
         }
     }
 }
