@@ -70,6 +70,84 @@ struct BookRestoreEndpointTests {
         #expect(after.volume == before.volume)
     }
 
+    // MARK: - G12b-3d smoke fix: 表紙サムネイルの復元（ローカル undo と parity）
+
+    /// 削除時に表紙があった本は、restore で Thumbnails/<id>/thumbnail.jpg が
+    /// ソースアーカイブから再生成される（DELETE が消したサムネを undo で戻す）。
+    @Test func restoreRegeneratesThumbnailWhenBookHadCover() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreCover", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        // 手動表紙（アーカイブ内エントリ）を選択記録し、サムネイルを配置＝削除時 hasCover=true。
+        try fx.db.updateBook(id: id, patch: BookPatch(coverImageName: "p10.png"))
+        try fx.addCover(bookID: id)
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        #expect(FileManager.default.fileExists(atPath: thumb.path))   // 前提: 表紙あり
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            #expect(dto.hasCover)                                        // 削除時点の表紙有無を捕捉
+            #expect(!FileManager.default.fileExists(atPath: thumb.path)) // DELETE がサムネを消した
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .noContent)
+            }
+        }
+        // restore がサムネイルを再生成した（ローカル undo と同じ結果）。
+        #expect(FileManager.default.fileExists(atPath: thumb.path))
+    }
+
+    /// 削除時に表紙が無かった本は、restore でサムネイルを新規生成しない
+    /// （無表紙本に先頭ページ表紙を勝手に付けない＝忠実性）。
+    @Test func restoreDoesNotAddCoverWhenBookHadNone() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreNoCover", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")   // 実アーカイブだが表紙未設定
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        #expect(!FileManager.default.fileExists(atPath: thumb.path))  // 前提: 表紙なし
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            #expect(!dto.hasCover)
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .noContent)
+            }
+        }
+        // 表紙を勝手に生成していない。
+        #expect(!FileManager.default.fileExists(atPath: thumb.path))
+    }
+
     // MARK: - admin ゲート
 
     /// edit トークンで books/restore → 403（本の存否に関わらず tier チェックが先）。

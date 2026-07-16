@@ -730,6 +730,9 @@ public struct BookRestoreDTO: Codable, Sendable {
     public var contentHash: String?
     public var fileSize: Int64?
     public var fileMtime: Double?
+    /// G12b-3d smoke fix: 削除時点で表紙（Thumbnails/<id>）が存在したか。restore 時にこれが true の本のみ
+    /// サムネイルをソースアーカイブから再生成する（ローカル undo の「DB 復元＋file regenerate」と parity）。
+    public var hasCover: Bool
 
     public init(
         id: Int, title: String, author: String?, genre: String?, path: String?,
@@ -740,7 +743,8 @@ public struct BookRestoreDTO: Codable, Sendable {
         coverImageName: String?,
         coverCropX: Double? = nil, coverCropY: Double? = nil, coverCropW: Double? = nil, coverCropH: Double? = nil,
         pageDirection: String? = nil,
-        contentHash: String? = nil, fileSize: Int64? = nil, fileMtime: Double? = nil
+        contentHash: String? = nil, fileSize: Int64? = nil, fileMtime: Double? = nil,
+        hasCover: Bool = false
     ) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate
@@ -753,6 +757,7 @@ public struct BookRestoreDTO: Codable, Sendable {
         self.coverCropW = coverCropW; self.coverCropH = coverCropH
         self.pageDirection = pageDirection
         self.contentHash = contentHash; self.fileSize = fileSize; self.fileMtime = fileMtime
+        self.hasCover = hasCover
     }
 }
 

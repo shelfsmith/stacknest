@@ -458,7 +458,7 @@ public struct LibraryServerCore: Sendable {
         // G12b-3c S5: BookRow ⇄ BookRestoreDTO 変換ヘルパ（DELETE 応答／POST books/restore の body で共用）。
         // coverCropRect は x/y/w/h、pageDirection は directionString(_:) と同じ "ltr"/"rtl" 文字列、
         // Date は epoch 秒に写像する（LibraryRequestContext の .iso8601 デコーダ/エンコーダの影響を受けないため）。
-        @Sendable func makeBookRestoreDTO(row: BookRow) -> BookRestoreDTO {
+        @Sendable func makeBookRestoreDTO(row: BookRow, hasCover: Bool) -> BookRestoreDTO {
             BookRestoreDTO(
                 id: row.id, title: row.title, author: row.author, genre: row.genre, path: row.path,
                 dateAdded: row.dateAdded.timeIntervalSince1970,
@@ -473,7 +473,8 @@ public struct LibraryServerCore: Sendable {
                 coverCropW: row.coverCropRect.map { Double($0.size.width) },
                 coverCropH: row.coverCropRect.map { Double($0.size.height) },
                 pageDirection: row.pageDirection.map { directionString($0) },
-                contentHash: row.contentHash, fileSize: row.fileSize, fileMtime: row.fileMtime
+                contentHash: row.contentHash, fileSize: row.fileSize, fileMtime: row.fileMtime,
+                hasCover: hasCover
             )
         }
         // BookRestoreDTO → BookRow 逆変換（POST books/restore の各要素を Database.restoreBook に渡す前段）。
@@ -648,11 +649,14 @@ public struct LibraryServerCore: Sendable {
             }
             try lib.db.deleteBook(id: row.id)
             let thumbDir = lib.bundleURL.appendingPathComponent("Thumbnails").appendingPathComponent(String(row.id))
+            // G12b-3d smoke fix: サムネイル削除の前に表紙有無を捕捉し restore DTO に載せる
+            // （restore 時にこれが true の本のみ再生成＝無表紙本に表紙を付けない）。
+            let hadCover = FileManager.default.fileExists(atPath: thumbDir.path)
             try? FileManager.default.removeItem(at: thumbDir)
             // 行が消えるので全リロード通知（削除済み本は onBookChanged で扱えない）。
             self.notifyStructureChanged(lib.uuid)
             // G12b-3c S5: リモート undo のため、削除した行を BookRestoreDTO として返す（200＋body）。
-            return makeBookRestoreDTO(row: row)
+            return makeBookRestoreDTO(row: row, hasCover: hadCover)
         }
         // G12b-3c S5: リモート undo（削除の取り消し）。DELETE が返した BookRestoreDTO 配列をそのまま渡すと
         // restoreBook が同じ id で再挿入する。trash=true 削除はファイルが OS ゴミ箱にあるため
@@ -669,6 +673,15 @@ public struct LibraryServerCore: Sendable {
                 do {
                     try lib.db.restoreBook(bookRow(from: dto))
                     restoredAny = true
+                    // G12b-3d smoke fix: ローカル undo（DB 復元＋file regenerate）と parity。
+                    // 削除時に表紙があった本は、ソースアーカイブからサムネイルを再生成する
+                    // （DB-only 削除はソース健在）。best-effort＝再生成失敗（ソース欠損＝trash 削除後や
+                    // 抽出不可）は握り潰し、DB 復元自体は成立させる。
+                    if dto.hasCover {
+                        try? await Self.regenerateThumbnail(
+                            bookID: dto.id, sourceURLPath: dto.path,
+                            preferredName: dto.coverImageName, bundleURL: lib.bundleURL)
+                    }
                 } catch {
                     // id が既に別の本に再利用されている（restoreBook は plain INSERT なので
                     // UNIQUE 制約違反として届く）。この行はスキップし、他の行の復元は継続する
