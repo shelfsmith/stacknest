@@ -96,7 +96,7 @@ struct BookRestoreEndpointTests {
                 captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
             }
             let dto = try #require(captured)
-            #expect(dto.hasCover)                                        // 削除時点の表紙有無を捕捉
+            #expect(dto.hasCover == true)                                // 削除時点の表紙有無を捕捉
             #expect(!FileManager.default.fileExists(atPath: thumb.path)) // DELETE がサムネを消した
 
             let encoded = try JSONEncoder().encode([dto])
@@ -133,7 +133,7 @@ struct BookRestoreEndpointTests {
                 captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
             }
             let dto = try #require(captured)
-            #expect(!dto.hasCover)
+            #expect(dto.hasCover != true)
 
             let encoded = try JSONEncoder().encode([dto])
             try await client.execute(
@@ -146,6 +146,49 @@ struct BookRestoreEndpointTests {
         }
         // 表紙を勝手に生成していない。
         #expect(!FileManager.default.fileExists(atPath: thumb.path))
+    }
+
+    /// Codex G12b-3d Medium: hasCover キーを持たない旧ペイロードでも restore が decode 成功し
+    /// 本が復元される（後方互換＝欠落は無表紙扱いの安全側）。表紙は再生成されない。
+    @Test func restoreDecodesPayloadWithoutHasCover() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreBackcompat", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        let beforeOpt = try fx.db.fetchBook(id: id)
+        let before = try #require(beforeOpt)
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        try await app.test(.router) { client in
+            // 本を消す（DB のみ）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in #expect(response.status == .ok) }
+            #expect(try fx.db.fetchBook(id: id) == nil)
+
+            // hasCover を含まない手組み JSON（旧クライアント相当）で restore。
+            let legacyJSON = """
+            [{"id":\(id),"title":\(jsonString(before.title)),"path":\(jsonString(before.path ?? "")),\
+            "dateAdded":\(before.dateAdded.timeIntervalSince1970),"bookType":\(before.bookType),\
+            "fileType":\(before.fileType),"rating":\(before.rating),"unseen":\(before.unseen)}]
+            """
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: ByteBuffer(string: legacyJSON)
+            ) { response in
+                #expect(response.status == .noContent)   // decode 失敗せず復元成立
+            }
+        }
+        #expect(try fx.db.fetchBook(id: id) != nil)                    // 復元された
+        #expect(!FileManager.default.fileExists(atPath: thumb.path))   // 欠落=無表紙扱い→表紙生成せず
+    }
+
+    /// JSON 文字列リテラル用の最小エスケープ（テストデータは英数字のみのため十分）。
+    private func jsonString(_ s: String) -> String {
+        "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 
     // MARK: - admin ゲート

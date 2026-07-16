@@ -651,7 +651,9 @@ public struct LibraryServerCore: Sendable {
             let thumbDir = lib.bundleURL.appendingPathComponent("Thumbnails").appendingPathComponent(String(row.id))
             // G12b-3d smoke fix: サムネイル削除の前に表紙有無を捕捉し restore DTO に載せる
             // （restore 時にこれが true の本のみ再生成＝無表紙本に表紙を付けない）。
-            let hadCover = FileManager.default.fileExists(atPath: thumbDir.path)
+            // Codex G12b-3d Low: ディレクトリ存在ではなく thumbnail.jpg 実体で判定する
+            // （regen がディレクトリ作成後に書込失敗した空ディレクトリを表紙ありと誤認しない）。
+            let hadCover = FileManager.default.fileExists(atPath: coverURL(bundleURL: lib.bundleURL, bookID: row.id).path)
             try? FileManager.default.removeItem(at: thumbDir)
             // 行が消えるので全リロード通知（削除済み本は onBookChanged で扱えない）。
             self.notifyStructureChanged(lib.uuid)
@@ -677,7 +679,7 @@ public struct LibraryServerCore: Sendable {
                     // 削除時に表紙があった本は、ソースアーカイブからサムネイルを再生成する
                     // （DB-only 削除はソース健在）。best-effort＝再生成失敗（ソース欠損＝trash 削除後や
                     // 抽出不可）は握り潰し、DB 復元自体は成立させる。
-                    if dto.hasCover {
+                    if dto.hasCover == true {
                         try? await Self.regenerateThumbnail(
                             bookID: dto.id, sourceURLPath: dto.path,
                             preferredName: dto.coverImageName, bundleURL: lib.bundleURL)

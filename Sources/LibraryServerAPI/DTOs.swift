@@ -730,9 +730,10 @@ public struct BookRestoreDTO: Codable, Sendable {
     public var contentHash: String?
     public var fileSize: Int64?
     public var fileMtime: Double?
-    /// G12b-3d smoke fix: 削除時点で表紙（Thumbnails/<id>）が存在したか。restore 時にこれが true の本のみ
-    /// サムネイルをソースアーカイブから再生成する（ローカル undo の「DB 復元＋file regenerate」と parity）。
-    public var hasCover: Bool
+    /// G12b-3d smoke fix: 削除時点で表紙（Thumbnails/<id>/thumbnail.jpg）が存在したか。restore 時にこれが
+    /// true の本のみサムネイルをソースアーカイブから再生成する（ローカル undo の「DB 復元＋file regenerate」と parity）。
+    /// Optional にして後方互換（キー欠落の旧ペイロード＝nil＝無表紙扱いの安全側）を確保する（Codex G12b-3d Medium）。
+    public var hasCover: Bool?
 
     public init(
         id: Int, title: String, author: String?, genre: String?, path: String?,
@@ -744,7 +745,7 @@ public struct BookRestoreDTO: Codable, Sendable {
         coverCropX: Double? = nil, coverCropY: Double? = nil, coverCropW: Double? = nil, coverCropH: Double? = nil,
         pageDirection: String? = nil,
         contentHash: String? = nil, fileSize: Int64? = nil, fileMtime: Double? = nil,
-        hasCover: Bool = false
+        hasCover: Bool? = nil
     ) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate
