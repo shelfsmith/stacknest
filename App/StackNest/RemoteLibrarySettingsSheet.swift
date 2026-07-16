@@ -411,6 +411,34 @@ struct RemoteLibrarySettingsSheet: View {
                 .padding(8)
             }
 
+            GroupBox("メンテナンス") {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let job = state.maintenanceJob {
+                        let label = job.job == "compress-covers" ? "表紙を圧縮中…" : "メタデータを補完中…"
+                        HStack {
+                            if job.total > 0 { ProgressView(value: Double(job.done), total: Double(job.total)) }
+                            else { ProgressView() }
+                            Text(job.total > 0 ? "\(job.done)/\(job.total)" : "").font(.caption).monospacedDigit()
+                            Button("中断") { Task { await state.cancelMaintenance() } }
+                        }
+                        Text(label).font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button("ファイル名からシリーズ・巻数を補完") { Task { await state.runCompleteMetadata() } }
+                            .disabled(!state.canDelete)
+                        Text("既存のシリーズ・巻数が空欄の本のみ、タイトル／ファイル名から自動推測して補完します。")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Divider()
+                        Button { Task { await state.runCompressCovers() } } label: {
+                            Label("表紙を圧縮", systemImage: "arrow.down.circle")
+                        }
+                        .disabled(!state.canDelete)
+                        Text("上限 1200px を超える内部表紙のみ圧縮します（外部表紙は対象外）。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(8)
+            }
+
             if general == nil {
                 if errorText != nil {
                     Button("再読み込み") {
@@ -439,6 +467,14 @@ struct RemoteLibrarySettingsSheet: View {
                     ? "問題は見つかりませんでした"
                     : integrityResult.rows.prefix(20).joined(separator: "\n"))
             }
+        }
+        .alert("メンテナンス完了", isPresented: Binding(
+            get: { state.maintenanceResult != nil },
+            set: { if !$0 { state.maintenanceResult = nil } }
+        )) {
+            Button("OK") { state.maintenanceResult = nil }
+        } message: {
+            Text(state.maintenanceResult ?? "")
         }
     }
 
