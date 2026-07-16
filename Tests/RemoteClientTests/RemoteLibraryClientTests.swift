@@ -254,6 +254,25 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
         }
 
+        // MARK: - G12b-3c: 命名プリセット
+
+        @Test func fetchPresetsDecodes() async throws {
+            let set = PresetSetDTO(presets: [FilenameFormatPresetDTO(id: "a", name: "A", format: "@title")], defaultID: "a")
+            StubURLProtocol.stub = .init(status: 200, headers: ["Content-Type": "application/json"], body: try enc().encode(set))
+            let got = try await makeClient().fetchPresets(libraryUUID: "L", libraryToken: nil)
+            #expect(got.defaultID == "a")
+            #expect(got.presets.first?.format == "@title")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/presets") == true)
+        }
+
+        @Test func putPresetsSendsPUT() async throws {
+            let set = PresetSetDTO(presets: [FilenameFormatPresetDTO(id: "a", name: "A", format: "@title")], defaultID: "a")
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(set))
+            _ = try await makeClient().putPresets(set, libraryUUID: "L", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "PUT")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/L/presets") == true)
+        }
+
         /// G14 follow-up: 非 SSE リクエストは有限の短いタイムアウトを持つこと。
         /// 既定の 60s だと、サーバ不達時に runLiveSync の reload が最長 60s ハングし、
         /// サーバ復帰後もそのリクエストが返るまで再接続を試せず赤字の復帰が ~40s まで遅れる。

@@ -539,6 +539,22 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(WatchConfigDTO.self, data)
     }
 
+    // MARK: - G12b-3c: 命名プリセット
+
+    /// GET presets — ファイル名フォーマットのプリセット一覧＋既定 ID（R 可）。
+    public func fetchPresets(libraryUUID: String, libraryToken: String?) async throws -> PresetSetDTO {
+        let url = makeURL("libraries/\(libraryUUID)/presets")
+        return try decode(PresetSetDTO.self, try await send(request(url, method: "GET", libraryToken: libraryToken)))
+    }
+
+    /// PUT presets — プリセット一覧＋既定 ID を保存し、保存後の DTO を返す（RW）。
+    @discardableResult
+    public func putPresets(_ dto: PresetSetDTO, libraryUUID: String, libraryToken: String?) async throws -> PresetSetDTO {
+        let url = makeURL("libraries/\(libraryUUID)/presets")
+        let body = try JSONEncoder().encode(dto)
+        return try decode(PresetSetDTO.self, try await send(request(url, method: "PUT", libraryToken: libraryToken, body: body, contentType: "application/json", timeout: 30)))
+    }
+
     // MARK: - G8a: ライブ同期（SSE）
 
     /// G8a: ライブ同期イベントを購読する（SSE・Design 1）。
