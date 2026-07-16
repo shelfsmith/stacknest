@@ -654,7 +654,7 @@ final class RemoteLibraryState {
             _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: bookID, patch: dto, libraryToken: libraryToken)
             if let inverse { pushUndo(.rePatch([inverse])) }
             await selectBook(bookID)   // 詳細ペインを最新内容で再描画
-            await reload()             // 一覧行も更新
+            await liveReload()         // 一覧行も位置保持で更新
         } catch {
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
             else { errorText = "編集に失敗しました" }
@@ -752,7 +752,7 @@ final class RemoteLibraryState {
             // redo = 再削除（redo() 側で id から deleteBook する）。
             redoStack.append(.restore(rows))
         }
-        await reload(clearFirst: false)
+        await liveReload()
         if let id = selection { await selectBook(id) }
     }
 
@@ -802,7 +802,7 @@ final class RemoteLibraryState {
             }
             undoStack.append(.restore(reRows))
         }
-        await reload(clearFirst: false)
+        await liveReload()
     }
 
     // MARK: - 4.2c-6a: 一括メタ編集（replace・per-book PATCH＋進捗/中断）
@@ -899,7 +899,7 @@ final class RemoteLibraryState {
         }
         if !appliedInverses.isEmpty { pushUndo(.rePatch(appliedInverses)) }
         editProgress = nil
-        await reload(clearFirst: false)   // 旧リストを保持したまま差し替え（空表示防止）
+        await liveReload()                 // 位置保持で一覧を最新化
         if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
         // batch 自前の reload でサーバ真値へ揃えたので、抑止していた自エコー分は捨ててよい。
         // ただし抑止中に他クライアント由来の変更（他ユーザー編集等）も pending に混在しうるため、
