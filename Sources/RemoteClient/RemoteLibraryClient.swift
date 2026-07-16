@@ -496,6 +496,12 @@ public struct RemoteLibraryClient: Sendable {
         let url = makeURL("libraries/\(libraryUUID)/watch/scan-now")
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
     }
+    /// G12b-3c: 指定フォルダの baseline をクリアして既存ファイルも再取込みする（admin）。
+    public func importExistingInWatchedFolder(folderID: String, libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/watch/import-existing")
+        let body = try JSONEncoder().encode(ImportExistingRequest(folderID: folderID))
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json", timeout: 30))
+    }
 
     // MARK: - G12b-3b: メンテナンス（メタ補完/表紙圧縮・非同期ジョブ）
 

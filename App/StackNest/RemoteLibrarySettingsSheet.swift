@@ -49,6 +49,9 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var watchConfig: WatchConfigDTO?
     @State private var newFolderPath = ""
     @State private var scanningNow = false
+    // G12b-3c: per-folder「既存も取り込む」確認ダイアログ対象（folder.id を保持。行の index ではなく
+    // id で追跡し、確認表示中に他行の削除で index がずれても誤爆しないようにする）。
+    @State private var confirmingImportExistingFolderID: String?
 
     // MARK: 命名プリセット（G12b-3c: 取り込みタブ内・canDelete 以上・ローカル formatSection と parity）
     // ステージング編集は保存でのみサーバへ反映する（ローカル LibrarySettingsSheet と同方針）。
@@ -646,6 +649,29 @@ struct RemoteLibrarySettingsSheet: View {
                         Text("サブフォルダを取り込まない").tag(WatchedFolderDTO.SubfolderMode.topLevelOnly)
                         Text("サブフォルダの中も取り込む").tag(WatchedFolderDTO.SubfolderMode.recurse)
                     }.labelsHidden().frame(maxWidth: 260)
+                }
+                HStack {
+                    Button("既存も取り込む") {
+                        if inBounds() { confirmingImportExistingFolderID = cfg.folders[i].id }
+                    }
+                    .disabled(!state.canDelete)
+                    Text("このフォルダに元からあるファイルもまとめて取り込みます。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+                .confirmationDialog(
+                    "このフォルダ内の既存ファイルも取り込みます。よろしいですか？",
+                    isPresented: Binding(
+                        get: { confirmingImportExistingFolderID == cfg.folders[i].id },
+                        set: { if !$0 { confirmingImportExistingFolderID = nil } }
+                    )
+                ) {
+                    Button("取り込む", role: .destructive) {
+                        if let fid = confirmingImportExistingFolderID {
+                            confirmingImportExistingFolderID = nil
+                            Task { await state.importExisting(folderID: fid) }
+                        }
+                    }
+                    Button("キャンセル", role: .cancel) { confirmingImportExistingFolderID = nil }
                 }
             }
         }

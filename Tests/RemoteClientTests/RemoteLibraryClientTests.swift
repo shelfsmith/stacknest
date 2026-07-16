@@ -273,6 +273,27 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/L/presets") == true)
         }
 
+        // MARK: - G12b-3c: 既存フォルダ再取込み
+
+        @Test func importExistingAcceptedDoesNotThrow() async throws {
+            StubURLProtocol.stub = .init(status: 202, headers: [:], body: Data())
+            try await makeClient().importExistingInWatchedFolder(folderID: "f1", libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/watch/import-existing") == true)
+        }
+        @Test func importExistingNoContentDoesNotThrow() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().importExistingInWatchedFolder(folderID: "f1", libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/watch/import-existing") == true)
+        }
+        @Test func importExistingForbiddenThrows() async throws {
+            StubURLProtocol.stub = .init(status: 403, headers: [:], body: Data())
+            await #expect(throws: RemoteClientError.forbidden) {
+                try await makeClient().importExistingInWatchedFolder(folderID: "f1", libraryUUID: "U", libraryToken: nil)
+            }
+        }
+
         /// G14 follow-up: 非 SSE リクエストは有限の短いタイムアウトを持つこと。
         /// 既定の 60s だと、サーバ不達時に runLiveSync の reload が最長 60s ハングし、
         /// サーバ復帰後もそのリクエストが返るまで再接続を試せず赤字の復帰が ~40s まで遅れる。

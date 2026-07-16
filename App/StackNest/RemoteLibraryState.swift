@@ -791,6 +791,16 @@ final class RemoteLibraryState {
         } catch { errorText = "監視設定の保存に失敗しました"; return nil }
     }
 
+    /// 指定フォルダの既存ファイルも取り込む（admin 必須。baseline をクリアして再スキャン）。
+    func importExisting(folderID: String) async {
+        guard canDelete else { errorText = "管理者権限が必要です"; return }
+        do { try await client.importExistingInWatchedFolder(folderID: folderID, libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch let e as RemoteClientError {
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "既存取り込みの開始に失敗しました" } }()
+        }
+        catch { errorText = "既存取り込みの開始に失敗しました" }
+    }
+
     // MARK: - G12b-3c: 命名プリセット集合（GET/PUT）
 
     /// プリセット集合を取得（RW 不要・admin ゲート表示側の責務）。失敗時は errorText を立て nil。
