@@ -788,7 +788,13 @@ final class RemoteLibraryState {
     }
     @discardableResult
     func saveGeneralSettings(_ dto: GeneralSettingsDTO) async -> GeneralSettingsDTO? {
-        do { return try await client.putGeneralSettings(dto, libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        do {
+            let saved = try await client.putGeneralSettings(dto, libraryUUID: libraryUUID, libraryToken: libraryToken)
+            // G2: 表示名を再接続なしで反映（navigationTitle が state.libraryName を直接読むため即時更新）。
+            // 空欄はバンドル名フォールバックの既存挙動を壊さないため libraryName を変更しない。
+            if !saved.displayName.isEmpty { libraryName = saved.displayName }
+            return saved
+        }
         catch let e as RemoteClientError {
             errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "一般設定の保存に失敗しました" } }()
             return nil
