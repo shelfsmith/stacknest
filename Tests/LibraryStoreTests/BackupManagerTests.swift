@@ -53,6 +53,24 @@ struct BackupManagerTests {
         #expect(BackupManager.list(in: BackupManager.backupsDir(for: bundle)).count == 1)
     }
 
+    /// 同一 timestamp（1 秒解像度）で 2 回バックアップしても上書きせず 2 世代残す（Codex Important #2 回帰）。
+    @Test func makeBackupWithSameTimestampCreatesDistinctGenerations() throws {
+        let dir = try tempDir()
+        let bundle = dir.appendingPathComponent("foo.stacknest")
+        try FileManager.default.createDirectory(at: bundle, withIntermediateDirectories: true)
+        let db = try Database.openFile(at: bundle.appendingPathComponent("library.sqlite"), mode: .createOrReplace)
+        try db.migrate()
+
+        let a = try BackupManager.makeBackup(from: db, bundleURL: bundle, timestamp: "20260607-101530")
+        let b = try BackupManager.makeBackup(from: db, bundleURL: bundle, timestamp: "20260607-101530")
+        #expect(a.path != b.path)
+        #expect(a.lastPathComponent == "library-20260607-101530.sqlite")
+        #expect(b.lastPathComponent == "library-20260607-101530-2.sqlite")
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        #expect(FileManager.default.fileExists(atPath: b.path))
+        #expect(BackupManager.list(in: BackupManager.backupsDir(for: bundle)).count == 2)
+    }
+
     @Test func listIsNewestFirstAndPruneKeepsNewest() throws {
         let dir = try tempDir()
         let backupsDir = dir.appendingPathComponent("Backups")

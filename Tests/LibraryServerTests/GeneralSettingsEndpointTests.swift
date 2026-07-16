@@ -82,4 +82,54 @@ struct GeneralSettingsEndpointTests {
             }
         }
     }
+
+    /// GET: backup_enabled キー未設定の legacy ライブラリは既定 true を返す
+    /// （LibrarySettings.defaultBackupEnabled と一致・Codex review Important #1 回帰）。
+    @Test func getDefaultsBackupEnabledTrueWhenKeyMissing() async throws {
+        let fixture = try TestLibraryFixture(name: "GSDefault", bookCount: 0)
+        defer { fixture.cleanup() }
+        // display_name / backup_enabled / backup_generations を一切シードしない。
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/general-settings",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { resp in
+                #expect(resp.status == .ok)
+                let dto = try JSONDecoder().decode(GeneralSettingsDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.backupEnabled == true)
+                #expect(dto.backupGenerations == 5)
+            }
+        }
+    }
+
+    /// PUT: 範囲外の backupGenerations はクランプ（1...20）され、レスポンスも続く GET も
+    /// クランプ値で一致する（Codex review Minor: PUT エコーの不一致解消）。
+    @Test func putClampsGenerationsInResponseAndGet() async throws {
+        let body = try JSONEncoder().encode(GeneralSettingsDTO(displayName: "Big", backupEnabled: true, backupGenerations: 100))
+        let fixture = try TestLibraryFixture(name: "GSClamp", bookCount: 0)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture, adminTier: true)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/general-settings",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .ok)
+                let dto = try JSONDecoder().decode(GeneralSettingsDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.backupGenerations == 20)
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/general-settings",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { resp in
+                let dto = try JSONDecoder().decode(GeneralSettingsDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.backupGenerations == 20)
+            }
+        }
+    }
 }

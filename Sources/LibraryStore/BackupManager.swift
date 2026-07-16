@@ -38,7 +38,14 @@ public enum BackupManager {
     public static func makeBackup(from db: Database, bundleURL: URL, timestamp: String) throws -> URL {
         let dir = backupsDir(for: bundleURL)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let out = dir.appendingPathComponent("\(prefix)\(timestamp)\(suffix)")
+        // timestamp は 1 秒解像度。同一秒に複数バックアップを取ると同名 → db.backup が既存を
+        // 上書きし世代が消失するため、衝突時は連番を付して別世代として残す（Codex review Important #2）。
+        var out = dir.appendingPathComponent("\(prefix)\(timestamp)\(suffix)")
+        var seq = 2
+        while FileManager.default.fileExists(atPath: out.path) {
+            out = dir.appendingPathComponent("\(prefix)\(timestamp)-\(seq)\(suffix)")
+            seq += 1
+        }
         try db.backup(to: out)
         return out
     }

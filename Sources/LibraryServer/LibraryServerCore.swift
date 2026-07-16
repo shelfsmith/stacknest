@@ -810,7 +810,10 @@ public struct LibraryServerCore: Sendable {
             let nameRaw: String? = (try? lib.db.getLibrarySetting(key: "display_name")) ?? nil
             let name: String = nameRaw ?? ""
             let enabledRaw: String? = (try? lib.db.getLibrarySetting(key: "backup_enabled")) ?? nil
-            let enabled: Bool = enabledRaw.map { $0 == "1" || $0 == "true" } ?? false
+            // 既定は true（LibrarySettings.defaultBackupEnabled と一致）。キー未設定の legacy
+            // ライブラリで false を返すと、admin が一般タブを保存した際にバックアップが静かに
+            // 無効化されるため（Codex review Important #1）。
+            let enabled: Bool = enabledRaw.map { $0 == "1" || $0 == "true" } ?? true
             let gensRaw: String? = (try? lib.db.getLibrarySetting(key: "backup_generations")) ?? nil
             let gens: Int = gensRaw.flatMap { Int($0) } ?? 5
             return GeneralSettingsDTO(displayName: name, backupEnabled: enabled, backupGenerations: gens)
@@ -821,11 +824,13 @@ public struct LibraryServerCore: Sendable {
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: GeneralSettingsDTO.self, context: context)
+            let clampedGens = max(1, min(20, dto.backupGenerations))
             try lib.db.setLibrarySetting(key: "display_name", value: dto.displayName)
             try lib.db.setLibrarySetting(key: "backup_enabled", value: dto.backupEnabled ? "true" : "false")
-            try lib.db.setLibrarySetting(key: "backup_generations", value: String(max(1, min(20, dto.backupGenerations))))
+            try lib.db.setLibrarySetting(key: "backup_generations", value: String(clampedGens))
             self.notifySettingsChanged(lib.uuid)
-            return dto
+            // クランプ後の値をエコーして GET と一致させる（Codex review Minor）。
+            return GeneralSettingsDTO(displayName: dto.displayName, backupEnabled: dto.backupEnabled, backupGenerations: clampedGens)
         }
         // G12b-3a: 整合性チェック（admin・非破壊）。
         api.get("libraries/:lib/integrity-check") { request, context in
