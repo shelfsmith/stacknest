@@ -37,13 +37,35 @@ struct MetadataCompletionTests {
 
     @Test func isCancelledStopsEarly() async throws {
         let db = try makeDB()
+        // "作品 第N巻" は FilenameParser.parse が series="作品"/volume=N として確実に
+        // マッチする形式（"作品 N巻" は 第 prefix がなくマッチしないため patch が生成されず
+        // ループ本体が一度も回らない＝キャンセル早期打ち切りを検証できない不具合があった）。
         for i in 1...5 {
             _ = try db.insertBookReturningID(BookRecord(
-                id: 0, title: "作品 \(i)巻", dateAdded: Date()))
+                id: 0, title: "作品 第\(i)巻", dateAdded: Date()))
         }
         var seen = 0
         let updated = try await MetadataCompletion.fillMissingSeriesVolume(
             in: db, progress: { done, _ in seen = done }, isCancelled: { seen >= 2 })
-        #expect(updated <= 3)   // 2 件処理後に打ち切り（境界は実装依存で 2〜3）
+        // ループは各件の更新前に isCancelled() を確認する:
+        //   1件目: isCancelled(seen=0)=false → 更新 → done=1 → progress → seen=1
+        //   2件目: isCancelled(seen=1)=false → 更新 → done=2 → progress → seen=2
+        //   3件目: isCancelled(seen=2)=true  → break（更新されない）
+        // よって境界は厳密に 2 件で打ち切られる。
+        #expect(updated == 2)
+        #expect(seen == 2)
+    }
+
+    @Test func isCancelledFalseProcessesAll() async throws {
+        // isCancelledStopsEarly の "== 2" が本当に早期打ち切りの結果であり、
+        // 単に全件処理された結果ではないことを対比で示す。
+        let db = try makeDB()
+        for i in 1...5 {
+            _ = try db.insertBookReturningID(BookRecord(
+                id: 0, title: "作品 第\(i)巻", dateAdded: Date()))
+        }
+        let updated = try await MetadataCompletion.fillMissingSeriesVolume(
+            in: db, progress: { _, _ in }, isCancelled: { false })
+        #expect(updated == 5)
     }
 }
