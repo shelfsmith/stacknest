@@ -323,6 +323,11 @@ public final class Database: @unchecked Sendable {
                     TextNormalize.nfcValue(book.series),
                     book.volume,
                     book.coverImageName,             // coverImageName: do NOT normalize (FS ref)
+                    nil as String?,                  // cover_crop_rect: BookRecord has no crop data (import path)
+                    nil as String?,                  // page_direction: BookRecord has no per-book override (import path)
+                    nil as String?,                  // content_hash: computed later, not at import time
+                    nil as Int64?,                   // file_size: computed later, not at import time
+                    nil as Double?,                  // file_mtime: computed later, not at import time
                 ]
             )
         }
@@ -1662,6 +1667,11 @@ public final class Database: @unchecked Sendable {
                     TextNormalize.nfcValue(row.series),
                     row.volume,
                     row.coverImageName,              // coverImageName: do NOT normalize (FS ref)
+                    row.coverCropRect.map { BookRow.encodeCoverCropRect($0) },   // cover_crop_rect (JSON string / nil)
+                    row.pageDirection?.rawValue,                                 // page_direction ("rightToLeft"/"leftToRight" / nil)
+                    row.contentHash,                                             // content_hash
+                    row.fileSize,                                                // file_size
+                    row.fileMtime,                                               // file_mtime
                 ]
             )
         }

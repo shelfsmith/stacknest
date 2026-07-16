@@ -25,12 +25,14 @@ public enum SyntheticLibrary {
                 let rating   = Int(rng.next() % 6)
                 let pages    = Int(rng.next() % 400) + 1
                 let dateAdded = base + Double(i)
-                // Tables.insertBookSQL の 20 列順:
+                // Tables.insertBookSQL の 25 列順:
                 // id, title, author, genre, path, date_added, play_date, book_type, file_type,
-                // pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name
+                // pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name,
+                // cover_crop_rect, page_direction, content_hash, file_size, file_mtime
                 try gdb.execute(sql: Tables.insertBookSQL, arguments: [
                     i + 1, title, author, genre, "/synthetic/\(i + 1).zip", dateAdded, nil,
-                    bookType, 2, pages, rating, 1, ka, kb, nil, nil, nil, series, volume, nil
+                    bookType, 2, pages, rating, 1, ka, kb, nil, nil, nil, series, volume, nil,
+                    nil, nil, nil, nil, nil
                 ])
             }
         }

@@ -47,4 +47,38 @@ struct RestoreBookTests {
         let after = try #require(try db.fetchBook(id: 1))
         #expect(after.title == "B")
     }
+
+    /// P2: insertBook(replace:)/restoreBook のいずれの経路でも
+    /// cover_crop_rect / page_direction / content_hash / file_size / file_mtime の
+    /// 5 列が失われず往復すること（delete-undo でのデータロス回帰防止）。
+    @Test func restorePreservesAllColumns() throws {
+        let db = try setupDB()
+        let rect = CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4)
+        let row = BookRow(id: 42, title: "T", author: "A", genre: nil, path: "/x/a.zip",
+                          dateAdded: Date(timeIntervalSince1970: 1_700_000_000), playDate: nil,
+                          bookType: 0, fileType: 0, pages: 10, rating: 3, unseen: false,
+                          keywordA: nil, keywordB: nil, keywordC: nil, neta: nil, memo: nil,
+                          series: "S", volume: 2,
+                          coverImageName: "cover.jpg", coverCropRect: rect,
+                          pageDirection: .rightToLeft, contentHash: "abc123", fileSize: 4096, fileMtime: 1_700_000_001)
+
+        // 通常の insert 経路（replace 既定 true）。
+        try db.insertBook(row)
+        let got = try #require(try db.fetchBook(id: 42))
+        #expect(got.coverCropRect == rect)
+        #expect(got.pageDirection == .rightToLeft)
+        #expect(got.contentHash == "abc123")
+        #expect(got.fileSize == 4096)
+        #expect(got.fileMtime == 1_700_000_001)
+
+        // restore 経路（plain INSERT）でも同じく保持されること。
+        try db.deleteBook(id: 42)
+        try db.restoreBook(row)
+        let restored = try #require(try db.fetchBook(id: 42))
+        #expect(restored.coverCropRect == rect)
+        #expect(restored.pageDirection == .rightToLeft)
+        #expect(restored.contentHash == "abc123")
+        #expect(restored.fileSize == 4096)
+        #expect(restored.fileMtime == 1_700_000_001)
+    }
 }

@@ -28,16 +28,16 @@ enum Tables {
         """
 
     static let insertBookSQL = """
-        INSERT OR REPLACE INTO book (id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO book (id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     /// Non-clobbering variant of `insertBookSQL` (plain INSERT, no OR REPLACE). Used by
     /// `Database.restoreBook` so a reused id throws a UNIQUE constraint error instead of
     /// silently overwriting an unrelated row (Codex review, G12b-3c).
     static let insertBookPlainSQL = """
-        INSERT INTO book (id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO book (id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
     static let createPlaylistTable = """
