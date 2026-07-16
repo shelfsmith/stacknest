@@ -277,6 +277,37 @@ final class RemoteLibraryState {
         persistBrowseState()
     }
 
+    /// SSE ライブ同期由来の再取得（reconnect の .connected / ストリーム終了の取りこぼし回収 /
+    /// .structureChanged・.bookChanged の反映）で使う、**ページ/スクロール位置を保持する** reload。
+    /// reload() は page=1 にリセットするため、~5s HB で維持される SSE が周期的に再確立されるたび
+    /// 一覧が先頭へ戻る（無限スクロールは先頭 100 に truncate・ページ表示は 1 ページ目）重大 UX バグを
+    /// 起こしていた。ユーザー操作（filter/sort/sidebar/mode 変更）は従来どおり reload()（先頭リセット）。
+    func liveReload() async {
+        loadGeneration += 1
+        do {
+            if scrollMode == .infinite {
+                // 無限スクロール: 現在ロード済み件数を 1 リクエストで再取得し、表示窓を維持する。
+                let keep = max(infiniteChunkSize, books.count)
+                let result = try await fetchChunk(page: 1, size: keep)
+                books = result.items
+                total = result.total
+                // loadMore の次ページ計算（page+1）が破綻しないよう、現在の窓に page を整合させる。
+                page = max(1, Int(ceil(Double(books.count) / Double(infiniteChunkSize))))
+            } else {
+                // ページ表示: 現在ページをそのまま再取得（page を変えない）。
+                let result = try await fetchChunk(page: page, size: per)
+                books = result.items
+                total = result.total
+            }
+            errorText = nil
+        } catch let e as RemoteClientError {
+            errorText = Self.message(for: e)
+        } catch {
+            errorText = "読み込みに失敗しました"
+        }
+        persistBrowseState()
+    }
+
     /// 直近に永続化したブラウズ状態。reload は検索デバウンス等で高頻度に走るため、
     /// 差分があるときだけ UserDefaults へ書いて無駄な JSON 書込みを避ける。
     @ObservationIgnored private var lastPersistedBrowseState: RemoteBrowseState?
@@ -1692,7 +1723,7 @@ final class RemoteLibraryState {
                 }
                 if Task.isCancelled { break }
                 backoff = .seconds(1)                    // 正常クローズ＝接続は成立していた→リセット
-                await reload(clearFirst: false)          // 取りこぼし回収
+                await liveReload()                       // 取りこぼし回収（位置保持）
                 try? await Task.sleep(for: backoff)
             } catch let e as RemoteClientError {
                 if Task.isCancelled { break }
@@ -1701,13 +1732,13 @@ final class RemoteLibraryState {
                     errorText = Self.message(for: e)     // 認証失効を提示（unlock 導線は locked/unlock UI が担う）
                     return                               // 再接続しない
                 default:
-                    await reload(clearFirst: false)      // .offline/.timeout/.server 等は一時障害
+                    await liveReload()                   // .offline/.timeout/.server 等は一時障害（位置保持）
                     try? await Task.sleep(for: backoff)
                     backoff = min(backoff * 2, maxBackoff)
                 }
             } catch {
                 if Task.isCancelled { break }
-                await reload(clearFirst: false)
+                await liveReload()                       // 位置保持
                 try? await Task.sleep(for: backoff)
                 backoff = min(backoff * 2, maxBackoff)
             }
@@ -1730,7 +1761,7 @@ final class RemoteLibraryState {
             // 成功で赤字が消える（サーバ再起動→復帰後の残留を解消）。取りこぼしも回収。
             // Minor #3: 切断中に他クライアントで本/お気に入りが増減している可能性があるため、
             // 再接続時にサイドバー件数とお気に入り判定も更新する（favoriteBookIDs は canEdit gate 済み）。
-            Task { await reload(clearFirst: false) }
+            Task { await liveReload() }                  // 位置保持（reconnect で先頭に戻さない）
             Task { await refreshCounts() }
             Task { await refreshFavoriteIDs() }
         case .bookChanged(_, let bookID):
@@ -1796,7 +1827,7 @@ final class RemoteLibraryState {
         pendingLiveReload = false
         pendingLiveStampReload = false
         pendingLiveSelectionRefresh = nil
-        if doReload { await reload(clearFirst: false) }
+        if doReload { await liveReload() }   // .structureChanged/.bookChanged 反映も位置保持
         if let sel, selection == sel { await selectBook(sel) }
         if doStamps {
             await loadStampDefinitions()                 // スタンプ定義（observable）を即時反映
