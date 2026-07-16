@@ -791,6 +791,24 @@ final class RemoteLibraryState {
         } catch { errorText = "監視設定の保存に失敗しました"; return nil }
     }
 
+    // MARK: - G12b-3c: 命名プリセット集合（GET/PUT）
+
+    /// プリセット集合を取得（RW 不要・admin ゲート表示側の責務）。失敗時は errorText を立て nil。
+    func loadPresets() async -> PresetSetDTO? {
+        do { return try await client.fetchPresets(libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch { errorText = "プリセットの取得に失敗しました"; return nil }
+    }
+
+    /// プリセット集合を保存（admin 必須）。成功で適用後 DTO を返す。
+    @discardableResult
+    func savePresets(_ dto: PresetSetDTO) async -> PresetSetDTO? {
+        do { return try await client.putPresets(dto, libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch let e as RemoteClientError {
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "プリセットの保存に失敗しました" } }()
+            return nil
+        } catch { errorText = "プリセットの保存に失敗しました"; return nil }
+    }
+
     // MARK: - G12b-3a: 一般設定・保守・scan-now
 
     func loadGeneralSettings() async -> GeneralSettingsDTO? {

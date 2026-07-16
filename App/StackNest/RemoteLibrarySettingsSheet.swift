@@ -3,6 +3,7 @@ import SwiftUI
 import AppCore
 import RemoteClient
 import LibraryServerAPI
+import StackroomFormat  // for BookRecord（G12b-3c: プリセット プレビュー用）
 
 /// 4.2c-8 B1(v2): リモートから開く「ライブラリ設定」シート。ツールバーの歯車から開く。
 /// 実体は接続先（ローカル）ライブラリの設定をリモートで変更する UI なので呼称は「ライブラリ設定」。
@@ -48,6 +49,20 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var watchConfig: WatchConfigDTO?
     @State private var newFolderPath = ""
     @State private var scanningNow = false
+
+    // MARK: 命名プリセット（G12b-3c: 取り込みタブ内・canDelete 以上・ローカル formatSection と parity）
+    // ステージング編集は保存でのみサーバへ反映する（ローカル LibrarySettingsSheet と同方針）。
+    // 保存は import/watch とは独立した専用ボタン（saveImportAndWatch のフローに含めない）。
+    @State private var stagedPresets: [FilenameFormatPresetDTO] = []
+    @State private var stagedDefaultID: String = ""
+    @State private var selectedPresetID: String = ""
+    @State private var presetName: String = ""
+    @State private var formatString: String = ""
+    @State private var formatError: String? = nil
+    @State private var samplePreview: [String] = []
+    @State private var presetsLoaded = false
+    @State private var presetSaving = false
+    @State private var presetSaveMessage: String? = nil
 
     // MARK: 一般タブ（canDelete 以上）— G12b-3a: ライブラリ名・バックアップ・整合性チェック・scan-now。
 
@@ -228,6 +243,7 @@ struct RemoteLibrarySettingsSheet: View {
         }
 
         watchSection()
+        presetSection()
         }
         .task {
             guard !importConfigLoaded else { return }
@@ -241,6 +257,20 @@ struct RemoteLibrarySettingsSheet: View {
             watchConfig = await state.loadWatchConfig()
             if watchConfig == nil { errorText = state.errorText }
         }
+        .task {
+            guard state.canDelete, !presetsLoaded else { return }
+            presetsLoaded = true
+            await reloadPresetsFromServer()
+        }
+    }
+
+    /// サーバから命名プリセット集合を取得し、ステージへ反映する（初回ロード／保存成功後の再同期で共用）。
+    private func reloadPresetsFromServer() async {
+        guard let dto = await state.loadPresets() else { return }
+        stagedPresets = dto.presets
+        stagedDefaultID = dto.defaultID
+        selectedPresetID = stagedDefaultID.isEmpty ? (stagedPresets.first?.id ?? "") : stagedDefaultID
+        loadSelectedStagedPreset()
     }
 
     /// 取り込みタブの閾値 TextField をコミット（ローカル LibrarySettingsSheet の同名処理相当）。
@@ -628,6 +658,214 @@ struct RemoteLibrarySettingsSheet: View {
         guard watchConfig != nil else { return }   // ロード失敗時は config を捏造しない（既存監視フォルダの全消しを防ぐ）
         watchConfig?.folders.append(folder)
         newFolderPath = ""
+    }
+
+    // MARK: - 命名プリセット セクション（G12b-3c: 取り込みタブ内・ローカル formatSection と parity）
+
+    @ViewBuilder
+    private func presetSection() -> some View {
+        GroupBox("命名プリセット") {
+            VStack(alignment: .leading, spacing: 8) {
+                if stagedPresets.isEmpty {
+                    HStack {
+                        ProgressView().controlSize(.small)
+                        Text("読み込み中…").font(.caption).foregroundStyle(.secondary)
+                    }
+                } else {
+                    HStack {
+                        Picker("プリセット", selection: $selectedPresetID) {
+                            ForEach(stagedPresets, id: \.id) { p in
+                                Text(p.id == stagedDefaultID ? "★ \(presetDisplayName(p))" : presetDisplayName(p))
+                                    .tag(p.id)
+                            }
+                        }
+                        .frame(maxWidth: 240)
+                        .onChange(of: selectedPresetID) { _, _ in loadSelectedStagedPreset() }
+                        Spacer()
+                        Button("追加") { addStagedPreset() }
+                        Button("複製") { duplicateStagedPreset() }
+                        Button("削除") { deleteStagedPreset() }
+                            .disabled(stagedPresets.count <= 1)
+                    }
+
+                    HStack {
+                        Text("名前").frame(width: 40, alignment: .leading)
+                        TextField("プリセット名", text: $presetName)
+                            .onChange(of: presetName) { _, new in
+                                updateSelectedStagedPreset(name: new, format: formatString)
+                            }
+                        Button(selectedPresetID == stagedDefaultID ? "既定 ✓" : "既定に設定") {
+                            stagedDefaultID = selectedPresetID
+                        }
+                        .disabled(selectedPresetID == stagedDefaultID)
+                    }
+
+                    TextField("フォーマット（例: @title [@keywordA]）", text: $formatString)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: formatString) { _, new in
+                            updatePresetPreview(new)
+                            updateSelectedStagedPreset(name: presetName, format: new)
+                        }
+
+                    HStack {
+                        Menu("トークンを挿入") {
+                            ForEach(FormatToken.allCases, id: \.self) { tok in
+                                Button(tok.rawSyntax) { insertPresetToken(tok.rawSyntax) }
+                            }
+                        }
+                        .frame(maxWidth: 160)
+                        Spacer()
+                    }
+
+                    if let err = formatError {
+                        Text(err).foregroundStyle(.red).font(.caption)
+                    }
+
+                    Text("プレビュー:").font(.caption.bold()).padding(.top, 4)
+                    ForEach(Array(samplePreview.enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    }
+                    Text("⚠ コロン (:) は ： に自動変換されます")
+                        .font(.caption2).foregroundStyle(.secondary)
+
+                    Divider()
+
+                    HStack {
+                        Button {
+                            Task { await savePresetsNow() }
+                        } label: {
+                            if presetSaving { ProgressView().controlSize(.small) }
+                            Text("プリセットを保存")
+                        }
+                        .disabled(presetSaving || formatError != nil)
+                        if let msg = presetSaveMessage {
+                            Text(msg).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    Text("この保存はページ下部の「保存」ボタンとは独立しています（プリセットのみ即時反映）。")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            .padding(8)
+        }
+    }
+
+    /// プリセット 1 件の Picker/一覧表示名（name 空白のみなら format で代替。ローカル displayName 相当）。
+    private func presetDisplayName(_ p: FilenameFormatPresetDTO) -> String {
+        let trimmed = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? (p.format ?? "") : p.name
+    }
+
+    private func loadSelectedStagedPreset() {
+        guard let p = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
+        presetName = p.name
+        formatString = p.format ?? ""
+        updatePresetPreview(formatString)
+    }
+
+    private func updateSelectedStagedPreset(name: String, format: String) {
+        guard let i = stagedPresets.firstIndex(where: { $0.id == selectedPresetID }) else { return }
+        stagedPresets[i].name = name
+        stagedPresets[i].format = format
+    }
+
+    private func addStagedPreset() {
+        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: "新規プリセット", format: "@title")
+        stagedPresets.append(p)
+        selectedPresetID = p.id
+        loadSelectedStagedPreset()
+    }
+
+    private func duplicateStagedPreset() {
+        guard let src = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
+        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: src.name + " のコピー", format: src.format ?? "")
+        stagedPresets.append(p)
+        selectedPresetID = p.id
+        loadSelectedStagedPreset()
+    }
+
+    private func deleteStagedPreset() {
+        // FilenameFormatPresetLogic（AppCore・ローカルと共通）は非 optional format の
+        // FilenameFormatPreset を扱うため、往復変換してから流用する（最低 1 個ガードを含む）。
+        let converted = stagedPresets.map { FilenameFormatPreset(id: $0.id, name: $0.name, format: $0.format ?? "") }
+        let r = FilenameFormatPresetLogic.removing(id: selectedPresetID, presets: converted, defaultID: stagedDefaultID)
+        stagedPresets = r.presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.name, format: $0.format) }
+        stagedDefaultID = r.defaultID
+        selectedPresetID = stagedPresets.first?.id ?? ""
+        loadSelectedStagedPreset()
+    }
+
+    /// 現在フォーカス位置の概念を持たないプレーン TextField 版のトークン挿入（末尾に追記）。
+    private func insertPresetToken(_ token: String) {
+        formatString += token
+    }
+
+    private func updatePresetPreview(_ raw: String) {
+        do {
+            let format = try FilenameFormat(raw: raw)
+            samplePreview = Self.presetSampleRecords.map { record in
+                "  • " + FilenameFormatter.format(record, with: format, bookTypeLabels: settings.bookTypeLabelOverrides)
+            }
+            formatError = nil
+        } catch let error as FilenameFormat.ParseError {
+            formatError = presetDescribe(error)
+            samplePreview = []
+        } catch {
+            formatError = "構文エラー"
+            samplePreview = []
+        }
+    }
+
+    private func presetDescribe(_ e: FilenameFormat.ParseError) -> String {
+        switch e {
+        case .unknownToken(let raw): return "未知のトークン: \(raw)"
+        case .unclosedBracket(let c): return "閉じていない括弧: \(c)"
+        case .nestedBracket: return "括弧のネストはサポートされません"
+        }
+    }
+
+    /// 3 件のダミーレコードでプレビュー（ローカル LibrarySettingsSheet.sampleRecords と同一内容）。
+    private static let presetSampleRecords: [BookRecord] = [
+        BookRecord(
+            id: 0,
+            title: "ブラックジャックによろしく 第01巻",
+            author: "佐藤秀峰",
+            genre: "一般コミック",
+            dateAdded: Date(),
+            keywordA: "医療",
+            keywordB: "名作"
+        ),
+        BookRecord(
+            id: 0,
+            title: "ブラックジャックによろしく 第02巻",
+            author: "佐藤秀峰",
+            genre: "一般コミック",
+            dateAdded: Date(),
+            keywordA: "医療"
+        ),
+        BookRecord(
+            id: 0,
+            title: "ブラックジャックによろしく 第03巻",
+            dateAdded: Date()
+        )
+    ]
+
+    /// 専用「プリセットを保存」ボタン: import/watch の保存フローとは独立して即座に PUT する。
+    /// 成功で適用後 DTO をステージへ反映（サーバの正規化・既定 id 検証を反映するため）。
+    private func savePresetsNow() async {
+        presetSaving = true
+        presetSaveMessage = nil
+        defer { presetSaving = false }
+        let dto = PresetSetDTO(presets: stagedPresets, defaultID: stagedDefaultID)
+        if let saved = await state.savePresets(dto) {
+            stagedPresets = saved.presets
+            stagedDefaultID = saved.defaultID
+            selectedPresetID = stagedDefaultID.isEmpty ? (stagedPresets.first?.id ?? "") : stagedDefaultID
+            loadSelectedStagedPreset()
+            presetSaveMessage = "保存しました"
+        } else {
+            presetSaveMessage = state.errorText
+        }
     }
 
     /// smoke b: 「取り込み」タブの保存 = 監視設定 → 取り込み設定 の順に PUT。
