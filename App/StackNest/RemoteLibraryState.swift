@@ -14,6 +14,8 @@ import os
 @MainActor
 final class RemoteLibraryState {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrary")
+    /// G12b-3b Task 1: reload() 失敗時の切り分け用ログ（isApplyingBatch の文脈を残す）。
+    private static let reloadLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteReload")
 
     let client: RemoteLibraryClient
     let serverID: UUID
@@ -253,6 +255,8 @@ final class RemoteLibraryState {
                 await openBookByID(pend.id, resumeDirect: pend.resume)
             }
         } catch let e as RemoteClientError {
+            // G12b-3b Task 1: 赤バナー切り分け用（一括編集中の自エコー reload 競合を isApplyingBatch で判別）。
+            Self.reloadLog.warning("reload failed during isApplyingBatch=\(self.isApplyingBatch, privacy: .public): \(String(describing: e), privacy: .public)")
             errorText = Self.message(for: e)
         } catch {
             errorText = "読み込みに失敗しました"
@@ -646,6 +650,10 @@ final class RemoteLibraryState {
     private func applyRemotePatchMulti(ids: Set<Int>, patch: BookPatch, cancel: CancelFlag) async {
         let list = Array(ids)
         guard !list.isEmpty else { return }
+        // G12b-3b Task 1: batch 中は各 PATCH が誘発する SSE .bookChanged の自エコー reload が
+        // この関数末尾の reload と競合し、transient 失敗で赤バナーが立つ（PATCH 自体は成功）ため抑止する。
+        isApplyingBatch = true
+        defer { isApplyingBatch = false }
         let dto = Self.patchToDTO(patch)
         errorText = nil
         var ok = 0, fail = 0, cancelled = false
@@ -661,6 +669,13 @@ final class RemoteLibraryState {
         editProgress = nil
         await reload(clearFirst: false)   // 旧リストを保持したまま差し替え（空表示防止）
         if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
+        // batch 自前の reload でサーバ真値へ揃えたので、抑止していた自エコー分は捨ててよい。
+        // ただし抑止中に他クライアント由来の変更（他ユーザー編集等）も pending に混在しうるため、
+        // 解除後に 1 回だけ flush して取りこぼしを回収する（defer より前に明示解除して下の flush を通す）。
+        isApplyingBatch = false
+        if pendingLiveReload || pendingLiveStampReload || pendingLiveSelectionRefresh != nil {
+            await flushLiveEvents()
+        }
         var parts = ["\(ok) 件更新"]
         if fail > 0 { parts.append("\(fail) 件失敗") }
         if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }
@@ -1507,6 +1522,9 @@ final class RemoteLibraryState {
     private var pendingLiveStampReload = false
     private var pendingLiveSelectionRefresh: Int?
     private var liveFlushTask: Task<Void, Never>?
+    /// G12b-3b Task 1: 一括編集（applyRemotePatchMulti）実行中は SSE 自エコーによる reload を抑止する。
+    /// pending フラグ自体は落とさず、batch 終了後の 1 回の flush でまとめて反映する（他タスク未使用）。
+    @ObservationIgnored private var isApplyingBatch = false
 
     /// バーストを ~200ms 窓で 1 回に集約。イベントごとに再スケジュールし、静止後に flush する。
     private func scheduleLiveFlush() {
@@ -1519,6 +1537,9 @@ final class RemoteLibraryState {
     }
 
     private func flushLiveEvents() async {
+        // G12b-3b Task 1: batch 実行中は自エコー reload を抑止（batch 末尾で自前 reload するため冗長かつ有害）。
+        // pending は落とさず、batch 終了後の flush で 1 回だけ反映する。
+        if isApplyingBatch { return }
         let doReload = pendingLiveReload
         let doStamps = pendingLiveStampReload
         let sel = pendingLiveSelectionRefresh
