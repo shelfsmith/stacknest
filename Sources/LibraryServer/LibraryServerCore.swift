@@ -8,6 +8,7 @@ import NIOCore
 import LibraryServerAPI
 import StackroomFormat
 import ImageIO
+import OSLog
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -129,6 +130,7 @@ let allowedFacetColumns: Set<String> = Set(
 /// HTTP サーバ本体。Router 構築と Application 生成を担う。
 /// AppKit / ImageIO / PDFKit を import しないこと（Linux 移植規律・spec §3.2）。
 public struct LibraryServerCore: Sendable {
+    private static let backupLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Backup")
     public let config: LibraryServerConfig
     let dataSource: any LibraryServerDataSource
     /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
@@ -993,7 +995,11 @@ public struct LibraryServerCore: Sendable {
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let gens = ((try? lib.db.getLibrarySetting(key: "backup_generations")) ?? nil).flatMap { Int($0) } ?? 5
             _ = try BackupManager.makeBackup(from: lib.db, bundleURL: lib.bundleURL, timestamp: BackupManager.timestampNow())
-            try? BackupManager.prune(in: BackupManager.backupsDir(for: lib.bundleURL), keep: gens)
+            do {
+                try BackupManager.prune(in: BackupManager.backupsDir(for: lib.bundleURL), keep: gens)
+            } catch {
+                Self.backupLogger.warning("backup prune failed for \(lib.uuid, privacy: .public): \(String(describing: error), privacy: .public)")
+            }
             return HTTPResponse.Status.noContent
         }
         // G12b-3b: メタ補完（admin・非同期ジョブ）。
