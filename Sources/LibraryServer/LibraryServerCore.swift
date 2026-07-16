@@ -137,6 +137,8 @@ public struct LibraryServerCore: Sendable {
     let contentCache = BookContentCache(ttlSeconds: 300)
     /// G8a: ライブ同期の配信ハブ。/events が subscribe し、mutation が publish する。
     public let eventHub = EventHub()
+    /// G12b-3b: メンテナンスジョブ（メタ補完/表紙圧縮）の per-library レジストリ。
+    public let maintenanceRegistry = MaintenanceJobRegistry()
 
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
@@ -160,6 +162,18 @@ public struct LibraryServerCore: Sendable {
     }
 
     public func buildApplication() -> some ApplicationProtocol {
+        // G12b-3b: メンテナンスジョブの進捗/完了を EventHub 経由で SSE へ転送する（一度だけ配線）。
+        let eventHub = self.eventHub
+        Task {
+            await maintenanceRegistry.setOnProgress { lib, job, done, total in
+                Task { await eventHub.publish(.maintenanceProgress(library: lib, job: job, done: done, total: total)) }
+            }
+            await maintenanceRegistry.setOnFinished { lib, job, outcome, count in
+                Task { await eventHub.publish(.maintenanceFinished(library: lib, job: job, outcome: outcome, count: count)) }
+                // 完了で一覧/表紙を 1 回更新（compress-covers は表紙が変わる）。
+                Task { await eventHub.publish(.structureChanged(library: lib)) }
+            }
+        }
         let router = Router(context: LibraryRequestContext.self)
         // /server/info は認証不要（ペアリング前の到達性確認用）。
         let transcodes = config.transcoder.supportsScaling
@@ -848,6 +862,42 @@ public struct LibraryServerCore: Sendable {
             let gens = ((try? lib.db.getLibrarySetting(key: "backup_generations")) ?? nil).flatMap { Int($0) } ?? 5
             _ = try BackupManager.makeBackup(from: lib.db, bundleURL: lib.bundleURL, timestamp: BackupManager.timestampNow())
             try? BackupManager.prune(in: BackupManager.backupsDir(for: lib.bundleURL), keep: gens)
+            return HTTPResponse.Status.noContent
+        }
+        // G12b-3b: メタ補完（admin・非同期ジョブ）。
+        api.post("libraries/:lib/maintenance/complete-metadata") { request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let started = await self.maintenanceRegistry.start(library: lib.uuid, job: "complete-metadata") { progress, isCancelled in
+                (try? await MetadataCompletion.fillMissingSeriesVolume(
+                    in: lib.db,
+                    progress: { d, t in progress(d, t) },
+                    isCancelled: { await isCancelled() }
+                )) ?? 0
+            }
+            return started ? HTTPResponse.Status.accepted : HTTPResponse.Status.conflict
+        }
+        // G12b-3b: 表紙圧縮（admin・非同期ジョブ）。
+        api.post("libraries/:lib/maintenance/compress-covers") { request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let started = await self.maintenanceRegistry.start(library: lib.uuid, job: "compress-covers") { progress, isCancelled in
+                (try? await CoverCompression.compressOversizedCovers(
+                    db: lib.db, bundleURL: lib.bundleURL,
+                    progress: { d, t in progress(d, t) },
+                    isCancelled: { await isCancelled() }
+                )) ?? 0
+            }
+            return started ? HTTPResponse.Status.accepted : HTTPResponse.Status.conflict
+        }
+        // G12b-3b: 実行中メンテナンスの中断（admin・実行中ジョブが無ければ no-op）。
+        api.post("libraries/:lib/maintenance/cancel") { request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            await self.maintenanceRegistry.cancel(library: lib.uuid)
             return HTTPResponse.Status.noContent
         }
         // G14: リモートサイドバーの安定件数（ライブラリ総数・最近件数）。scope 非依存。read で可。

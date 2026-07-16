@@ -119,4 +119,90 @@ struct MaintenanceEndpointTests {
         }
         #expect(adminCalledUUID == adminLib.uuid)
     }
+
+    // MARK: - G12b-3b: complete-metadata / compress-covers / cancel（admin・非同期ジョブ）
+
+    /// POST /maintenance/complete-metadata: edit トークンは 403。
+    @Test func completeMetadataRequiresAdmin() async throws {
+        let fx = try TestLibraryFixture(name: "MtEdit", bookCount: 3)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: false)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/complete-metadata",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+    }
+
+    /// POST /maintenance/complete-metadata: admin は 202（起動受理）。
+    @Test func completeMetadataAcceptedForAdmin() async throws {
+        let fx = try TestLibraryFixture(name: "MtAdmin", bookCount: 3)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: true)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/complete-metadata",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .accepted) }
+        }
+    }
+
+    /// POST /maintenance/compress-covers: edit トークンは 403。
+    @Test func compressCoversRequiresAdmin() async throws {
+        let fx = try TestLibraryFixture(name: "CcEdit", bookCount: 3)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: false)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/compress-covers",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+    }
+
+    /// POST /maintenance/compress-covers: admin は 202（起動受理）。
+    @Test func compressCoversAcceptedForAdmin() async throws {
+        let fx = try TestLibraryFixture(name: "CcAdmin", bookCount: 3)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: true)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/compress-covers",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .accepted) }
+        }
+    }
+
+    /// POST /maintenance/cancel: edit トークンは 403。
+    @Test func maintenanceCancelRequiresAdmin() async throws {
+        let fx = try TestLibraryFixture(name: "MCEdit", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: false)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/cancel",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+    }
+
+    /// POST /maintenance/cancel: admin は 204（実行中ジョブが無くても no-op で 204）。
+    @Test func maintenanceCancelReturnsNoContentForAdmin() async throws {
+        let fx = try TestLibraryFixture(name: "MCAdmin", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: true)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/cancel",
+                method: .post, headers: [.authorization: "Bearer W"]
+            ) { resp in #expect(resp.status == .noContent) }
+        }
+    }
 }
