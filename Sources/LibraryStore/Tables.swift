@@ -32,6 +32,14 @@ enum Tables {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """
 
+    /// Non-clobbering variant of `insertBookSQL` (plain INSERT, no OR REPLACE). Used by
+    /// `Database.restoreBook` so a reused id throws a UNIQUE constraint error instead of
+    /// silently overwriting an unrelated row (Codex review, G12b-3c).
+    static let insertBookPlainSQL = """
+        INSERT INTO book (id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
     static let createPlaylistTable = """
         CREATE TABLE IF NOT EXISTS playlist (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

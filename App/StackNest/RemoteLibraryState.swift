@@ -282,8 +282,13 @@ final class RemoteLibraryState {
     /// reload() は page=1 にリセットするため、~5s HB で維持される SSE が周期的に再確立されるたび
     /// 一覧が先頭へ戻る（無限スクロールは先頭 100 に truncate・ページ表示は 1 ページ目）重大 UX バグを
     /// 起こしていた。ユーザー操作（filter/sort/sidebar/mode 変更）は従来どおり reload()（先頭リセット）。
+    /// Codex review (G12b-3c): `loadMore` と同じ loadGeneration ガードで、reconnect と
+    /// デバウンス済み SSE 由来の重複呼び出しが競合したときに古い fetch が新しい状態を
+    /// 上書きしないようにする（各 await fetchChunk の直後でガードし、books/total/page は
+    /// 世代が一致したときだけ代入する）。
     func liveReload() async {
         loadGeneration += 1
+        let gen = loadGeneration
         do {
             if scrollMode == .infinite {
                 // 無限スクロール: 現在ロード済みのページ数ぶんを infiniteChunkSize 単位で複数リクエスト
@@ -294,6 +299,7 @@ final class RemoteLibraryState {
                 var newTotal = total
                 for p in 1...pagesLoaded {
                     let result = try await fetchChunk(page: p, size: infiniteChunkSize)
+                    guard gen == loadGeneration else { return }   // より新しい liveReload/loadMore が走った → このフェッチは破棄
                     acc.append(contentsOf: result.items)
                     newTotal = result.total
                     if result.items.count < infiniteChunkSize { break }   // 末尾に到達（最終ページ）
@@ -303,9 +309,20 @@ final class RemoteLibraryState {
                 page = pagesLoaded   // loadMore の次ページ計算（page+1）を現在の窓に整合させる
             } else {
                 // ページ表示: 現在ページをそのまま再取得（page を変えない）。
-                let result = try await fetchChunk(page: page, size: per)
+                var result = try await fetchChunk(page: page, size: per)
+                guard gen == loadGeneration else { return }
+                var finalPage = page
+                // Fix (G12b-3c): 他クライアントの削除で総ページ数が縮み、現在ページが総ページ数を
+                // 超えた場合、空リストのまま表示せず最終ページへ clamp して再取得する。
+                if result.items.isEmpty, result.total > 0, page > 1 {
+                    let lastPage = max(1, Int(ceil(Double(result.total) / Double(per))))
+                    result = try await fetchChunk(page: lastPage, size: per)
+                    guard gen == loadGeneration else { return }
+                    finalPage = lastPage
+                }
                 books = result.items
                 total = result.total
+                page = finalPage
             }
             errorText = nil
         } catch let e as RemoteClientError {
@@ -693,21 +710,45 @@ final class RemoteLibraryState {
 
     /// 直近の undo 単位を取り消す（rePatch=逆 patch を再適用 / restore=削除を復元）。
     /// 成功後は reload して一覧を最新化し、選択中の詳細も再取得する。
+    ///
+    /// Codex review (G12b-3c): 失敗（オフライン等）した回だけ opposite stack（redo）へ積むと、
+    /// サーバ側は何も変わっていないのに次の redo/undo が実体のない操作を適用してしまう。
+    /// ルール: バッチ内で 1 件でも成功したら「このバッチは成功」とみなし、成功した項目だけ
+    /// opposite stack に積む（部分成功は許容）。1 件も成功しなかった場合は「開始できなかった」
+    /// とみなし、pop した op をそのまま元の stack へ戻して再試行可能にし、opposite stack には
+    /// 積まず、reload/選択更新もせずに return する。
     func undo() async {
         guard let op = undoStack.popLast() else { return }
         undoStateVersion += 1
         switch op {
         case .rePatch(let items):
             var redoItems: [(bookID: Int, patch: BookPatchDTO)] = []
+            var anySucceeded = false
             for (id, inv) in items {
-                if let b = books.first(where: { $0.id == id }) {
-                    redoItems.append((id, Self.inversePatch(applied: inv, old: b)))
+                // 逆 patch は「今から適用する inv」の前提となる現在値から作るため、呼び出し前に捕捉する。
+                let before = books.first(where: { $0.id == id })
+                do {
+                    _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: inv, libraryToken: libraryToken)
+                    anySucceeded = true
+                    if let before { redoItems.append((id, Self.inversePatch(applied: inv, old: before))) }
+                } catch {
+                    // この本の取り消しは失敗。redo 対象に含めず、他の本の取り消しは続行する。
                 }
-                _ = try? await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: inv, libraryToken: libraryToken)
+            }
+            guard anySucceeded else {
+                undoStack.append(op)
+                errorText = "取り消しに失敗しました"
+                return
             }
             redoStack.append(.rePatch(redoItems))
         case .restore(let rows):
-            try? await client.restoreBooks(rows, libraryUUID: libraryUUID, libraryToken: libraryToken)
+            do {
+                try await client.restoreBooks(rows, libraryUUID: libraryUUID, libraryToken: libraryToken)
+            } catch {
+                undoStack.append(op)
+                errorText = "取り消しに失敗しました"
+                return
+            }
             // redo = 再削除（redo() 側で id から deleteBook する）。
             redoStack.append(.restore(rows))
         }
@@ -715,18 +756,28 @@ final class RemoteLibraryState {
         if let id = selection { await selectBook(id) }
     }
 
-    /// 直近に undo した操作をやり直す。
+    /// 直近に undo した操作をやり直す（成功/失敗の扱いは undo() と同一ルール。上記コメント参照）。
     func redo() async {
         guard let op = redoStack.popLast() else { return }
         undoStateVersion += 1
         switch op {
         case .rePatch(let items):
             var undoItems: [(bookID: Int, patch: BookPatchDTO)] = []
+            var anySucceeded = false
             for (id, p) in items {
-                if let b = books.first(where: { $0.id == id }) {
-                    undoItems.append((id, Self.inversePatch(applied: p, old: b)))
+                let before = books.first(where: { $0.id == id })
+                do {
+                    _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: p, libraryToken: libraryToken)
+                    anySucceeded = true
+                    if let before { undoItems.append((id, Self.inversePatch(applied: p, old: before))) }
+                } catch {
+                    // この本のやり直しは失敗。undo 対象に含めず、他の本のやり直しは続行する。
                 }
-                _ = try? await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: p, libraryToken: libraryToken)
+            }
+            guard anySucceeded else {
+                redoStack.append(op)
+                errorText = "やり直しに失敗しました"
+                return
             }
             undoStack.append(.rePatch(undoItems))
         case .restore(let rows):
@@ -734,9 +785,20 @@ final class RemoteLibraryState {
             // ファイルは undo（restore）時点で既にゴミ箱から復元済みのため、ここで trash:true にすると
             // 実ファイルの扱いが往復のたびに増える／不整合になりうる。DB のみ削除して往復を安全にする。
             var reRows: [BookRestoreDTO] = []
+            var anySucceeded = false
             for r in rows {
-                reRows.append(r)
-                _ = try? await client.deleteBook(libraryUUID: libraryUUID, bookID: r.id, trash: false, libraryToken: libraryToken)
+                do {
+                    _ = try await client.deleteBook(libraryUUID: libraryUUID, bookID: r.id, trash: false, libraryToken: libraryToken)
+                    anySucceeded = true
+                    reRows.append(r)
+                } catch {
+                    // この本の再削除は失敗。undo 対象に含めず、他の本は続行する。
+                }
+            }
+            guard anySucceeded else {
+                redoStack.append(op)
+                errorText = "やり直しに失敗しました"
+                return
             }
             undoStack.append(.restore(reRows))
         }

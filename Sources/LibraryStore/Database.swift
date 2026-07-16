@@ -1624,18 +1624,26 @@ public final class Database: @unchecked Sendable {
         }
     }
 
-    /// Restores a BookRow with its original id (Undo path). Uses INSERT OR REPLACE
-    /// so re-inserting a previously-deleted row preserves the original row id.
+    /// Restores a BookRow with its original id (Undo/redo path). Uses a plain INSERT
+    /// (NOT "INSERT OR REPLACE"): `book.id` is `INTEGER PRIMARY KEY` without AUTOINCREMENT,
+    /// so a freed id can be reused by a later import/add. If restore used OR REPLACE, it
+    /// would silently overwrite that unrelated new book. Plain INSERT instead throws a
+    /// SQLite UNIQUE constraint error on such a collision; callers must treat that as
+    /// "target id occupied — skip this row" rather than fail the whole batch (see
+    /// LibraryServerCore `POST books/restore`, and `DeleteBooksCommand.undo` for local).
     public func restoreBook(_ row: BookRow) throws {
-        try insertBook(row)
+        try insertBook(row, replace: false)
     }
 
     /// Inserts a BookRow directly (test/internal use). Production paths typically use insertBook(BookRecord).
-    func insertBook(_ row: BookRow) throws {
+    /// `replace: true` (default) preserves legacy INSERT OR REPLACE semantics used by direct
+    /// BookRow insertion in tests/fixtures. `replace: false` is used by `restoreBook` so an id
+    /// collision surfaces as a thrown error instead of silently clobbering an unrelated row.
+    func insertBook(_ row: BookRow, replace: Bool = true) throws {
         guard let q = queue else { return }
         try q.write { db in
             try db.execute(
-                sql: Tables.insertBookSQL,
+                sql: replace ? Tables.insertBookSQL : Tables.insertBookPlainSQL,
                 arguments: [
                     row.id,
                     TextNormalize.nfcValue(row.title),

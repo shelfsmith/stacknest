@@ -70,4 +70,33 @@ struct PresetEndpointTests {
                 body: .init(bytes: Array(body))) { r in #expect(r.status == .badRequest) }
         }
     }
+
+    /// PUT: format が欠落（nil）または空白のみのプリセットが 1 件でもあると 400（Codex review）。
+    /// 共有 DB キー filename_format_presets に "" が永続化され、ローカル側の読み取りも壊れるため。
+    @Test func putRejectsMissingOrBlankFormat() async throws {
+        let fa = try TestLibraryFixture(name: "PsBlankFormat", bookCount: 0); defer { fa.cleanup() }
+        let la = fa.servedLibrary()
+        let app = makeApp(fixture: fa, adminTier: true)
+
+        // nil format
+        let nilBody = try JSONEncoder().encode(PresetSetDTO(
+            presets: [FilenameFormatPresetDTO(id: "x", name: "X", format: nil)], defaultID: "x"))
+        try await app.test(.router) { c in
+            try await c.execute(uri: "/api/v1/libraries/\(la.uuid)/presets", method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(nilBody))) { r in #expect(r.status == .badRequest) }
+        }
+
+        // whitespace-only format
+        let blankBody = try JSONEncoder().encode(PresetSetDTO(
+            presets: [FilenameFormatPresetDTO(id: "x", name: "X", format: "   ")], defaultID: "x"))
+        try await app.test(.router) { c in
+            try await c.execute(uri: "/api/v1/libraries/\(la.uuid)/presets", method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(blankBody))) { r in #expect(r.status == .badRequest) }
+        }
+
+        // 拒否後も DB には保存されていないこと（filename_format_presets が汚染されていない）。
+        #expect(try fa.db.getLibrarySetting(key: "filename_format_presets") == nil)
+    }
 }

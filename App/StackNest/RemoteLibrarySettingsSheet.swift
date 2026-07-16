@@ -48,11 +48,15 @@ struct RemoteLibrarySettingsSheet: View {
     // MARK: 自動追加（監視フォルダ）— smoke b: 取り込みタブ内。importConfigLoaded でまとめてロード。
     @State private var watchConfig: WatchConfigDTO?
     @State private var newFolderPath = ""
-    // S4: 追加時に「既存も取り込む」（ローカル parity・既定 ON）。ON で追加したフォルダのパスを保存後の
+    // S4: 追加時に「既存も取り込む」（ローカル parity・既定 ON）。ON で追加したフォルダの id を保存後の
     // importExisting 対象として記録する（保存＝watch-config PUT は新規フォルダを baseline=既存で作るため、
     // 保存後に該当フォルダの baseline をクリアして既存も取り込む）。
+    // Codex review (G12b-3c): path ではなく id で追跡する。PUT の id マージ（LibraryServerCore
+    // watch-config）は既存 id にヒットしない新規フォルダの id をクライアント指定のまま保持するため、
+    // addWatchFolderRow が発行した id は保存後もそのまま通用する。path 一致で追跡すると、既存フォルダと
+    // 追加フォルダが同じ path を指す場合に既存フォルダまで誤って baseline クリア（＝再取込）される。
     @State private var importExistingOnAdd = true
-    @State private var pendingImportPaths: Set<String> = []
+    @State private var pendingImportFolderIDs: Set<String> = []
     @State private var scanningNow = false
     // G12b-3c: per-folder「既存も取り込む」確認ダイアログ対象（folder.id を保持。行の index ではなく
     // id で追跡し、確認表示中に他行の削除で index がずれても誤爆しないようにする）。
@@ -704,8 +708,8 @@ struct RemoteLibrarySettingsSheet: View {
         let folder = WatchedFolderDTO(id: UUID().uuidString, path: path, enabled: true)
         guard watchConfig != nil else { return }   // ロード失敗時は config を捏造しない（既存監視フォルダの全消しを防ぐ）
         watchConfig?.folders.append(folder)
-        // S4: 「既存も取り込む」ON なら保存後の importExisting 対象として path を記録。
-        if importExistingOnAdd { pendingImportPaths.insert(path) }
+        // S4: 「既存も取り込む」ON なら保存後の importExisting 対象として id を記録（path ではなく id で追跡）。
+        if importExistingOnAdd { pendingImportFolderIDs.insert(folder.id) }
         newFolderPath = ""
     }
 
@@ -915,12 +919,12 @@ struct RemoteLibrarySettingsSheet: View {
             if let applied = await state.saveWatchConfig(cfg) {
                 watchConfig = applied   // 適用後（新規 baseline 等）で置換
                 // S4: 「既存も取り込む」ON で追加したフォルダは、サーバが baseline=既存で作るため、
-                // 保存後に該当フォルダ（path 一致）の baseline をクリアして既存も取り込む（既存 endpoint 再利用）。
-                if !pendingImportPaths.isEmpty {
-                    for f in applied.folders where pendingImportPaths.contains(f.path) {
+                // 保存後に該当フォルダ（id 一致）の baseline をクリアして既存も取り込む（既存 endpoint 再利用）。
+                if !pendingImportFolderIDs.isEmpty {
+                    for f in applied.folders where pendingImportFolderIDs.contains(f.id) {
                         await state.importExisting(folderID: f.id)
                     }
-                    pendingImportPaths.removeAll()
+                    pendingImportFolderIDs.removeAll()
                 }
             } else {
                 // 400 の不正パス文言など。取り込み設定は保存しない。シートは閉じない。

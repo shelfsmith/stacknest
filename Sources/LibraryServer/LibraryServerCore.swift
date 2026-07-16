@@ -662,8 +662,18 @@ public struct LibraryServerCore: Sendable {
                 throw HTTPError(.notFound)
             }
             let dtos = try await request.decode(as: [BookRestoreDTO].self, context: context)
-            for dto in dtos { try lib.db.restoreBook(bookRow(from: dto)) }
-            if !dtos.isEmpty { self.notifyStructureChanged(lib.uuid) }
+            var restoredAny = false
+            for dto in dtos {
+                do {
+                    try lib.db.restoreBook(bookRow(from: dto))
+                    restoredAny = true
+                } catch {
+                    // id が既に別の本に再利用されている（restoreBook は plain INSERT なので
+                    // UNIQUE 制約違反として届く）。この行はスキップし、他の行の復元は継続する
+                    // （1 行の衝突でバッチ全体を失敗させない／別の本を上書きしない）。
+                }
+            }
+            if restoredAny { self.notifyStructureChanged(lib.uuid) }
             return HTTPResponse.Status.noContent
         }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
@@ -953,6 +963,12 @@ public struct LibraryServerCore: Sendable {
             let uuid = try context.parameters.require("lib")
             guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
             let dto = try await request.decode(as: PresetSetDTO.self, context: context)
+            // Codex review (G12b-3c): format が nil/空文字（空白のみ含む）のプリセットを許すと、
+            // 共有 DB キー filename_format_presets に "" が永続化され、ローカル側の読み取りも壊れる。
+            // 1 件でも無効なら 400 でリクエスト全体を拒否する（部分保存はしない）。
+            guard dto.presets.allSatisfy({ !($0.format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+                throw HTTPError(.badRequest, message: "各プリセットに format が必要です")
+            }
             let presets = dto.presets.map { FilenameFormatPreset(id: $0.id, name: $0.name, format: $0.format ?? "") }
             guard !presets.isEmpty else { throw HTTPError(.badRequest, message: "プリセットは最低 1 個必要です") }
             let validDefault = FilenameFormatPresetLogic.validatedDefaultID(presets: presets, requested: dto.defaultID)
