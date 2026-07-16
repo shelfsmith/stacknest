@@ -58,7 +58,7 @@ struct RemoteLibrarySettingsSheet: View {
     // id で追跡し、確認表示中に他行の削除で index がずれても誤爆しないようにする）。
     @State private var confirmingImportExistingFolderID: String?
 
-    // MARK: 命名プリセット（G12b-3c: 取り込みタブ内・canDelete 以上・ローカル formatSection と parity）
+    // MARK: 命名プリセット（G12b-3c: 独立「フォーマット」タブ・canDelete 以上・ローカル formatSection と parity）
     // ステージング編集は保存でのみサーバへ反映する（ローカル LibrarySettingsSheet と同方針）。
     // 保存は import/watch とは独立した専用ボタン（saveImportAndWatch のフローに含めない）。
     @State private var stagedPresets: [FilenameFormatPresetDTO] = []
@@ -135,7 +135,8 @@ struct RemoteLibrarySettingsSheet: View {
                 Button("保存") { Task { await saveCurrentTab() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(saving || (settingsTab == 2 && lockToggleOn && !state.locked
-                        && (passwordInput.isEmpty || passwordInput != passwordConfirm)))
+                        && (passwordInput.isEmpty || passwordInput != passwordConfirm))
+                        || (settingsTab == 4 && formatError != nil))   // S3: フォーマットタブは不正フォーマット時 保存不可
             }
             .padding(16)
         }
@@ -775,23 +776,8 @@ struct RemoteLibrarySettingsSheet: View {
                     }
                     Text("⚠ コロン (:) は ： に自動変換されます")
                         .font(.caption2).foregroundStyle(.secondary)
-
-                    Divider()
-
-                    HStack {
-                        Button {
-                            Task { await savePresetsNow() }
-                        } label: {
-                            if presetSaving { ProgressView().controlSize(.small) }
-                            Text("プリセットを保存")
-                        }
-                        .disabled(presetSaving || formatError != nil)
-                        if let msg = presetSaveMessage {
-                            Text(msg).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Text("この保存はページ下部の「保存」ボタンとは独立しています（プリセットのみ即時反映）。")
-                        .font(.caption2).foregroundStyle(.secondary)
+                    // S3: 専用保存ボタンは廃止。独立「フォーマット」タブになったため、他タブと同様に
+                    // シート下部の「保存」ボタン（saveCurrentTab→case 4→savePresetsNow）で保存する。
                 }
             }
             .padding(8)

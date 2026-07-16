@@ -99,6 +99,16 @@ extension LibrarySettingsSheet {
                 .frame(maxWidth: 200)
                 .help("サブフォルダ（さらにその下の階層も含む）の中のファイルも取り込むか")
             }
+            // リモート parity: 監視追加時にスキップした既存ファイルを、後からでも取り込めるボタン。
+            HStack {
+                Button("既存も取り込む") {
+                    importExistingLocal(folderID: folder.wrappedValue.id, path: folder.wrappedValue.path)
+                }
+                .controlSize(.small)
+                Text("このフォルダの既存ファイル（監視開始時にスキップされた分）も取り込みます。")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+            }
         }
     }
 
@@ -141,5 +151,21 @@ extension LibrarySettingsSheet {
             }
         }
         appState?.reloadFolderWatcher()
+    }
+
+    /// リモート parity: 該当監視フォルダの baseline（既存スキップ集合）をクリアして再スキャンし、
+    /// 監視追加時にスキップした既存ファイルも取り込む。取込済みは既存パス dedup で重複しない。
+    private func importExistingLocal(folderID: String, path: String) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "「\((path as NSString).lastPathComponent)」の既存ファイルも取り込みますか?")
+        alert.informativeText = String(localized: "このフォルダ内の既存ファイル（監視開始時にスキップされた分）を取り込みます。取込済みは重複しません。")
+        alert.addButton(withTitle: String(localized: "取り込む"))
+        alert.addButton(withTitle: String(localized: "キャンセル"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if let idx = settings.watchedFolders.firstIndex(where: { $0.id == folderID }) {
+            settings.watchedFolders[idx].baseline = []   // 既存スキップを解除
+        }
+        appState?.reloadFolderWatcher()      // メモリ設定を watcher へ反映
+        appState?.scanWatchedFoldersNow()    // 即時スキャン→既存ファイルを取込（dedup で二重取込しない）
     }
 }
