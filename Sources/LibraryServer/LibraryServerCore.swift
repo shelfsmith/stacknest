@@ -847,6 +847,38 @@ public struct LibraryServerCore: Sendable {
             // クランプ後の値をエコーして GET と一致させる（Codex review Minor）。
             return GeneralSettingsDTO(displayName: dto.displayName, backupEnabled: dto.backupEnabled, backupGenerations: clampedGens)
         }
+        // G12b-3c: 命名プリセット集合の取得（R 可）。
+        api.get("libraries/:lib/presets") { request, context in
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let raw: String? = (try? lib.db.getLibrarySetting(key: "filename_format_presets")) ?? nil
+            let defID: String = ((try? lib.db.getLibrarySetting(key: "filename_format_default_id")) ?? nil) ?? ""
+            var presets: [FilenameFormatPreset] = []
+            if let raw, let data = raw.data(using: .utf8) { presets = (try? JSONDecoder().decode([FilenameFormatPreset].self, from: data)) ?? [] }
+            if presets.isEmpty {
+                // 空/未設定はローカル既定の単一プリセット相当にフォールバック。
+                let fmt = ((try? lib.db.getLibrarySetting(key: "filename_format")) ?? nil) ?? "(@genre) [@keywordB] [@author] @title"
+                presets = [FilenameFormatPreset(id: "default", name: "既定", format: fmt)]
+            }
+            let dto = PresetSetDTO(presets: presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.name, format: $0.format) },
+                                   defaultID: FilenameFormatPresetLogic.validatedDefaultID(presets: presets, requested: defID))
+            return dto
+        }
+        // G12b-3c: 命名プリセット集合の更新（admin）。空配列は 400。
+        api.put("libraries/:lib/presets") { [self] request, context in
+            try context.requireAdmin()
+            let uuid = try context.parameters.require("lib")
+            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let dto = try await request.decode(as: PresetSetDTO.self, context: context)
+            let presets = dto.presets.map { FilenameFormatPreset(id: $0.id, name: $0.name, format: $0.format ?? "") }
+            guard !presets.isEmpty else { throw HTTPError(.badRequest, message: "プリセットは最低 1 個必要です") }
+            let validDefault = FilenameFormatPresetLogic.validatedDefaultID(presets: presets, requested: dto.defaultID)
+            let encoded = String(decoding: try JSONEncoder().encode(presets), as: UTF8.self)
+            try lib.db.setLibrarySetting(key: "filename_format_presets", value: encoded)
+            try lib.db.setLibrarySetting(key: "filename_format_default_id", value: validDefault)
+            self.notifySettingsChanged(lib.uuid)
+            return PresetSetDTO(presets: presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.name, format: $0.format) }, defaultID: validDefault)
+        }
         // G12b-3a: 整合性チェック（admin・非破壊）。
         api.get("libraries/:lib/integrity-check") { request, context in
             try context.requireAdmin()

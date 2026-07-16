@@ -547,11 +547,16 @@ public struct WatchedFolderDTO: Codable, Sendable {
     }
 }
 
-/// 命名プリセット 1 件の DTO（GET 専用・名前選択用。format 本文は不要）。
+/// 命名プリセット 1 件の DTO（watch-config の名前選択用途は format 省略、
+/// G12b-3c の presets GET/PUT は format も搬送する）。
+/// format は後方互換のため optional（旧クライアント/watch-config は name のみ送信）。
 public struct FilenameFormatPresetDTO: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
-    public init(id: String, name: String) { self.id = id; self.name = name }
+    public var format: String?
+    public init(id: String, name: String, format: String? = nil) {
+        self.id = id; self.name = name; self.format = format
+    }
 }
 
 /// 一般タブ設定（ライブラリ名＋バックアップ設定）。
@@ -670,6 +675,17 @@ public struct LibraryCountsDTO: Codable, Sendable {
     public var recentDays: Int
     public init(libraryTotal: Int, recentCount: Int, recentDays: Int = 14) {
         self.libraryTotal = libraryTotal; self.recentCount = recentCount; self.recentDays = recentDays
+    }
+}
+
+// MARK: - G12b-3c: リモート命名プリセット集合 GET/PUT
+
+/// 命名プリセット集合＋既定 id（GET/PUT libraries/:lib/presets 用）。
+public struct PresetSetDTO: Codable, Sendable, Equatable {
+    public var presets: [FilenameFormatPresetDTO]
+    public var defaultID: String
+    public init(presets: [FilenameFormatPresetDTO], defaultID: String) {
+        self.presets = presets; self.defaultID = defaultID
     }
 }
 
