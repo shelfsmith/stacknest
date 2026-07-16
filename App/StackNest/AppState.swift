@@ -1536,23 +1536,7 @@ final class AppState {
     @discardableResult
     func recomputeMetadataFromFilenames(undoManager: UndoManager?) throws -> Int {
         guard let db = database else { return 0 }
-        let allBooks = try db.fetchAllBooks()
-        var patches: [(bookID: Int, patch: BookPatch)] = []
-        for book in allBooks {
-            let filename = book.path.map { ($0 as NSString).lastPathComponent }
-            let parsed = FilenameParser.parse(title: book.title, filename: filename)
-            var patch = BookPatch()
-            var hasChange = false
-            if (book.series == nil || book.series?.isEmpty == true), let s = parsed.series {
-                patch.series = s
-                hasChange = true
-            }
-            if book.volume == nil, let v = parsed.volume {
-                patch.volume = v
-                hasChange = true
-            }
-            if hasChange { patches.append((bookID: book.id, patch: patch)) }
-        }
+        let patches = try MetadataCompletion.missingSeriesVolumePatches(in: db)
         guard !patches.isEmpty else { return 0 }
         let cmd = try PatchBooksCommand.prepare(patches: patches, database: db)
         try perform(cmd, undoManager: undoManager)
