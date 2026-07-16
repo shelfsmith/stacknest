@@ -8,6 +8,13 @@ import Observation
 import RemoteClient
 import os
 
+/// G12b-3b: メンテナンスジョブ（メタデータ補完・表紙圧縮）の進捗表示用 UI 状態。
+struct MaintenanceUIState: Equatable {
+    let job: String
+    var done: Int
+    var total: Int
+}
+
 /// Phase 4.2b-1: リモートライブラリ 1 個分の閲覧状態。
 /// ローカルの AppState に相当する軽量モデル（書き込みはせず読み取り+進捗 POST のみ）。
 @Observable
@@ -81,6 +88,10 @@ final class RemoteLibraryState {
     var isGrid = false
     var selection: Int? = nil
     var errorText: String? = nil
+    /// G12b-3b: 実行中メンテナンスジョブの進捗（nil = 実行中なし）。SSE `.maintenanceProgress` で更新。
+    var maintenanceJob: MaintenanceUIState? = nil
+    /// G12b-3b: メンテナンス完了メッセージ（アラート表示 → OK で nil に戻す想定）。
+    var maintenanceResult: String? = nil
     /// Phase C-②: /me で取得した接続トークンの tier（read<edit<admin）。fail-closed で既定 .read。
     var tier: AccessTier = .read
     /// 編集可（tier≥edit）。従来の編集可フラグ相当。
@@ -824,6 +835,43 @@ final class RemoteLibraryState {
         } catch { errorText = "スキャンの開始に失敗しました"; return false }
     }
 
+    // MARK: - G12b-3b: メンテナンス（メタデータ補完・表紙圧縮）
+
+    /// サーバは進捗を fire-and-forget Task で emit するため、まれに `.maintenanceProgress` が
+    /// `.maintenanceFinished` の後に届くことがある（順序保証なし）。このゲートが false の間は
+    /// progress を無視し、完了で clear 済みの maintenanceJob が遅延イベントで再び埋まって進捗バーが
+    /// 止まって見える事故を防ぐ。@ObservationIgnored で View 再描画のトリガーにはしない（内部制御用）。
+    @ObservationIgnored private var maintenanceActive = false
+
+    func runCompleteMetadata() async {
+        guard canDelete else { errorText = "管理者権限が必要です"; return }
+        do {
+            try await client.startCompleteMetadata(libraryUUID: libraryUUID, libraryToken: libraryToken)
+            maintenanceActive = true
+            maintenanceJob = MaintenanceUIState(job: "complete-metadata", done: 0, total: 0)
+        } catch let e as RemoteClientError { errorText = Self.maintenanceMessage(for: e) }
+        catch { errorText = "メタデータ補完の開始に失敗しました" }
+    }
+    func runCompressCovers() async {
+        guard canDelete else { errorText = "管理者権限が必要です"; return }
+        do {
+            try await client.startCompressCovers(libraryUUID: libraryUUID, libraryToken: libraryToken)
+            maintenanceActive = true
+            maintenanceJob = MaintenanceUIState(job: "compress-covers", done: 0, total: 0)
+        } catch let e as RemoteClientError { errorText = Self.maintenanceMessage(for: e) }
+        catch { errorText = "表紙圧縮の開始に失敗しました" }
+    }
+    func cancelMaintenance() async {
+        do { try await client.cancelMaintenance(libraryUUID: libraryUUID, libraryToken: libraryToken) }
+        catch { /* 中断要求失敗は握り（完了イベントで解決） */ }
+    }
+
+    private static func maintenanceMessage(for e: RemoteClientError) -> String {
+        if case .forbidden = e { return "管理者権限が必要です" }
+        if case .server(let code) = e, code == 409 { return "別のメンテナンスが実行中です" }
+        return "メンテナンスの開始に失敗しました"
+    }
+
     /// ライブラリロックを設定（admin 必須）。
     func setLibraryLock(password: String) async {
         guard canDelete else { return }   // lock=admin
@@ -1533,6 +1581,23 @@ final class RemoteLibraryState {
             Task { await refreshFavoriteIDs() }
         case .settingsChanged:
             pendingLiveStampReload = true
+        case .maintenanceProgress(_, let job, let done, let total):
+            // maintenanceActive ゲート: サーバは progress を fire-and-forget Task で emit するため、
+            // まれに finished の後に届く（順序保証なし）。ゲートが false（未実行 or 完了済み）の間は無視し、
+            // 完了で clear 済みの maintenanceJob が遅延イベントで再び埋まる事故（進捗バーが止まって見える）を防ぐ。
+            if maintenanceActive {
+                maintenanceJob = MaintenanceUIState(job: job, done: done, total: total)
+            }
+        case .maintenanceFinished(_, _, let outcome, let count):
+            maintenanceActive = false
+            maintenanceJob = nil
+            switch outcome {
+            case "cancelled": maintenanceResult = "中断しました（\(count) 件処理済み）"
+            case "failed":    maintenanceResult = "メンテナンスに失敗しました"
+            default:          maintenanceResult = "\(count) 件を更新しました"
+            }
+            // 完了時の structureChanged は別途届き reload を誘発する（表紙更新）。progress/finished 自体は
+            // reload を誘発しない（進捗 UI のみ）。
         }
         scheduleLiveFlush()
     }
