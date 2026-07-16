@@ -390,9 +390,20 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
         }
 
+        /// G12b-3c S5: サーバの DELETE 応答は復元用に BookRestoreDTO(200) を返すようになった。
+        private func makeRestoreDTO(id: Int, title: String) -> BookRestoreDTO {
+            BookRestoreDTO(id: id, title: title, author: nil, genre: nil, path: "/p",
+                dateAdded: 0, playDate: nil, bookType: 0, fileType: 0, pages: nil,
+                rating: 0, unseen: false, keywordA: nil, keywordB: nil, keywordC: nil,
+                neta: nil, memo: nil, series: nil, volume: nil, coverImageName: nil)
+        }
+
         @Test func deleteBookDBOnlySendsDeleteNoTrashQuery() async throws {
-            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
-            try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: false, libraryToken: "LT")
+            let dto = makeRestoreDTO(id: 7, title: "T7")
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try JSONEncoder().encode(dto))
+            let got = try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: false, libraryToken: "LT")
+            #expect(got.id == 7)
+            #expect(got.title == "T7")
             let url = StubURLProtocol.lastRequest!.url!
             #expect(url.path == "/api/v1/libraries/U/books/7")
             #expect(url.query?.contains("trash") != true)
@@ -401,8 +412,10 @@ struct StubBackedRemoteClientTests {
         }
 
         @Test func deleteBookTrashAddsQuery() async throws {
-            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
-            try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: true, libraryToken: nil)
+            let dto = makeRestoreDTO(id: 7, title: "T7")
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try JSONEncoder().encode(dto))
+            let got = try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: true, libraryToken: nil)
+            #expect(got.id == 7)
             let url = StubURLProtocol.lastRequest!.url!
             #expect(url.path == "/api/v1/libraries/U/books/7")
             #expect(url.query?.contains("trash=1") == true)
@@ -412,7 +425,21 @@ struct StubBackedRemoteClientTests {
         @Test func deleteBookForbiddenThrows() async throws {
             StubURLProtocol.stub = .init(status: 403, headers: [:], body: Data())
             await #expect(throws: RemoteClientError.forbidden) {
-                try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: false, libraryToken: nil)
+                _ = try await makeClient().deleteBook(libraryUUID: "U", bookID: 7, trash: false, libraryToken: nil)
+            }
+        }
+
+        @Test func restoreBooksSendsPostToRestoreEndpoint() async throws {
+            let dto = makeRestoreDTO(id: 9, title: "Restored")
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
+            try await makeClient().restoreBooks([dto], libraryUUID: "U", libraryToken: "LT")
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/U/books/restore")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "Content-Type") == "application/json")
+            if let sentBody = StubURLProtocol.lastRequest?.httpBody {
+                let decoded = try JSONDecoder().decode([BookRestoreDTO].self, from: sentBody)
+                #expect(decoded.first?.id == 9)
             }
         }
 

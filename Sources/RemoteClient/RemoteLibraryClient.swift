@@ -291,10 +291,22 @@ public struct RemoteLibraryClient: Sendable {
 
     /// DELETE /api/v1/libraries/:lib/books/:id — 本を削除（admin）。
     /// trash=true で実ファイルを macOS ゴミ箱へ＋DB 削除、false で DB エントリのみ削除（ファイルは残す）。
-    public func deleteBook(libraryUUID: String, bookID: Int, trash: Bool, libraryToken: String?) async throws {
+    /// G12b-3c S5: 応答は削除した行を BookRestoreDTO として返す（リモート undo で復元に使う）。
+    @discardableResult
+    public func deleteBook(libraryUUID: String, bookID: Int, trash: Bool, libraryToken: String?) async throws -> BookRestoreDTO {
         let q = trash ? [URLQueryItem(name: "trash", value: "1")] : []
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)", query: q)
-        _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken))
+        let data = try await send(request(url, method: "DELETE", libraryToken: libraryToken))
+        return try decode(BookRestoreDTO.self, data)
+    }
+
+    /// POST /api/v1/libraries/:lib/books/restore — deleteBook が返した BookRestoreDTO を渡して復元する（RW/admin）。
+    /// リモート undo（削除の取り消し）用。
+    public func restoreBooks(_ dtos: [BookRestoreDTO], libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/books/restore")
+        let body = try JSONEncoder().encode(dtos)
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken,
+                                   body: body, contentType: "application/json", timeout: 30))
     }
 
     /// PATCH /api/v1/libraries/:lib/books/:id — メタデータを部分更新し、更新後の BookDetailDTO を返す。
