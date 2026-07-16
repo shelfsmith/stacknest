@@ -590,14 +590,118 @@ final class RemoteLibraryState {
 
     func applyRemotePatch(bookID: Int, patch: BookPatch) async {
         let dto = Self.patchToDTO(patch)
+        // G12b-3c S5: 適用前の一覧値から逆 patch を作っておき、PATCH 成功時のみ undo に積む
+        // （失敗した編集は undo 対象にしない）。
+        let inverse = books.first(where: { $0.id == bookID })
+            .map { (bookID: bookID, patch: Self.inversePatch(applied: dto, old: $0)) }
         do {
             _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: bookID, patch: dto, libraryToken: libraryToken)
+            if let inverse { pushUndo(.rePatch([inverse])) }
             await selectBook(bookID)   // 詳細ペインを最新内容で再描画
             await reload()             // 一覧行も更新
         } catch {
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
             else { errorText = "編集に失敗しました" }
         }
+    }
+
+    // MARK: - G12b-3c S5: リモート undo/redo（メタ編集の逆 patch・削除の restore）
+
+    /// メタ編集(rePatch)・削除(restore)の undo 単位。
+    enum RemoteUndoOp {
+        case rePatch([(bookID: Int, patch: BookPatchDTO)])   // メタ編集の逆
+        case restore([BookRestoreDTO])                        // 削除の逆
+    }
+    @ObservationIgnored private var undoStack: [RemoteUndoOp] = []
+    @ObservationIgnored private var redoStack: [RemoteUndoOp] = []
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+    /// メニューの有効/無効判定用の変更カウンタ（push/pop のたびに ++。Observation 対象）。
+    var undoStateVersion = 0
+    private func pushUndo(_ op: RemoteUndoOp) {
+        undoStack.append(op)
+        redoStack.removeAll()
+        undoStateVersion += 1
+    }
+
+    /// 適用済み patch (`applied`) と適用前の本の状態 (`old`) から逆 patch を作る。
+    /// `old` は一覧表示用 BookListItemDTO なので、そこに存在しないフィールド（pageDirection）や、
+    /// clear 手段のない optional フィールド（author/genre/neta/memo/keywordA-C を NULL に戻す方法が
+    /// BookPatchDTO に無い）で旧値が nil の場合は、その項目を逆 patch に含めない
+    /// （＝「表示済みフィールドの復元」。Task 8 brief 参照。捕捉できない項目は undo で復元されない）。
+    static func inversePatch(applied: BookPatchDTO, old: BookListItemDTO) -> BookPatchDTO {
+        var inv = BookPatchDTO()
+        if applied.title != nil { inv.title = old.title }
+        if applied.author != nil { inv.author = old.author }
+        if applied.genre != nil { inv.genre = old.genre }
+        if applied.neta != nil { inv.neta = old.neta }
+        if applied.memo != nil { inv.memo = old.memo }
+        if applied.keywordA != nil { inv.keywordA = old.keywordA }
+        if applied.keywordB != nil { inv.keywordB = old.keywordB }
+        if applied.keywordC != nil { inv.keywordC = old.keywordC }
+        if applied.rating != nil { inv.rating = old.rating }
+        if applied.unseen != nil { inv.unseen = old.unseen }
+        if applied.bookType != nil { inv.bookType = old.bookType }
+        if applied.series != nil || applied.clearSeries {
+            if let s = old.series { inv.series = s } else { inv.clearSeries = true }
+        }
+        if applied.volume != nil || applied.clearVolume {
+            if let v = old.volume { inv.volume = v } else { inv.clearVolume = true }
+        }
+        // pageDirection/clearPageDirection: BookListItemDTO に旧値がないため意図的に反転しない。
+        return inv
+    }
+
+    /// 直近の undo 単位を取り消す（rePatch=逆 patch を再適用 / restore=削除を復元）。
+    /// 成功後は reload して一覧を最新化し、選択中の詳細も再取得する。
+    func undo() async {
+        guard let op = undoStack.popLast() else { return }
+        undoStateVersion += 1
+        switch op {
+        case .rePatch(let items):
+            var redoItems: [(bookID: Int, patch: BookPatchDTO)] = []
+            for (id, inv) in items {
+                if let b = books.first(where: { $0.id == id }) {
+                    redoItems.append((id, Self.inversePatch(applied: inv, old: b)))
+                }
+                _ = try? await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: inv, libraryToken: libraryToken)
+            }
+            redoStack.append(.rePatch(redoItems))
+        case .restore(let rows):
+            try? await client.restoreBooks(rows, libraryUUID: libraryUUID, libraryToken: libraryToken)
+            // redo = 再削除（redo() 側で id から deleteBook する）。
+            redoStack.append(.restore(rows))
+        }
+        await reload(clearFirst: false)
+        if let id = selection { await selectBook(id) }
+    }
+
+    /// 直近に undo した操作をやり直す。
+    func redo() async {
+        guard let op = redoStack.popLast() else { return }
+        undoStateVersion += 1
+        switch op {
+        case .rePatch(let items):
+            var undoItems: [(bookID: Int, patch: BookPatchDTO)] = []
+            for (id, p) in items {
+                if let b = books.first(where: { $0.id == id }) {
+                    undoItems.append((id, Self.inversePatch(applied: p, old: b)))
+                }
+                _ = try? await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: p, libraryToken: libraryToken)
+            }
+            undoStack.append(.rePatch(undoItems))
+        case .restore(let rows):
+            // restore の redo = 再削除。DB-only（trash:false）で行う: 元が trash 削除でも、
+            // ファイルは undo（restore）時点で既にゴミ箱から復元済みのため、ここで trash:true にすると
+            // 実ファイルの扱いが往復のたびに増える／不整合になりうる。DB のみ削除して往復を安全にする。
+            var reRows: [BookRestoreDTO] = []
+            for r in rows {
+                reRows.append(r)
+                _ = try? await client.deleteBook(libraryUUID: libraryUUID, bookID: r.id, trash: false, libraryToken: libraryToken)
+            }
+            undoStack.append(.restore(reRows))
+        }
+        await reload(clearFirst: false)
     }
 
     // MARK: - 4.2c-6a: 一括メタ編集（replace・per-book PATCH＋進捗/中断）
@@ -622,15 +726,19 @@ final class RemoteLibraryState {
     }
 
     /// Phase C-②: 選択本をサーバから削除（admin 必須）。trash=true でゴミ箱＋DB削除、false で DB のみ。
-    /// リモートは Undo 不可。成功分をローカル一覧から除去し、失敗は要約表示する。
+    /// G12b-3c S5: 削除成功分は BookRestoreDTO として undo スタックに積み、undo() で復元できる。
+    /// 成功分をローカル一覧から除去し、失敗は要約表示する。
     func deleteBooks(ids: Set<Int>, trash: Bool) async {
         guard canDelete, !ids.isEmpty else { return }
         let list = Array(ids)
         errorText = nil
         var ok = 0, fail = 0
+        // G12b-3c S5: 削除に成功した行の BookRestoreDTO を集め、undo（restore）に使う。
+        var restored: [BookRestoreDTO] = []
         for id in list {
             do {
-                try await client.deleteBook(libraryUUID: libraryUUID, bookID: id, trash: trash, libraryToken: libraryToken)
+                let row = try await client.deleteBook(libraryUUID: libraryUUID, bookID: id, trash: trash, libraryToken: libraryToken)
+                restored.append(row)
                 await coverCache.invalidate(libraryUUID: libraryUUID, bookID: id)
                 await RemotePageCache.shared.deleteBook(serverID: serverID, libraryUUID: libraryUUID, bookID: id)
                 books.removeAll { $0.id == id }
@@ -639,6 +747,7 @@ final class RemoteLibraryState {
                 fail += 1
             }
         }
+        if !restored.isEmpty { pushUndo(.restore(restored)) }
         multiSelection.removeAll()
         if let sel = selection, !books.contains(where: { $0.id == sel }) { selection = nil }
         total = max(0, total - ok)
@@ -669,17 +778,25 @@ final class RemoteLibraryState {
         var didDecrementEarly = false
         defer { if !didDecrementEarly { activeBatchCount -= 1 } }
         let dto = Self.patchToDTO(patch)
+        // G12b-3c S5: 適用前の一覧値から id ごとに逆 patch を用意しておき、実際に PATCH が
+        // 成功した本の分だけ undo に積む（失敗した本は old==current のままなので undo 対象にしない）。
+        let preInverses: [Int: BookPatchDTO] = Dictionary(uniqueKeysWithValues: list.compactMap { id in
+            books.first(where: { $0.id == id }).map { (id, Self.inversePatch(applied: dto, old: $0)) }
+        })
         errorText = nil
         var ok = 0, fail = 0, cancelled = false
+        var appliedInverses: [(bookID: Int, patch: BookPatchDTO)] = []
         editProgress = (0, list.count)
         for (i, id) in list.enumerated() {
             if cancel.isCancelled { cancelled = true; break }
             do {
                 _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: dto, libraryToken: libraryToken)
                 ok += 1
+                if let inv = preInverses[id] { appliedInverses.append((id, inv)) }
             } catch { fail += 1 }
             editProgress = (i + 1, list.count)
         }
+        if !appliedInverses.isEmpty { pushUndo(.rePatch(appliedInverses)) }
         editProgress = nil
         await reload(clearFirst: false)   // 旧リストを保持したまま差し替え（空表示防止）
         if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
