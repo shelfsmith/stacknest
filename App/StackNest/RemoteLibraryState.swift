@@ -845,25 +845,44 @@ final class RemoteLibraryState {
 
     func runCompleteMetadata() async {
         guard canDelete else { errorText = "管理者権限が必要です"; return }
+        // M2: finished が 202 応答を追い越しても取りこぼさないよう、await の前に gate を立てる。
+        maintenanceActive = true
+        maintenanceJob = MaintenanceUIState(job: "complete-metadata", done: 0, total: 0)
         do {
             try await client.startCompleteMetadata(libraryUUID: libraryUUID, libraryToken: libraryToken)
-            maintenanceActive = true
-            maintenanceJob = MaintenanceUIState(job: "complete-metadata", done: 0, total: 0)
-        } catch let e as RemoteClientError { errorText = Self.maintenanceMessage(for: e) }
-        catch { errorText = "メタデータ補完の開始に失敗しました" }
+        } catch let e as RemoteClientError {
+            maintenanceActive = false; maintenanceJob = nil   // 起動失敗 → gate を戻す
+            errorText = Self.maintenanceMessage(for: e)
+        } catch {
+            maintenanceActive = false; maintenanceJob = nil
+            errorText = "メタデータ補完の開始に失敗しました"
+        }
     }
     func runCompressCovers() async {
         guard canDelete else { errorText = "管理者権限が必要です"; return }
+        // M2: finished が 202 応答を追い越しても取りこぼさないよう、await の前に gate を立てる。
+        maintenanceActive = true
+        maintenanceJob = MaintenanceUIState(job: "compress-covers", done: 0, total: 0)
         do {
             try await client.startCompressCovers(libraryUUID: libraryUUID, libraryToken: libraryToken)
-            maintenanceActive = true
-            maintenanceJob = MaintenanceUIState(job: "compress-covers", done: 0, total: 0)
-        } catch let e as RemoteClientError { errorText = Self.maintenanceMessage(for: e) }
-        catch { errorText = "表紙圧縮の開始に失敗しました" }
+        } catch let e as RemoteClientError {
+            maintenanceActive = false; maintenanceJob = nil   // 起動失敗 → gate を戻す
+            errorText = Self.maintenanceMessage(for: e)
+        } catch {
+            maintenanceActive = false; maintenanceJob = nil
+            errorText = "表紙圧縮の開始に失敗しました"
+        }
     }
     func cancelMaintenance() async {
-        do { try await client.cancelMaintenance(libraryUUID: libraryUUID, libraryToken: libraryToken) }
-        catch { /* 中断要求失敗は握り（完了イベントで解決） */ }
+        do {
+            try await client.cancelMaintenance(libraryUUID: libraryUUID, libraryToken: libraryToken)
+            // I1: 楽観的に UI を解除する。ジョブがサーバ側でまだ走っていても、その finish が出す
+            // structureChanged で一覧は更新される。finished を取りこぼしても手動で復帰できる escape hatch。
+            maintenanceActive = false
+            maintenanceJob = nil
+        } catch {
+            // 中断要求の失敗は握る（finished が来れば解決）。UI はそのまま。
+        }
     }
 
     private static func maintenanceMessage(for e: RemoteClientError) -> String {
