@@ -14,7 +14,7 @@ import os
 @MainActor
 final class RemoteLibraryState {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrary")
-    /// G12b-3b Task 1: reload() 失敗時の切り分け用ログ（isApplyingBatch の文脈を残す）。
+    /// G12b-3b Task 1: reload() 失敗時の切り分け用ログ（activeBatchCount の文脈を残す）。
     private static let reloadLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteReload")
 
     let client: RemoteLibraryClient
@@ -255,8 +255,8 @@ final class RemoteLibraryState {
                 await openBookByID(pend.id, resumeDirect: pend.resume)
             }
         } catch let e as RemoteClientError {
-            // G12b-3b Task 1: 赤バナー切り分け用（一括編集中の自エコー reload 競合を isApplyingBatch で判別）。
-            Self.reloadLog.warning("reload failed during isApplyingBatch=\(self.isApplyingBatch, privacy: .public): \(String(describing: e), privacy: .public)")
+            // G12b-3b Task 1: 赤バナー切り分け用（一括編集中の自エコー reload 競合を activeBatchCount で判別）。
+            Self.reloadLog.warning("reload failed during activeBatchCount=\(self.activeBatchCount, privacy: .public): \(String(describing: e), privacy: .public)")
             errorText = Self.message(for: e)
         } catch {
             errorText = "読み込みに失敗しました"
@@ -652,8 +652,11 @@ final class RemoteLibraryState {
         guard !list.isEmpty else { return }
         // G12b-3b Task 1: batch 中は各 PATCH が誘発する SSE .bookChanged の自エコー reload が
         // この関数末尾の reload と競合し、transient 失敗で赤バナーが立つ（PATCH 自体は成功）ため抑止する。
-        isApplyingBatch = true
-        defer { isApplyingBatch = false }
+        // レビュー指摘対応: startBatchEdit は旧 Task を await せずキャンセル→新 Task 起動するため、
+        // 重複実行時に旧 batch の tail が抑止フラグを先にクリアしうる。参照カウントで直す。
+        activeBatchCount += 1
+        var didDecrementEarly = false
+        defer { if !didDecrementEarly { activeBatchCount -= 1 } }
         let dto = Self.patchToDTO(patch)
         errorText = nil
         var ok = 0, fail = 0, cancelled = false
@@ -671,10 +674,20 @@ final class RemoteLibraryState {
         if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
         // batch 自前の reload でサーバ真値へ揃えたので、抑止していた自エコー分は捨ててよい。
         // ただし抑止中に他クライアント由来の変更（他ユーザー編集等）も pending に混在しうるため、
-        // 解除後に 1 回だけ flush して取りこぼしを回収する（defer より前に明示解除して下の flush を通す）。
-        isApplyingBatch = false
-        if pendingLiveReload || pendingLiveStampReload || pendingLiveSelectionRefresh != nil {
-            await flushLiveEvents()
+        // 最後の batch 終了時にのみ 1 回だけ flush して取りこぼしを回収する。
+        // レビュー指摘対応: activeBatchCount はまだこの関数の defer で減算されていないため、
+        // ここで == 1 はこの batch が最後（唯一のアクティブ batch）であることを意味する。
+        // >1 なら他の batch がまだ走っており、その batch の tail が自分の flush を担当する。
+        // 注意: flushLiveEvents() 自体が「activeBatchCount > 0 なら抑止」というガードを持つため、
+        // ここでまだ 1（自分自身の分）が残ったまま呼ぶと即座にブロックされ flush が空振りする。
+        // そのため、最後の batch と判定した時点で先に 0 まで減算してから flush を呼び、
+        // defer 側は didDecrementEarly により二重減算を防ぐ（両ガードの整合を取る）。
+        if activeBatchCount == 1 {
+            activeBatchCount -= 1
+            didDecrementEarly = true
+            if pendingLiveReload || pendingLiveStampReload || pendingLiveSelectionRefresh != nil {
+                await flushLiveEvents()
+            }
         }
         var parts = ["\(ok) 件更新"]
         if fail > 0 { parts.append("\(fail) 件失敗") }
@@ -1524,7 +1537,9 @@ final class RemoteLibraryState {
     private var liveFlushTask: Task<Void, Never>?
     /// G12b-3b Task 1: 一括編集（applyRemotePatchMulti）実行中は SSE 自エコーによる reload を抑止する。
     /// pending フラグ自体は落とさず、batch 終了後の 1 回の flush でまとめて反映する（他タスク未使用）。
-    @ObservationIgnored private var isApplyingBatch = false
+    /// レビュー指摘対応: startBatchEdit が旧 batch を await せず新 Task を起動しうるため（重複実行）、
+    /// bool ではなく参照カウントで管理し、最後の batch が終わるまで抑止を継続する（reentrant）。
+    @ObservationIgnored private var activeBatchCount = 0
 
     /// バーストを ~200ms 窓で 1 回に集約。イベントごとに再スケジュールし、静止後に flush する。
     private func scheduleLiveFlush() {
@@ -1539,7 +1554,7 @@ final class RemoteLibraryState {
     private func flushLiveEvents() async {
         // G12b-3b Task 1: batch 実行中は自エコー reload を抑止（batch 末尾で自前 reload するため冗長かつ有害）。
         // pending は落とさず、batch 終了後の flush で 1 回だけ反映する。
-        if isApplyingBatch { return }
+        if activeBatchCount > 0 { return }
         let doReload = pendingLiveReload
         let doStamps = pendingLiveStampReload
         let sel = pendingLiveSelectionRefresh
