@@ -286,13 +286,21 @@ final class RemoteLibraryState {
         loadGeneration += 1
         do {
             if scrollMode == .infinite {
-                // 無限スクロール: 現在ロード済み件数を 1 リクエストで再取得し、表示窓を維持する。
-                let keep = max(infiniteChunkSize, books.count)
-                let result = try await fetchChunk(page: 1, size: keep)
-                books = result.items
-                total = result.total
-                // loadMore の次ページ計算（page+1）が破綻しないよう、現在の窓に page を整合させる。
-                page = max(1, Int(ceil(Double(books.count) / Double(infiniteChunkSize))))
+                // 無限スクロール: 現在ロード済みのページ数ぶんを infiniteChunkSize 単位で複数リクエスト
+                // 再取得して表示窓を維持する。**1 リクエストでの一括取得は不可**（サーバが per を 1...500 に
+                // clamp するため、500 件超のロード窓が 500 に truncate され ~500 件へ戻る＝重大バグ）。
+                let pagesLoaded = max(1, Int(ceil(Double(books.count) / Double(infiniteChunkSize))))
+                var acc: [BookListItemDTO] = []
+                var newTotal = total
+                for p in 1...pagesLoaded {
+                    let result = try await fetchChunk(page: p, size: infiniteChunkSize)
+                    acc.append(contentsOf: result.items)
+                    newTotal = result.total
+                    if result.items.count < infiniteChunkSize { break }   // 末尾に到達（最終ページ）
+                }
+                books = acc
+                total = newTotal
+                page = pagesLoaded   // loadMore の次ページ計算（page+1）を現在の窓に整合させる
             } else {
                 // ページ表示: 現在ページをそのまま再取得（page を変えない）。
                 let result = try await fetchChunk(page: page, size: per)
