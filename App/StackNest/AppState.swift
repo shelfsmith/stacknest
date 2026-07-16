@@ -758,8 +758,16 @@ final class AppState {
         // NSOpenPanel で親フォルダを選ばせて powerbox 経由の narrow 許可を得てリトライする（FDA 不要）。
         if let probePath = book.path {
             let probeURL = URL(fileURLWithPath: probePath)
-            if !Self.fileIsReadable(probeURL) {
+            switch Self.probeReadable(probeURL) {
+            case .readable:
+                break
+            case .noPermission:
+                // 存在するが TCC 等で読めない → 親フォルダの narrow 許可を求めてリトライ。
                 guard Self.requestFolderAccessAndRecheck(for: probeURL, logger: Self.logger) else { return }
+            case .notFound:
+                // 移動/削除で不在 → 許可導線ではなく「見つかりません」を明示して中断（V5）。
+                Self.presentFileNotFound(probeURL, logger: Self.logger)
+                return
             }
         }
         let content: BookContent
@@ -888,22 +896,47 @@ final class AppState {
         )
     }
 
-    /// ファイルが読めるか（TCC 含む実アクセスで判定）。1 バイト読んで close。
-    static func fileIsReadable(_ url: URL) -> Bool {
+    /// ファイルアクセスの3状態判定結果。
+    /// - readable: 実アクセスできる（TCC 含む）
+    /// - notFound: 不在（移動/削除・ENOENT）
+    /// - noPermission: 存在するが読めない（TCC/権限拒否・EPERM/EACCES 等）
+    enum ReadProbe: Equatable { case readable, notFound, noPermission }
+
+    /// ファイルの実アクセスを試み、可読/不在/権限不足を判別する。1 バイト読んで close。
+    /// 不在(ENOENT)と権限拒否(EPERM/EACCES)を errno で区別し、移動・削除された
+    /// ファイルに対して誤って「フォルダ許可」導線を出さないためのもの（V5 修正）。
+    static func probeReadable(_ url: URL) -> ReadProbe {
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
             // フォルダ型の本は path がディレクトリ。read() は EISDIR で失敗するので、
             // ディレクトリは「列挙できるか」で可読判定する（TCC で塞がれたディレクトリは
-            // contentsOfDirectory が throw→false のまま許可導線に乗る）。
-            return (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
+            // contentsOfDirectory が throw→権限不足として許可導線に乗る）。
+            do { _ = try FileManager.default.contentsOfDirectory(atPath: url.path); return .readable }
+            catch { return Self.isNoSuchFileError(error) ? .notFound : .noPermission }
         }
         do {
             let fh = try FileHandle(forReadingFrom: url)
             defer { try? fh.close() }
             _ = try fh.read(upToCount: 1)
-            return true
-        } catch { return false }
+            return .readable
+        } catch {
+            return Self.isNoSuchFileError(error) ? .notFound : .noPermission
+        }
     }
+
+    /// error が「ファイル不在(ENOENT / NSFileReadNoSuchFileError)」を表すか。
+    /// TCC/権限拒否は EPERM/EACCES→NSFileReadNoPermissionError となり、ここでは false。
+    private static func isNoSuchFileError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileReadNoSuchFileError { return true }
+        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
+        if let u = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
+           u.domain == NSPOSIXErrorDomain, u.code == Int(ENOENT) { return true }
+        return false
+    }
+
+    /// ファイルが読めるか（TCC 含む実アクセスで判定）。既存呼び出し互換のラッパ。
+    static func fileIsReadable(_ url: URL) -> Bool { probeReadable(url) == .readable }
 
     /// 読めない時: 親フォルダを NSOpenPanel で選ばせて narrow 許可を得る→再チェック。
     /// 許可が取れて読めるようになったら true、キャンセル/失敗なら false（呼び出し側は開かず return）。
@@ -930,6 +963,16 @@ final class AppState {
         e2.informativeText = "選択したフォルダではこのファイルにアクセスできませんでした。ファイルのある親フォルダを選び直してください。"
         e2.runModal()
         return false
+    }
+
+    /// ファイル不在（移動/削除）を明示するアラート。許可導線は出さない（V5）。
+    @MainActor
+    static func presentFileNotFound(_ fileURL: URL, logger: Logger) {
+        logger.warning("openInBuiltInViewer: file not found (moved/deleted): \(fileURL.path, privacy: .public)")
+        let alert = NSAlert()
+        alert.messageText = "ファイルが見つかりません"
+        alert.informativeText = "この本のファイルが移動または削除された可能性があります。ファイルを元の場所に戻すか、「再リンク」してください。"
+        alert.runModal()
     }
 
     /// 選択 books を外部ビューワで起動（従来挙動）。

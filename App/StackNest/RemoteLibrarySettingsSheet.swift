@@ -7,7 +7,8 @@ import LibraryServerAPI
 /// 4.2c-8 B1(v2): リモートから開く「ライブラリ設定」シート。ツールバーの歯車から開く。
 /// 実体は接続先（ローカル）ライブラリの設定をリモートで変更する UI なので呼称は「ライブラリ設定」。
 ///
-/// G12b-2 Task 3: タブ化（ラベル / 取り込み / ロック）。tier に応じてタブを出し分ける:
+/// G12b-2 Task 3: タブ化。G1 でローカル LibrarySettingsSheet に整列（順: 一般 / 取り込み /
+/// ラベル / ロック、frame 580×640、開いたとき先頭タブを選択）。tier に応じてタブを出し分ける:
 /// - ラベル: 全 tier（read でも閲覧・編集は不可＝保存ボタンで弾かれるが UI 自体は出す＝既存挙動）
 /// - 取り込み: canDelete（admin）以上のみ（G12b-3a: 監視フォルダ設定も含むため admin へ再分類）
 /// - ロック: canDelete（admin）以上のみ
@@ -64,9 +65,14 @@ struct RemoteLibrarySettingsSheet: View {
                 .padding(.bottom, 8)
 
             TabView(selection: $settingsTab) {
-                ScrollView { labelTab().padding(16) }
-                    .tabItem { Label("ラベル", systemImage: "tag") }
-                    .tag(0)
+                // G1: ローカル LibrarySettingsSheet のタブ順（一般/フォーマット/取り込み/ラベル/ロック）に
+                // 合わせる。remote に無い「フォーマット」は除外し、順は 一般/取り込み/ラベル/ロック。
+                // tag は据え置き（saveCurrentTab / 保存ボタン無効判定が tag 番号を参照するため）。
+                if state.canDelete {
+                    ScrollView { generalTab().padding(16) }
+                        .tabItem { Label("一般", systemImage: "gearshape") }
+                        .tag(3)
+                }
 
                 if state.canDelete {
                     ScrollView { importTab().padding(16) }
@@ -74,16 +80,14 @@ struct RemoteLibrarySettingsSheet: View {
                         .tag(1)
                 }
 
+                ScrollView { labelTab().padding(16) }
+                    .tabItem { Label("ラベル", systemImage: "tag") }
+                    .tag(0)
+
                 if state.canDelete {
                     ScrollView { lockTab().padding(16) }
                         .tabItem { Label("ロック", systemImage: "lock") }
                         .tag(2)
-                }
-
-                if state.canDelete {
-                    ScrollView { generalTab().padding(16) }
-                        .tabItem { Label("一般", systemImage: "gearshape") }
-                        .tag(3)
                 }
             }
             .padding(.horizontal, 12)
@@ -105,11 +109,13 @@ struct RemoteLibrarySettingsSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 520, height: 480)
+        .frame(width: 580, height: 640)
         .onAppear {
             stagedFieldLabels = settings.remoteFieldLabelOverride ?? [:]
             stagedBookTypeLabels = settings.remoteBookTypeLabelOverride ?? [:]
             lockToggleOn = state.locked
+            // G1: ローカル同様、開いたとき先頭タブを選択（admin=一般 tag3 / 非 admin=ラベル tag0）。
+            settingsTab = state.canDelete ? 3 : 0
         }
     }
 
