@@ -197,6 +197,39 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/watch/scan-now") == true)
         }
 
+        // MARK: - G12b-3b: メンテナンス（メタ補完/表紙圧縮・非同期ジョブ）
+
+        @Test func startCompleteMetadataAcceptedDoesNotThrow() async throws {
+            StubURLProtocol.stub = .init(status: 202, headers: [:], body: Data())
+            try await makeClient().startCompleteMetadata(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/maintenance/complete-metadata") == true)
+        }
+        @Test func startCompleteMetadataForbiddenThrows() async throws {
+            StubURLProtocol.stub = .init(status: 403, headers: [:], body: Data())
+            await #expect(throws: RemoteClientError.forbidden) {
+                try await makeClient().startCompleteMetadata(libraryUUID: "U", libraryToken: nil)
+            }
+        }
+        @Test func startCompleteMetadataBusyThrowsServer409() async throws {
+            StubURLProtocol.stub = .init(status: 409, headers: [:], body: Data())
+            await #expect(throws: RemoteClientError.server(409)) {
+                try await makeClient().startCompleteMetadata(libraryUUID: "U", libraryToken: nil)
+            }
+        }
+        @Test func startCompressCoversSendsPOST() async throws {
+            StubURLProtocol.stub = .init(status: 202, headers: [:], body: Data())
+            try await makeClient().startCompressCovers(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/maintenance/compress-covers") == true)
+        }
+        @Test func cancelMaintenanceSendsPOST() async throws {
+            StubURLProtocol.stub = .init(status: 202, headers: [:], body: Data())
+            try await makeClient().cancelMaintenance(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/maintenance/cancel") == true)
+        }
+
         // MARK: - G12b-2c: 監視フォルダ設定
 
         @Test func fetchWatchConfigDecodes() async throws {

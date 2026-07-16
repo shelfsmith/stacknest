@@ -497,6 +497,28 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
     }
 
+    // MARK: - G12b-3b: メンテナンス（メタ補完/表紙圧縮・非同期ジョブ）
+
+    /// POST maintenance/complete-metadata — メタ補完ジョブを起動する（admin）。
+    /// 202=起動受理（ジョブは非同期、進捗は SSE）。409=他ジョブ実行中で `RemoteClientError.server(409)` を投げる
+    /// （呼び出し側 state で 409 を「実行中」表示に使う。追加 case は設けない＝YAGNI）。
+    public func startCompleteMetadata(libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/maintenance/complete-metadata")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
+    }
+
+    /// POST maintenance/compress-covers — 表紙圧縮ジョブを起動する（admin）。202/409 は上記と同様。
+    public func startCompressCovers(libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/maintenance/compress-covers")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
+    }
+
+    /// POST maintenance/cancel — 実行中のメンテナンスジョブをキャンセルする（admin）。
+    public func cancelMaintenance(libraryUUID: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/maintenance/cancel")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
+    }
+
     // MARK: - G12b-2c: 監視フォルダ設定
 
     /// GET watch-config — 監視フォルダ設定＋プリセット一覧（R 可）。
