@@ -1766,10 +1766,17 @@ final class RemoteLibraryState {
                 },
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
-                onClose: { ViewerWindowRegistry.shared.unregister(identity) },
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: sourceLabel
             )
+            // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する
+            // （init 引数の時点では自身の identity をまだ束縛できないため controller を渡せない）。
+            // unregister(controller:) は現在のキー（reidentify 後でも常に最新）を逆引きして
+            // 除去するので、巻スワップ後に閉じても registry entry が residual リークしない。
+            controller.onClose = { [weak controller] in
+                guard let controller else { return }
+                ViewerWindowRegistry.shared.unregister(controller: controller)
+            }
             // G3b: リモート閲覧では RemotePrefetchContext を注入し、可視ページの保護を
             // ページ移動に追従させる（各 controller が別 owner=union 保護）。
             if remoteContent != nil {

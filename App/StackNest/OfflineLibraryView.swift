@@ -339,12 +339,20 @@ struct OfflineLibraryView: View {
                 },
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
-                // B2: close 時に reload して、保存された lastPage を次回 open に反映する
-                // （updateLastPage は .offlineStoreDidChange を post しないため）。
-                onClose: { ViewerWindowRegistry.shared.unregister(identity); self.reload() },
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: "オフライン"
             )
+            // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する
+            // （init 引数の時点では自身の identity をまだ束縛できないため controller を渡せない）。
+            // unregister(controller:) は現在のキー（reidentify 後でも常に最新）を逆引きして
+            // 除去するので、巻スワップ後に閉じても registry entry が residual リークしない。
+            // B2: close 時に reload して、保存された lastPage を次回 open に反映する
+            // （updateLastPage は .offlineStoreDidChange を post しないため）。
+            controller.onClose = { [weak controller] in
+                guard let controller else { return }
+                ViewerWindowRegistry.shared.unregister(controller: controller)
+                self.reload()
+            }
             // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
             // （serverID/libraryUUID はシリーズ内で不変・.remote へ統一済み＝C3）。
             controller.onBookSwapped = { [weak controller] newBook in

@@ -15,7 +15,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var content: BookContent
     private var book: BookRow
     private var model: ViewerModel
-    private let onClose: () -> Void
+    /// G16 C1 fix: owner-supplied close hook。init 引数には `controller` 自身を渡せない
+    /// （自身の init 呼び出し中は変数がまだ束縛されていない）ため、`onBookSwapped` と同様
+    /// var にして `let controller = ViewerWindowController(...)` の後で `[weak controller]`
+    /// キャプチャして代入する。これにより onClose は常に「現在の」controller 参照を握れる。
+    var onClose: () -> Void = {}
 
     // Phase 2.6b-2 injected closures
     private let loadNextVolume: (BookRow) async -> NextVolume?
@@ -88,7 +92,6 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         loadPrevVolume: @escaping (BookRow) async -> NextVolume?,
         persistState: @escaping (BookRow, Int, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
-        onClose: @escaping () -> Void,
         suppressResumeDialog: Bool = false,
         sourceLabel: String? = nil
     ) {
@@ -99,7 +102,6 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         self.loadPrevVolume = loadPrevVolume
         self.persistState = persistState
         self.persistPageOverride = persistPageOverride
-        self.onClose = onClose
         self.suppressResumeDialog = suppressResumeDialog
         self.sourceLabel = sourceLabel
         self.overrides = initialState.overrides

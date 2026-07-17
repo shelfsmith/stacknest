@@ -838,9 +838,16 @@ final class AppState {
                 persistPageOverride: { [weak self] (b, page, mode) in
                     try? self?.database?.setPageOverride(bookID: b.id, page: page, mode: mode)
                 },
-                onClose: { [weak self] in _ = self; ViewerWindowRegistry.shared.unregister(identity) },
                 suppressResumeDialog: resumeDirect
             )
+            // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する
+            // （init 引数の時点では自身の identity をまだ束縛できないため controller を渡せない）。
+            // unregister(controller:) は現在のキー（reidentify 後でも常に最新）を逆引きして
+            // 除去するので、巻スワップ後に閉じても registry entry が residual リークしない。
+            controller.onClose = { [weak controller] in
+                guard let controller else { return }
+                ViewerWindowRegistry.shared.unregister(controller: controller)
+            }
             // Phase 2.6b-2 D3: per-book page direction の永続化コールバックを設定する。
             // DB 書き込み後に displayedBooks を更新する。これにより "r" トグル後にページ遷移なしで
             // ウィンドウを閉じた場合でも、次回オープン時に新しい方向が反映される（T1 バグ修正）。

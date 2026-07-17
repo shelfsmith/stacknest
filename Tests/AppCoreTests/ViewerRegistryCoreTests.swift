@@ -85,4 +85,19 @@ struct ViewerRegistryCoreTests {
         c.reidentify(from: a, to: b)              // to (b) は既に open
         #expect(c.openIdentities == [b])          // a は消え、b は 1 つのまま
     }
+
+    /// G16 C1 fix (Critical): 巻スワップで re-key された後、"新しい" キーで remove すると
+    /// 完全にクリーンアップされる不変条件を core レベルで確認する。App 側 glue の
+    /// `unregister(controller:)` はこの逆引き（controller → 現在のキー → core.remove）を
+    /// 行うので、これが core の契約として成立している必要がある。
+    @Test func reidentifyThenRemoveByNewKeyCleansUp() {
+        var c = ViewerRegistryCore()
+        _ = c.begin(a); _ = c.finish(a, allowMultiple: true)
+        c.reidentify(from: a, to: b)
+        c.remove(b)                               // 「現在のキー」(b) で除去 = glue の unregister(controller:) 相当
+        #expect(c.openIdentities.isEmpty)
+        #expect(c.begin(a) == .proceed)           // a は元々除去済みなので再度開ける
+        c.cancel(a)
+        #expect(c.begin(b) == .proceed)           // b もクリーンに再度開ける（residual leak なし）
+    }
 }
