@@ -30,6 +30,7 @@ public final class ViewerSettings {
     private let spreadByDefaultKey = "viewerSpreadByDefault"
     private let openFullScreenByDefaultKey = "viewerOpenFullScreenByDefault"
     private let showBookIDInDetailKey = "showBookIDInDetail"
+    private let allowMultipleViewerWindowsKey = "viewerAllowMultipleWindows"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -100,6 +101,12 @@ public final class ViewerSettings {
     /// G13 F2a: 詳細ペインに book ID を表示するか（app-global・ローカル/リモート共有・既定 false）。
     public var showBookIDInDetail: Bool {
         didSet { defaults.set(showBookIDInDetail, forKey: showBookIDInDetailKey) }
+    }
+
+    /// G15 V1: 内蔵ビューアで別々の本を複数ウィンドウで開くのを許可するか（app-global・既定 false）。
+    /// false=別の本を開くと既存ビューアを閉じて1つに保つ／true=別の本は別ウィンドウ。同一本は常に1つに集約。
+    public var allowMultipleViewerWindows: Bool {
+        didSet { defaults.set(allowMultipleViewerWindows, forKey: allowMultipleViewerWindowsKey) }
     }
 
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
@@ -186,6 +193,9 @@ public final class ViewerSettings {
         // G13 F2a: showBookIDInDetail は key 不在で false (defaults.bool(forKey:) の既定と一致するため
         // first-run 特別扱い不要)。
         self.showBookIDInDetail = defaults.bool(forKey: showBookIDInDetailKey)
+        // G15 V1: allowMultipleViewerWindows は key 不在で false (defaults.bool(forKey:) の既定と一致するため
+        // first-run 特別扱い不要)。
+        self.allowMultipleViewerWindows = defaults.bool(forKey: allowMultipleViewerWindowsKey)
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve
         // partial state when a BookCategory case is later renamed/removed.

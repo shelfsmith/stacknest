@@ -128,3 +128,15 @@ import Foundation
         #expect(json.hasPrefix("{"))
     }
 }
+
+@Suite("ViewerSettings allowMultipleViewerWindows")
+struct ViewerSettingsAllowMultipleTests {
+    @Test @MainActor func defaultsFalseAndPersists() {
+        let suite = UserDefaults(suiteName: "g15-\(UUID().uuidString)")!
+        let s = ViewerSettings(defaults: suite)
+        #expect(s.allowMultipleViewerWindows == false)          // 既定 OFF
+        s.allowMultipleViewerWindows = true
+        let s2 = ViewerSettings(defaults: suite)
+        #expect(s2.allowMultipleViewerWindows == true)          // persist
+    }
+}
