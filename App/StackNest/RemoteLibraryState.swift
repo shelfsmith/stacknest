@@ -59,6 +59,14 @@ final class RemoteLibraryState {
     /// books が更新されるたびに増えるカウンタ。表コーディネータが reloadData の要否判定に使う
     /// （ソートのみの並べ替えで件数・先頭が一致しても確実に再描画）。
     private(set) var booksVersion = 0
+
+    /// G16 E1: ユーザー操作由来のリセット（filter/sort/sidebar/mode/search）でのみ増える版数。
+    /// reload(clearFirst: true) でのみ bump し、liveReload()・loadMore（append）・
+    /// reload(clearFirst: false)（一括編集後の位置保持リカバリ）では bump しない。
+    /// RemoteBookTable が観測して、無限スクロール後にフィルタで件数が減った際に
+    /// スクロール位置/選択が旧・空の末尾に取り残される不具合（G16 バグ E）を防ぐため、
+    /// このバージョンが変化したときだけ先頭へ scrollRowToVisible(0) する。
+    private(set) var listScrollResetVersion = 0
     var books: [BookListItemDTO] = [] {
         didSet {
             booksVersion += 1
@@ -240,7 +248,11 @@ final class RemoteLibraryState {
         page = 1
         // clearFirst=false: 一括編集後の再取得などで、旧リストを保持したまま差し替える
         // （books=[] による一瞬の空表示＝smoke A1 インラインを防ぐ）。
-        if clearFirst { books = [] }
+        if clearFirst {
+            books = []
+            // G16 E1: ユーザー操作由来のリセットのみ先頭スクロールを要求する。
+            listScrollResetVersion += 1
+        }
         do {
             let result = try await fetchChunk(page: 1, size: fetchSize)
             books = result.items

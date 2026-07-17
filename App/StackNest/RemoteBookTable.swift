@@ -147,6 +147,10 @@ final class RemoteBookTableCoordinator: NSObject {
     private var lastBooksVersion = -1
     private var lastDownloadedVersion = -1
     private var lastProgressKey: String = ""
+    /// G16 E1: state.listScrollResetVersion の直近反映値。ユーザー操作由来のリセット
+    /// （filter/sort/sidebar/mode/search）でのみ増える版数を観測し、無限スクロール後の
+    /// フィルタで件数が減った際にスクロール位置/選択が旧・空の末尾に取り残される不具合を防ぐ。
+    private var lastScrollResetVersion = -1
 
     /// リモート専用「DL（ダウンロード済み）」列の識別子。BookColumn ではない sentinel。
     private static let downloadColumnID = "__remote_downloaded__"
@@ -245,6 +249,18 @@ final class RemoteBookTableCoordinator: NSObject {
             lastBooksVersion = state.booksVersion
             lastDownloadedVersion = state.downloadedVersion
             table.reloadData()
+        }
+        // G16 E1: ユーザー操作由来のリセット（reload(clearFirst: true)）のときだけ先頭へ戻す。
+        // liveReload/loadMore/reload(clearFirst: false)（位置保持経路）では version が不変のため
+        // ここには入らない。reloadData() の後に判定することで、行数はフィルタ後の件数を反映する。
+        if state.listScrollResetVersion != lastScrollResetVersion {
+            lastScrollResetVersion = state.listScrollResetVersion
+            if table.numberOfRows > 0 {
+                table.scrollRowToVisible(0)
+            } else if let scroll = scrollView ?? table.enclosingScrollView {
+                scroll.contentView.scroll(to: .zero)
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
         }
         let pk = state.downloadProgress.map { "\($0.bookID):\(Int($0.fraction * 20))" } ?? ""
         if pk != lastProgressKey {

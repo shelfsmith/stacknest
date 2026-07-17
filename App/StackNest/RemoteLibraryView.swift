@@ -690,8 +690,18 @@ struct RemoteLibraryView: View {
         }
     }
 
+    /// G16 E1: グリッドの先頭スクロールアンカー ID。ユーザー操作由来のリセット
+    /// （listScrollResetVersion 変化）で ScrollViewReader.scrollTo の対象にする。
+    private static let gridTopAnchorID = "remoteGridTop"
+
     private var gridScroll: some View {
         GeometryReader { geo in
+            // G16 E1: ScrollView（LazyVGrid）は無限スクロール後にフィルタで件数が減っても
+            // スクロール位置が自動で先頭へ戻らない（List と違い NSScrollView のオフセットを保持する
+            // だけの実装のため、旧オフセットがそのまま新しい＝短くなったコンテンツに適用され、
+            // リストと同様の「空の末尾に取り残される」不具合が起きる）。ScrollViewReader で
+            // listScrollResetVersion の変化を監視し、ユーザー操作由来のリセット時のみ先頭へ戻す。
+            ScrollViewReader { proxy in
             ScrollView {
                 ZStack(alignment: .topLeading) {
                     // 4.2c-4: 空白タップで選択解除（最下層・viewport 全面）。ローカルグリッドと同方針。
@@ -745,10 +755,16 @@ struct RemoteLibraryView: View {
                     .padding(gridSpacing)
                 }
                 .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .topLeading)
+                .id(Self.gridTopAnchorID)
             }
             .onAppear { gridWidth = geo.size.width; gridHeight = geo.size.height }
             .onChange(of: geo.size.width) { _, w in gridWidth = w }
             .onChange(of: geo.size.height) { _, h in gridHeight = h }
+            // G16 E1: ユーザー操作由来のリセット（filter/sort/sidebar/mode/search）でのみ先頭へ戻す。
+            // liveReload/loadMore/reload(clearFirst: false)（位置保持経路）では version が不変。
+            .onChange(of: state.listScrollResetVersion) { _, _ in
+                proxy.scrollTo(Self.gridTopAnchorID, anchor: .top)
+            }
             // D1: グリッドでも Return で選択中の本を開く。
             .focusable()
             // 自由記載#1: フォーカスリングでグリッド全体が選択状態に見えるのを抑止（ローカル相当）。
@@ -853,6 +869,7 @@ struct RemoteLibraryView: View {
                 if anchorBookID == nil { anchorBookID = state.multiSelection.first ?? state.selection }
             }
             .onDisappear { stopModifierMonitor() }
+            }
         }
     }
 
