@@ -27,6 +27,9 @@ public struct BookListItemDTO: Codable, Sendable {
     public let coverVersion: String?
     /// 4.2c-6b: 表紙クロップ矩形 JSON（リモートグリッド/リストのクロップ適用用）。クロップ無しは nil。
     public let coverCropRectJSON: String?
+    /// G15 V3: サーバ側ファイル basename（フルパスではない）。BuiltInViewerSupport 判定に使う。
+    /// path を持たない本（folder 等）は nil。
+    public let filename: String?
     // ── 動的フィールド（&fields= で要求された時のみ充填・既定 nil） ──
     public let genre: String?
     public let neta: String?
@@ -52,7 +55,8 @@ public struct BookListItemDTO: Codable, Sendable {
         coverVersion: String?,
         genre: String? = nil, neta: String? = nil,
         keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil, memo: String? = nil,
-        coverCropRectJSON: String? = nil
+        coverCropRectJSON: String? = nil,
+        filename: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -71,6 +75,7 @@ public struct BookListItemDTO: Codable, Sendable {
         self.genre = genre; self.neta = neta
         self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC; self.memo = memo
         self.coverCropRectJSON = coverCropRectJSON
+        self.filename = filename
     }
 }
 
@@ -84,7 +89,7 @@ extension BookListItemDTO {
             pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: version,
             genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON
+            coverCropRectJSON: coverCropRectJSON, filename: filename
         )
     }
 
@@ -101,7 +106,7 @@ extension BookListItemDTO {
             keywordB: fields.contains("keywordB") ? keywordB : nil,
             keywordC: fields.contains("keywordC") ? keywordC : nil,
             memo: fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil,
-            coverCropRectJSON: coverCropRectJSON)
+            coverCropRectJSON: coverCropRectJSON, filename: filename)
     }
 
     /// lastPage を差し替えた複製（リモート閲覧の進捗をメモリ上の一覧へ反映し、
@@ -114,7 +119,7 @@ extension BookListItemDTO {
             pages: pages, lastPage: page, lastReadAt: lastReadAt,
             dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion,
             genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON
+            coverCropRectJSON: coverCropRectJSON, filename: filename
         )
     }
 
@@ -126,7 +131,7 @@ extension BookListItemDTO {
             lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
             hasCover: hasCover, coverVersion: coverVersion,
             genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON)
+            coverCropRectJSON: coverCropRectJSON, filename: filename)
     }
 
     /// lastReadAt だけ差し替えた複製（リモート閲覧で最終閲覧日時を楽観的に更新するために使う）。
@@ -137,7 +142,7 @@ extension BookListItemDTO {
             lastPage: lastPage, lastReadAt: date, dateAdded: dateAdded,
             hasCover: hasCover, coverVersion: coverVersion,
             genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON)
+            coverCropRectJSON: coverCropRectJSON, filename: filename)
     }
 }
 

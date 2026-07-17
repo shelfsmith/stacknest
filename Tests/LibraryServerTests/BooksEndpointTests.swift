@@ -333,4 +333,27 @@ struct BooksEndpointTests {
             }
         }
     }
+
+    /// G15 V3: filename にはフルパスではなく basename が入る（内蔵ビューア対応判定用）。
+    @Test func listIncludesFilenameBasename() async throws {
+        let fx = try TestLibraryFixture(name: "Filename", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")   // path=<bundle>/three_pages.zip
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: true),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books?per=50", method: .get,
+                headers: [.authorization: "Bearer R"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(BookPageDTO.self, from: Data(buffer: response.body))
+                let item = try #require(page.items.first { $0.id == id })
+                #expect(item.filename == "three_pages.zip")   // basename が入る
+            }
+        }
+    }
 }

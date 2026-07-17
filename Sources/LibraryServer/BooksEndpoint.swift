@@ -155,7 +155,8 @@ struct BooksQuery {
                 coverVersion: nil,   // スライス後に表紙ありの本のみ埋める
                 genre: row.genre, neta: row.neta,
                 keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC, memo: row.memo,
-                coverCropRectJSON: row.coverCropRect.map(BookRow.encodeCoverCropRect)
+                coverCropRectJSON: row.coverCropRect.map(BookRow.encodeCoverCropRect),
+                filename: row.path.map { ($0 as NSString).lastPathComponent }
             )
         }
         items = sort.sortedAscending(items)

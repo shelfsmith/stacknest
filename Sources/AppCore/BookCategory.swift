@@ -65,3 +65,15 @@ public enum BookCategory: String, CaseIterable, Codable, Sendable {
 /// CodingKeyRepresentable で String dict として encode させる (JSONEncoder の object 形式を強制)。
 /// これがないと `[BookCategory: String]` は unkeyed array (`["archive","/path",...]`) で encode される。
 extension BookCategory: CodingKeyRepresentable {}
+
+extension BookCategory {
+    public enum BuiltInViewerSupport: Equatable { case supported, unsupportedVideo, unsupportedDocument }
+    /// 拡張子だけで内蔵ビューア対応可否を返す（BookContentFactory.make の対応集合と対称）。
+    public static func builtInViewerSupport(filename: String) -> BuiltInViewerSupport {
+        switch (filename as NSString).pathExtension.lowercased() {
+        case "mp4", "mov", "avi", "mkv", "webm", "m4v": return .unsupportedVideo
+        case "epub", "txt", "md", "rtf":                return .unsupportedDocument
+        default:                                        return .supported   // archive/image/pdf/未知
+        }
+    }
+}

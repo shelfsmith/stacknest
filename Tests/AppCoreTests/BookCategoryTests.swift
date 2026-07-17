@@ -68,4 +68,19 @@ import Foundation
             #expect(!category.extensionsHint.isEmpty)
         }
     }
+
+    @Test func builtInViewerSupportClassifiesByExtension() {
+        #expect(BookCategory.builtInViewerSupport(filename: "a.mp4") == .unsupportedVideo)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.MOV") == .unsupportedVideo)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.mkv") == .unsupportedVideo)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.epub") == .unsupportedDocument)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.txt") == .unsupportedDocument)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.md") == .unsupportedDocument)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.rtf") == .unsupportedDocument)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.pdf") == .supported)   // pdf は対応
+        #expect(BookCategory.builtInViewerSupport(filename: "a.cbz") == .supported)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.zip") == .supported)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.jpg") == .supported)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.unknownext") == .supported)   // 未知=archive 倒し
+    }
 }
