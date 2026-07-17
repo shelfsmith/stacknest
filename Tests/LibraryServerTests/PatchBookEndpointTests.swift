@@ -91,6 +91,35 @@ struct PatchBookEndpointTests {
         }
     }
 
+    /// G16 A2 fix: clear* フラグでの CLEAR も previous に旧値を残す（undo で復元可能にする）。
+    /// Book 1 は fixture 生成時 series = "S"。clearSeries=true で series を nil 化 → previous.series は
+    /// クリア前の "S" のままであることを確認する（dto.series 自体は nil のまま=SET ではなく CLEAR 経由）。
+    @Test func patchResponseIncludesPreviousValueForClearedField() async throws {
+        let fixture = try TestLibraryFixture(name: "Patch6", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "R", editToken: "W"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/1",
+                method: .patch,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(string: #"{"clearSeries":true,"clearVolume":false,"clearPageDirection":false}"#)
+            ) { response in
+                #expect(response.status == .ok)
+                let detail = try decodeDetail(response.body)
+                // series は CLEAR 経由で nil 化されている。
+                #expect(detail.series == nil)
+                let previous = try #require(detail.previous)
+                // previous.series にクリア前の値が残っていること（undo の逆パッチが復元できる）。
+                #expect(previous.series == "S")
+            }
+        }
+    }
+
     // MARK: - 権限制限
 
     /// R トークンで PATCH → 403、DB は変更されない（旧タイトルのまま）。
