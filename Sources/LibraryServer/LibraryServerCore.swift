@@ -515,7 +515,8 @@ public struct LibraryServerCore: Sendable {
                 lastPage: nil,
                 lastReadAt: nil,
                 dateAdded: row.dateAdded,
-                hasCover: false, coverVersion: nil
+                hasCover: false, coverVersion: nil,
+                filename: row.path.map { ($0 as NSString).lastPathComponent }
             )
         }
 

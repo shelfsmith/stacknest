@@ -1520,6 +1520,18 @@ final class RemoteLibraryState {
         // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
         // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。
         errorText = nil
+        // G15 V3: 内蔵ビューア非対応の形式は開く前にカテゴリ別メッセージで弾く（filename 欠落の旧サーバは従来動作）。
+        if let name = book.filename {
+            switch BookCategory.builtInViewerSupport(filename: name) {
+            case .supported: break
+            case .unsupportedVideo:
+                errorText = "動画はリモートビューアでは再生できません。"
+                return
+            case .unsupportedDocument:
+                errorText = "この形式（EPUB・テキストなど）はリモートビューアでは開けません。"
+                return
+            }
+        }
         // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
         let identity = ViewerIdentity.remote(serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: book.id)
         guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
