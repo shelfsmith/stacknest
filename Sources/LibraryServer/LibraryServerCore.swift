@@ -32,7 +32,8 @@ public struct LibraryServerConfig: Sendable {
     /// 実ファイルをゴミ箱へ送る注入関数（macOS は FileManager.trashItem を注入）。
     /// nil のとき DELETE ?trash=true は拒否（Linux/ヘッドレス portable のため core は直接 trash しない）。
     /// G16 A3: 戻り値はゴミ箱内での実ファイルの行き先（FileManager.trashItem の resultingItemURL）。
-    /// restore がこれを使ってファイルを元の場所へ移動し戻す（trashedPath として DTO に載せる）。
+    /// DELETE ハンドラがこれを TrashRestoreTracker に記録し、restore がサーバー側の記録のみを
+    /// 使ってファイルを元の場所へ移動し戻す（クライアント供給パスは使わない・G16 A3 セキュリティ修正）。
     public var trashFile: (@Sendable (URL) throws -> URL?)?
     /// 本の追加/削除など行集合が変わったとき App に通知する（libraryUUID）。App は該当ライブラリの
     /// 表示リストを全リロードする（onBookChanged はメタ更新用で行の挿入/削除は反映できないため）。
@@ -145,6 +146,9 @@ public struct LibraryServerCore: Sendable {
     /// SSE への配線は construction 時に同期的に行う（Codex review Important #1・詳細は
     /// MaintenanceJobRegistry.init のコメント参照）。
     public let maintenanceRegistry: MaintenanceJobRegistry
+    /// G16 A3 セキュリティ修正: trash-undo のファイル移動元/移動先をサーバー側でのみ記録する
+    /// （クライアント供給パスを信用しない。詳細は TrashRestoreTracker のドキュメントコメント）。
+    let trashTracker = TrashRestoreTracker()
 
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
@@ -462,7 +466,7 @@ public struct LibraryServerCore: Sendable {
         // G12b-3c S5: BookRow ⇄ BookRestoreDTO 変換ヘルパ（DELETE 応答／POST books/restore の body で共用）。
         // coverCropRect は x/y/w/h、pageDirection は directionString(_:) と同じ "ltr"/"rtl" 文字列、
         // Date は epoch 秒に写像する（LibraryRequestContext の .iso8601 デコーダ/エンコーダの影響を受けないため）。
-        @Sendable func makeBookRestoreDTO(row: BookRow, hasCover: Bool, trashedPath: String? = nil) -> BookRestoreDTO {
+        @Sendable func makeBookRestoreDTO(row: BookRow, hasCover: Bool) -> BookRestoreDTO {
             BookRestoreDTO(
                 id: row.id, title: row.title, author: row.author, genre: row.genre, path: row.path,
                 dateAdded: row.dateAdded.timeIntervalSince1970,
@@ -478,8 +482,7 @@ public struct LibraryServerCore: Sendable {
                 coverCropH: row.coverCropRect.map { Double($0.size.height) },
                 pageDirection: row.pageDirection.map { directionString($0) },
                 contentHash: row.contentHash, fileSize: row.fileSize, fileMtime: row.fileMtime,
-                hasCover: hasCover,
-                trashedPath: trashedPath
+                hasCover: hasCover
             )
         }
         // BookRestoreDTO → BookRow 逆変換（POST books/restore の各要素を Database.restoreBook に渡す前段）。
@@ -666,14 +669,19 @@ public struct LibraryServerCore: Sendable {
             let wantTrash = request.uri.queryParameters.get("trash").map { $0 == "true" || $0 == "1" } ?? false
             if wantTrash { try context.requireAdmin() } else { try context.requireEdit() }
             let (lib, row) = try await resolver.resolveBook(request, context)
-            // G16 A3: trash 削除時、実ファイルがゴミ箱内で行き着いた先（resultingItemURL）を捕捉し
-            // restore DTO に trashedPath として載せる（undo でファイルを元の場所へ移動し戻すため）。
-            var trashedPath: String?
+            // G16 A3 セキュリティ修正: trash 削除時、実ファイルがゴミ箱内で行き着いた先
+            // （resultingItemURL）はクライアントへ返す DTO には載せず、サーバー内部の trashTracker
+            // にのみ記録する（restore がクライアント供給パスを信用して任意ファイルを移動できないよう
+            // にするため。Arbitrary File Move via Client-Controlled Paths 対策）。
             if wantTrash {
                 guard let trashFile = self.config.trashFile else { throw HTTPError(.notImplemented) }
                 if let p = row.path {
-                    do { trashedPath = try trashFile(URL(fileURLWithPath: p))?.path }
+                    let resultingURL: URL?
+                    do { resultingURL = try trashFile(URL(fileURLWithPath: p)) }
                     catch { throw HTTPError(.internalServerError) }
+                    if let resultingURL {
+                        await self.trashTracker.record(uuid: lib.uuid, bookID: row.id, trashedURL: resultingURL, originalPath: p)
+                    }
                 }
             }
             try lib.db.deleteBook(id: row.id)
@@ -687,11 +695,13 @@ public struct LibraryServerCore: Sendable {
             // 行が消えるので全リロード通知（削除済み本は onBookChanged で扱えない）。
             self.notifyStructureChanged(lib.uuid)
             // G12b-3c S5: リモート undo のため、削除した行を BookRestoreDTO として返す（200＋body）。
-            return makeBookRestoreDTO(row: row, hasCover: hadCover, trashedPath: trashedPath)
+            return makeBookRestoreDTO(row: row, hasCover: hadCover)
         }
         // G12b-3c S5: リモート undo（削除の取り消し）。DELETE が返した BookRestoreDTO 配列をそのまま渡すと
-        // restoreBook が同じ id で再挿入する。G16 A3: trash=true 削除で trashedPath が捕捉されている場合、
-        // DB 行復元に加えて実ファイルをゴミ箱から元の path へ移動し戻す。
+        // restoreBook が同じ id で再挿入する。G16 A3 セキュリティ修正: trash=true 削除でファイルが
+        // trashTracker に記録されている場合、DB 行復元に加えて実ファイルをゴミ箱から元の path へ
+        // 移動し戻す。ファイル移動はサーバーが記録した (trashedURL, originalPath) のみを使い、
+        // dto.trashedPath / dto.path のようなクライアント供給値は一切使わない。
         api.post("libraries/:lib/books/restore") { [self] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
@@ -704,13 +714,15 @@ public struct LibraryServerCore: Sendable {
                 do {
                     try lib.db.restoreBook(bookRow(from: dto))
                     restoredCount += 1
-                    // G16 A3: trashedPath があり、そのファイルが存在し、元 path が空いていれば
-                    // ゴミ箱から元の場所へ移動し戻す（degraded-safe: 元 path 占有・ゴミ箱側不在などの
-                    // 失敗は握り潰し、DB 復元自体は成立させる＝ここで throw しない）。
-                    if let trashedPath = dto.trashedPath, let originalPath = dto.path,
-                       FileManager.default.fileExists(atPath: trashedPath),
-                       !FileManager.default.fileExists(atPath: originalPath) {
-                        try? FileManager.default.moveItem(atPath: trashedPath, toPath: originalPath)
+                    // G16 A3 セキュリティ修正: trashTracker に記録があり、そのファイルが存在し、
+                    // サーバーが記録した元 path が空いていれば、ゴミ箱から元の場所へ移動し戻す
+                    // （degraded-safe: 元 path 占有・ゴミ箱側不在・記録なし〔サーバー再起動や
+                    // DB-only 削除〕などは握り潰し／スキップし、DB 復元自体は成立させる＝
+                    // ここで throw しない）。
+                    if let entry = await self.trashTracker.take(uuid: lib.uuid, bookID: dto.id),
+                       FileManager.default.fileExists(atPath: entry.trashedURL.path),
+                       !FileManager.default.fileExists(atPath: entry.originalPath) {
+                        try? FileManager.default.moveItem(atPath: entry.trashedURL.path, toPath: entry.originalPath)
                     }
                     // G12b-3d smoke fix: ローカル undo（DB 復元＋file regenerate）と parity。
                     // 削除時に表紙があった本は、ソースアーカイブからサムネイルを再生成する

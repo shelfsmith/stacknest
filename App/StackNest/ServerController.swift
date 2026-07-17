@@ -81,7 +81,8 @@ final class ServerController {
             },
             // G12a: ネットワーク共有の admin も「ファイルをゴミ箱に移動」できるよう trashFile を注入
             // （LocalControlController と同一。サーバ側 tier ゲート requireAdmin() が権限を保証）。
-            // G16 A3: resultingItemURL を返す（restore が trashedPath としてファイルを元へ戻すため）。
+            // G16 A3: resultingItemURL を返す（サーバー側 trashTracker が記録し、restore が
+            // それだけを使ってファイルを元へ戻す。クライアント供給パスは使わない＝セキュリティ修正）。
             trashFile: { url in
                 var out: NSURL?
                 try FileManager.default.trashItem(at: url, resultingItemURL: &out)

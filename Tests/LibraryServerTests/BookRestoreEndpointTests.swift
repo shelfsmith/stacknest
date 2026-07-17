@@ -333,10 +333,12 @@ struct BookRestoreEndpointTests {
         #expect(try fx.db.fetchBook(id: 1) != nil)
     }
 
-    // MARK: - G16 A3: trash undo のファイル復元
+    // MARK: - G16 A3: trash undo のファイル復元（セキュリティ修正後: サーバー側 trashTracker のみで動く）
 
     /// trashFile スタブ（渡された URL を temp のゴミ箱擬似 dir へ move し resultingItemURL を返す）を注入し、
-    /// trash 削除 → DELETE 応答に trashedPath が入る → restore で元の path へファイルが戻ることを確認する。
+    /// trash 削除 → サーバーが trashTracker に記録 → restore で元の path へファイルが戻ることを確認する。
+    /// BookRestoreDTO はもう trashedPath を持たない（クライアントにゴミ箱パスを渡さない＝セキュリティ修正）ので、
+    /// テスト側はスタブの命名規則（trashDir + lastPathComponent）から期待されるゴミ箱パスを独自に計算する。
     @Test func trashUndoRestoresFileFromTrash() async throws {
         let fx = try TestLibraryFixture(name: "RestoreTrashFile", bookCount: 0)
         defer { fx.cleanup() }
@@ -354,9 +356,11 @@ struct BookRestoreEndpointTests {
             try FileManager.default.moveItem(at: url, to: dest)
             return dest
         })
+        // スタブの命名規則から、実際に move された先のパスをテスト側で独立に計算する
+        // （もう DTO 経由でサーバーから教えてもらわない＝クライアント供給パスを信用しない修正の裏返し）。
+        let expectedTrashedPath = trashDir.appendingPathComponent((originalPath as NSString).lastPathComponent).path
 
         nonisolated(unsafe) var captured: BookRestoreDTO?
-        nonisolated(unsafe) var trashedPath: String?
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)?trash=true", method: .delete,
@@ -366,9 +370,8 @@ struct BookRestoreEndpointTests {
                 captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
             }
             let dto = try #require(captured)
-            trashedPath = try #require(dto.trashedPath)
-            #expect(FileManager.default.fileExists(atPath: trashedPath!))       // ゴミ箱側へ移動済み
-            #expect(!FileManager.default.fileExists(atPath: originalPath))      // 元の場所からは消えた
+            #expect(FileManager.default.fileExists(atPath: expectedTrashedPath))  // ゴミ箱側へ移動済み
+            #expect(!FileManager.default.fileExists(atPath: originalPath))        // 元の場所からは消えた
 
             let encoded = try JSONEncoder().encode([dto])
             try await client.execute(
@@ -384,6 +387,115 @@ struct BookRestoreEndpointTests {
         }
         // restore がファイルを元の場所へ移動し戻した（ゴミ箱側にはもう残っていない）。
         #expect(FileManager.default.fileExists(atPath: originalPath))
-        #expect(!FileManager.default.fileExists(atPath: trashedPath!))
+        #expect(!FileManager.default.fileExists(atPath: expectedTrashedPath))
+    }
+
+    /// セキュリティレビュー Important (a): restore 実行時点で原本パスに「別の新しいファイル」が
+    /// 既に存在する場合、trashTracker 経由の move はそれを上書きしない（destファイル存在ガードは
+    /// サーバー内部の originalPath 記録で判定される。dto.path をクライアントが書き換えても無意味）。
+    /// DB 行自体は復元される（ファイル move の可否と DB 復元は独立＝degraded-safe）。
+    @Test func trashUndoDoesNotOverwriteExistingFileAtOriginalPath() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreTrashDestOccupied", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        let originalRow = try #require(try fx.db.fetchBook(id: id))
+        let originalPath = try #require(originalRow.path)
+
+        let trashDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lsrv-trash-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: trashDir) }
+        let app = makeApp(fixture: fx, adminTier: true, trashFile: { url in
+            let dest = trashDir.appendingPathComponent(url.lastPathComponent)
+            try FileManager.default.moveItem(at: url, to: dest)
+            return dest
+        })
+
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        let sentinelContents = Data("sentinel-do-not-overwrite".utf8)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)?trash=true", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            #expect(!FileManager.default.fileExists(atPath: originalPath))   // trash 済みで空いている
+
+            // restore の前に、原本パスへ「新しい別ファイル」が置かれる（正当な再作成などを模す）。
+            try sentinelContents.write(to: URL(fileURLWithPath: originalPath))
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+                let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
+                #expect(result.restored == 1)   // DB 行は復元される
+            }
+        }
+        // 原本パスの新しいファイルは上書きされていない（内容が生き残る）。
+        let survivingContents = try Data(contentsOf: URL(fileURLWithPath: originalPath))
+        #expect(survivingContents == sentinelContents)
+        // DB 行は復元されている（ファイル move の可否と DB 復元は独立）。
+        #expect(try fx.db.fetchBook(id: id) != nil)
+    }
+
+    /// セキュリティレビュー Important (b): trashTracker に記録された trashed ファイルが restore 前に
+    /// 消えている（例: サーバー再起動でトラッカーが空になる状況を模して、記録の裏付けとなる実ファイルが
+    /// 無い状態）場合でも restore はクラッシュせず、DB 行の復元だけが degraded-safe に成立する。
+    @Test func trashUndoRestoresDBRowWhenTrashedFileMissing() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreTrashFileMissing", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        let originalRow = try #require(try fx.db.fetchBook(id: id))
+        let originalPath = try #require(originalRow.path)
+
+        let trashDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lsrv-trash-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: trashDir) }
+        let app = makeApp(fixture: fx, adminTier: true, trashFile: { url in
+            let dest = trashDir.appendingPathComponent(url.lastPathComponent)
+            try FileManager.default.moveItem(at: url, to: dest)
+            return dest
+        })
+        let expectedTrashedPath = trashDir.appendingPathComponent((originalPath as NSString).lastPathComponent).path
+
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)?trash=true", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            #expect(FileManager.default.fileExists(atPath: expectedTrashedPath))
+
+            // 記録済みのゴミ箱ファイルを restore 前に消してしまう（トラッカーの記録が「もう裏付けの
+            // 無い」状態＝ファイル欠損 or サーバー再起動後の再現に相当）。
+            try FileManager.default.removeItem(atPath: expectedTrashedPath)
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)   // クラッシュせず 200
+                let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
+                #expect(result.restored == 1)      // DB 行は復元される
+            }
+        }
+        #expect(try fx.db.fetchBook(id: id) != nil)
+        #expect(!FileManager.default.fileExists(atPath: originalPath))   // ファイルは戻ってきていない（正常）
     }
 }
