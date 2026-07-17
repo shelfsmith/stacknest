@@ -643,13 +643,19 @@ final class RemoteLibraryState {
 
     func applyRemotePatch(bookID: Int, patch: BookPatch) async {
         let dto = Self.patchToDTO(patch)
-        // G12b-3c S5: 適用前の一覧値から逆 patch を作っておき、PATCH 成功時のみ undo に積む
-        // （失敗した編集は undo 対象にしない）。
-        let inverse = books.first(where: { $0.id == bookID })
-            .map { (bookID: bookID, patch: Self.inversePatch(applied: dto, old: $0)) }
+        // G16 A2: 逆 patch は PATCH 応答の previous（サーバ pre-image）から作る。旧サーバ
+        // （previous 非対応）向けにのみ、呼び出し前のキャッシュ値をフォールバックとして保持する。
+        let cacheOld = books.first(where: { $0.id == bookID })
         do {
-            _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: bookID, patch: dto, libraryToken: libraryToken)
-            if let inverse { pushUndo(.rePatch([inverse])) }
+            let detail = try await client.updateBook(libraryUUID: libraryUUID, bookID: bookID, patch: dto, libraryToken: libraryToken)
+            let inversePatch: BookPatchDTO?
+            if let previous = detail.previous {
+                inversePatch = Self.inversePatch(applied: dto, previous: previous)
+            } else {
+                inversePatch = cacheOld.map { Self.inversePatch(applied: dto, old: $0) }
+            }
+            // PATCH 成功時のみ undo に積む（失敗した編集は undo 対象にしない）。
+            if let inversePatch { pushUndo(.rePatch([(bookID: bookID, patch: inversePatch)])) }
             await selectBook(bookID)   // 詳細ペインを最新内容で再描画
             await liveReload()         // 一覧行も位置保持で更新
         } catch {
@@ -677,11 +683,48 @@ final class RemoteLibraryState {
         undoStateVersion += 1
     }
 
+    /// G16 A2: 適用済み patch (`applied`) と PATCH 応答の pre-image (`previous`) から逆 patch を作る。
+    /// 変更対象フィールドの正は `applied`（＝このクライアントが実際に送った outgoing patch）であり、
+    /// `previous` の側では判別できない: BookPatchDTO は Optional フィールドを encodeIfPresent で
+    /// 符号化するため、「旧値が真に nil」だったフィールドは previous の JSON からも省略され、
+    /// decode 後は「そもそも previous に含まれていない」場合と区別が付かない。そのため、
+    /// 必ず applied 側のフィールドでループし、その旧値だけを previous から読む。
+    /// clearSeries/clearVolume/clearPageDirection で NULL 化した場合も previous の旧値（nil で
+    /// なければ）を使って復元方向を決める。previous はサーバの pre-image なので、cache（books 配列）
+    /// が他クライアントの並行編集で古くなっていても正しい逆 patch を作れる。
+    static func inversePatch(applied: BookPatchDTO, previous: BookPatchDTO) -> BookPatchDTO {
+        var inv = BookPatchDTO()
+        if applied.title != nil { inv.title = previous.title }
+        if applied.author != nil { inv.author = previous.author }
+        if applied.genre != nil { inv.genre = previous.genre }
+        if applied.neta != nil { inv.neta = previous.neta }
+        if applied.memo != nil { inv.memo = previous.memo }
+        if applied.keywordA != nil { inv.keywordA = previous.keywordA }
+        if applied.keywordB != nil { inv.keywordB = previous.keywordB }
+        if applied.keywordC != nil { inv.keywordC = previous.keywordC }
+        if applied.rating != nil { inv.rating = previous.rating }
+        if applied.unseen != nil { inv.unseen = previous.unseen }
+        if applied.bookType != nil { inv.bookType = previous.bookType }
+        if applied.series != nil || applied.clearSeries {
+            if let s = previous.series { inv.series = s } else { inv.clearSeries = true }
+        }
+        if applied.volume != nil || applied.clearVolume {
+            if let v = previous.volume { inv.volume = v } else { inv.clearVolume = true }
+        }
+        if applied.pageDirection != nil || applied.clearPageDirection {
+            if let pd = previous.pageDirection { inv.pageDirection = pd } else { inv.clearPageDirection = true }
+        }
+        return inv
+    }
+
+    /// フォールバック専用（旧サーバ: PATCH 応答に previous が無い場合のみ使用）。
     /// 適用済み patch (`applied`) と適用前の本の状態 (`old`) から逆 patch を作る。
     /// `old` は一覧表示用 BookListItemDTO なので、そこに存在しないフィールド（pageDirection）や、
     /// clear 手段のない optional フィールド（author/genre/neta/memo/keywordA-C を NULL に戻す方法が
     /// BookPatchDTO に無い）で旧値が nil の場合は、その項目を逆 patch に含めない
     /// （＝「表示済みフィールドの復元」。Task 8 brief 参照。捕捉できない項目は undo で復元されない）。
+    /// また cache 由来のため、他クライアントの並行編集で古くなっている可能性がある
+    /// （previous が使える新サーバでは常にそちらを優先する＝G16 A2）。
     static func inversePatch(applied: BookPatchDTO, old: BookListItemDTO) -> BookPatchDTO {
         var inv = BookPatchDTO()
         if applied.title != nil { inv.title = old.title }
@@ -722,12 +765,18 @@ final class RemoteLibraryState {
             var redoItems: [(bookID: Int, patch: BookPatchDTO)] = []
             var anySucceeded = false
             for (id, inv) in items {
-                // 逆 patch は「今から適用する inv」の前提となる現在値から作るため、呼び出し前に捕捉する。
-                let before = books.first(where: { $0.id == id })
+                // G16 A2: フォールバック用に呼び出し前のキャッシュ値も保持しておく（旧サーバのみ使用）。
+                let cacheOld = books.first(where: { $0.id == id })
                 do {
-                    _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: inv, libraryToken: libraryToken)
+                    let detail = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: inv, libraryToken: libraryToken)
                     anySucceeded = true
-                    if let before { redoItems.append((id, Self.inversePatch(applied: inv, old: before))) }
+                    let redoPatch: BookPatchDTO?
+                    if let previous = detail.previous {
+                        redoPatch = Self.inversePatch(applied: inv, previous: previous)
+                    } else {
+                        redoPatch = cacheOld.map { Self.inversePatch(applied: inv, old: $0) }
+                    }
+                    if let redoPatch { redoItems.append((id, redoPatch)) }
                 } catch {
                     // この本の取り消しは失敗。redo 対象に含めず、他の本の取り消しは続行する。
                 }
@@ -762,11 +811,18 @@ final class RemoteLibraryState {
             var undoItems: [(bookID: Int, patch: BookPatchDTO)] = []
             var anySucceeded = false
             for (id, p) in items {
-                let before = books.first(where: { $0.id == id })
+                // G16 A2: フォールバック用に呼び出し前のキャッシュ値も保持しておく（旧サーバのみ使用）。
+                let cacheOld = books.first(where: { $0.id == id })
                 do {
-                    _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: p, libraryToken: libraryToken)
+                    let detail = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: p, libraryToken: libraryToken)
                     anySucceeded = true
-                    if let before { undoItems.append((id, Self.inversePatch(applied: p, old: before))) }
+                    let undoPatch: BookPatchDTO?
+                    if let previous = detail.previous {
+                        undoPatch = Self.inversePatch(applied: p, previous: previous)
+                    } else {
+                        undoPatch = cacheOld.map { Self.inversePatch(applied: p, old: $0) }
+                    }
+                    if let undoPatch { undoItems.append((id, undoPatch)) }
                 } catch {
                     // この本のやり直しは失敗。undo 対象に含めず、他の本のやり直しは続行する。
                 }
@@ -876,9 +932,10 @@ final class RemoteLibraryState {
         var didDecrementEarly = false
         defer { if !didDecrementEarly { activeBatchCount -= 1 } }
         let dto = Self.patchToDTO(patch)
-        // G12b-3c S5: 適用前の一覧値から id ごとに逆 patch を用意しておき、実際に PATCH が
-        // 成功した本の分だけ undo に積む（失敗した本は old==current のままなので undo 対象にしない）。
-        let preInverses: [Int: BookPatchDTO] = Dictionary(uniqueKeysWithValues: list.compactMap { id in
+        // G16 A2: 逆 patch は id ごとに PATCH 応答の previous（サーバ pre-image）から作る。
+        // 旧サーバ（previous 非対応）向けにのみ、呼び出し前のキャッシュ値をフォールバックとして
+        // id ごとに保持しておく（失敗した本は old==current のままなので undo 対象にしない）。
+        let cacheFallbacks: [Int: BookPatchDTO] = Dictionary(uniqueKeysWithValues: list.compactMap { id in
             books.first(where: { $0.id == id }).map { (id, Self.inversePatch(applied: dto, old: $0)) }
         })
         errorText = nil
@@ -888,9 +945,15 @@ final class RemoteLibraryState {
         for (i, id) in list.enumerated() {
             if cancel.isCancelled { cancelled = true; break }
             do {
-                _ = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: dto, libraryToken: libraryToken)
+                let detail = try await client.updateBook(libraryUUID: libraryUUID, bookID: id, patch: dto, libraryToken: libraryToken)
                 ok += 1
-                if let inv = preInverses[id] { appliedInverses.append((id, inv)) }
+                let inv: BookPatchDTO?
+                if let previous = detail.previous {
+                    inv = Self.inversePatch(applied: dto, previous: previous)
+                } else {
+                    inv = cacheFallbacks[id]
+                }
+                if let inv { appliedInverses.append((id, inv)) }
             } catch { fail += 1 }
             editProgress = (i + 1, list.count)
         }
