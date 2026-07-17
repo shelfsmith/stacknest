@@ -727,13 +727,16 @@ final class RemoteLibraryState {
     static func inversePatch(applied: BookPatchDTO, previous: BookPatchDTO) -> BookPatchDTO {
         var inv = BookPatchDTO()
         if applied.title != nil { inv.title = previous.title }
-        if applied.author != nil { inv.author = previous.author }
-        if applied.genre != nil { inv.genre = previous.genre }
-        if applied.neta != nil { inv.neta = previous.neta }
-        if applied.memo != nil { inv.memo = previous.memo }
-        if applied.keywordA != nil { inv.keywordA = previous.keywordA }
-        if applied.keywordB != nil { inv.keywordB = previous.keywordB }
-        if applied.keywordC != nil { inv.keywordC = previous.keywordC }
+        // タグ系 optional 文字列は clear-flag が無いため、旧値が真に nil のときは "" で復元する
+        // （nil のままだと「変更なし」扱いで入力値が残る＝空欄→値入力の ⌘Z が効かない。編集シートの
+        // 空クリアも "" を保存するので "" 復元は整合的。2026-07-17 smoke 指摘）。
+        if applied.author != nil { inv.author = previous.author ?? "" }
+        if applied.genre != nil { inv.genre = previous.genre ?? "" }
+        if applied.neta != nil { inv.neta = previous.neta ?? "" }
+        if applied.memo != nil { inv.memo = previous.memo ?? "" }
+        if applied.keywordA != nil { inv.keywordA = previous.keywordA ?? "" }
+        if applied.keywordB != nil { inv.keywordB = previous.keywordB ?? "" }
+        if applied.keywordC != nil { inv.keywordC = previous.keywordC ?? "" }
         if applied.rating != nil { inv.rating = previous.rating }
         if applied.unseen != nil { inv.unseen = previous.unseen }
         if applied.bookType != nil { inv.bookType = previous.bookType }
@@ -760,13 +763,14 @@ final class RemoteLibraryState {
     static func inversePatch(applied: BookPatchDTO, old: BookListItemDTO) -> BookPatchDTO {
         var inv = BookPatchDTO()
         if applied.title != nil { inv.title = old.title }
-        if applied.author != nil { inv.author = old.author }
-        if applied.genre != nil { inv.genre = old.genre }
-        if applied.neta != nil { inv.neta = old.neta }
-        if applied.memo != nil { inv.memo = old.memo }
-        if applied.keywordA != nil { inv.keywordA = old.keywordA }
-        if applied.keywordB != nil { inv.keywordB = old.keywordB }
-        if applied.keywordC != nil { inv.keywordC = old.keywordC }
+        // タグ系 optional 文字列は clear-flag が無いため旧値 nil は "" で復元（previous 版と同旨）。
+        if applied.author != nil { inv.author = old.author ?? "" }
+        if applied.genre != nil { inv.genre = old.genre ?? "" }
+        if applied.neta != nil { inv.neta = old.neta ?? "" }
+        if applied.memo != nil { inv.memo = old.memo ?? "" }
+        if applied.keywordA != nil { inv.keywordA = old.keywordA ?? "" }
+        if applied.keywordB != nil { inv.keywordB = old.keywordB ?? "" }
+        if applied.keywordC != nil { inv.keywordC = old.keywordC ?? "" }
         if applied.rating != nil { inv.rating = old.rating }
         if applied.unseen != nil { inv.unseen = old.unseen }
         if applied.bookType != nil { inv.bookType = old.bookType }
