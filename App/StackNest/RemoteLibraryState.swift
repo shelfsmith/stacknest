@@ -293,8 +293,10 @@ final class RemoteLibraryState {
     /// 起こしていた。ユーザー操作（filter/sort/sidebar/mode 変更）は従来どおり reload()（先頭リセット）。
     /// Codex review (G12b-3c): `loadMore` と同じ loadGeneration ガードで、reconnect と
     /// デバウンス済み SSE 由来の重複呼び出しが競合したときに古い fetch が新しい状態を
-    /// 上書きしないようにする（各 await fetchChunk の直後でガードし、books/total/page は
-    /// 世代が一致したときだけ代入する）。
+    /// 上書きしないようにする。books/total/page は世代が一致したときだけ代入する。
+    /// ページ表示ブランチは各 await fetchChunk の直後でガードする。無限スクロールブランチは
+    /// G16 B1 で並列 task group 化されたため、各 fetch 完了直後ではなく group 完了後・
+    /// books/total/page への反映直前に 1 回だけガードする（詳細は下記実装コメント）。
     func liveReload() async {
         loadGeneration += 1
         let gen = loadGeneration

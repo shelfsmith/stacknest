@@ -31,11 +31,6 @@ final class ViewerWindowRegistry {
 
     func cancelOpen(_ id: ViewerIdentity) { core.cancel(id) }
 
-    func unregister(_ id: ViewerIdentity) {
-        core.remove(id)
-        controllers[id] = nil
-    }
-
     /// G16 C1 fix: owner の `onClose` は生成時に `let identity = ...` を capture するため、
     /// `reidentify` で登録済みキーが張り替わった後は stale になる（unregister(identity) が
     /// 旧キーの no-op になり、新キーの entry が residual リークする）。close 時は常に

@@ -6,6 +6,17 @@ public enum ViewerIdentity: Hashable, Sendable {
     /// G16 C3: オフライン読み出しとリモート読み出しは同一の本を指すため identity を統一する。
     /// `.offline` ケースは撤去済み（DL 済みの本を開く経路もすべてこの `.remote` を使う）。
     case remote(serverID: String, libraryUUID: String, bookID: Int)
+
+    /// G16 D3: `finish` が返す close 対象リストを決定的にするための安定ソートキー。
+    /// Set の反復順は非決定的なため、case + 関連値を文字列化して比較する（表示用途ではない）。
+    var sortKey: String {
+        switch self {
+        case .local(let bundlePath, let bookID):
+            return "local:\(bundlePath):\(bookID)"
+        case .remote(let serverID, let libraryUUID, let bookID):
+            return "remote:\(serverID):\(libraryUUID):\(bookID)"
+        }
+    }
 }
 
 /// 内蔵ビューア窓の在庫管理の純ロジック（AppKit 非依存・単体テスト可能）。
@@ -33,7 +44,7 @@ public struct ViewerRegistryCore {
         guard !allowMultiple else { return [] }
         let others = open.subtracting([id])
         open = [id]
-        return Array(others)
+        return others.sorted { $0.sortKey < $1.sortKey }
     }
 
     public mutating func cancel(_ id: ViewerIdentity) { opening.remove(id) }
