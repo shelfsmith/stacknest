@@ -326,6 +326,10 @@ struct BookRestoreEndpointTests {
                 let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
                 #expect(result.restored == 1)
                 #expect(result.requested == 2)
+                // G16 Codex Critical: restoredIDs は実際に復元できた id（衝突しなかった id=2）だけを
+                // 含む。衝突でスキップされた id=1 は含まれない（redo が id=1 を誤って再削除しない
+                // ための土台）。
+                #expect(result.restoredIDs == [2])
             }
         }
         // id=2 は復元され、id=1 は元のまま（衝突側は上書きされていない）。
@@ -497,5 +501,122 @@ struct BookRestoreEndpointTests {
         }
         #expect(try fx.db.fetchBook(id: id) != nil)
         #expect(!FileManager.default.fileExists(atPath: originalPath))   // ファイルは戻ってきていない（正常）
+    }
+
+    // MARK: - G16 Codex High: restore の path 検証（許可ルート／deletedPathTracker）
+
+    /// 正当な delete→undo: addRealBook の path はライブラリバンドル配下（許可ルートの一つ）。
+    /// 同一セッションでの delete→restore は deletedPathTracker の記録とも一致するため、
+    /// path 検証を追加しても path・表紙とも完全に復元される（回帰なし）。
+    @Test func restorePreservesPathForRealBookWithinBundleTree() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreRootsLegit", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        try fx.db.updateBook(id: id, patch: BookPatch(coverImageName: "p10.png"))
+        try fx.addCover(bookID: id)
+        let beforeOpt = try fx.db.fetchBook(id: id)
+        let before = try #require(beforeOpt)
+        let originalPath = try #require(before.path)
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+                let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
+                #expect(result.restoredIDs == [id])
+            }
+        }
+        let afterOpt = try fx.db.fetchBook(id: id)
+        let after = try #require(afterOpt)
+        // path 検証を通過し、path も表紙もそのまま復元されている（回帰なし）。
+        #expect(after.path == originalPath)
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        #expect(FileManager.default.fileExists(atPath: thumb.path))
+    }
+
+    /// セキュリティ修正 (FIX2): 未使用 id ＋ ライブラリの許可ルート外（監視フォルダでもバンドル
+    /// ツリーでも既存本のディレクトリでもない・deletedPathTracker にも記録が無い）path を持つ
+    /// 捏造 DTO を restore しても、DB 行は復元されるが path は落とされ（neutralize）、
+    /// regenerateThumbnail（アーカイブオープン）は起きない。さらに、その後の
+    /// `DELETE ?trash=true` がこの行の実ファイルを一切移動できないことを、trashFile スタブの
+    /// 呼び出し有無で確認する（Arbitrary File Move via Client-Controlled Paths の再発防止）。
+    @Test func restoreNeutralizesFabricatedOutOfRootPath() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreRootsFabricated", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+
+        // ライブラリバンドルの外側・監視フォルダでもない一時ディレクトリに「被害者ファイル」を置く。
+        let outsideDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lsrv-outside-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: outsideDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: outsideDir) }
+        guard let fixtureZip = Bundle.module.url(forResource: "three_pages", withExtension: "zip", subdirectory: "Fixtures") else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let victimPath = outsideDir.appendingPathComponent("victim.zip")
+        try FileManager.default.copyItem(at: fixtureZip, to: victimPath)
+
+        let fabricatedID = 999
+        let dto = BookRestoreDTO(
+            id: fabricatedID, title: "Fabricated", author: nil, genre: nil,
+            path: victimPath.path,
+            dateAdded: Date().timeIntervalSince1970, playDate: nil,
+            bookType: 0, fileType: 2, pages: nil, rating: 0, unseen: false,
+            keywordA: nil, keywordB: nil, keywordC: nil,
+            neta: nil, memo: nil, series: nil, volume: nil,
+            coverImageName: nil, hasCover: true)
+
+        nonisolated(unsafe) var trashFileCalled = false
+        let app = makeApp(fixture: fx, adminTier: true, trashFile: { url in
+            trashFileCalled = true
+            let dest = outsideDir.appendingPathComponent("trashed-\(url.lastPathComponent)")
+            try FileManager.default.moveItem(at: url, to: dest)
+            return dest
+        })
+        try await app.test(.router) { client in
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+                let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
+                #expect(result.restoredIDs == [fabricatedID])   // DB 行は復元される（path は落ちる）
+            }
+
+            // path が neutralize されている（DB に victimPath が書き戻っていない）。
+            let row = try #require(try fx.db.fetchBook(id: fabricatedID))
+            #expect(row.path == nil)
+            // hasCover==true だったが、path 未検証のためサムネイル再生成は起きていない。
+            let thumb = coverURL(bundleURL: fx.bundleURL, bookID: fabricatedID)
+            #expect(!FileManager.default.fileExists(atPath: thumb.path))
+
+            // 後続の trash 削除がこの行の実ファイルを一切移動できない（path が nil のため
+            // trashFile 自体が呼ばれない＝任意ファイル移動の芽が完全に断たれている）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(fabricatedID)?trash=true", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        #expect(!trashFileCalled)
+        #expect(FileManager.default.fileExists(atPath: victimPath.path))   // 被害者ファイルは無傷
     }
 }

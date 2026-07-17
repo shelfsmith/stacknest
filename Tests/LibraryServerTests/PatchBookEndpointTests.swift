@@ -202,4 +202,61 @@ struct PatchBookEndpointTests {
         // DB でも lastPage が更新されていることを確認
         #expect(try fixture.db.loadViewerState(bookID: 1).lastPage == 5)
     }
+
+    // MARK: - G16 Codex Medium: 同時 PATCH の pre-image 直列化
+
+    /// 同じ本への 2 件の PATCH がほぼ同時に届いても、両方の応答が「更新前オリジナル値」を
+    /// pre-image（previous）として二重に握ってしまわない（lost update 防止）。
+    /// どちらが先に着くかは非決定だが、正しく直列化されていれば「両方とも previous がオリジナルの
+    /// まま」にはならない（先着した方だけがオリジナルを見て、後着した方は先着の更新結果を見る）。
+    /// 直列化が無いと、両方が resolveBook で同じ更新前 row を読んで previous に握ってしまい得る。
+    @Test func concurrentPatchesToSameBookSerializePreImage() async throws {
+        let fixture = try TestLibraryFixture(name: "PatchConcurrent", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let originalTitle = try #require(try fixture.db.fetchBook(id: 1)?.title)
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "R", editToken: "W"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+
+        nonisolated(unsafe) var previous1: BookPatchDTO?
+        nonisolated(unsafe) var previous2: BookPatchDTO?
+        try await app.test(.router) { client in
+            async let t1: Void = {
+                try await client.execute(
+                    uri: "/api/v1/libraries/\(lib.uuid)/books/1", method: .patch,
+                    headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                    body: .init(string: #"{"title":"A","clearSeries":false,"clearVolume":false,"clearPageDirection":false}"#)
+                ) { response in
+                    #expect(response.status == .ok)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    previous1 = try decoder.decode(BookDetailDTO.self, from: Data(buffer: response.body)).previous
+                }
+            }()
+            async let t2: Void = {
+                try await client.execute(
+                    uri: "/api/v1/libraries/\(lib.uuid)/books/1", method: .patch,
+                    headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                    body: .init(string: #"{"title":"B","clearSeries":false,"clearVolume":false,"clearPageDirection":false}"#)
+                ) { response in
+                    #expect(response.status == .ok)
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    previous2 = try decoder.decode(BookDetailDTO.self, from: Data(buffer: response.body)).previous
+                }
+            }()
+            _ = try await (t1, t2)
+        }
+        let p1 = try #require(previous1)
+        let p2 = try #require(previous2)
+        // lost update の兆候: 両方が「オリジナルのまま」を pre-image に握っている。
+        #expect(!(p1.title == originalTitle && p2.title == originalTitle))
+        // どちらか一方は必ずオリジナルを見ている（先着した方）。
+        #expect(p1.title == originalTitle || p2.title == originalTitle)
+        // 最終値は両方の更新のうちどちらか（両方の PATCH が実際に適用されている）。
+        let finalTitle = try fixture.db.fetchBook(id: 1)?.title
+        #expect(finalTitle == "A" || finalTitle == "B")
+    }
 }

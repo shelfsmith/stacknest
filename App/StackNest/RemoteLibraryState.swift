@@ -835,8 +835,12 @@ final class RemoteLibraryState {
                 errorText = "取り消せませんでした（対象が見つかりません）"
                 return
             }
-            // redo = 再削除（redo() 側で id から deleteBook する）。全件/部分成功どちらも従来どおり進める。
-            redoStack.append(.restore(rows))
+            // G16 Codex Critical: 部分復元（id 衝突で一部スキップ／path 検証で一部見送り）のとき、
+            // redo に元の rows を全部積むと、redo（再削除）が「実際には復元されなかった id」まで
+            // delete してしまい、衝突でその id を占有していた別の本を誤って消す。サーバーが
+            // 返した restoredIDs（実際に復元できた id）で絞り込み、復元できた行だけを redo に積む。
+            let restoredRows = rows.filter { result.restoredIDs.contains($0.id) }
+            if !restoredRows.isEmpty { redoStack.append(.restore(restoredRows)) }
         }
         await liveReload()
         if let id = selection { await selectBook(id) }

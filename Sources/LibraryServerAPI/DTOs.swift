@@ -774,13 +774,28 @@ public struct BookRestoreDTO: Codable, Sendable {
 
 /// G16 A1: `POST books/restore` の応答。何件が実際に復元されたか（id 衝突でスキップされた行を除く）を
 /// クライアントへ返し、`restored == 0` のとき UI が「取り消せませんでした」を表示できるようにする。
+/// G16 Codex Critical: `restoredIDs` は実際に復元できた book id の一覧（id 衝突でスキップされた行・
+/// path 検証で復元自体を見送った行を除く）。部分復元のとき、クライアントの redo（再削除）が
+/// 「復元されなかった id」まで巻き込んで再利用先の別の本を誤って消さないよう、redo はこの一覧に
+/// 含まれる id だけを対象にする。restored/requested は互換のため残す。
 public struct RestoreResultDTO: Codable, Sendable {
     public var restored: Int
     public var requested: Int
+    public var restoredIDs: [Int]
 
-    public init(restored: Int, requested: Int) {
+    public init(restored: Int, requested: Int, restoredIDs: [Int] = []) {
         self.restored = restored
         self.requested = requested
+        self.restoredIDs = restoredIDs
+    }
+
+    private enum CodingKeys: String, CodingKey { case restored, requested, restoredIDs }
+    // 後方互換: restoredIDs を持たない旧サーバ応答は空配列扱い（decode 失敗させない）。
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        restored = try c.decode(Int.self, forKey: .restored)
+        requested = try c.decode(Int.self, forKey: .requested)
+        restoredIDs = try c.decodeIfPresent([Int].self, forKey: .restoredIDs) ?? []
     }
 }
 

@@ -149,6 +149,12 @@ public struct LibraryServerCore: Sendable {
     /// G16 A3 セキュリティ修正: trash-undo のファイル移動元/移動先をサーバー側でのみ記録する
     /// （クライアント供給パスを信用しない。詳細は TrashRestoreTracker のドキュメントコメント）。
     let trashTracker = TrashRestoreTracker()
+    /// G16 Codex High セキュリティ修正: restore がクライアント供給 path を無条件に信用しないための
+    /// 土台（詳細は DeletedBookPathTracker のドキュメントコメント）。
+    let deletedPathTracker = DeletedBookPathTracker()
+    /// G16 Codex Medium 修正: PATCH の resolve→pre-image→updateBook を (uuid,bookID) 単位で直列化する
+    /// （詳細は PerBookSerializer のドキュメントコメント）。
+    let patchSerializer = PerBookSerializer()
 
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
@@ -180,6 +186,21 @@ public struct LibraryServerCore: Sendable {
     private func notifySettingsChanged(_ uuid: String) {
         config.onLibrarySettingsChanged?(uuid)
         Task { await eventHub.publish(.settingsChanged(library: uuid)) }
+    }
+
+    /// G16 Codex Medium: (libraryUUID, bookID) 単位で臨界区間を直列化するヘルパ。
+    /// acquire → body 実行 → release を保証する（body が throw しても release は必ず呼ばれる。
+    /// デッドロックしないよう、body の中で同じ key を再度 acquire してはいけない）。
+    private func withBookPatchLock<T>(uuid: String, bookID: Int, _ body: () async throws -> T) async throws -> T {
+        await patchSerializer.acquire(uuid: uuid, bookID: bookID)
+        do {
+            let result = try await body()
+            await patchSerializer.release(uuid: uuid, bookID: bookID)
+            return result
+        } catch {
+            await patchSerializer.release(uuid: uuid, bookID: bookID)
+            throw error
+        }
     }
 
     public func buildApplication() -> some ApplicationProtocol {
@@ -512,6 +533,39 @@ public struct LibraryServerCore: Sendable {
             )
         }
 
+        // G16 Codex High: restore の path 検証用「許可ルート」集合。
+        // BookImporter.add はローカル任意パスを受け付ける（監視フォルダに限らない取り込みが正規）ため、
+        // 本の正当な path を特定の 1 箇所に決め打ちできない。代わりに、このライブラリが実際に
+        // 参照/管理しているディレクトリ群を広めに集める:
+        //   1. ライブラリバンドル自身のツリー（バンドル内に本体を持つ運用がある）
+        //   2. 監視フォルダの各パス（watched_folders 設定）
+        //   3. 現存する他の本のディレクトリ（フォルダ単位の取り込みが典型的なため、多くの場合
+        //      兄弟本が同じディレクトリを指す）
+        // これは deletedPathTracker（同一サーバーインスタンスでの実削除記録）が使えないとき
+        // （サーバー再起動・別セッション等）の代替検証としてのみ使う。
+        @Sendable func allowedRestoreRoots(lib: ServedLibrary) -> [String] {
+            var roots: [String] = [lib.bundleURL.standardizedFileURL.path]
+            let watchedJSON = (try? lib.db.getLibrarySetting(key: "watched_folders")) ?? nil
+            let watched: [WatchedFolder] = watchedJSON.flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode([WatchedFolder].self, from: $0) } ?? []
+            roots.append(contentsOf: watched.map { URL(fileURLWithPath: $0.path).standardizedFileURL.path })
+            let existingDirs = ((try? lib.db.fetchAllBooks()) ?? []).compactMap { $0.path }
+                .map { URL(fileURLWithPath: $0).deletingLastPathComponent().standardizedFileURL.path }
+            roots.append(contentsOf: existingDirs)
+            return roots
+        }
+        // path が roots のいずれかの内側（ルート自身 or その配下）かどうかを、パス構成要素の境界で
+        // 比較する（"/foo/bar" が "/foo/barbaz" を誤って許可しないように文字列 hasPrefix は使わない）。
+        @Sendable func isPathWithinAllowedRoots(_ path: String, roots: [String]) -> Bool {
+            let comps = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+            for root in roots {
+                let rootComps = URL(fileURLWithPath: root).standardizedFileURL.pathComponents
+                guard rootComps.count <= comps.count else { continue }
+                if Array(comps.prefix(rootComps.count)) == rootComps { return true }
+            }
+            return false
+        }
+
         // BookRow → BookListItemDTO 変換ヘルパ（adjacent / duplicate scan 等で共用）。
         // lastPage は DB アクセスが必要なため nil 固定。呼び出し側で .withLastPage(...) を付与する。
         @Sendable func makeBookListItemDTO(from row: BookRow) -> BookListItemDTO {
@@ -538,7 +592,7 @@ public struct LibraryServerCore: Sendable {
         // role=write でなければ 403、resolve で 404/401 を返す既存ルーティングを再利用。
         api.patch("libraries/:lib/books/:id") { [self] request, context in
             try context.requireEdit()
-            let (lib, row) = try await resolver.resolveBook(request, context)
+            let (lib, row0) = try await resolver.resolveBook(request, context)
             let dto = try await request.decode(as: BookPatchDTO.self, context: context)
             var patch = BookPatch()
             patch.title = dto.title
@@ -564,30 +618,38 @@ public struct LibraryServerCore: Sendable {
             patch.clearSeries = dto.clearSeries
             patch.clearVolume = dto.clearVolume
             patch.clearPageDirection = dto.clearPageDirection
-            // G16 A2: DB 更新前に旧 row（resolveBook で取得済みの更新前値）から、
-            // 今回リクエストで変更対象になったフィールドだけを pre-image として集める。
-            // クライアントはこれで undo の逆パッチをキャッシュ非依存に組み立てられる。
-            var previous = BookPatchDTO()
-            if dto.title != nil { previous.title = row.title }
-            if dto.author != nil { previous.author = row.author }
-            if dto.genre != nil { previous.genre = row.genre }
-            if dto.neta != nil { previous.neta = row.neta }
-            if dto.memo != nil { previous.memo = row.memo }
-            if dto.keywordA != nil { previous.keywordA = row.keywordA }
-            if dto.keywordB != nil { previous.keywordB = row.keywordB }
-            if dto.keywordC != nil { previous.keywordC = row.keywordC }
-            if dto.rating != nil { previous.rating = row.rating }
-            if dto.unseen != nil { previous.unseen = row.unseen }
-            if dto.series != nil || dto.clearSeries { previous.series = row.series }
-            if dto.volume != nil || dto.clearVolume { previous.volume = row.volume }
-            if dto.bookType != nil { previous.bookType = row.bookType }
-            if dto.pageDirection != nil || dto.clearPageDirection {
-                previous.pageDirection = row.pageDirection.map { directionString($0) }
+            // G16 Codex Medium: resolve→pre-image→updateBook の臨界区間を (uuid,bookID) 単位で
+            // 直列化する。resolveBook で読んだ row0 はロック取得前の値なので pre-image には使わず、
+            // ロックを取った後で本を読み直した row を使う（同じ本への同時 PATCH が同じ古い
+            // pre-image を握ったまま片方が他方の編集結果を undo で巻き戻すのを防ぐ。別の本への
+            // PATCH は並行のまま）。
+            return try await self.withBookPatchLock(uuid: lib.uuid, bookID: row0.id) {
+                guard let row = try lib.db.fetchBook(id: row0.id) else { throw HTTPError(.notFound) }
+                // G16 A2: DB 更新前に、今回リクエストで変更対象になったフィールドだけを
+                // pre-image として集める。クライアントはこれで undo の逆パッチを
+                // キャッシュ非依存に組み立てられる。
+                var previous = BookPatchDTO()
+                if dto.title != nil { previous.title = row.title }
+                if dto.author != nil { previous.author = row.author }
+                if dto.genre != nil { previous.genre = row.genre }
+                if dto.neta != nil { previous.neta = row.neta }
+                if dto.memo != nil { previous.memo = row.memo }
+                if dto.keywordA != nil { previous.keywordA = row.keywordA }
+                if dto.keywordB != nil { previous.keywordB = row.keywordB }
+                if dto.keywordC != nil { previous.keywordC = row.keywordC }
+                if dto.rating != nil { previous.rating = row.rating }
+                if dto.unseen != nil { previous.unseen = row.unseen }
+                if dto.series != nil || dto.clearSeries { previous.series = row.series }
+                if dto.volume != nil || dto.clearVolume { previous.volume = row.volume }
+                if dto.bookType != nil { previous.bookType = row.bookType }
+                if dto.pageDirection != nil || dto.clearPageDirection {
+                    previous.pageDirection = row.pageDirection.map { directionString($0) }
+                }
+                try lib.db.updateBook(id: row.id, patch: patch)
+                self.notifyBookChanged(lib.uuid, row.id)
+                let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
+                return makeBookDetailDTO(from: updated, previous: previous)
             }
-            try lib.db.updateBook(id: row.id, patch: patch)
-            self.notifyBookChanged(lib.uuid, row.id)
-            let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
-            return makeBookDetailDTO(from: updated, previous: previous)
         }
         // 4.2c-6a: スタンプ定義の取得（R）。配信バンドル設定DB の stamp_definitions を返す。
         api.get("libraries/:lib/stamp-definitions") { request, context in
@@ -685,6 +747,12 @@ public struct LibraryServerCore: Sendable {
                 }
             }
             try lib.db.deleteBook(id: row.id)
+            // G16 Codex High: このサーバーが実際に削除した本の原本 path を記録する（trash の有無に
+            // 関わらず）。restore がクライアント供給 dto.path をそのまま信用しないための土台
+            // （詳細は DeletedBookPathTracker のドキュメントコメント）。
+            if let p = row.path {
+                await self.deletedPathTracker.record(uuid: lib.uuid, bookID: row.id, path: p)
+            }
             let thumbDir = lib.bundleURL.appendingPathComponent("Thumbnails").appendingPathComponent(String(row.id))
             // G12b-3d smoke fix: サムネイル削除の前に表紙有無を捕捉し restore DTO に載せる
             // （restore 時にこれが true の本のみ再生成＝無表紙本に表紙を付けない）。
@@ -702,6 +770,12 @@ public struct LibraryServerCore: Sendable {
         // trashTracker に記録されている場合、DB 行復元に加えて実ファイルをゴミ箱から元の path へ
         // 移動し戻す。ファイル移動はサーバーが記録した (trashedURL, originalPath) のみを使い、
         // dto.trashedPath / dto.path のようなクライアント供給値は一切使わない。
+        // G16 Codex High セキュリティ修正: dto.path 自体も無条件には信用しない。deletedPathTracker
+        // （同一サーバーインスタンスでの実削除記録）と一致する場合のみ全面的に信頼し、記録が無い
+        // 場合は許可ルート（監視フォルダ／バンドルツリー／現存する他本のディレクトリ）に収まって
+        // いるかで代替検証する。どちらも満たさない path は「危険」として neutralize する
+        // （DB 行は復元するが path は落とし、regenerateThumbnail も呼ばない＝後続の
+        // DELETE ?trash=true がその行を任意ファイル移動に使えないようにする）。
         api.post("libraries/:lib/books/restore") { [self] request, context in
             try context.requireAdmin()
             let uuid = try context.parameters.require("lib")
@@ -709,16 +783,31 @@ public struct LibraryServerCore: Sendable {
                 throw HTTPError(.notFound)
             }
             let dtos = try await request.decode(as: [BookRestoreDTO].self, context: context)
+            let roots = allowedRestoreRoots(lib: lib)
             var restoredCount = 0
+            var restoredIDs: [Int] = []
             for dto in dtos {
+                // path 検証: サーバー記録（deletedPathTracker）が最優先の真実。あればそれを使い、
+                // dto.path は無視する（クライアント供給値より常にサーバー記録を優先）。記録が無い
+                // 場合のみ dto.path を許可ルートで検証する。
+                var effectiveDTO = dto
+                var pathIsSafe = true
+                if let trackedPath = await self.deletedPathTracker.take(uuid: lib.uuid, bookID: dto.id) {
+                    effectiveDTO.path = trackedPath
+                } else if let p = dto.path {
+                    pathIsSafe = isPathWithinAllowedRoots(p, roots: roots)
+                    if !pathIsSafe { effectiveDTO.path = nil }
+                }
                 do {
-                    try lib.db.restoreBook(bookRow(from: dto))
+                    try lib.db.restoreBook(bookRow(from: effectiveDTO))
                     restoredCount += 1
+                    restoredIDs.append(dto.id)
                     // G16 A3 セキュリティ修正: trashTracker に記録があり、そのファイルが存在し、
                     // サーバーが記録した元 path が空いていれば、ゴミ箱から元の場所へ移動し戻す
                     // （degraded-safe: 元 path 占有・ゴミ箱側不在・記録なし〔サーバー再起動や
                     // DB-only 削除〕などは握り潰し／スキップし、DB 復元自体は成立させる＝
-                    // ここで throw しない）。
+                    // ここで throw しない）。移動元/移動先は trashTracker 自身の記録のみを使うため
+                    // dto.path の安全性に関わらず正しい場所へ戻る。
                     if let entry = await self.trashTracker.take(uuid: lib.uuid, bookID: dto.id),
                        FileManager.default.fileExists(atPath: entry.trashedURL.path),
                        !FileManager.default.fileExists(atPath: entry.originalPath) {
@@ -727,10 +816,11 @@ public struct LibraryServerCore: Sendable {
                     // G12b-3d smoke fix: ローカル undo（DB 復元＋file regenerate）と parity。
                     // 削除時に表紙があった本は、ソースアーカイブからサムネイルを再生成する
                     // （DB-only 削除はソース健在）。best-effort＝再生成失敗（ソース欠損＝trash 削除後や
-                    // 抽出不可）は握り潰し、DB 復元自体は成立させる。
-                    if dto.hasCover == true {
+                    // 抽出不可）は握り潰し、DB 復元自体は成立させる。path が未検証で危険な場合は
+                    // アーカイブを一切開かない（任意ファイル読み取りの芽を摘む）。
+                    if dto.hasCover == true, pathIsSafe {
                         try? await Self.regenerateThumbnail(
-                            bookID: dto.id, sourceURLPath: dto.path,
+                            bookID: dto.id, sourceURLPath: effectiveDTO.path,
                             preferredName: dto.coverImageName, bundleURL: lib.bundleURL)
                     }
                 } catch {
@@ -742,7 +832,10 @@ public struct LibraryServerCore: Sendable {
             if restoredCount > 0 { self.notifyStructureChanged(lib.uuid) }
             // G16 A1: 実際に復元できた件数をクライアントへ返す（衝突でスキップされた行があると
             // restored < requested になり、UI が「取り消せませんでした」等を判断できる）。
-            return RestoreResultDTO(restored: restoredCount, requested: dtos.count)
+            // G16 Codex Critical: restoredIDs も返す。クライアントは redo（再削除）をこの一覧に
+            // 絞ることで、部分復元のとき「復元されなかった id」を巻き込んで再利用先の別の本を
+            // 誤って消すのを防ぐ。
+            return RestoreResultDTO(restored: restoredCount, requested: dtos.count, restoredIDs: restoredIDs)
         }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
         api.get("libraries/:lib/books/:id/cover-candidates") { request, context in
