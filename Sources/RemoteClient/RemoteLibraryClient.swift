@@ -301,12 +301,15 @@ public struct RemoteLibraryClient: Sendable {
     }
 
     /// POST /api/v1/libraries/:lib/books/restore — deleteBook が返した BookRestoreDTO を渡して復元する（RW/admin）。
-    /// リモート undo（削除の取り消し）用。
-    public func restoreBooks(_ dtos: [BookRestoreDTO], libraryUUID: String, libraryToken: String?) async throws {
+    /// リモート undo（削除の取り消し）用。G16 A1: 応答の `restored`（実際に復元できた件数）を返し、
+    /// 呼び出し側が 0 件（＝取り消し失敗）を判定できるようにする。
+    @discardableResult
+    public func restoreBooks(_ dtos: [BookRestoreDTO], libraryUUID: String, libraryToken: String?) async throws -> RestoreResultDTO {
         let url = makeURL("libraries/\(libraryUUID)/books/restore")
         let body = try JSONEncoder().encode(dtos)
-        _ = try await send(request(url, method: "POST", libraryToken: libraryToken,
-                                   body: body, contentType: "application/json", timeout: 30))
+        let data = try await send(request(url, method: "POST", libraryToken: libraryToken,
+                                          body: body, contentType: "application/json", timeout: 30))
+        return try decode(RestoreResultDTO.self, data)
     }
 
     /// PATCH /api/v1/libraries/:lib/books/:id — メタデータを部分更新し、更新後の BookDetailDTO を返す。

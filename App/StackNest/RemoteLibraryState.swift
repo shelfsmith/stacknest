@@ -788,14 +788,22 @@ final class RemoteLibraryState {
             }
             redoStack.append(.rePatch(redoItems))
         case .restore(let rows):
+            let result: RestoreResultDTO
             do {
-                try await client.restoreBooks(rows, libraryUUID: libraryUUID, libraryToken: libraryToken)
+                result = try await client.restoreBooks(rows, libraryUUID: libraryUUID, libraryToken: libraryToken)
             } catch {
                 undoStack.append(op)
                 errorText = "取り消しに失敗しました"
                 return
             }
-            // redo = 再削除（redo() 側で id から deleteBook する）。
+            // G16 A1: 0 件復元は「サーバは受理したが対象が見つからなかった（＝実質失敗）」。
+            // 元の undoStack には戻さない（再試行しても結果は変わらない見込みのため）、かつ
+            // redo スタックにも積まない（何も戻っていないのに「やり直し」を提示しない）。
+            guard result.restored > 0 else {
+                errorText = "取り消せませんでした（対象が見つかりません）"
+                return
+            }
+            // redo = 再削除（redo() 側で id から deleteBook する）。全件/部分成功どちらも従来どおり進める。
             redoStack.append(.restore(rows))
         }
         await liveReload()

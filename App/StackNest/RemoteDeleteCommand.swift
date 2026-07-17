@@ -12,7 +12,7 @@ enum RemoteDeleteCommand {
         let alert = NSAlert()
         if trash {
             alert.messageText = String(localized: "選択した \(ids.count) 件のファイルをゴミ箱に移動しますか?")
-            alert.informativeText = String(localized: "ファイルを macOS のゴミ箱へ移し、ライブラリの記録も削除します。⌘Z でライブラリの記録は戻せますが、ファイルはゴミ箱に残ります。")
+            alert.informativeText = String(localized: "ファイルを macOS のゴミ箱へ移し、ライブラリの記録も削除します。⌘Z でライブラリの記録とファイル（ゴミ箱から）を戻せます。")
             alert.addButton(withTitle: String(localized: "ゴミ箱に移動")).hasDestructiveAction = true
         } else {
             alert.messageText = String(localized: "選択した \(ids.count) 件をライブラリから削除しますか?")

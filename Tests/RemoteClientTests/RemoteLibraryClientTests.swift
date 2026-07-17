@@ -431,8 +431,11 @@ struct StubBackedRemoteClientTests {
 
         @Test func restoreBooksSendsPostToRestoreEndpoint() async throws {
             let dto = makeRestoreDTO(id: 9, title: "Restored")
-            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data())
-            try await makeClient().restoreBooks([dto], libraryUUID: "U", libraryToken: "LT")
+            let result = RestoreResultDTO(restored: 1, requested: 1)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try JSONEncoder().encode(result))
+            let got = try await makeClient().restoreBooks([dto], libraryUUID: "U", libraryToken: "LT")
+            #expect(got.restored == 1)
+            #expect(got.requested == 1)
             #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
             #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/U/books/restore")
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
