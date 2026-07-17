@@ -72,9 +72,9 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 - **Remote undo no longer overwrites concurrent edits**: undoing a metadata edit now restores the correct pre-edit value instead of clobbering another client's concurrent change.
 - **Restoring a trashed book now restores the file too**: undoing (⌘Z) a remote delete restores the file from Trash to its original location, not just the catalog entry.
 - **Suppressed duplicate windows after volume navigation**: fixed the built-in viewer occasionally reopening the same book in a second window right after advancing a volume.
-- **List no longer jumps to the top while filtering**: fixed the list resetting to the top when searching/filtering after scrolling far down (position is still preserved for post-edit and live-sync updates).
+- **List now scrolls to the top when filtering**: fixed the list staying at the old scrolled-down position when searching/filtering after scrolling far down (position is still preserved for post-edit and live-sync updates).
 - **Security**: closed a path where the remote restore operation could be abused to move arbitrary files.
-- Aligned the delete-confirmation dialog wording.
+- Aligned the delete-confirmation dialog wording to reflect that the action can be undone with ⌘Z (including remote deletes).
 - Fixed empty (unset) tag fields not clearing back to empty on undo (⌘Z) after typing a value.
 
 ## [0.11.0] - Unreleased — Remote sharing / native client / offline / remote editing (Phase 4.2)
