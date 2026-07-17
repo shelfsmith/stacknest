@@ -978,21 +978,34 @@ private struct RemoteBookCell: View {
     /// この行に observation 依存を張る（右クリックの動的トグルラベルを即時反映させるため）。表示にも使う。
     let favorited: Bool
 
-    @State private var thumbnail: CGImage?
+    /// V2: 無表紙・取得失敗を spinner に留めずプレースホルダへ解決するための状態。
+    private enum CoverPhase: Equatable {
+        case loading
+        case loaded(CGImage)
+        case noCover
+    }
+
+    @State private var coverPhase: CoverPhase = .loading
 
     var body: some View {
         VStack(spacing: 6) {
             ZStack {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.secondary.opacity(0.15))
-                if let thumbnail {
+                switch coverPhase {
+                case .loaded(let cg):
                     // 4.2c-6b smoke R2: ローカル BookCell と同じ croppedImage でクロップ適用。
                     Image(decorative: BookCell.croppedImage(
-                        thumbnail, rect: BookRow.decodeCoverCropRect(json: book.coverCropRectJSON)), scale: 1)
+                        cg, rect: BookRow.decodeCoverCropRect(json: book.coverCropRectJSON)), scale: 1)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
-                } else {
+                case .loading:
                     ProgressView().controlSize(.small)
+                case .noCover:
+                    // 詳細ペインの無表紙アイコン（DetailPaneView.CoverImageView）と同じ SF Symbol に合わせる。
+                    Image(systemName: "book.closed")
+                        .font(.largeTitle)
+                        .foregroundStyle(.secondary)
                 }
             }
             // 4.2c-4: 表紙を 2:3 の枠で列幅に追従させる（gridItemSize スライダーで拡縮・ローカル相当）。
@@ -1047,12 +1060,18 @@ private struct RemoteBookCell: View {
         // mtime+size 由来）が変わる。クロップのみの変更は coverVersion を変えない（thumbnail
         // 非再生成）ため coverCropRectJSON も複合キーに含め、両方の変化で再取得・再クロップさせる。
         .task(id: "\(book.id)#\(book.coverVersion ?? "")#\(book.coverCropRectJSON ?? "")") {
-            if book.hasCover {
-                if let data = await state.cover(bookID: book.id),
-                   let ns = NSImage(data: data),
-                   let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-                    thumbnail = cg
-                }
+            if !book.hasCover {
+                coverPhase = .noCover
+                return
+            }
+            coverPhase = .loading
+            if let data = await state.cover(bookID: book.id),
+               let ns = NSImage(data: data),
+               let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                coverPhase = .loaded(cg)
+            } else {
+                // 取得失敗も spinner に留めずプレースホルダへ解決する。
+                coverPhase = .noCover
             }
         }
     }
