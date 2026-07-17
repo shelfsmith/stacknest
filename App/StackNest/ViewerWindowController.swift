@@ -24,6 +24,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private let persistPageOverride: (BookRow, Int, Int?) -> Void          // (book, page, mode int or nil)
     /// Phase 2.6b-2 D3: コールバック。本のページ方向が変わったら AppState 経由で DB に永続化する。
     var onSetBookPageDirection: ((Int, PageDirection) -> Void)?
+    /// G16 C1: 巻スワップが成功して表示中の本が切り替わったら、新しい本を渡して owner に通知する。
+    /// owner はこれを使って ViewerWindowRegistry の identity を新しい本のものへ張り替える。
+    /// 0-page で中断したスワップ（アトミックに commit されなかった場合）では呼ばれない。
+    var onBookSwapped: ((BookRow) -> Void)?
 
     // Per-book spread state
     private var overrides: [Int: PageLayoutOverride] = [:]
@@ -728,6 +732,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         inFlightPrefetch.removeAll()
         content = nv.content
         book = nv.book
+        // G16 C1: atomic swap が commit された（0-page 中断は上のガードで既に return 済み）。
+        // owner に新しい本を通知し、ViewerWindowRegistry の identity を張り替えさせる。
+        onBookSwapped?(nv.book)
         overrides = state.overrides
         orientations = [:]
         prefetch.removeAll()

@@ -35,4 +35,13 @@ final class ViewerWindowRegistry {
         core.remove(id)
         controllers[id] = nil
     }
+
+    /// G16 C1: 巻スワップ等で表示中の本が変わったとき、登録済み identity を新しい本のものへ
+    /// 張り替える。owner に旧 identity を追跡させないよう、controller から逆引きする。
+    func reidentify(to newID: ViewerIdentity, controller: ViewerWindowController) {
+        guard let oldKey = controllers.first(where: { $0.value === controller })?.key, oldKey != newID else { return }
+        core.reidentify(from: oldKey, to: newID)
+        controllers[oldKey] = nil
+        controllers[newID] = controller
+    }
 }

@@ -53,4 +53,36 @@ struct ViewerRegistryCoreTests {
         c.remove(a); c.remove(a)                 // 冪等
         #expect(c.openIdentities.isEmpty)
     }
+
+    // MARK: - G16 C1: reidentify（巻スワップで identity を張り替える）
+
+    @Test func reidentifySwapsWhenFromIsOpen() {
+        var c = ViewerRegistryCore()
+        _ = c.begin(a); _ = c.finish(a, allowMultiple: true)
+        c.reidentify(from: a, to: b)
+        #expect(c.openIdentities == [b])
+    }
+
+    @Test func reidentifyIsNoOpWhenFromIsAbsent() {
+        var c = ViewerRegistryCore()
+        _ = c.begin(a); _ = c.finish(a, allowMultiple: true)
+        c.reidentify(from: b, to: a)              // b は open に無い → 何もしない
+        #expect(c.openIdentities == [a])
+    }
+
+    @Test func reidentifyDoesNotTouchOpening() {
+        var c = ViewerRegistryCore()
+        _ = c.begin(a)                            // opening のみ（finish していない）
+        c.reidentify(from: a, to: b)
+        #expect(c.openingIdentities.contains(a))  // opening は不変
+        #expect(c.openIdentities.isEmpty)         // open は最初から空 → 何も変わらない
+    }
+
+    @Test func reidentifyToAlreadyOpenIsIdempotentish() {
+        var c = ViewerRegistryCore()
+        _ = c.begin(a); _ = c.finish(a, allowMultiple: true)
+        _ = c.begin(b); _ = c.finish(b, allowMultiple: true)
+        c.reidentify(from: a, to: b)              // to (b) は既に open
+        #expect(c.openIdentities == [b])          // a は消え、b は 1 つのまま
+    }
 }

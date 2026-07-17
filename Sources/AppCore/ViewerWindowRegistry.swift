@@ -3,7 +3,8 @@ import Foundation
 
 public enum ViewerIdentity: Hashable, Sendable {
     case local(bundlePath: String, bookID: Int)
-    case offline(serverID: String, libraryUUID: String, bookID: Int)
+    /// G16 C3: オフライン読み出しとリモート読み出しは同一の本を指すため identity を統一する。
+    /// `.offline` ケースは撤去済み（DL 済みの本を開く経路もすべてこの `.remote` を使う）。
     case remote(serverID: String, libraryUUID: String, bookID: Int)
 }
 
@@ -37,4 +38,12 @@ public struct ViewerRegistryCore {
 
     public mutating func cancel(_ id: ViewerIdentity) { opening.remove(id) }
     public mutating func remove(_ id: ViewerIdentity) { open.remove(id) }
+
+    /// G16 C1: 巻スワップ等で表示中の本の identity が変わったとき、`open` の登録を張り替える。
+    /// `from` が `open` に無ければ no-op（`opening` は触らない）。
+    public mutating func reidentify(from: ViewerIdentity, to: ViewerIdentity) {
+        guard open.contains(from) else { return }
+        open.remove(from)
+        open.insert(to)
+    }
 }

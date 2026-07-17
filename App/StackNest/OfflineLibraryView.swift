@@ -260,8 +260,10 @@ struct OfflineLibraryView: View {
         // Phase 4.2c-2 (B2): 開く瞬間に OfflineStore から最新の lastPage を読む。
         // captured `book`（@State books 由来）は前回 read 後 reload 前だと古い lastPage を持つため。
         let freshLastPage = store.all().first(where: { $0.id == book.id })?.lastPage ?? book.lastPage
-        // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
-        let identity = ViewerIdentity.offline(
+        // G15 V1 / G16 C3: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
+        // オフライン読み出しとリモート読み出しは同一の本を指すため identity を `.remote` に統一する
+        // （でないと同じ本をオフラインタブとリモートタブから開くと dedup が効かない）。
+        let identity = ViewerIdentity.remote(
             serverID: book.serverID.uuidString, libraryUUID: book.libraryUUID, bookID: book.bookID)
         guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
 
@@ -343,6 +345,14 @@ struct OfflineLibraryView: View {
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: "オフライン"
             )
+            // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
+            // （serverID/libraryUUID はシリーズ内で不変・.remote へ統一済み＝C3）。
+            controller.onBookSwapped = { [weak controller] newBook in
+                guard let controller else { return }
+                let newIdentity = ViewerIdentity.remote(
+                    serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: newBook.id)
+                ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
+            }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             self.errorText = nil
             controller.present()

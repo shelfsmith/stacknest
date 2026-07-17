@@ -849,6 +849,13 @@ final class AppState {
                 try? self?.refreshDisplayedBooks()
                 self?.refreshSelectedBook()
             }
+            // G16 C1: 巻送りでローカルの bookID が変わったら、registry の identity を追従させる
+            // （bundle は不変なので bundlePath はそのまま・bookID のみ張り替え）。
+            controller.onBookSwapped = { [weak self, weak controller] newBook in
+                guard let self, let controller else { return }
+                let newIdentity = ViewerIdentity.local(bundlePath: self.bundleURL.path, bookID: newBook.id)
+                ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
+            }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.present()
             self.markAsRead(book: book)

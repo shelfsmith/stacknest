@@ -1597,10 +1597,15 @@ final class RemoteLibraryState {
             errorText = "本を開けませんでした"
             return
         }
+        // G16 C2: filename を渡さないと openViewer 冒頭の V3 未対応形式チェックが素通りする
+        // （filename == nil は「旧サーバ・未取得」として扱われ判定がスキップされるため）。
+        // ⌘⇧O 経由で未ロードの本を resume するときも、ロード済み一覧から開く経路と同じ
+        // ガードを効かせるため bookDetail から取得した filename をそのまま渡す。
         let dto = BookListItemDTO(
             id: d.id, title: d.title, author: d.author, series: d.series, volume: d.volume,
             rating: d.rating, unseen: d.unseen, bookType: d.bookType, pages: d.pages,
-            lastPage: d.lastPage, lastReadAt: nil, dateAdded: d.dateAdded, hasCover: false, coverVersion: nil)
+            lastPage: d.lastPage, lastReadAt: nil, dateAdded: d.dateAdded, hasCover: false, coverVersion: nil,
+            filename: d.filename)
         openViewer(book: dto, resumeDirect: resumeDirect)
     }
 
@@ -1792,6 +1797,15 @@ final class RemoteLibraryState {
                         await RemotePageCache.shared.cachedPages(serverID: sID, libraryUUID: luid, bookID: bid, maxw: 1600)
                     }
                 )
+            }
+            // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
+            // （serverID/libraryUUID はライブラリ内で不変・DL 済みへ切り替わっても identity は
+            // `.remote` のまま＝C3 で統一済み）。
+            controller.onBookSwapped = { [weak self, weak controller] newBook in
+                guard let self, let controller else { return }
+                let newIdentity = ViewerIdentity.remote(
+                    serverID: self.serverID.uuidString, libraryUUID: self.libraryUUID, bookID: newBook.id)
+                ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
             }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.onSetBookPageDirection = { [weak self] id, dir in
