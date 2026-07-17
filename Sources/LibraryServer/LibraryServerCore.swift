@@ -792,7 +792,10 @@ public struct LibraryServerCore: Sendable {
                 // 場合のみ dto.path を許可ルートで検証する。
                 var effectiveDTO = dto
                 var pathIsSafe = true
-                if let trackedPath = await self.deletedPathTracker.take(uuid: lib.uuid, bookID: dto.id) {
+                // Codex High fix: サーバー記録は peek（非破壊）で参照し、consume（take）は restoreBook
+                // 成功後に行う。衝突で restoreBook が throw しても記録を失わない（trashTracker と同形）。
+                let trackedPath = await self.deletedPathTracker.peek(uuid: lib.uuid, bookID: dto.id)
+                if let trackedPath {
                     effectiveDTO.path = trackedPath
                 } else if let p = dto.path {
                     pathIsSafe = isPathWithinAllowedRoots(p, roots: roots)
@@ -802,6 +805,8 @@ public struct LibraryServerCore: Sendable {
                     try lib.db.restoreBook(bookRow(from: effectiveDTO))
                     restoredCount += 1
                     restoredIDs.append(dto.id)
+                    // 復元成功時のみサーバー記録を consume（一度きり）。
+                    if trackedPath != nil { await self.deletedPathTracker.take(uuid: lib.uuid, bookID: dto.id) }
                     // G16 A3 セキュリティ修正: trashTracker に記録があり、そのファイルが存在し、
                     // サーバーが記録した元 path が空いていれば、ゴミ箱から元の場所へ移動し戻す
                     // （degraded-safe: 元 path 占有・ゴミ箱側不在・記録なし〔サーバー再起動や

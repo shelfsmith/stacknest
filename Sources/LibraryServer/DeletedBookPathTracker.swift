@@ -29,7 +29,15 @@ actor DeletedBookPathTracker {
         entries[Key(libraryUUID: uuid, bookID: bookID)] = path
     }
 
-    /// restore が呼ぶ。記録があれば返しつつ削除する（一度きり・再利用/使い回しを防ぐ）。
+    /// restore の path 検証用に、記録があれば削除せず返す。実際の consume は
+    /// restoreBook 成功後に `take` で行う（衝突で restoreBook が throw した場合に記録を
+    /// 失わないため＝再試行で正規 path を保持。trashTracker が成功後に take するのと同形）。
+    func peek(uuid: String, bookID: Int) -> String? {
+        entries[Key(libraryUUID: uuid, bookID: bookID)]
+    }
+
+    /// restoreBook 成功後に呼ぶ。記録があれば返しつつ削除する（一度きり・再利用/使い回しを防ぐ）。
+    @discardableResult
     func take(uuid: String, bookID: Int) -> String? {
         let key = Key(libraryUUID: uuid, bookID: bookID)
         guard let value = entries[key] else { return nil }
