@@ -3,13 +3,13 @@
 [日本語](CHANGELOG.md) | **English**
 
 This file records notable changes to StackNest. It follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/).
-Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed from [Releases](https://github.com/shelfsmith/stacknest/releases).
+Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`, a fixed identity so TCC permissions persist across builds; not Apple-notarized), distributed from [Releases](https://github.com/shelfsmith/stacknest/releases).
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
-## [0.12.0] - Unreleased — Share tokens / headless CLI & MCP / watch-folder import / remote persistent cache / external covers (Phases 4.2d–4.2f, C, G3, G4)
+## [0.12.0] - Unreleased — Share tokens / headless CLI & MCP / watch-folder import / remote persistent cache / external covers / remote parity wrap-up / viewer stabilization (Phases 4.2d–4.2f, C, G3, G4, G12b, G15, G16)
 
-> Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, and setting an external image as a book's cover.
+> Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07) / `v0.12.0-rc.2` (2026-07-18). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, setting an external image as a book's cover, plus a remote-parity wrap-up (watch-folder tab, admin maintenance, undo/redo) and built-in viewer stabilization.
 
 ### Added
 
@@ -42,12 +42,25 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 - **Web reader end-of-volume nav + PWA**: end-of-volume dialog (next volume / first page / close), plus favicon / apple-touch-icon / PWA manifest.
 - **Startup options**: "reopen last-open libraries" now **restores all windows**, and an option to **auto-start remote sharing** at launch (behind the copyright-consent gate).
 
+**Remote parity wrap-up (G12b)**
+- **Watch-folder tab + subfolder-mode fix**: watch-folder editing in the remote settings sheet now lives in the "Import" tab. Fixed a bug where the subfolder import mode (subfolderMode) was lost on save.
+- **Admin maintenance with progress**: metadata completion and cover compression can now be run remotely as background jobs with a progress indicator.
+- **Remote undo / redo (⌘Z / ⌘⇧Z)**: undo and redo metadata edits and deletions from a remote client.
+- **Remote-editable naming-format presets**: add / edit / delete naming presets remotely (for capable tiers).
+- **Bulk re-import of existing watch-folder contents**: "also import existing files" re-imports files that were already present before watching started.
+
+**Built-in viewer stabilization (G15)**
+- **Prevent duplicate viewer windows for the same book**: reworked instance management (local, offline, and remote) so rapidly reopening the same book — even mid-load — never opens it in more than one window. Added an "**Allow multiple viewer windows**" setting (off by default: opening another book reuses the existing viewer window; on: each book opens in its own window).
+- **Remote grid cover placeholder**: books without a cover no longer spin indefinitely in the grid — they now show the no-cover icon immediately.
+- **Category-specific messages for unsupported formats**: opening a video / document the built-in viewer doesn't support now shows a category-specific message instead of a generic error.
+
 ### Changed
 - **Unified to share tokens**: the old "access / edit token" UI is folded into the share-token list; user-facing wording standardized to "share token".
 - **Local-access settings moved to app settings**: the local-control (CLI / MCP) settings moved out of the sharing window into an app-settings tab, renamed "Local access".
 - **Settings tabs reorganized**: General / Import / Display / Viewer keys (the Import tab merges auto-classification and watch folders).
 - **Copyright warning before sharing**: shown (suppressible) before the server starts.
 - Wording "remote / offline viewer" → "**remote / offline browser**".
+- **Parallelized infinite-scroll live sync**: the remote browser now fetches catch-up pages in parallel, improving perceived responsiveness.
 
 ### Fixed
 - **Stale remote covers**: after replacing a cover remotely, the editing detail pane or another viewing client could keep showing the old cover — fixed (bypass the cover fetch's HTTP cache [`immutable`] on replace / version-key the cover cache by server token / host reflects per-book).
@@ -56,6 +69,13 @@ Releases are ad-hoc-signed Universal builds (not Apple-notarized), distributed f
 - **Token invalidation**: regenerate / revoke now invalidates old tokens; fixed tokens reappearing after deleting all tokens (default grants synced to the current token, one-time migration marker).
 - **EXIF orientation** now applied to the built-in viewer / thumbnails; warning for missing watch paths; automatic port re-pick on conflict.
 - **Security**: CLI passwords read from stdin (no argv exposure); MCP `add` argument-smuggling guard (`--`); local endpoint Web UI removed (API-only).
+- **Remote undo no longer overwrites concurrent edits**: undoing a metadata edit now restores the correct pre-edit value instead of clobbering another client's concurrent change.
+- **Restoring a trashed book now restores the file too**: undoing (⌘Z) a remote delete restores the file from Trash to its original location, not just the catalog entry.
+- **Suppressed duplicate windows after volume navigation**: fixed the built-in viewer occasionally reopening the same book in a second window right after advancing a volume.
+- **List no longer jumps to the top while filtering**: fixed the list resetting to the top when searching/filtering after scrolling far down (position is still preserved for post-edit and live-sync updates).
+- **Security**: closed a path where the remote restore operation could be abused to move arbitrary files.
+- Aligned the delete-confirmation dialog wording.
+- Fixed empty (unset) tag fields not clearing back to empty on undo (⌘Z) after typing a value.
 
 ## [0.11.0] - Unreleased — Remote sharing / native client / offline / remote editing (Phase 4.2)
 
