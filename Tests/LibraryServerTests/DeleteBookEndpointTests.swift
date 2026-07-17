@@ -12,7 +12,7 @@ import StackroomFormat
 struct DeleteBookEndpointTests {
     // MARK: - helpers
 
-    private func makeApp(fixture: TestLibraryFixture, trashFile: (@Sendable (URL) throws -> Void)? = nil, adminTier: Bool = false) -> some ApplicationProtocol {
+    private func makeApp(fixture: TestLibraryFixture, trashFile: (@Sendable (URL) throws -> URL?)? = nil, adminTier: Bool = false) -> some ApplicationProtocol {
         LibraryServerCore(
             config: .init(port: 0, token: "R", editToken: "W", trashFile: trashFile, adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
@@ -178,7 +178,7 @@ struct DeleteBookEndpointTests {
         nonisolated(unsafe) var trashedPaths: [String] = []
         let app = LibraryServerCore(
             config: .init(port: 0, token: "R", editToken: "W",
-                          trashFile: { url in trashedPaths.append(url.path) }, adminTier: true),
+                          trashFile: { url in trashedPaths.append(url.path); return nil }, adminTier: true),
             dataSource: StaticLibraryDataSource(libraries: [lib])
         ).buildApplication()
 

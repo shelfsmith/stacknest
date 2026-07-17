@@ -46,7 +46,12 @@ final class LocalControlController {
                     ServerController.shared.publishLiveEvent(.settingsChanged(library: uuid))
                 }
             },
-            trashFile: { url in try FileManager.default.trashItem(at: url, resultingItemURL: nil) },
+            // G16 A3: resultingItemURL を返す（restore が trashedPath としてファイルを元へ戻すため）。
+            trashFile: { url in
+                var out: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &out)
+                return out as URL?
+            },
             onLibraryStructureChanged: { uuid in
                 Task { @MainActor in
                     for state in AppState.activeInstances.allObjects

@@ -15,9 +15,12 @@ import StackroomFormat
 struct BookRestoreEndpointTests {
     // MARK: - helpers
 
-    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool) -> some ApplicationProtocol {
+    private func makeApp(
+        fixture: TestLibraryFixture, adminTier: Bool,
+        trashFile: (@Sendable (URL) throws -> URL?)? = nil
+    ) -> some ApplicationProtocol {
         LibraryServerCore(
-            config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier),
+            config: .init(port: 0, token: "R", editToken: "W", trashFile: trashFile, adminTier: adminTier),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
         ).buildApplication()
     }
@@ -57,7 +60,7 @@ struct BookRestoreEndpointTests {
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: .init(bytes: Array(encoded))
             ) { response in
-                #expect(response.status == .noContent)
+                #expect(response.status == .ok)
             }
         }
 
@@ -105,7 +108,7 @@ struct BookRestoreEndpointTests {
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: .init(bytes: Array(encoded))
             ) { response in
-                #expect(response.status == .noContent)
+                #expect(response.status == .ok)
             }
         }
         // restore がサムネイルを再生成した（ローカル undo と同じ結果）。
@@ -141,7 +144,7 @@ struct BookRestoreEndpointTests {
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: .init(bytes: Array(encoded))
             ) { response in
-                #expect(response.status == .noContent)
+                #expect(response.status == .ok)
             }
         }
         // 表紙を勝手に生成していない。
@@ -179,7 +182,7 @@ struct BookRestoreEndpointTests {
                 headers: [.authorization: "Bearer W", .contentType: "application/json"],
                 body: ByteBuffer(string: legacyJSON)
             ) { response in
-                #expect(response.status == .noContent)   // decode 失敗せず復元成立
+                #expect(response.status == .ok)   // decode 失敗せず復元成立
             }
         }
         #expect(try fx.db.fetchBook(id: id) != nil)                    // 復元された
@@ -274,5 +277,113 @@ struct BookRestoreEndpointTests {
                 #expect(dto.fileMtime == 1_700_000_000.5)
             }
         }
+    }
+
+    // MARK: - G16 A1: restore 応答の restored/requested 件数
+
+    /// 2 件を restore に渡し、1 件が id 衝突（restoreBook の plain-INSERT UNIQUE 違反）でスキップされる状況で
+    /// 応答が RestoreResultDTO{restored:1, requested:2} になること（衝突側の既存行は上書きされない）。
+    @Test func restoreReturnsRestoredCountWhenOneRowCollides() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreCount", bookCount: 2)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let app = makeApp(fixture: fx, adminTier: true)
+
+        // id=1 は削除せず現存させたまま「衝突させる DTO」を手組みする（restoreBook は plain INSERT
+        // なので、既に行が存在する id へ復元しようとすると UNIQUE 制約違反でスキップされる）。
+        let existingRow = try #require(try fx.db.fetchBook(id: 1))
+        let collidingDTO = BookRestoreDTO(
+            id: existingRow.id, title: existingRow.title, author: existingRow.author,
+            genre: existingRow.genre, path: existingRow.path,
+            dateAdded: existingRow.dateAdded.timeIntervalSince1970,
+            playDate: existingRow.playDate?.timeIntervalSince1970,
+            bookType: existingRow.bookType, fileType: existingRow.fileType, pages: existingRow.pages,
+            rating: existingRow.rating, unseen: existingRow.unseen,
+            keywordA: existingRow.keywordA, keywordB: existingRow.keywordB, keywordC: existingRow.keywordC,
+            neta: existingRow.neta, memo: existingRow.memo, series: existingRow.series, volume: existingRow.volume,
+            coverImageName: existingRow.coverImageName
+        )
+
+        // id=2 は実際に削除して DTO を捕捉する（こちらは衝突なく復元されるはず）。
+        nonisolated(unsafe) var deletedDTO: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/2", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                deletedDTO = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto2 = try #require(deletedDTO)
+
+            let encoded = try JSONEncoder().encode([collidingDTO, dto2])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+                let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
+                #expect(result.restored == 1)
+                #expect(result.requested == 2)
+            }
+        }
+        // id=2 は復元され、id=1 は元のまま（衝突側は上書きされていない）。
+        #expect(try fx.db.fetchBook(id: 2) != nil)
+        #expect(try fx.db.fetchBook(id: 1) != nil)
+    }
+
+    // MARK: - G16 A3: trash undo のファイル復元
+
+    /// trashFile スタブ（渡された URL を temp のゴミ箱擬似 dir へ move し resultingItemURL を返す）を注入し、
+    /// trash 削除 → DELETE 応答に trashedPath が入る → restore で元の path へファイルが戻ることを確認する。
+    @Test func trashUndoRestoresFileFromTrash() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreTrashFile", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        let originalRow = try #require(try fx.db.fetchBook(id: id))
+        let originalPath = try #require(originalRow.path)
+
+        let trashDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lsrv-trash-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: trashDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: trashDir) }
+        let app = makeApp(fixture: fx, adminTier: true, trashFile: { url in
+            let dest = trashDir.appendingPathComponent(url.lastPathComponent)
+            try FileManager.default.moveItem(at: url, to: dest)
+            return dest
+        })
+
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        nonisolated(unsafe) var trashedPath: String?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)?trash=true", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            trashedPath = try #require(dto.trashedPath)
+            #expect(FileManager.default.fileExists(atPath: trashedPath!))       // ゴミ箱側へ移動済み
+            #expect(!FileManager.default.fileExists(atPath: originalPath))      // 元の場所からは消えた
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+                let result = try JSONDecoder().decode(RestoreResultDTO.self, from: Data(buffer: response.body))
+                #expect(result.restored == 1)
+                #expect(result.requested == 1)
+            }
+        }
+        // restore がファイルを元の場所へ移動し戻した（ゴミ箱側にはもう残っていない）。
+        #expect(FileManager.default.fileExists(atPath: originalPath))
+        #expect(!FileManager.default.fileExists(atPath: trashedPath!))
     }
 }

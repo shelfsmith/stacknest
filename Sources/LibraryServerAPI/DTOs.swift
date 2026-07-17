@@ -744,6 +744,11 @@ public struct BookRestoreDTO: Codable, Sendable {
     /// true の本のみサムネイルをソースアーカイブから再生成する（ローカル undo の「DB 復元＋file regenerate」と parity）。
     /// Optional にして後方互換（キー欠落の旧ペイロード＝nil＝無表紙扱いの安全側）を確保する（Codex G12b-3d Medium）。
     public var hasCover: Bool?
+    /// G16 A3: trash 削除時に実ファイルが送られた先（OS ゴミ箱内の resultingItemURL.path）。
+    /// trash=false の DB-only 削除では nil。restore 時にこれが存在し元 path が空いていれば
+    /// ファイルを元の場所へ移動し戻す（degraded-safe: 失敗しても DB 復元自体は成立させる）。
+    /// Optional にして後方互換（キー欠落の旧ペイロード＝nil＝移動しない安全側）を確保する。
+    public var trashedPath: String?
 
     public init(
         id: Int, title: String, author: String?, genre: String?, path: String?,
@@ -755,7 +760,8 @@ public struct BookRestoreDTO: Codable, Sendable {
         coverCropX: Double? = nil, coverCropY: Double? = nil, coverCropW: Double? = nil, coverCropH: Double? = nil,
         pageDirection: String? = nil,
         contentHash: String? = nil, fileSize: Int64? = nil, fileMtime: Double? = nil,
-        hasCover: Bool? = nil
+        hasCover: Bool? = nil,
+        trashedPath: String? = nil
     ) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate
@@ -769,6 +775,19 @@ public struct BookRestoreDTO: Codable, Sendable {
         self.pageDirection = pageDirection
         self.contentHash = contentHash; self.fileSize = fileSize; self.fileMtime = fileMtime
         self.hasCover = hasCover
+        self.trashedPath = trashedPath
+    }
+}
+
+/// G16 A1: `POST books/restore` の応答。何件が実際に復元されたか（id 衝突でスキップされた行を除く）を
+/// クライアントへ返し、`restored == 0` のとき UI が「取り消せませんでした」を表示できるようにする。
+public struct RestoreResultDTO: Codable, Sendable {
+    public var restored: Int
+    public var requested: Int
+
+    public init(restored: Int, requested: Int) {
+        self.restored = restored
+        self.requested = requested
     }
 }
 

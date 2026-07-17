@@ -81,7 +81,12 @@ final class ServerController {
             },
             // G12a: ネットワーク共有の admin も「ファイルをゴミ箱に移動」できるよう trashFile を注入
             // （LocalControlController と同一。サーバ側 tier ゲート requireAdmin() が権限を保証）。
-            trashFile: { url in try FileManager.default.trashItem(at: url, resultingItemURL: nil) },
+            // G16 A3: resultingItemURL を返す（restore が trashedPath としてファイルを元へ戻すため）。
+            trashFile: { url in
+                var out: NSURL?
+                try FileManager.default.trashItem(at: url, resultingItemURL: &out)
+                return out as URL?
+            },
             onLibraryStructureChanged: { uuid in
                 // 4.2d-2: リモート RW での add/delete（行集合の変化）を該当ライブラリへ全リロード反映。
                 Task { @MainActor in
