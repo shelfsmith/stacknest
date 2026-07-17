@@ -230,6 +230,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// G15 V1: 既存窓の前面化（dedup 時に呼ぶ）。
+    func focus() {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     /// 続きから読む場合（resumeLastPage > 0）のみ、ウィンドウ表示後に一度だけシートダイアログを表示する。
     private func showResumeDialogIfNeeded() {
         guard !suppressResumeDialog, resumeLastPage > 0, !didShowResumeDialog else { return }

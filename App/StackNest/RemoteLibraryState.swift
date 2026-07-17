@@ -136,9 +136,6 @@ final class RemoteLibraryState {
 
     let coverCache: RemoteCoverCache
 
-    /// ビューワを 1 ウィンドウだけ保持する（ローカル AppState.viewerController と同じ方針）。
-    private var viewerController: ViewerWindowController?
-
     init(client: RemoteLibraryClient, serverID: UUID, libraryUUID: String, libraryName: String, locked: Bool, libraryToken: String? = nil) {
         self.client = client
         self.serverID = serverID
@@ -1523,6 +1520,9 @@ final class RemoteLibraryState {
         // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
         // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。
         errorText = nil
+        // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
+        let identity = ViewerIdentity.remote(serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: book.id)
+        guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
         // 未読即時反映: 開いた瞬間にメモリ一覧の unseen を落とす（ローカルの「開いたら既読」に合わせる）。
         if let idx = books.firstIndex(where: { $0.id == book.id }), books[idx].unseen {
             books[idx] = books[idx].withUnseen(false)
@@ -1578,10 +1578,12 @@ final class RemoteLibraryState {
                 pageCount = try await content.pageCount
             } catch {
                 self.errorText = "本を開けませんでした"
+                ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
             guard pageCount > 0 else {
                 self.errorText = "本を開けませんでした（0ページ）"
+                ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
             // 4.2c-5: DL済みは offline の lastPage も考慮し max で続きを解決（前進読み前提）。
@@ -1658,7 +1660,7 @@ final class RemoteLibraryState {
                 },
                 // ページレイアウト override はリモートでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
-                onClose: { [weak self] in self?.viewerController = nil },
+                onClose: { ViewerWindowRegistry.shared.unregister(identity) },
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: sourceLabel
             )
@@ -1690,7 +1692,7 @@ final class RemoteLibraryState {
                     }
                 )
             }
-            self.viewerController = controller
+            ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.onSetBookPageDirection = { [weak self] id, dir in
                 Task { await self?.setRemoteDirection(bookID: id, direction: dir) }
             }

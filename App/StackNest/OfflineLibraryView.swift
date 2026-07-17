@@ -15,8 +15,6 @@ struct OfflineLibraryView: View {
     @State private var errorText: String? = nil
     /// ネイティブ List(selection:) による複数選択（⌘/Shift）。単一選択でも詳細ペインを駆動する。
     @State private var multiSelection: Set<String> = []
-    /// 内蔵ビューワを 1 ウィンドウだけ保持する（RemoteLibraryState.viewerController と同方針）。
-    @State private var viewer: ViewerWindowController? = nil
     /// G10: 詳細ペインの表紙表示トグル（per-browser・このウィンドウ専用・既定 true）。
     @State private var showDetailCover = true
     /// Bug 3b: List に focus を当て、Return キーで選択中の本を開けるようにする
@@ -262,6 +260,11 @@ struct OfflineLibraryView: View {
         // Phase 4.2c-2 (B2): 開く瞬間に OfflineStore から最新の lastPage を読む。
         // captured `book`（@State books 由来）は前回 read 後 reload 前だと古い lastPage を持つため。
         let freshLastPage = store.all().first(where: { $0.id == book.id })?.lastPage ?? book.lastPage
+        // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
+        let identity = ViewerIdentity.offline(
+            serverID: book.serverID.uuidString, libraryUUID: book.libraryUUID, bookID: book.bookID)
+        guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
+
         let fileURL = store.fileURL(for: book)
         let row = offlineBookRow(book, fileURL: fileURL)
         let content: BookContent
@@ -269,6 +272,7 @@ struct OfflineLibraryView: View {
             content = try BookContentFactory.make(for: row)
         } catch {
             errorText = "本を開けませんでした（オフライン非対応のファイル）"
+            ViewerWindowRegistry.shared.cancelOpen(identity)
             return
         }
         Task { @MainActor in
@@ -277,10 +281,12 @@ struct OfflineLibraryView: View {
                 pageCount = try await content.pageCount
             } catch {
                 self.errorText = "本を開けませんでした"
+                ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
             guard pageCount > 0 else {
                 self.errorText = "本を開けませんでした（0ページ）"
+                ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
             // ローカル DB は持たないため、見開きはグローバル既定で開き、lastPage は OfflineStore の値。
@@ -333,11 +339,11 @@ struct OfflineLibraryView: View {
                 persistPageOverride: { _, _, _ in },
                 // B2: close 時に reload して、保存された lastPage を次回 open に反映する
                 // （updateLastPage は .offlineStoreDidChange を post しないため）。
-                onClose: { self.viewer = nil; self.reload() },
+                onClose: { ViewerWindowRegistry.shared.unregister(identity); self.reload() },
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: "オフライン"
             )
-            self.viewer = controller
+            ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             self.errorText = nil
             controller.present()
         }

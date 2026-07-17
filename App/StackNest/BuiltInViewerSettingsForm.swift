@@ -35,6 +35,11 @@ struct BuiltInViewerSettingsForm: View {
             Toggle("全画面で開く", isOn: $settings.openFullScreenByDefault)
                 .disabled(!settings.useBuiltInViewer)
 
+            // G15 V1: 複数ビューア窓の許可（OFF=単一ビューア維持／ON=別の本は別窓）。
+            Toggle("複数ビューアの起動を許可", isOn: $settings.allowMultipleViewerWindows)
+                .disabled(!settings.useBuiltInViewer)
+                .help("OFF: 別の本を開くと既存のビューアを閉じて1つに保ちます。ON: 別の本は別ウィンドウで開きます。どちらでも同じ本は1つにまとまります。")
+
             Picker("最後のページの次", selection: $settings.endOfBookBehavior) {
                 Text("停止").tag(EndOfBookBehavior.stop)
                 Text("次の巻へ（同じシリーズ）").tag(EndOfBookBehavior.nextBook)

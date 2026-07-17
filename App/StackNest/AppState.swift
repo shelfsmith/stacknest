@@ -43,9 +43,6 @@ final class AppState {
     var favoritesBookIDs: Set<Int> = []
     var selectedBook: BookRow?
 
-    /// 内蔵ビューワのウィンドウコントローラ（表示中のみ非 nil）。
-    var viewerController: ViewerWindowController?
-
     // v0.4b additions
     var viewMode: ViewMode = .grid {
         didSet {
@@ -770,6 +767,10 @@ final class AppState {
                 return
             }
         }
+        // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
+        let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
+        guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
+
         let content: BookContent
         do {
             content = try BookContentFactory.make(for: book)
@@ -777,6 +778,7 @@ final class AppState {
             // Phase 2.6b-2 T-A: make 失敗時にログを残して外部にフォールバックする。
             let bookPath = book.path ?? "(nil)"
             Self.logger.warning("openInBuiltInViewer: BookContentFactory.make failed for bookID=\(book.id, privacy: .public) path=\(bookPath, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
+            ViewerWindowRegistry.shared.cancelOpen(identity)
             openInExternalViewer([book])
             return
         }
@@ -799,6 +801,7 @@ final class AppState {
                 // Phase 2.6b-2 T-A: pageCount throw 時にログを残して外部にフォールバックする。
                 let bookPath = book.path ?? "(nil)"
                 Self.logger.warning("openInBuiltInViewer: pageCount threw for bookID=\(book.id, privacy: .public) path=\(bookPath, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
+                ViewerWindowRegistry.shared.cancelOpen(identity)
                 openInExternalViewer([book])
                 return
             }
@@ -806,6 +809,7 @@ final class AppState {
                 // Phase 2.6b-2 T-A: pageCount==0 時にログを残して外部にフォールバックする。
                 let bookPath = book.path ?? "(nil)"
                 Self.logger.warning("openInBuiltInViewer: pageCount==0 for bookID=\(book.id, privacy: .public) path=\(bookPath, privacy: .public) → falling back to external viewer")
+                ViewerWindowRegistry.shared.cancelOpen(identity)
                 openInExternalViewer([book])
                 return
             }
@@ -834,7 +838,7 @@ final class AppState {
                 persistPageOverride: { [weak self] (b, page, mode) in
                     try? self?.database?.setPageOverride(bookID: b.id, page: page, mode: mode)
                 },
-                onClose: { [weak self] in self?.viewerController = nil },
+                onClose: { [weak self] in _ = self; ViewerWindowRegistry.shared.unregister(identity) },
                 suppressResumeDialog: resumeDirect
             )
             // Phase 2.6b-2 D3: per-book page direction の永続化コールバックを設定する。
@@ -845,7 +849,7 @@ final class AppState {
                 try? self?.refreshDisplayedBooks()
                 self?.refreshSelectedBook()
             }
-            self.viewerController = controller
+            ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.present()
             self.markAsRead(book: book)
         }
