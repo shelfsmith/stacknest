@@ -437,7 +437,8 @@ public struct LibraryServerCore: Sendable {
             return values
         }
         // BookRow → BookDetailDTO 変換ヘルパ（/detail と PATCH エンドポイントで共用）。
-        @Sendable func makeBookDetailDTO(from row: BookRow, lastPage: Int? = nil) -> BookDetailDTO {
+        // G16 A2: previous は PATCH エンドポイント限定（それ以外の呼び出しは省略=nil のまま）。
+        @Sendable func makeBookDetailDTO(from row: BookRow, lastPage: Int? = nil, previous: BookPatchDTO? = nil) -> BookDetailDTO {
             BookDetailDTO(
                 id: row.id, title: row.title, author: row.author, genre: row.genre, path: nil,
                 dateAdded: row.dateAdded, playDate: row.playDate, bookType: row.bookType,
@@ -451,7 +452,8 @@ public struct LibraryServerCore: Sendable {
                 // 4.2c-6b: path 自体は秘匿。拡張子だけ返してリモートの「ファイル形式」表示に使う。
                 fileExtension: row.path.map { ($0 as NSString).pathExtension.lowercased() },
                 // G12b-3a Task 6: basename のみ返す（フルパスは秘匿のまま）。
-                filename: row.path.map { ($0 as NSString).lastPathComponent }
+                filename: row.path.map { ($0 as NSString).lastPathComponent },
+                previous: previous
             )
         }
 
@@ -556,10 +558,30 @@ public struct LibraryServerCore: Sendable {
             patch.clearSeries = dto.clearSeries
             patch.clearVolume = dto.clearVolume
             patch.clearPageDirection = dto.clearPageDirection
+            // G16 A2: DB 更新前に旧 row（resolveBook で取得済みの更新前値）から、
+            // 今回リクエストで変更対象になったフィールドだけを pre-image として集める。
+            // クライアントはこれで undo の逆パッチをキャッシュ非依存に組み立てられる。
+            var previous = BookPatchDTO()
+            if dto.title != nil { previous.title = row.title }
+            if dto.author != nil { previous.author = row.author }
+            if dto.genre != nil { previous.genre = row.genre }
+            if dto.neta != nil { previous.neta = row.neta }
+            if dto.memo != nil { previous.memo = row.memo }
+            if dto.keywordA != nil { previous.keywordA = row.keywordA }
+            if dto.keywordB != nil { previous.keywordB = row.keywordB }
+            if dto.keywordC != nil { previous.keywordC = row.keywordC }
+            if dto.rating != nil { previous.rating = row.rating }
+            if dto.unseen != nil { previous.unseen = row.unseen }
+            if dto.series != nil || dto.clearSeries { previous.series = row.series }
+            if dto.volume != nil || dto.clearVolume { previous.volume = row.volume }
+            if dto.bookType != nil { previous.bookType = row.bookType }
+            if dto.pageDirection != nil || dto.clearPageDirection {
+                previous.pageDirection = row.pageDirection.map { directionString($0) }
+            }
             try lib.db.updateBook(id: row.id, patch: patch)
             self.notifyBookChanged(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
-            return makeBookDetailDTO(from: updated)
+            return makeBookDetailDTO(from: updated, previous: previous)
         }
         // 4.2c-6a: スタンプ定義の取得（R）。配信バンドル設定DB の stamp_definitions を返す。
         api.get("libraries/:lib/stamp-definitions") { request, context in

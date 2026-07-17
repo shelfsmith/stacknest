@@ -60,6 +60,37 @@ struct PatchBookEndpointTests {
         }
     }
 
+    /// G16 A2: PATCH 応答の previous に、変更フィールドの更新前の値が入る（undo 用 pre-image）。
+    /// Book 1 は fixture 生成時 rating = 1 % 6 = 1, title = "Book 1"。rating→5, title→"NEW" に変更。
+    @Test func patchResponseIncludesPreviousValuesForChangedFields() async throws {
+        let fixture = try TestLibraryFixture(name: "Patch5", bookCount: 1)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "R", editToken: "W"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/1",
+                method: .patch,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(string: #"{"title":"NEW","rating":5,"clearSeries":false,"clearVolume":false,"clearPageDirection":false}"#)
+            ) { response in
+                #expect(response.status == .ok)
+                let detail = try decodeDetail(response.body)
+                #expect(detail.title == "NEW")
+                #expect(detail.rating == 5)
+                let previous = try #require(detail.previous)
+                #expect(previous.title == "Book 1")
+                #expect(previous.rating == 1)
+                // 変更していないフィールドは previous でも nil のまま。
+                #expect(previous.author == nil)
+                #expect(previous.memo == nil)
+            }
+        }
+    }
+
     // MARK: - 権限制限
 
     /// R トークンで PATCH → 403、DB は変更されない（旧タイトルのまま）。

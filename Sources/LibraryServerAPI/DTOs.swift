@@ -345,6 +345,9 @@ public struct BookDetailDTO: Codable, Sendable {
     public let fileExtension: String?
     /// G12b-3a: リモート一般タブ等での表示用ファイル名（拡張子込み）。旧サーバ/旧 JSON には無いため後方互換で nil 許容。
     public let filename: String?
+    /// G16 A2: PATCH 応答限定で、今回変更されたフィールドの更新前の値（同型 BookPatchDTO・変更外は nil）。
+    /// GET /detail 等の他エンドポイントでは常に nil（キー自体が JSON から省略される・旧クライアントは無視）。
+    public let previous: BookPatchDTO?
     public init(id: Int, title: String, author: String?, genre: String?, path: String?,
                 dateAdded: Date, playDate: Date?, bookType: Int, fileType: Int, pages: Int?,
                 lastPage: Int? = nil,
@@ -352,7 +355,8 @@ public struct BookDetailDTO: Codable, Sendable {
                 neta: String?, memo: String?, series: String?, volume: Double?,
                 coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?,
                 fileExtension: String? = nil,
-                filename: String? = nil) {
+                filename: String? = nil,
+                previous: BookPatchDTO? = nil) {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate; self.bookType = bookType
         self.fileType = fileType; self.pages = pages; self.lastPage = lastPage
@@ -363,6 +367,7 @@ public struct BookDetailDTO: Codable, Sendable {
         self.pageDirection = pageDirection
         self.fileExtension = fileExtension
         self.filename = filename
+        self.previous = previous
     }
 }
 
