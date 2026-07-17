@@ -291,16 +291,34 @@ final class RemoteLibraryState {
                 // 無限スクロール: 現在ロード済みのページ数ぶんを infiniteChunkSize 単位で複数リクエスト
                 // 再取得して表示窓を維持する。**1 リクエストでの一括取得は不可**（サーバが per を 1...500 に
                 // clamp するため、500 件超のロード窓が 500 に truncate され ~500 件へ戻る＝重大バグ）。
+                // G16 B1: 逐次 (for p in 1...pagesLoaded { await fetchChunk }) だと N ページで N 回の
+                // 直列往復が発生し SSE reconnect のたびに遅延が線形に伸びていたため、withThrowingTaskGroup で
+                // 並列化する。ページ番号→結果の辞書に集めてから 1...pagesLoaded の昇順で組み立てる
+                // （task 完了順に依存しない）。途中の per-page ガードは行わず、group 完了後・
+                // books/total/page への反映直前に 1 回だけ loadGeneration を確認する
+                // （より新しい liveReload/loadMore が走っていればこの結果は丸ごと破棄）。
                 let pagesLoaded = max(1, Int(ceil(Double(books.count) / Double(infiniteChunkSize))))
-                var acc: [BookListItemDTO] = []
-                var newTotal = total
-                for p in 1...pagesLoaded {
-                    let result = try await fetchChunk(page: p, size: infiniteChunkSize)
-                    guard gen == loadGeneration else { return }   // より新しい liveReload/loadMore が走った → このフェッチは破棄
-                    acc.append(contentsOf: result.items)
-                    newTotal = result.total
-                    if result.items.count < infiniteChunkSize { break }   // 末尾に到達（最終ページ）
+                let chunkSize = infiniteChunkSize
+                var resultsByPage: [Int: BookPageDTO] = [:]
+                try await withThrowingTaskGroup(of: (Int, BookPageDTO).self) { group in
+                    for p in 1...pagesLoaded {
+                        group.addTask {
+                            let result = try await self.fetchChunk(page: p, size: chunkSize)
+                            return (p, result)
+                        }
+                    }
+                    for try await (p, result) in group {
+                        resultsByPage[p] = result
+                    }
                 }
+                guard gen == loadGeneration else { return }   // より新しい liveReload/loadMore が走った → このフェッチは破棄
+                var acc: [BookListItemDTO] = []
+                for p in 1...pagesLoaded {
+                    if let result = resultsByPage[p] { acc.append(contentsOf: result.items) }
+                }
+                // total はロード済み末尾ページ（pagesLoaded）の応答値を優先し、欠落時は取得できた
+                // 応答の中の最大値にフォールバックする。
+                let newTotal = resultsByPage[pagesLoaded]?.total ?? resultsByPage.values.map(\.total).max() ?? total
                 books = acc
                 total = newTotal
                 page = pagesLoaded   // loadMore の次ページ計算（page+1）を現在の窓に整合させる
