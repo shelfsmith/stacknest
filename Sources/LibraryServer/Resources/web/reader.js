@@ -194,6 +194,21 @@ export async function renderReader(uuid, bookId, query, deps) {
         throw lastErr || new Error("decode failed");
     }
 
+    // 複数ページ（見開き）をまとめてデコードする。Promise.all は一部が reject すると成功分の
+    // 戻り値を捨てるため、作成済み objectURL が revoke されずリークする（Codex Low2）。
+    // allSettled で受け、失敗があれば成功済みの URL を revoke してから throw する。
+    async function decodeAll(indices) {
+        const results = await Promise.allSettled(indices.map((i) => makeDecodedImg(i)));
+        const ok = [];
+        let err = null;
+        for (const r of results) {
+            if (r.status === "fulfilled") ok.push(r.value);
+            else err = err || r.reason;
+        }
+        if (err) { for (const m of ok) URL.revokeObjectURL(m.url); throw err; }
+        return ok;
+    }
+
     // 6. progress debounce
     let progressTimer = null;
 
@@ -392,7 +407,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         // デコード済み <img> を取得（失敗時は bypass 再取得を含む）
         let made;
         try {
-            made = await Promise.all(indices.map((i) => makeDecodedImg(i)));
+            made = await decodeAll(indices);
         } catch (e) {
             if (my === renderToken) loadingEl.classList.add("hidden");
             if (my !== renderToken) return; // 古い描画は捨てる
@@ -541,7 +556,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     async function loadNeighborInto(viewEl, apiIndex, ds, side) {
         try {
             const indices = pagesForView(apiIndex, spread, pageCount, overrides);
-            const made = await Promise.all(indices.map((i) => makeDecodedImg(i)));
+            const made = await decodeAll(indices);
             if (!ds.alive) { for (const m of made) URL.revokeObjectURL(m.url); return; }
             const urls = made.map((m) => m.url);
             const content = buildViewNode(made.map((m) => m.img), spread && made.length === 2, direction);

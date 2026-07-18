@@ -172,6 +172,25 @@ struct PageLayoutEndpointTests {
         }
     }
 
+    @Test func postPageLayoutOutOfRangePageIs400() async throws {
+        let fixture = try TestLibraryFixture(name: "PL8", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "pdf-only")
+        let lib = fixture.servedLibrary()
+        let app = makeApp(lib)
+        try await app.test(.router) { client in
+            // page >= pageCount は 400。上限未チェックだと edit 権限で範囲外 override 行が
+            // 無制限に溜まり manifest も肥大化する（G17 Codex Medium）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/page-layout", method: .post,
+                headers: [.authorization: "Bearer W"],
+                body: .init(string: #"{"page":999999,"mode":1}"#)
+            ) { response in
+                #expect(response.status == .badRequest)
+            }
+        }
+    }
+
     /// 認証なし → 401。
     @Test func postPageLayoutNoAuthIs401() async throws {
         let fixture = try TestLibraryFixture(name: "PL8", bookCount: 1)
