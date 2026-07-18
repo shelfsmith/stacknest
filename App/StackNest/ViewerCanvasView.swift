@@ -11,9 +11,14 @@ import AppCore
 /// responder chain を遡るがジェスチャ/スクロールは hitTest ビューで止まる）、ピンチズーム・スクロール
 /// パンが一切届かなくなる（smoke v2 NG の根因）。自前描画ならこのビュー自身が hitTest 先になり、
 /// 全イベントを確実に受け取れる。
+///
+/// G18 C2: 表示する画像は `NSImage`（lazy decode）ではなく、呼び出し側（ViewerWindowController）が
+/// off-main で即時デコード済みの `DecodedImage`（CGImage）を渡す。draw(_:) は `NSImage.draw(in:)`
+/// ではなく CGContext への直接 blit（`context.draw(cgImage, in:)`）を使うため、このビューの
+/// draw(_:) 内でピクセルデコードが走ることは一切ない（デコード済み CGImage を貼るだけ）。
 @MainActor
 final class ViewerCanvasView: NSView {
-    private var images: [NSImage] = []      // 0〜2 枚（見開き）
+    private var images: [DecodedImage] = []      // 0〜2 枚（見開き）
     private let gutter: CGFloat = 0          // 見開き中央のガター幅（px）
     /// pages[0] を右に置くか（RTL=true）。spreadDrawRects の並び順に使う。
     var firstOnRight: Bool = true
@@ -46,17 +51,19 @@ final class ViewerCanvasView: NSView {
     override var isFlipped: Bool { false }
 
     /// 1〜2 枚を設定する（0 枚=何も描かない）。設定するたびフィットへ戻す。
-    func setImages(_ images: [NSImage]) {
+    /// 渡す `DecodedImage` は呼び出し側で既に off-main デコード済み（G18 C2）。
+    func setImages(_ images: [DecodedImage]) {
         self.images = images
         fitToWindow()
     }
 
-    /// 各画像のサイズ（描画と幾何計算に使う）。
+    /// 各画像のサイズ（描画と幾何計算に使う）。DecodedImage.pixelSize はデコード時に確定済みの
+    /// 実ピクセルサイズ（EXIF 回転適用後）で、CGImage.width/height と一致する。
     /// 見開きの facing ページを同じ表示高さに揃えるため、共通高さへ正規化する（アスペクト比は各画像で保存）。
     /// これが無いと単一 scale がネイティブ px に乗算され、同一アスペクトでも解像度違いのページ
     /// （例: 1131x1608 と 1351x1920 が同一巻に混在する漫画）で低解像度側が小さく描画される。
     /// n=1・均一サイズでは素通し（従来と同一）。native 画像は同一アスペクトの矩形へ描くので歪まない。
-    private var imageSizes: [CGSize] { CanvasFitMath.heightNormalized(images.map { $0.size }) }
+    private var imageSizes: [CGSize] { CanvasFitMath.heightNormalized(images.map { $0.pixelSize }) }
 
     /// 見開き全体の合計サイズ（scale=1 基準）。クランプ計算に使う。
     /// 横 = Σ幅 + ガター*(n-1)、縦 = 最大高。
@@ -78,6 +85,7 @@ final class ViewerCanvasView: NSView {
         NSColor.black.setFill()
         dirtyRect.fill()
         guard !images.isEmpty else { return }
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let rects = CanvasFitMath.spreadDrawRects(
             images: imageSizes,
             viewSize: bounds.size,
@@ -86,11 +94,23 @@ final class ViewerCanvasView: NSView {
             gutter: gutter,
             firstOnRight: firstOnRight
         )
-        for (i, image) in images.enumerated() where i < rects.count {
+        ctx.interpolationQuality = .high
+        // G18 C2: NSImage.draw(in:) から CGContext blit へ移行。座標系メモ:
+        // このビューは `isFlipped == false`（Quartz ネイティブ: 原点左下・y 上向き）。
+        // CGContext.draw(_:in:) はこの向きの（非flipped）コンテキストへ描くと CGImage を
+        // 追加の反転操作なしで正しい向き（天地逆転なし）で描画する。これは
+        // `NSImage.draw(in:...respectFlipped:true...)` が旧実装で行っていた自動補正と
+        // 結果的に同じ見た目になる（respectFlipped は isFlipped==true のビュー向けの
+        // 補正であり、false のこのビューでは元々ほぼ no-op だった）。
+        // 実機検証のみに頼らず、CGBitmapContext を使った独立スクリプトで
+        // 「非flippedコンテキストへの直接 draw で天地が保たれる」ことをオフラインで実証済み
+        // （G18 C2 実装時）。もし将来 isFlipped を true に変更する場合は、ここで
+        // `ctx.translateBy(x: 0, y: rect.maxY + rect.minY); ctx.scaleBy(x: 1, y: -1)` 相当の
+        // 反転を追加すること。
+        for (i, decoded) in images.enumerated() where i < rects.count {
             let rect = rects[i]
             guard rect.width > 0, rect.height > 0 else { continue }
-            image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0,
-                       respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
+            ctx.draw(decoded.cgImage, in: rect)
         }
     }
 
