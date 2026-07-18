@@ -3,7 +3,7 @@ import SwiftUI
 import AppCore
 
 struct KeyBindingsSettingsView: View {
-    /// キー設定は内蔵ビューワ専用。外部ビューワ選択時は false でグレーアウトする。
+    /// キー設定は内蔵ビューア専用。外部ビューア選択時は false でグレーアウトする。
     var enabled: Bool = true
 
     @State private var bindings = ViewerKeyBindings.load()
@@ -16,7 +16,7 @@ struct KeyBindingsSettingsView: View {
                 if !enabled {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "info.circle")
-                        Text("キー設定は内蔵ビューワ選択時のみ有効です。設定 ▸ 表示 でビューワを「内蔵ビューワ」に切り替えてください。")
+                        Text("キー設定は内蔵ビューア選択時のみ有効です。設定 ▸ 表示 でビューアを「内蔵ビューア」に切り替えてください。")
                     }
                     .font(.callout)
                     .foregroundStyle(.secondary)

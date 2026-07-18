@@ -9,7 +9,7 @@ public enum FirstRunWizardStep: Equatable, Sendable {
     case firstLibrary
 }
 
-/// ウィザードでのビューワ選択。
+/// ウィザードでのビューア選択。
 public enum WizardViewerChoice: Equatable, Sendable {
     case builtIn
     case external

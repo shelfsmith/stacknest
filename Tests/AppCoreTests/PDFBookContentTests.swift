@@ -129,7 +129,7 @@ struct PDFBookContentCGTests {
         #expect(dataB.prefix(2) == Data([0xFF, 0xD8]))
     }
 
-    /// smoke 2026-06-10 ⑥: PDF だけが入った zip を内蔵ビューワ経路（ArchiveBookContent）で
+    /// smoke 2026-06-10 ⑥: PDF だけが入った zip を内蔵ビューア経路（ArchiveBookContent）で
     /// 表示できる — 画像エントリ 0 のとき zip 内 PDF への fallback が機能する。
     @Test func archiveBookContentFallsBackToEmbeddedPDF() async throws {
         guard let url = Bundle.module.url(

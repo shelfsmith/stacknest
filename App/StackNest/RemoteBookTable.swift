@@ -315,7 +315,7 @@ final class RemoteBookTableCoordinator: NSObject {
         state.openViewer(book: state.books[table.clickedRow])
     }
 
-    /// Return キー: 選択中の先頭の本をビューワで開く（リモートビューワは 1 ウィンドウ運用のため先頭のみ）。
+    /// Return キー: 選択中の先頭の本をビューアで開く（リモートビューアは 1 ウィンドウ運用のため先頭のみ）。
     @objc func handleOpenSelected() {
         guard let table = tableView,
               let idx = table.selectedRowIndexes.first,
@@ -424,7 +424,7 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         if !table.selectedRowIndexes.contains(table.clickedRow) {
             table.selectRowIndexes([table.clickedRow], byExtendingSelection: false)
         }
-        let openItem = NSMenuItem(title: String(localized: "ビューワで開く"),
+        let openItem = NSMenuItem(title: String(localized: "ビューアで開く"),
                                   action: #selector(ctxOpen(_:)), keyEquivalent: "")
         openItem.target = self; openItem.representedObject = book.id
         menu.addItem(openItem)

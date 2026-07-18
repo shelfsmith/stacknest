@@ -91,7 +91,7 @@ import LibraryStore
             return
         }
         if case let .launchFailed(_, reason) = err {
-            #expect(reason.contains("外部ビューワが見つかりません"))
+            #expect(reason.contains("外部ビューアが見つかりません"))
             #expect(reason.contains("再選択"))
         } else {
             Issue.record("Expected .launchFailed, got \(err)")

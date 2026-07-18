@@ -3,8 +3,8 @@ import SwiftUI
 import AppCore
 import LibraryStore
 
-/// Phase 2.6c: 内蔵ビューワのグローバル設定 6 項目を描画する共有フォーム。
-/// SettingsView「表示」タブと FirstRunWizardView（③内蔵ビューワ設定）の両方から使う。
+/// Phase 2.6c: 内蔵ビューアのグローバル設定 6 項目を描画する共有フォーム。
+/// SettingsView「表示」タブと FirstRunWizardView（③内蔵ビューア設定）の両方から使う。
 /// 各行は `settings.useBuiltInViewer` が false のとき disabled になる（SettingsView での
 /// 既存挙動を保持。ウィザードでは内蔵選択時のみ表示されるため常に enabled）。
 struct BuiltInViewerSettingsForm: View {

@@ -2,7 +2,7 @@
 import Foundation
 import CoreGraphics
 
-/// 内蔵ビューワ canvas のフィット倍率・ズームクランプ・パンオフセットクランプの純粋計算。
+/// 内蔵ビューア canvas のフィット倍率・ズームクランプ・パンオフセットクランプの純粋計算。
 /// UI 非依存（CoreGraphics の値型のみ）。ユニットテスト全網羅。
 public enum CanvasFitMath {
     /// 画像をビューに収める倍率（アスペクト維持・拡大も許容）。不正サイズは 1。

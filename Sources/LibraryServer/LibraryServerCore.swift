@@ -1360,7 +1360,7 @@ public struct LibraryServerCore: Sendable {
                 }
             }
         }
-        // 閲覧進行状況の書き込み（last_page）＋ mark-as-read（Mac ビューワとパリティ: unseen=false /
+        // 閲覧進行状況の書き込み（last_page）＋ mark-as-read（Mac ビューアとパリティ: unseen=false /
         // play_date=now）。本を mutate するので最後に onBookChanged を発火し Mac UI / 将来のクライアントへ
         // 即時反映させる（4.2a）。viewer フラグ（spread/coverOffset）は触らない。
         api.post("libraries/:lib/books/:id/progress") { [config] request, context in

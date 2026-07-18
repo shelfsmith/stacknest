@@ -190,19 +190,19 @@ struct SettingsView: View {
 
             // MARK: - Tab 3: 表示
             Form {
-                Section("画像ビューワ") {
-                    // D5: section header "画像ビューワ", label "ビューワ", caption row
-                    Picker("ビューワ", selection: $settings.useBuiltInViewer) {
-                        Text("内蔵ビューワ").tag(true)
-                        Text("外部ビューワ").tag(false)
+                Section("画像ビューア") {
+                    // D5: section header "画像ビューア", label "ビューア", caption row
+                    Picker("ビューア", selection: $settings.useBuiltInViewer) {
+                        Text("内蔵ビューア").tag(true)
+                        Text("外部ビューア").tag(false)
                     }
                     .pickerStyle(.radioGroup)
 
-                    Text("内蔵ビューワはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
+                    Text("内蔵ビューアはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("リモート共有・オフライン閲覧は、外部ビューワ設定に関わらず常に内蔵ビューワで表示されます（このためキー設定は常時有効）。")
+                    Text("リモート共有・オフライン閲覧は、外部ビューア設定に関わらず常に内蔵ビューアで表示されます（このためキー設定は常時有効）。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
@@ -213,10 +213,10 @@ struct SettingsView: View {
                     Toggle("詳細ペインに book ID を表示", isOn: $settings.showBookIDInDetail)
                 }
 
-                Section("外部ビューワ") {
+                Section("外部ビューア") {
                     viewerSettingsRow(
                         label: "デフォルト",
-                        caption: "各種類別ビューワが未設定の book はこの設定で開かれます。",
+                        caption: "各種類別ビューアが未設定の book はこの設定で開かれます。",
                         path: settings.externalViewerAppPath,
                         onChoose: { chooseDefaultViewer() },
                         onReset: settings.externalViewerAppPath != nil
@@ -280,8 +280,8 @@ struct SettingsView: View {
             }
             .tag(1)
 
-            // MARK: - Tab 4: ビューアキー（内蔵ビューワのキー設定。リモート/オフラインでも内蔵
-            // ビューワが必ず使われるため、外部ビューワ選択時もグレーアウトせず常時有効。）
+            // MARK: - Tab 4: ビューアキー（内蔵ビューアのキー設定。リモート/オフラインでも内蔵
+            // ビューアが必ず使われるため、外部ビューア選択時もグレーアウトせず常時有効。）
             KeyBindingsSettingsView(enabled: true)
                 .tabItem {
                     Label("ビューアキー", systemImage: "keyboard")

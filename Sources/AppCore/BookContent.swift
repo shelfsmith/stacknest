@@ -3,7 +3,7 @@ import Foundation
 import LibraryStore
 import ArchiveAdapter
 
-/// 内蔵ビューワが書籍の中身を読むための抽象化（§5.5）。0-based page index。
+/// 内蔵ビューアが書籍の中身を読むための抽象化（§5.5）。0-based page index。
 public protocol BookContent: Sendable {
     var pageCount: Int { get async throws }
     func imageData(at page: Int) async throws -> Data
@@ -22,7 +22,7 @@ public enum BookContentError: Error, Sendable, Equatable {
 /// BookRow から適切な BookContent を生成する。
 public enum BookContentFactory {
     /// `BookCategory.classify(path:)` で種別を振り分けて BookContent を返す。
-    /// 動画・非対応・パス無しは throw（呼び出し側が外部ビューワにフォールバック）。
+    /// 動画・非対応・パス無しは throw（呼び出し側が外部ビューアにフォールバック）。
     public static func make(for book: BookRow) throws -> BookContent {
         guard let path = book.path, !path.isEmpty else {
             throw BookContentError.invalidPath(book.path ?? "(nil)")
@@ -191,7 +191,7 @@ public struct SingleImageBookContent: BookContent {
 /// Phase 4.0: `PDFBookContent` の描画が CG 化され main thread 非依存になったため、
 /// MainActor 閉じ込めを廃止し actor に変更。非 Sendable な `PDFDocument` への
 /// アクセスは actor executor が直列化する（@unchecked Sendable も不要になった）。
-/// GUI スレッドを塞がないため、内蔵ビューワと 4.1a LibraryServer の双方から安全に呼べる。
+/// GUI スレッドを塞がないため、内蔵ビューアと 4.1a LibraryServer の双方から安全に呼べる。
 /// 注意: 表示中の `PDFView` と同一の `PDFDocument` インスタンスを共有しないこと
 /// （PDFKit はドキュメント単位で非スレッドセーフ。本 actor は自前で開いた document 専用）。
 public actor PDFPageContent: BookContent {

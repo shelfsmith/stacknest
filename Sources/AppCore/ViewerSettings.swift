@@ -53,7 +53,7 @@ public final class ViewerSettings {
         }
     }
 
-    /// Phase 2.6b: 内蔵ビューワを使うか (default true)。false なら外部ビューワ。
+    /// Phase 2.6b: 内蔵ビューアを使うか (default true)。false なら外部ビューア。
     public var useBuiltInViewer: Bool {
         didSet { defaults.set(useBuiltInViewer, forKey: useBuiltInViewerKey) }
     }
@@ -86,13 +86,13 @@ public final class ViewerSettings {
         }
     }
 
-    /// Phase 2.6b-2 T5: per-book 見開き設定が未保存のとき内蔵ビューワで見開き表示をデフォルトにするか。
+    /// Phase 2.6b-2 T5: per-book 見開き設定が未保存のとき内蔵ビューアで見開き表示をデフォルトにするか。
     /// UserDefaults key "viewerSpreadByDefault"、T-S1 fixup により初期値 true (= 見開き)。
     public var spreadByDefault: Bool {
         didSet { defaults.set(spreadByDefault, forKey: spreadByDefaultKey) }
     }
 
-    /// Phase 2.6b-2 T-F1: 内蔵ビューワを全画面で開くか（全 book 共通グローバル設定）。
+    /// Phase 2.6b-2 T-F1: 内蔵ビューアを全画面で開くか（全 book 共通グローバル設定）。
     /// UserDefaults key "viewerOpenFullScreenByDefault"、初期値 false。
     public var openFullScreenByDefault: Bool {
         didSet { defaults.set(openFullScreenByDefault, forKey: openFullScreenByDefaultKey) }

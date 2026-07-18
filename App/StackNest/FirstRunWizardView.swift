@@ -6,7 +6,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Phase 2.6c: 初回起動ウィザード。ページ送り式（戻る/次へ・動的ドット）。
-/// ①ようこそ → ②画像の開き方（内蔵/外部・スキップ可）→ ③内蔵ビューワ設定（内蔵かつ
+/// ①ようこそ → ②画像の開き方（内蔵/外部・スキップ可）→ ③内蔵ビューア設定（内蔵かつ
 /// 非スキップ時のみ）→ ④最初のライブラリ（新規/開く/取り込み・「あとで」でタイトルへ）。
 struct FirstRunWizardView: View {
     @Bindable var settings: ViewerSettings
@@ -79,8 +79,8 @@ struct FirstRunWizardView: View {
             Text("本を開くときの方法を選びます。").foregroundStyle(.secondary)
 
             Picker("", selection: viewerChoiceBinding) {
-                Text("内蔵ビューワで開く").tag(WizardViewerChoice.builtIn)
-                Text("外部ビューワを指定する").tag(WizardViewerChoice.external)
+                Text("内蔵ビューアで開く").tag(WizardViewerChoice.builtIn)
+                Text("外部ビューアを指定する").tag(WizardViewerChoice.external)
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
@@ -101,14 +101,14 @@ struct FirstRunWizardView: View {
                 .padding(.leading, 20)
             }
 
-            Text("内蔵ビューワはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
+            Text("内蔵ビューアはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
 
     private var builtInSettingsStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("内蔵ビューワの設定").font(.title2.bold())
+            Text("内蔵ビューアの設定").font(.title2.bold())
             Text("あとから設定画面でも変更できます。")
                 .font(.caption).foregroundStyle(.secondary)
             Form {

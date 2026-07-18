@@ -33,7 +33,7 @@ public struct PDFBookContent {
     }
 
     /// 指定ページ (0-based) を JPEG Data 化。範囲外・描画失敗時は nil。
-    /// 内蔵ビューワ (Phase 2.6b) のページ取得・Phase 4.1a サーバ配信で使用。
+    /// 内蔵ビューア (Phase 2.6b) のページ取得・Phase 4.1a サーバ配信で使用。
     /// 白背景・長辺 maxPixelSize・JPEG 品質 0.85（旧 lockFocus 実装と同一仕様）。
     public func pageImageData(at index: Int, maxPixelSize: Int = 1200) -> Data? {
         precondition(maxPixelSize >= 1, "maxPixelSize must be >= 1")
