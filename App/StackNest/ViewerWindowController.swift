@@ -10,7 +10,9 @@ import OSLog
 /// ViewerCanvasView で描画。キー処理と左右ゾーンクリック送り、HUD 自動非表示を担う。
 @MainActor
 final class ViewerWindowController: NSWindowController, NSWindowDelegate {
-    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Viewer")
+    /// `nonisolated`: G18 C2 の off-main `loadImage`（nonisolated static func）から参照するため。
+    /// `Logger` は値型・スレッドセーフに設計されており MainActor 隔離は不要。
+    private nonisolated static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Viewer")
 
     private var content: BookContent
     private var book: BookRow
@@ -63,7 +65,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private let hudNoteDuration: TimeInterval = 3.0
     /// ノートなし時の idle-hide 遅延（秒）。
     private let hudIdleHideDelay: TimeInterval = 2.0
-    private var prefetch: [Int: NSImage] = [:]
+    /// G18 C2: 値は off-main で即時デコード済みの CGImage ラッパ（`NSImage`＝lazy decode ではない）。
+    private var prefetch: [Int: DecodedImage] = [:]
     /// page → (token, task)。token で Task 同一性を判定し、古い cancel 済 Task の完了が
     /// 同一ページの新 Task エントリを誤除去する競合（高速連打）を防ぐ（I1 対策）。
     private var inFlightPrefetch: [Int: (token: Int, task: Task<Void, Never>)] = [:]
@@ -293,8 +296,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     /// 表示/プリフェッチでデコード済みの画像から向きを学習する（別途 I/O なし）。
     /// 既知と異なればスプレッドを再構築し、現在ページを保ったまま再アンカーする。
-    private func recordOrientation(page: Int, image: NSImage) {
-        let landscape = image.size.width > image.size.height
+    private func recordOrientation(page: Int, image: DecodedImage) {
+        let landscape = image.pixelSize.width > image.pixelSize.height
         guard orientations[page] != landscape else { return }
         orientations[page] = landscape
         guard model.displayMode == .spread else { return }
@@ -322,13 +325,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         let token = model.currentSpreadIndex
+        let maxPixelSize = decodeTargetMaxPixelSize()
         Task { [weak self] in
             guard let self else { return }
-            var imgs: [NSImage] = []
+            var imgs: [DecodedImage] = []
             for p in pages {
                 if let cached = self.prefetch[p] {
                     imgs.append(cached)
-                } else if let img = await Self.loadImage(content: self.content, page: p) {
+                } else if let img = await Self.loadImage(content: self.content, page: p, maxPixelSize: maxPixelSize) {
                     self.prefetch[p] = img
                     imgs.append(img)
                 }
@@ -343,7 +347,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// 表示したページ群の向きを記録し、その結果現在見開きのページ集合が変わったら 1 回だけ再ロードする。
-    private func recordOrientationsThenMaybeReload(displayedPages: [Int], images: [NSImage]) {
+    private func recordOrientationsThenMaybeReload(displayedPages: [Int], images: [DecodedImage]) {
         for (i, p) in displayedPages.enumerated() where i < images.count {
             recordOrientation(page: p, image: images[i])
         }
@@ -394,6 +398,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func pumpPrefetch() {
+        let maxPixelSize = decodeTargetMaxPixelSize()
         while inFlightPrefetch.count < maxConcurrentPrefetch,
               let page = prefetchQueue.first(where: { prefetch[$0] == nil && inFlightPrefetch[$0] == nil }) {
             prefetchQueue.removeAll { $0 == page }
@@ -406,7 +411,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 self.inFlightPrefetch.removeValue(forKey: page)
             }
             let task = Task { [weak self] in
-                let img = await Self.loadImage(content: content, page: page)
+                let img = await Self.loadImage(content: content, page: page, maxPixelSize: maxPixelSize)
                 guard let self else { return }
                 if Task.isCancelled { removeIfMine(); return }
                 if let img {
@@ -431,15 +436,43 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private static func loadImage(content: BookContent, page: Int) async -> NSImage? {
+    /// G18 C2 コアフィックス: `nonisolated` にすることで、MainActor（このクラス自体は @MainActor）
+    /// から `await Self.loadImage(...)` した場合でも、この関数の本体は MainActor の executor 上では
+    /// 実行されない。Swift の actor isolation は「MainActor-isolated なコンテキストから nonisolated な
+    /// async 関数を呼ぶ」際、呼び出しが MainActor の executor を離れてグローバルな協調スレッドプール
+    /// 上で実行されることを保証する（完了後、呼び出し元の続きだけが MainActor へ戻る）。
+    /// `content.imageData(at:)` は `BookContent`（`Sendable` プロトコル・isolation 注釈なし）の
+    /// 要求であり、実装（Archive/PDF/Remote 等）はいずれも MainActor に隔離されていない I/O。
+    /// 続く `ViewerImageDecoder.decode` は同じ nonisolated 関数内・同じ off-main 実行文脈で呼ばれる
+    /// ため、CPU バウンドな即時デコード（旧実装で `ViewerCanvasView.draw(_:)` 内・メインスレッドで
+    /// 走っていた lazy decode の原因）もメインスレッドでは一切実行されない。
+    /// メインスレッドに触れるのは呼び出し元（`loadCurrentPage`/`pumpPrefetch`）が `await` から
+    /// 戻った後の「`prefetch` へ格納」「`canvas.setImages` で差し替え」だけである。
+    nonisolated private static func loadImage(content: BookContent, page: Int, maxPixelSize: Int) async -> DecodedImage? {
         do {
             let data = try await content.imageData(at: page)
-            return NSImage(data: data)
+            return ViewerImageDecoder.decode(data, maxPixelSize: maxPixelSize)
         } catch {
             Self.logger.warning("viewer page \(page, privacy: .public) load failed: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
+
+    /// G18 C2 暫定実装: デコード先の目標最大辺（px）。正確な「表示サイズちょうど」の縮小は
+    /// C3（後続タスク）で扱う（TODO(C3): ページ単体/見開き別の実表示サイズに応じた再デコード）。
+    /// ここでは canvas の現在の bounds（バッキングスケール込み）から大まかな上限を出し、
+    /// レイアウト前などで取得できない/不当に小さい場合はフォールバック定数を使う。
+    /// MainActor 上（canvas/window に触れられる場所）で呼び、結果の Int だけを
+    /// off-main の `loadImage` へ渡す（decode 自体は依然 off-main のまま）。
+    private func decodeTargetMaxPixelSize() -> Int {
+        let scale = window?.backingScaleFactor ?? 2.0
+        let boundsSize = canvas.bounds.size
+        let longestEdge = max(boundsSize.width, boundsSize.height) * scale
+        guard longestEdge.isFinite, longestEdge > 0 else { return Self.fallbackDecodeMaxPixelSize }
+        return max(Int(longestEdge), Self.fallbackDecodeMaxPixelSize / 2)
+    }
+    /// canvas の bounds が未確定（0）なときのフォールバック上限。
+    private static let fallbackDecodeMaxPixelSize = 4000
 
     private func goNext() {
         let result = model.advance()
