@@ -166,19 +166,26 @@ public struct StoredViewerState: Sendable, Equatable {
     /// false = 行なし（デフォルト値が適用されている）。
     /// App 層はこれを見て spread の初期値に spreadByDefault を適用するか決定する。
     public var hasPersistedState: Bool
+    /// G17 T6a: `spreadEnabled` がユーザーの明示操作（ネイティブ `saveViewerState`）で
+    /// 書かれたものかどうか。false は「行はあるが spread は未確定」（例: リモート
+    /// progress writeback だけで作られた行）を意味し、App 層はこの場合
+    /// spreadByDefault にフォールバックすべきで `spreadEnabled` を信用してはいけない。
+    public var spreadExplicit: Bool
 
     public init(
         spreadEnabled: Bool = false,
         coverOffset: Bool = true,
         lastPage: Int = 0,
         overrides: [Int: Int] = [:],
-        hasPersistedState: Bool = false
+        hasPersistedState: Bool = false,
+        spreadExplicit: Bool = false
     ) {
         self.spreadEnabled = spreadEnabled
         self.coverOffset = coverOffset
         self.lastPage = lastPage
         self.overrides = overrides
         self.hasPersistedState = hasPersistedState
+        self.spreadExplicit = spreadExplicit
     }
 }
 
@@ -1944,16 +1951,19 @@ public final class Database: @unchecked Sendable {
             var state = StoredViewerState()
             if let row = try Row.fetchOne(
                 db,
-                sql: "SELECT spread_enabled, cover_offset, last_page FROM book_viewer_state WHERE book_id = ?",
+                sql: "SELECT spread_enabled, cover_offset, last_page, spread_explicit FROM book_viewer_state WHERE book_id = ?",
                 arguments: [bookID]
             ) {
                 let spreadInt: Int = row["spread_enabled"]
                 let coverInt: Int = row["cover_offset"]
+                let explicitInt: Int = row["spread_explicit"]
                 state.spreadEnabled = spreadInt != 0
                 state.coverOffset = coverInt != 0
                 state.lastPage = row["last_page"]
                 // Phase 2.6b-2 T5: 行が存在する場合のみ true。App 層が spread デフォルト解決に使用。
                 state.hasPersistedState = true
+                // G17 T6a: spread_enabled がユーザー明示操作由来かどうか（progress-only 行と区別）。
+                state.spreadExplicit = explicitInt != 0
             }
             let overrideRows = try Row.fetchAll(
                 db,
@@ -2006,19 +2016,23 @@ public final class Database: @unchecked Sendable {
     /// Upserts the per-book viewer flags + reading position. Does not touch overrides.
     /// `updated_at` is stamped as the epoch seconds string (matches how the rest of
     /// the codebase stores time as REAL epoch; here stored as TEXT per schema).
+    /// This is the native, user-explicit save path (e.g. 'd' key toggle) — it always
+    /// stamps `spread_explicit = 1` (G17 T6a) so `AppState.resolvedState` can trust
+    /// `spreadEnabled` instead of falling back to `spreadByDefault`.
     public func saveViewerState(bookID: Int, spreadEnabled: Bool, coverOffset: Bool, lastPage: Int) throws {
         guard let q = queue else { return }
         let stamp = String(Date().timeIntervalSince1970)
         try q.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO book_viewer_state (book_id, spread_enabled, cover_offset, last_page, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO book_viewer_state (book_id, spread_enabled, cover_offset, last_page, updated_at, spread_explicit)
+                VALUES (?, ?, ?, ?, ?, 1)
                 ON CONFLICT(book_id) DO UPDATE SET
-                    spread_enabled = excluded.spread_enabled,
-                    cover_offset   = excluded.cover_offset,
-                    last_page      = excluded.last_page,
-                    updated_at     = excluded.updated_at
+                    spread_enabled  = excluded.spread_enabled,
+                    cover_offset    = excluded.cover_offset,
+                    last_page       = excluded.last_page,
+                    updated_at      = excluded.updated_at,
+                    spread_explicit = 1
                 """,
                 arguments: [bookID, spreadEnabled ? 1 : 0, coverOffset ? 1 : 0, lastPage, stamp]
             )
@@ -2026,8 +2040,11 @@ public final class Database: @unchecked Sendable {
     }
 
     /// last_page / updated_at のみ更新する（Phase 4.1a: リモート progress 書き込み用）。
-    /// spread_enabled / cover_offset の既存値は保持し、行が無い本にはテーブルの
-    /// DEFAULT 値（Tables.swift v13）で INSERT する。
+    /// spread_enabled / cover_offset / spread_explicit の既存値は保持し、行が無い本には
+    /// テーブルの DEFAULT 値（Tables.swift v13/v17: spread_enabled=0, spread_explicit=0）で
+    /// INSERT する。spread_explicit を 0 のままにすることで、Web リーダーの progress
+    /// writeback だけで作られた行を「ユーザーが明示的に単ページ設定した」と誤認しない
+    /// （G17 T6a: `AppState.resolvedState` はこの行を spreadByDefault にフォールバックする）。
     public func updateLastPage(bookID: Int, lastPage: Int) throws {
         guard let q = queue else { return }
         let stamp = String(Date().timeIntervalSince1970)
