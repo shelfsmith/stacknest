@@ -6,9 +6,15 @@ import { fetchManifest, fetchPageBlob, postProgress, postDirection, postPageLayo
 import { deleteBook, clearAll, purgeExpired } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
+import { spring } from "./anim.js";
 
 // 同時に存在するリーダーは 1 つ。再マウント前に前インスタンスを確実に teardown する。
 let activeReaderTeardown = null;
+
+// ---- G17 Pack C: ドラッグめくり定数 -------------------------------------------
+const DRAG_HYSTERESIS = 10;      // px。これ未満は方向未確定（タップ/縦スクロールと非衝突）
+const DRAG_FLICK_VELOCITY = 500; // px/s。これを超えたら距離未達でもフリックとして確定
+const DRAG_DECEL = 0.998;        // apple-design のモーメンタム射影に使う減衰率
 
 // ---- 純関数（export） ---------------------------------------------------------
 
@@ -48,6 +54,20 @@ export function step(apiIndex, dir, spread, pageCount, overrides = {}) {
     const pairsWithPrevPrev = prevPrev >= 0 && overrides[prevPrev] !== 1 && overrides[prev] !== 1;
     const anchor = pairsWithPrevPrev ? prevPrev : prev;
     return Math.max(0, Math.min(pageCount - 1, anchor));
+}
+
+/// ラバーバンド抵抗（apple-design 準拠）。overshoot=境界を超えて引っ張った量、
+/// dimension=基準寸法（ここではステージ幅 px）。境界を超えるほど戻り値の伸びが鈍る。
+export function rubberband(overshoot, dimension, constant = 0.55) {
+    if (dimension <= 0) return 0;
+    return (overshoot * dimension * constant) / (dimension + constant * Math.abs(overshoot));
+}
+
+/// モーメンタム射影（apple-design 準拠）。velocity は px/s。d≈0.998 の指数減衰積分。
+/// 「離した位置 + この射影量」が着地予測点になる（v²/2a のような教科書物理ではなく
+/// Apple の Designing Fluid Interfaces が示す指数減衰式）。
+export function projectMomentum(velocity, d = DRAG_DECEL) {
+    return (velocity / 1000) * d / (1 - d);
 }
 
 // ---- メイン export -----------------------------------------------------------
@@ -127,11 +147,30 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 5. エフェメラル objectURL（表示中ビュー分のみ保持）
     // LRU は廃止。IndexedDB が本来のキャッシュ。
-    let displayedURLs = [];   // 現在 DOM にある objectURL（次の差替で revoke）
+    // G17 Pack C: 表示は「現在 view」を包む .reader-view（curView）単位で管理する。
+    // ドラッグ中はこれに加えて隣接 view（左右）が一時的に並ぶ（dragState 内で管理）。
+    let curView = null;        // 現在表示中の .reader-view（tapLeft の直前に挿入）
+    let curViewURLs = [];      // curView 内 <img> の objectURL
 
-    function revokeDisplayed() {
-        for (const u of displayedURLs) URL.revokeObjectURL(u);
-        displayedURLs = [];
+    function destroyCurView() {
+        if (curView) { curView.remove(); curView = null; }
+        for (const u of curViewURLs) URL.revokeObjectURL(u);
+        curViewURLs = [];
+    }
+
+    /// 見開き/単頁の表示ノードを構築する（show() とドラッグ隣接 view 読み込みで共用）。
+    function buildViewNode(imgs, isSpread, dir) {
+        if (isSpread) {
+            const spreadWrap = el("div", { class: "reader-spread" });
+            if (dir === "rtl") {
+                // 右に小さい apiIndex = imgs[0] が右、imgs[1] が左
+                spreadWrap.append(imgs[1], imgs[0]);
+            } else {
+                spreadWrap.append(imgs[0], imgs[1]);
+            }
+            return spreadWrap;
+        }
+        return imgs[0];
     }
 
     // デコード済み <img> を作る。失敗時はキャッシュを捨てて 1 回再取得。
@@ -330,6 +369,12 @@ export async function renderReader(uuid, bookId, query, deps) {
         const my = ++renderToken;
         cur = Math.max(0, Math.min(pageCount - 1, apiIndex));
 
+        // G17 Pack C: 進行中のドラッグ/リリーススプリングがあれば破棄する
+        // （キーボード/スライダー/タップが drag と競合した場合の防御。通常のドラッグ
+        // 確定パスは commitDrag() 側で自ら破棄してから show() を呼ぶので、ここは
+        // 二重破棄しても安全な no-op になる）。
+        cancelActiveDrag();
+
         // UI 即時更新（スライダー・カウンタ）
         const uiPage = cur + 1;
         sliderEl.value = String(uiPage);
@@ -370,32 +415,15 @@ export async function renderReader(uuid, bookId, query, deps) {
         // 読み込み完了 → インジケータを隠す
         loadingEl.classList.add("hidden");
 
-        // stage の既存コンテンツを除去して再構築（タップゾーン・loading は keep）
-        const toRemove = [];
-        for (const child of stageEl.children) {
-            const cls = child.className || "";
-            if (!cls.includes("tapzone") && !cls.includes("reader-loading")) toRemove.push(child);
-        }
-        for (const n of toRemove) stageEl.removeChild(n);
-
-        // 前ビューの URL を revoke し、今回分を保持
-        revokeDisplayed();
-        displayedURLs = made.map((m) => m.url);
-        const imgs = made.map((m) => m.img);
-
-        if (spread && imgs.length === 2) {
-            // 見開き: rtl は右に小さい apiIndex（右綴じ）
-            const spreadWrap = el("div", { class: "reader-spread" });
-            if (direction === "rtl") {
-                // 右に小さい apiIndex = imgs[0] が右、imgs[1] が左
-                spreadWrap.append(imgs[1], imgs[0]);
-            } else {
-                spreadWrap.append(imgs[0], imgs[1]);
-            }
-            stageEl.insertBefore(spreadWrap, tapLeft);
-        } else {
-            stageEl.insertBefore(imgs[0], tapLeft);
-        }
+        // 新しい view を構築してから古い curView と差し替える（用意ができるまで
+        // 旧ページを表示し続け、読み込み中の一瞬だけ黒画面になるのを避ける — 既存挙動を維持）。
+        const isSpread = spread && made.length === 2;
+        const content = buildViewNode(made.map((m) => m.img), isSpread, direction);
+        const newView = el("div", { class: "reader-view" }, [content]);
+        destroyCurView();
+        stageEl.insertBefore(newView, tapLeft);
+        curView = newView;
+        curViewURLs = made.map((m) => m.url);
 
         // 先読みエンジンに現在ページを通知
         engine.setCurrentPage(cur);
@@ -409,7 +437,11 @@ export async function renderReader(uuid, bookId, query, deps) {
         show(Number(sliderEl.value) - 1);
     });
 
-    // 13. スワイプ（タッチ）
+    // 13. スワイプ（タッチ・フォールバック）
+    // G17 Pack C: 通常時は下の 13b ポインタドラッグが 1:1 追従＋モーメンタムでページ送りを
+    // 担当するため、ここでの go() 発火は prefers-reduced-motion: reduce のときだけに絞る
+    // （13b はドラッグ追従を丸ごと無効化するため、reduced-motion では旧来のこのフォールバックが
+    // 唯一のタッチスワイプ導線になる。両方を常時有効にすると同一ジェスチャで二重ページ送りになる）。
     let touchStartX = null;
     let touchStartY = null;
     stageEl.addEventListener("touchstart", (e) => {
@@ -424,6 +456,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         const dy = e.changedTouches[0].clientY - touchStartY;
         touchStartX = null;
         touchStartY = null;
+        if (!reducedMotion) return;   // 通常時は 13b のポインタドラッグに委ねる
         // 縦方向が支配的なら無視
         if (Math.abs(dy) > Math.abs(dx)) return;
         if (Math.abs(dx) < 40) return;
@@ -435,6 +468,250 @@ export async function renderReader(uuid, bookId, query, deps) {
             go(physicalToDir("left", direction));
         }
     }, { passive: true });
+
+    // 13b. ドラッグめくり（ポインタイベント・G17 Pack C）
+    // 1:1 追従＋速度履歴からのモーメンタム射影＋端でのラバーバンド＋触覚。
+    // anim.js の手組みスプリングを再利用（外部ライブラリ不使用）。
+    // prefers-reduced-motion: reduce のときは一切のドラッグ追従・spring を発生させない
+    // （このメディアクエリは reader 起動時に一度だけ評価。実行中の設定変更までは追わない —
+    //  他の Pack A/B 実装と同じ規約）。
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    let dragState = null;      // アクティブなドラッグの状態（非ドラッグ中は null）
+    let releaseSpring = null;  // リリース後の着地/戻りスプリング（token）
+    let settlingDs = null;     // releaseSpring が現在動かしている ds（中断時の後始末に必要）
+    let suppressClick = false; // 確定ドラッグ直後の click（tapzone）を握り潰すフラグ
+
+    /// 進行中のドラッグ/リリーススプリングを即座に破棄する（DOM 上の隣接 view を消し、
+    /// objectURL を revoke する）。curView 自体には触れない（show() 側が管理する）。
+    function destroyDrag(ds) {
+        if (!ds) return;
+        ds.alive = false;
+        if (ds.leftView) { ds.leftView.remove(); ds.leftView = null; }
+        if (ds.rightView) { ds.rightView.remove(); ds.rightView = null; }
+        for (const u of ds.leftURLs) URL.revokeObjectURL(u);
+        for (const u of ds.rightURLs) URL.revokeObjectURL(u);
+        ds.leftURLs = [];
+        ds.rightURLs = [];
+        if (curView) curView.style.willChange = "";
+    }
+
+    /// show() や teardown() から呼ぶ防御的クリーンアップ。進行中のドラッグ/スプリングを
+    /// すべて破棄し、curView を translateX(0) の静止状態に戻す。
+    /// releaseSpring.cancel() は onDone を呼ばない（anim.js の契約）ため、着地アニメ中に
+    /// 割り込まれた場合は settlingDs 経由で隣接 view の破棄を自前で行う必要がある
+    /// （でないと DOM/objectURL がリークする）。
+    function cancelActiveDrag() {
+        if (releaseSpring) { releaseSpring.cancel(); releaseSpring = null; }
+        if (settlingDs) { destroyDrag(settlingDs); settlingDs = null; }
+        if (dragState) { destroyDrag(dragState); dragState = null; }
+        if (curView) curView.style.transform = "";
+    }
+
+    /// trackX（px）を curView・左右隣接 view の transform に反映する。
+    /// leftView は -width 起点、rightView は +width 起点（G17 Pack C の設計：
+    /// 3 枠のトラックを 1 つのスカラー trackX で一体に動かす）。
+    function setTrackTransforms(ds, trackX) {
+        if (curView) curView.style.transform = trackX ? `translateX(${trackX}px)` : "";
+        if (ds.leftView) ds.leftView.style.transform = `translateX(${trackX - ds.width}px)`;
+        if (ds.rightView) ds.rightView.style.transform = `translateX(${trackX + ds.width}px)`;
+    }
+
+    /// dx（生の指の移動量）を、端でのラバーバンドを適用したトラック位置に変換する。
+    function computeTrackX(dx, ds) {
+        const w = ds.width;
+        if (dx > 0 && ds.atLeftEdge) return rubberband(dx, w);
+        if (dx < 0 && ds.atRightEdge) return -rubberband(-dx, w);
+        return dx;
+    }
+
+    /// 直近の位置履歴（約100ms窓）からリリース速度（px/s）を計算する。
+    function computeDragVelocity(ds) {
+        const h = ds.history;
+        if (h.length < 2) return 0;
+        const first = h[0], last = h[h.length - 1];
+        const dt = (last.t - first.t) / 1000;
+        if (dt <= 0) return 0;
+        return (last.x - first.x) / dt;
+    }
+
+    /// 隣接 view（左右いずれか）へ非同期にデコード済み画像を読み込む。ドラッグが既に
+    /// 終了/差し替わっていれば（ds.alive===false）objectURL だけ revoke して何もしない
+    /// （view 要素はすでに DOM から外れているので append しても無害だが、リークは防ぐ）。
+    async function loadNeighborInto(viewEl, apiIndex, ds, side) {
+        try {
+            const indices = pagesForView(apiIndex, spread, pageCount, overrides);
+            const made = await Promise.all(indices.map((i) => makeDecodedImg(i)));
+            if (!ds.alive) { for (const m of made) URL.revokeObjectURL(m.url); return; }
+            const urls = made.map((m) => m.url);
+            const content = buildViewNode(made.map((m) => m.img), spread && made.length === 2, direction);
+            viewEl.append(content);
+            if (side === "left") ds.leftURLs = urls; else ds.rightURLs = urls;
+        } catch {
+            // 読み込み失敗: プレースホルダ（黒背景）のまま。ドラッグ自体は継続させる
+            // （リリース時に show() が改めて正規のフェッチ/エラーハンドリングを行う）。
+        }
+    }
+
+    /// ヒステリシス確定の瞬間に呼ばれる。ステージ幅・隣接 apiIndex（T6b override 込みの
+    /// pagesForView/step と整合）を確定し、左右の隣接 view を DOM に並べて非同期読み込みを開始する。
+    function beginHorizontalDrag(ds) {
+        if (releaseSpring) { releaseSpring.cancel(); releaseSpring = null; }
+        ds.width = stageEl.clientWidth || 1;
+        // 物理右 = physicalToDir("right", direction) の指すページ（ltr:+1／rtl:-1）。
+        // タップゾーン（tapRight）・既存タッチスワイプと符号を完全一致させる。
+        ds.rightDir = physicalToDir("right", direction);
+        ds.leftDir = -ds.rightDir;
+        ds.rightIdx = step(cur, ds.rightDir, spread, pageCount, overrides);
+        ds.leftIdx = step(cur, ds.leftDir, spread, pageCount, overrides);
+        ds.atRightEdge = ds.rightIdx === cur;
+        ds.atLeftEdge = ds.leftIdx === cur;
+        ds.leftView = el("div", { class: "reader-view" });
+        ds.rightView = el("div", { class: "reader-view" });
+        stageEl.insertBefore(ds.leftView, tapLeft);
+        stageEl.insertBefore(ds.rightView, tapLeft);
+        if (curView) curView.style.willChange = "transform";
+        ds.leftView.style.willChange = "transform";
+        ds.rightView.style.willChange = "transform";
+        setTrackTransforms(ds, 0);
+        if (!ds.atRightEdge) loadNeighborInto(ds.rightView, ds.rightIdx, ds, "right");
+        if (!ds.atLeftEdge) loadNeighborInto(ds.leftView, ds.leftIdx, ds, "left");
+    }
+
+    /// リリース時、trackX を 0（元の位置）へスプリングで戻す/送る共通ヘルパ。
+    /// bounce=true のときだけ減衰比を下げてわずかにオーバーシュートさせる
+    /// （apple-design: フリック＝運動量を伴うジェスチャのときだけバウンスを許す）。
+    function animateTrack(ds, targetTrackX, velocity, bounce, onDone) {
+        if (releaseSpring) { releaseSpring.cancel(); releaseSpring = null; }
+        if (settlingDs && settlingDs !== ds) { destroyDrag(settlingDs); }
+        settlingDs = ds;
+        releaseSpring = spring({
+            from: ds.trackX,
+            to: targetTrackX,
+            velocity,
+            damping: bounce ? 0.8 : 1,
+            response: 0.32,   // anim.js が安定確認済みの 0.02–0.35 の範囲内
+            onUpdate: (x) => { ds.trackX = x; setTrackTransforms(ds, x); },
+            onDone: () => { releaseSpring = null; settlingDs = null; onDone(); },
+        });
+    }
+
+    /// ページ送りを確定させる: target(±width) までスプリングし、完了後に隣接/現行 view を
+    /// 破棄してから既存 show(newIdx) に収束させる（T6b override reflow・progress 書き戻し・
+    /// スライダー/カウンタ更新はすべて show() 側の既存ロジックに一本化される）。
+    function commitDrag(ds, side, velocity, flick) {
+        const w = ds.width;
+        const target = side === "right" ? -w : w;
+        const newIdx = side === "right" ? ds.rightIdx : ds.leftIdx;
+        animateTrack(ds, target, velocity, flick, () => {
+            destroyDrag(ds);
+            destroyCurView();
+            show(newIdx);
+        });
+    }
+
+    /// pointerup/pointercancel で呼ぶ着地判定。モーメンタム射影が幅の50%を超えるか、
+    /// フリック速度しきい値を超えていればページ送りを確定する。端で確定を試みた場合は
+    /// ラバーバンドを戻すだけ（巻末方向のみ既存 go() と同じ3択ダイアログに合流する）。
+    function settleDrag(ds, forceCancel) {
+        const w = ds.width;
+        const velocity = forceCancel ? 0 : computeDragVelocity(ds);
+        const trackXNow = ds.trackX;
+        const projected = trackXNow + (forceCancel ? 0 : projectMomentum(velocity));
+        const flick = !forceCancel && Math.abs(velocity) > DRAG_FLICK_VELOCITY;
+        const advanceRight = !forceCancel && (projected < -w * 0.5 || velocity < -DRAG_FLICK_VELOCITY);
+        const advanceLeft  = !forceCancel && (projected >  w * 0.5 || velocity >  DRAG_FLICK_VELOCITY);
+
+        if (advanceRight) {
+            if (ds.atRightEdge) {
+                navigator.vibrate?.(10);
+                const toEnd = ds.rightDir > 0;
+                animateTrack(ds, 0, 0, false, () => { destroyDrag(ds); if (toEnd) showEndOfBookDialog(); });
+                return;
+            }
+            navigator.vibrate?.(10);
+            commitDrag(ds, "right", velocity, flick);
+            return;
+        }
+        if (advanceLeft) {
+            if (ds.atLeftEdge) {
+                navigator.vibrate?.(10);
+                const toEnd = ds.leftDir > 0;
+                animateTrack(ds, 0, 0, false, () => { destroyDrag(ds); if (toEnd) showEndOfBookDialog(); });
+                return;
+            }
+            navigator.vibrate?.(10);
+            commitDrag(ds, "left", velocity, flick);
+            return;
+        }
+        // 閾値未達 → 元の位置へ戻す。端に突き当たっていた場合のみ触覚を鳴らす。
+        if ((trackXNow > 0 && ds.atLeftEdge) || (trackXNow < 0 && ds.atRightEdge)) navigator.vibrate?.(10);
+        animateTrack(ds, 0, velocity, false, () => destroyDrag(ds));
+    }
+
+    if (!reducedMotion) {
+        stageEl.addEventListener("pointerdown", (e) => {
+            if (e.pointerType === "mouse" && e.button !== 0) return;   // 主ボタンのみ
+            if (dragState || releaseSpring) return;                   // 多重ジェスチャ/着地中は無視
+            suppressClick = false;
+            dragState = {
+                pointerId: e.pointerId,
+                startX: e.clientX, startY: e.clientY,
+                committed: false,
+                trackX: 0,
+                width: 0,
+                history: [{ x: e.clientX, t: e.timeStamp }],
+                leftView: null, rightView: null,
+                leftURLs: [], rightURLs: [],
+                leftIdx: cur, rightIdx: cur,
+                leftDir: 0, rightDir: 0,
+                atLeftEdge: true, atRightEdge: true,
+                alive: true,
+            };
+            stageEl.setPointerCapture(e.pointerId);
+        });
+
+        stageEl.addEventListener("pointermove", (e) => {
+            const ds = dragState;
+            if (!ds || e.pointerId !== ds.pointerId) return;
+            const x = e.clientX, y = e.clientY;
+            if (!ds.committed) {
+                const dx = x - ds.startX, dy = y - ds.startY;
+                if (Math.abs(dx) < DRAG_HYSTERESIS && Math.abs(dy) < DRAG_HYSTERESIS) return;
+                if (Math.abs(dy) > Math.abs(dx)) {
+                    // 縦方向優勢 → このジェスチャはページ送りにしない（縦スクロール等に譲る）
+                    dragState = null;
+                    return;
+                }
+                ds.committed = true;
+                beginHorizontalDrag(ds);
+            }
+            ds.history.push({ x, t: e.timeStamp });
+            while (ds.history.length > 1 && e.timeStamp - ds.history[0].t > 100) ds.history.shift();
+            ds.trackX = computeTrackX(x - ds.startX, ds);
+            setTrackTransforms(ds, ds.trackX);
+            e.preventDefault();
+        });
+
+        const onDragPointerEnd = (forceCancel) => (e) => {
+            const ds = dragState;
+            if (!ds || e.pointerId !== ds.pointerId) return;
+            dragState = null;
+            try { stageEl.releasePointerCapture(e.pointerId); } catch {}
+            if (!ds.committed) return;   // ヒステリシス未確定＝タップ相当。click を正常発火させる
+            suppressClick = true;
+            settleDrag(ds, forceCancel);
+        };
+        stageEl.addEventListener("pointerup", onDragPointerEnd(false));
+        stageEl.addEventListener("pointercancel", onDragPointerEnd(true));
+
+        // 確定ドラッグ直後に tapzone の click（go()/toggleChrome()）が誤発火しないよう、
+        // capture フェーズで握り潰す（capture 段階で stopPropagation すると target の
+        // bubble リスナーまで到達しない）。
+        stageEl.addEventListener("click", (e) => {
+            if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; }
+        }, true);
+    }
 
     // 14. キーボードナビゲーション（document レベル）
     function onKeyDown(e) {
@@ -498,7 +775,8 @@ export async function renderReader(uuid, bookId, query, deps) {
         if (torn) return;
         torn = true;
         engine.stop();
-        revokeDisplayed();
+        cancelActiveDrag();   // G17 Pack C: 進行中のドラッグ/リリーススプリング・隣接 view を破棄
+        destroyCurView();
         document.removeEventListener("keydown", onKeyDown);
         document.removeEventListener("visibilitychange", onVisibilityChange);
         window.removeEventListener("pagehide", onPageHide);

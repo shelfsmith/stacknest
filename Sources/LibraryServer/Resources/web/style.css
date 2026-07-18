@@ -669,6 +669,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* G17 Pack C: 横方向のドラッグめくりは JS(Pointer Events)が処理するため、ブラウザの
+     ネイティブな横スワイプ・エッジバックジェスチャに奪われないよう縦方向だけ許可する。 */
+  touch-action: pan-y;
+}
+
+/* ---- G17 Pack C: view コンテナ（現在/隣接ページを translateX で並べる単位） ---- */
+/* show() が構築する現在 view、およびドラッグ中に左右へ並ぶ隣接 view はすべてこのクラスで
+   ステージいっぱいに重ねて配置される（tapzone z-index:2 より下、reader-loading z-index:4 より下）。 */
+.reader-view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
 }
 
 /* ---- 単頁イメージ ---- */
