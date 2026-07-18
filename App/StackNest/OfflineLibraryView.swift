@@ -8,7 +8,7 @@ import SwiftUI
 
 /// Phase 4.2b-2 Task 5: オフライン（ダウンロード済み）ライブラリの閲覧 UI。
 /// サーバ接続を一切持たず、OfflineStore + ローカルファイルのみで動作する。
-/// ダウンロード済みの本を一覧し、内蔵ビューワでオフライン再生する。
+/// ダウンロード済みの本を一覧し、内蔵ビューアでオフライン再生する。
 struct OfflineLibraryView: View {
     @State private var books: [DownloadedBook] = []
     @State private var query = ""
@@ -144,7 +144,7 @@ struct OfflineLibraryView: View {
                 Button("削除", role: .destructive) { delete(book) }
             }
         } primaryAction: { ids in
-            // ダブルクリック / Return: 先頭の選択本を開く（オフラインビューワは 1 ウィンドウ運用）。
+            // ダブルクリック / Return: 先頭の選択本を開く（オフラインビューアは 1 ウィンドウ運用）。
             if let id = ids.first, let book = books.first(where: { $0.id == id }) {
                 openOffline(book)
             }
@@ -253,7 +253,7 @@ struct OfflineLibraryView: View {
 
     // MARK: - Actions
 
-    /// オフライン保存済みの本を内蔵ビューワで開く。BookContent はローカルファイル経由。
+    /// オフライン保存済みの本を内蔵ビューアで開く。BookContent はローカルファイル経由。
     private func openOffline(_ book: DownloadedBook, resumeDirect: Bool = false) {
         // Phase 4.2c-2: 「最後に開いた本」を記録する（オフライン・サーバ側 bookID を採用）。
         LastReadTracker.shared.record(.offline(bookID: book.detail.id, title: book.detail.title))

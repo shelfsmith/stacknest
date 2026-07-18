@@ -581,7 +581,7 @@ struct RemoteLibraryView: View {
     @ViewBuilder
     private func rateTypeUnreadOpenMenu(_ book: BookListItemDTO) -> some View {
         let ids: Set<Int> = state.multiSelection.contains(book.id) ? state.multiSelection : [book.id]
-        Button("ビューワで開く") { state.openViewer(book: book) }
+        Button("ビューアで開く") { state.openViewer(book: book) }
         Menu("レート") {
             Button("レートなし") { state.setRating(ids: Array(ids), 0) }
             ForEach(1...5, id: \.self) { s in

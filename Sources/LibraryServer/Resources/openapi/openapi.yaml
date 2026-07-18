@@ -1631,4 +1631,4 @@ tags:
   - name: Labels
     description: ラベルカスタマイズ
   - name: Viewer
-    description: ビューワ（マニフェスト・ページ画像・進行状況・方向）
+    description: ビューア（マニフェスト・ページ画像・進行状況・方向）

@@ -6,7 +6,7 @@ import AppCore
 import RemoteClient
 import OSLog
 
-/// 内蔵ビューワの専用ウィンドウを管理する。1 冊の BookContent を ViewerModel で遷移し
+/// 内蔵ビューアの専用ウィンドウを管理する。1 冊の BookContent を ViewerModel で遷移し
 /// ViewerCanvasView で描画。キー処理と左右ゾーンクリック送り、HUD 自動非表示を担う。
 @MainActor
 final class ViewerWindowController: NSWindowController, NSWindowDelegate {
@@ -721,7 +721,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         let state = nv.state
         let pageCount = (try? await nv.content.pageCount) ?? 0
         // Phase 2.6b-2 T-B: 0-page ならスワップを中断し HUD ノートで通知する。
-        // 0-page の ViewerModel をインストールすると空白ビューワになるため、
+        // 0-page の ViewerModel をインストールすると空白ビューアになるため、
         // openInBuiltInViewer のガードと同じ方針で早期リターンする。
         guard pageCount > 0 else {
             isSwapping = false

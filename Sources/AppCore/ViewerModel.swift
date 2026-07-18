@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import LibraryStore
 
-/// 内蔵ビューワの表示オプション（方向・末挙動）。
+/// 内蔵ビューアの表示オプション（方向・末挙動）。
 public struct ViewerOptions: Sendable, Equatable {
     public var pageDirection: PageDirection
     public var endOfBookBehavior: EndOfBookBehavior
@@ -25,7 +25,7 @@ public enum AdvanceResult: Sendable, Equatable {
     case endNextBook  // 末尾。コントローラに次巻ロードを要求する
 }
 
-/// 内蔵ビューワの純粋ナビゲーションロジック（UI 非依存・ユニットテスト対象）。
+/// 内蔵ビューアの純粋ナビゲーションロジック（UI 非依存・ユニットテスト対象）。
 /// ページ番号は 0-based。ズーム/フィットは canvas 側 (NSScrollView) が source of truth。
 @Observable
 @MainActor

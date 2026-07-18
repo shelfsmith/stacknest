@@ -23,13 +23,13 @@ public enum HelperLauncher {
         guard let viewerPath = settings.resolvedViewerPath(for: category) else {
             return .launchFailed(
                 path: path,
-                reason: "\(category.displayName) 用の外部ビューワが未設定です。設定 (⌘,) で選択してください。"
+                reason: "\(category.displayName) 用の外部ビューアが未設定です。設定 (⌘,) で選択してください。"
             )
         }
         guard FileManager.default.fileExists(atPath: viewerPath) else {
             return .launchFailed(
                 path: path,
-                reason: "外部ビューワが見つかりません: \(viewerPath)\n設定 (⌘,) で再選択してください。"
+                reason: "外部ビューアが見つかりません: \(viewerPath)\n設定 (⌘,) で再選択してください。"
             )
         }
         let viewerURL = URL(fileURLWithPath: viewerPath)

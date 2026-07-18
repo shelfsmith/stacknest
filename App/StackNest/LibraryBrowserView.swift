@@ -729,7 +729,7 @@ struct LibraryBrowserView: View {
             NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
         }
         .disabled(!enabled)
-        Button("ビューワで開く") {
+        Button("ビューアで開く") {
             appState.openBooks([book])
         }
         .disabled(!enabled)

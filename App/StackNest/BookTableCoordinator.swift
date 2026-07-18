@@ -514,8 +514,8 @@ extension BookTableCoordinator: NSMenuDelegate {
         finderItem.representedObject = book
         menu.addItem(finderItem)
 
-        // ビューワで開く
-        let viewerItem = NSMenuItem(title: String(localized: "ビューワで開く"),
+        // ビューアで開く
+        let viewerItem = NSMenuItem(title: String(localized: "ビューアで開く"),
                                     action: #selector(openInViewerAction(_:)), keyEquivalent: "")
         viewerItem.target = self
         viewerItem.representedObject = book
@@ -631,7 +631,7 @@ extension BookTableCoordinator: NSMenuDelegate {
 
         let disabledTitles2: [String] = [
             String(localized: "Finder で表示"),
-            String(localized: "ビューワで開く"),
+            String(localized: "ビューアで開く"),
         ]
         for title in disabledTitles2 {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")

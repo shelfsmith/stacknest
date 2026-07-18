@@ -1631,7 +1631,7 @@ final class RemoteLibraryState {
         openViewer(book: dto, resumeDirect: resumeDirect)
     }
 
-    /// リモート本を内蔵ビューワで開く。BookContent は RemoteBookContent。
+    /// リモート本を内蔵ビューアで開く。BookContent は RemoteBookContent。
     func openViewer(book: BookListItemDTO, resumeDirect: Bool = false) {
         // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
         // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。

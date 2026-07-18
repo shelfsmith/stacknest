@@ -2,11 +2,11 @@
 import Foundation
 
 public extension Notification.Name {
-    /// ビューワキー割当が保存されたとき発火（ヘルプ表示などの再読込トリガ）。
+    /// ビューアキー割当が保存されたとき発火（ヘルプ表示などの再読込トリガ）。
     static let viewerKeyBindingsChanged = Notification.Name("app.shelfsmith.stacknest.viewerKeyBindingsChanged")
 }
 
-/// 内蔵ビューワの操作意図。keyDown / ゾーンクリックはこの値に解決してから実行する。
+/// 内蔵ビューアの操作意図。keyDown / ゾーンクリックはこの値に解決してから実行する。
 /// 将来 rotate / toggleSpread 等を足す拡張点。
 public enum ViewerAction: String, Codable, Sendable, CaseIterable {
     /// 論理（方向非依存）: Space / PageDown など。

@@ -93,7 +93,7 @@ struct ProgressTests {
         }
     }
 
-    /// progress 書き込みは mark-as-read（unseen=false ＋ play_date 設定）も行う（4.2a・Mac ビューワとパリティ）。
+    /// progress 書き込みは mark-as-read（unseen=false ＋ play_date 設定）も行う（4.2a・Mac ビューアとパリティ）。
     @Test func postProgressMarksAsRead() async throws {
         let fixture = try TestLibraryFixture(name: "Pr5", bookCount: 1)
         defer { fixture.cleanup() }

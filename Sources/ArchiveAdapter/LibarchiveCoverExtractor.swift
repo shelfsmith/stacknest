@@ -72,7 +72,7 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
 
     /// 指定 entry 名 (呼び出し側が listImageEntries で得た natural sort 済みの名前) の画像 Data を返す。
     /// entry が存在しなければ ArchiveAdapterError.noImageEntry を throw。
-    /// 内蔵ビューワ (Phase 2.6b) のページ取得で使用。
+    /// 内蔵ビューア (Phase 2.6b) のページ取得で使用。
     public func imageData(in url: URL, entryName: String) async throws -> Data {
         return try await Task.detached(priority: .userInitiated) {
             try Self.extractByName(from: url, targetName: entryName)
