@@ -50,4 +50,36 @@ public enum DecodeTargetMath {
         let clamped = min(max(withHeadroom, CGFloat(floorPixelSize)), CGFloat(ceilingPixelSize))
         return Int(clamped.rounded())
     }
+
+    // MARK: - G18 C4: ズーム時の再デコード（画質維持）
+
+    /// zoom=1（フィット）基準の `baseTarget`（`decodeTargetMaxPixelSize` の結果）に、現在の
+    /// canvas zoom 倍率を乗算し、ズーム後の表示に必要なデコード先ピクセルサイズを算出する。
+    ///
+    /// `scale = fitScale * zoomFactor` で描画するため、fit 時（zoomFactor=1）を基準に算出した
+    /// `baseTarget` に対して表示ピクセルは zoomFactor に比例して増える。ImageIO の thumbnail API
+    /// （`kCGImageSourceThumbnailMaxPixelSize`）は upscale しない（ネイティブ解像度を超えて
+    /// 要求しても実際の出力はネイティブ解像度に留まる）ため、ここでの「ネイティブ解像度との
+    /// min」は呼び出し側で明示的に取る必要はなく、`ceilingPixelSize` でクランプした値を
+    /// そのまま `maxPixelSize` として渡せば ImageIO 側が自然に `min(native, target)` を実現する。
+    /// - Parameters:
+    ///   - baseTarget: `decodeTargetMaxPixelSize(...)` の結果（zoomFactor 未反映）。
+    ///   - zoomFactor: canvas の現在の zoom 倍率（1.0 = フィット、それ以上が拡大）。
+    /// - Returns: `ceilingPixelSize` でクランプしたズーム込みの target。`baseTarget` が 0 以下、
+    ///   または `zoomFactor` が不正（非有限・0 以下）なら `baseTarget` をそのまま返す。
+    public static func zoomDecodeTarget(baseTarget: Int, zoomFactor: CGFloat) -> Int {
+        guard baseTarget > 0, zoomFactor.isFinite, zoomFactor > 0 else { return baseTarget }
+        let scaled = CGFloat(baseTarget) * zoomFactor
+        let clamped = min(scaled, CGFloat(ceilingPixelSize))
+        return Int(clamped.rounded())
+    }
+
+    /// 直近に要求した target（`lastTarget`）に対し、ズーム後の target（`newTarget`）が
+    /// `growthThreshold` を超えて大きくなったかを判定する。僅かな拡大では再デコードしない
+    /// （resize 再デコード同様の「成長率で判定」方式。境界での churn を避ける）。
+    /// `lastTarget`/`newTarget` が 0 以下なら常に false（判定不能・未デコード状態）。
+    public static func shouldRedecodeForZoom(lastTarget: Int, newTarget: Int, growthThreshold: CGFloat) -> Bool {
+        guard lastTarget > 0, newTarget > 0 else { return false }
+        return CGFloat(newTarget) > CGFloat(lastTarget) * growthThreshold
+    }
 }

@@ -37,6 +37,16 @@ final class ViewerCanvasView: NSView {
     /// 左右ゾーン単クリック送り。leftHalf=true なら画面左半分クリック。controller が方向解釈。
     var onZoneClick: ((_ leftHalf: Bool) -> Void)?
 
+    /// G18 C4: ズーム操作（±キー/ピンチ＝ `applyZoom` 経由）で `zoomFactor` が実際に変わるたびに
+    /// 呼ばれる。パン（`scrollWheel`/`mouseDragged`）や、ページ送りのたびに `setImages` が呼ぶ
+    /// `fitToWindow()` のリセットからは呼ばれない — controller はこれを「ユーザーが今まさに
+    /// ズーム操作をした」シグナルとして扱い、デバウンス後に高解像再デコードの要否を判定する。
+    var onZoomChanged: ((CGFloat) -> Void)?
+
+    /// G18 C4: 現在の zoom 倍率（1.0 = フィット）。controller がズーム再デコードの target 計算
+    /// （`DecodeTargetMath.zoomDecodeTarget`）に使う。読み取り専用。
+    var currentZoomFactor: CGFloat { zoomFactor }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setup()
@@ -55,6 +65,17 @@ final class ViewerCanvasView: NSView {
     func setImages(_ images: [DecodedImage]) {
         self.images = images
         fitToWindow()
+    }
+
+    /// G18 C4: ズーム再デコードで高解像度の `DecodedImage` に差し替える。`setImages` と異なり、
+    /// 現在の `zoomFactor`/`offset`（ユーザーがまさに操作しているズーム位置）を維持したまま
+    /// 画像だけ差し替える（フィットへリセットしない）。ソフト→鮮明の一瞬の差し替えなので、
+    /// ユーザーのズーム/パン位置を壊してはならない。差し替え後の画像サイズ変化（僅かな
+    /// アスペクト丸め差）に備え、offset だけ再クランプする。
+    func swapImagesPreservingZoom(_ images: [DecodedImage]) {
+        self.images = images
+        clampOffsetForCurrentScale()
+        refresh()
     }
 
     /// 各画像のサイズ（描画と幾何計算に使う）。DecodedImage.pixelSize はデコード時に確定済みの
@@ -159,6 +180,7 @@ final class ViewerCanvasView: NSView {
         if zoomFactor <= 1.0 { offset = .zero }
         clampOffsetForCurrentScale()
         refresh()
+        onZoomChanged?(zoomFactor)
     }
 
     override func magnify(with event: NSEvent) {
