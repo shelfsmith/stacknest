@@ -27,6 +27,20 @@ struct DTORoundTripTests {
         let back = try dec().decode(ManifestDTO.self, from: enc().encode(m))
         #expect(back.pageCount == 12)
         #expect(back.direction == "rtl")
+        #expect(back.pageOverrides == nil)
+    }
+
+    /// G17 T6b: pageOverrides ありの往復＋旧クライアント互換（キー無し JSON も decode できる）。
+    @Test func manifestPageOverridesRoundTripAndBackwardCompat() throws {
+        let m = ManifestDTO(pageCount: 5, direction: "ltr", format: "archive", etag: "e2", pageOverrides: ["2": 1, "4": 0])
+        let back = try dec().decode(ManifestDTO.self, from: enc().encode(m))
+        #expect(back.pageOverrides == ["2": 1, "4": 0])
+
+        // pageOverrides キー自体が無い旧サーバ形式の JSON でも decode できる（後方互換）。
+        let legacyJSON = #"{"pageCount":5,"direction":"ltr","format":"archive","etag":"e2"}"#
+        let legacy = try dec().decode(ManifestDTO.self, from: Data(legacyJSON.utf8))
+        #expect(legacy.pageOverrides == nil)
+        #expect(legacy.pageCount == 5)
     }
 
     @Test func libraryAndCapsRoundTrip() throws {

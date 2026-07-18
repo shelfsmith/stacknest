@@ -1316,18 +1316,25 @@ public struct LibraryServerCore: Sendable {
             if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
             return cacheableImageResponse(data: data, etag: etag, request: request)
         }
-        // 本のマニフェスト（ページ数・方向・形式・ETag）。
+        // 本のマニフェスト（ページ数・方向・形式・ETag・ページ単位 override）。
         // direction は実効方向（本ごと override があればその値、なければ config.defaultPageDirection）を
         // 常に返す。null を返さないことで Web リーダーがアプリ設定と同じ既定方向で開く（4.1c）。
+        // pageOverrides（G17 T6b）: book_page_layout の全行を page_index(String)→mode で返す。
+        // 1 件も無ければ nil（旧クライアント互換・ペイロード節約）。
         api.get("libraries/:lib/books/:id/manifest") { [config] request, context in
-            let (_, row) = try await resolver.resolveBook(request, context)
+            let (lib, row) = try await resolver.resolveBook(request, context)
             let content = try BookContentFactory.make(for: row)
             let pageCount = try await content.pageCount
+            let overrides = (try? lib.db.loadViewerState(bookID: row.id))?.overrides ?? [:]
+            let pageOverrides: [String: Int]? = overrides.isEmpty
+                ? nil
+                : Dictionary(uniqueKeysWithValues: overrides.map { (String($0.key), $0.value) })
             return ManifestDTO(
                 pageCount: pageCount,
                 direction: directionString(row.pageDirection ?? config.defaultPageDirection),
                 format: formatString(BookCategory.classify(path: row.path ?? "")),
-                etag: bookETag(for: row)
+                etag: bookETag(for: row),
+                pageOverrides: pageOverrides
             )
         }
         // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。
@@ -1377,6 +1384,21 @@ public struct LibraryServerCore: Sendable {
             default: throw HTTPError(.badRequest)
             }
             try lib.db.updatePageDirection(bookID: row.id, direction: dir)
+            self.notifyBookChanged(lib.uuid, row.id)
+            return HTTPResponse.Status.ok
+        }
+        // G17 T6b: 特定ページの単頁/見開き override の書き戻し（Web リーダー/ネイティブ remote-client 共用）。
+        // RW 専用（direction と異なりページ表示の恒久的な構造変更のため metadata 相当の権限を要求する）。
+        // body: {page: Int, mode: Int?}（mode 省略 or null でクリア＝自動判定に戻す）。
+        api.post("libraries/:lib/books/:id/page-layout") { [self] request, context in
+            try context.requireEdit()
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: PageLayoutRequestBody.self, context: context)
+            guard body.page >= 0 else { throw HTTPError(.badRequest) }
+            if let mode = body.mode {
+                guard mode == 0 || mode == 1 else { throw HTTPError(.badRequest) }
+            }
+            try lib.db.setPageOverride(bookID: row.id, page: body.page, mode: body.mode)
             self.notifyBookChanged(lib.uuid, row.id)
             return HTTPResponse.Status.ok
         }
@@ -1552,6 +1574,13 @@ struct ProgressRequestBody: Decodable {
 /// 方向書き込みボディ（swiftc ASTMangler 対策でファイルスコープ）。
 struct DirectionRequestBody: Decodable {
     let direction: String?
+}
+
+/// G17 T6b: ページ単位レイアウト override 書き込みボディ（swiftc ASTMangler 対策でファイルスコープ）。
+/// mode: 0=forcePair / 1=forceSolo / nil(省略含む)=クリア（自動判定に戻す）。
+struct PageLayoutRequestBody: Decodable {
+    let page: Int
+    let mode: Int?
 }
 
 /// 4.2c-9: レート更新リクエストボディ（ファイルスコープ）。role 不問（R でも可・共有評価）。

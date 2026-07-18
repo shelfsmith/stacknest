@@ -260,12 +260,17 @@ public struct ManifestDTO: Codable, Sendable {
     public let direction: String     // "rtl" | "ltr"
     public let format: String        // archive / image / folder / video / text
     public let etag: String
+    /// G17 T6b: ページ単位のレイアウト override（page_index(String) → mode(Int, 0=forcePair/1=forceSolo)）。
+    /// 後方互換のため optional・省略可。override が 1 件も無い本は nil を返す
+    /// （旧クライアントはこのキー自体を知らないので単に無視する）。
+    public let pageOverrides: [String: Int]?
 
-    public init(pageCount: Int, direction: String, format: String, etag: String) {
+    public init(pageCount: Int, direction: String, format: String, etag: String, pageOverrides: [String: Int]? = nil) {
         self.pageCount = pageCount
         self.direction = direction
         self.format = format
         self.etag = etag
+        self.pageOverrides = pageOverrides
     }
 }
 

@@ -2,7 +2,7 @@
 // StackNest Web — リーダー画面（タップ/スワイプ/キーボードナビ、見開き、progress 書き戻し）。
 // Task R4。
 
-import { fetchManifest, fetchPageBlob, postProgress, postDirection, fetchAdjacent, UnauthorizedError, NetworkError } from "./api.js";
+import { fetchManifest, fetchPageBlob, postProgress, postDirection, postPageLayout, fetchAdjacent, UnauthorizedError, NetworkError } from "./api.js";
 import { deleteBook, clearAll, purgeExpired } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
@@ -14,17 +14,40 @@ let activeReaderTeardown = null;
 
 /// 見開き or 単頁表示において、cur 位置で表示する apiIndex の配列を返す。
 /// 単頁: [apiIndex]。見開き: 次頁が存在すれば [apiIndex, apiIndex+1]、なければ [apiIndex]。
-export function pagesForView(apiIndex, spread, direction, pageCount) {
+///
+/// G17 T6b: overrides は { [apiIndex]: 0|1 }（0=forcePair/1=forceSolo、サーバの
+/// book_page_layout と同じ raw mode）。apiIndex 自身が forceSolo なら単独表示、次頁が
+/// forceSolo ならそのページを巻き込まず apiIndex 単独で表示する（forceSolo ページを常に
+/// 単独の見開きにする＝そのページの手前で組み分けが切れる）。overrides 未指定時は
+/// 従来どおり（override 無しのケースと完全に同じ結果）。
+export function pagesForView(apiIndex, spread, direction, pageCount, overrides = {}) {
     if (!spread) return [apiIndex];
+    if (overrides[apiIndex] === 1) return [apiIndex];
     const second = apiIndex + 1;
-    return second < pageCount ? [apiIndex, second] : [apiIndex];
+    if (second >= pageCount) return [apiIndex];
+    if (overrides[second] === 1) return [apiIndex];
+    return [apiIndex, second];
 }
 
 /// ナビゲーション移動後の apiIndex を返す。
-/// dir: +1(次) / -1(前)。見開き時はデルタが 2 になる。
-export function step(apiIndex, dir, spread, pageCount) {
-    const delta = (spread ? 2 : 1) * dir;
-    return Math.max(0, Math.min(pageCount - 1, apiIndex + delta));
+/// dir: +1(次) / -1(前)。見開き時は現在(前)の view の枚数分だけ移動する
+/// （override が無ければ従来どおり常に 2、override があれば pagesForView と整合する
+/// 可変幅の移動になる — G17 T6b）。
+export function step(apiIndex, dir, spread, pageCount, overrides = {}) {
+    if (!spread) return Math.max(0, Math.min(pageCount - 1, apiIndex + dir));
+    if (dir > 0) {
+        const size = pagesForView(apiIndex, spread, direction, pageCount, overrides).length;
+        return Math.max(0, Math.min(pageCount - 1, apiIndex + size * dir));
+    }
+    // 後退: 直前の view のアンカーを逆算する。pagesForView(prevPrev) が
+    // [prevPrev, prev] を返す条件（どちらも forceSolo でない）と同じ判定を使い、
+    // 前進計算と対称になるようにする（apiIndex が既に有効なアンカーである前提）。
+    const prev = apiIndex - 1;
+    if (prev < 0) return 0;
+    const prevPrev = prev - 1;
+    const pairsWithPrevPrev = prevPrev >= 0 && overrides[prevPrev] !== 1 && overrides[prev] !== 1;
+    const anchor = pairsWithPrevPrev ? prevPrev : prev;
+    return Math.max(0, Math.min(pageCount - 1, anchor));
 }
 
 // ---- メイン export -----------------------------------------------------------
@@ -72,6 +95,15 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     const { pageCount, format } = manifest;
     let direction = manifest.direction || "ltr";   // manifest は実効方向（本 override ?? アプリ既定）
+
+    // G17 T6b: ページ単位の単頁/見開き override（{ [apiIndex]: 0|1 }）。manifest.pageOverrides は
+    // { "<page>": mode } の文字列キー object なので数値キーへ正規化して読み込む
+    // （JS のプロパティアクセスは overrides[3] でも overrides["3"] でも同じキーに解決されるため、
+    // 以降は数値のまま扱ってよい）。
+    const overrides = {};
+    if (manifest.pageOverrides) {
+        for (const [k, v] of Object.entries(manifest.pageOverrides)) overrides[Number(k)] = v;
+    }
 
     // 2. resume: p は uiPage（1始まり）→ apiIndex（0始まり）に変換
     const startUi = Math.max(1, Math.min(pageCount, Number(query.p) || 1));
@@ -173,10 +205,58 @@ export async function renderReader(uuid, bookId, query, deps) {
             show(cur);
         },
     });
+
+    // G17 T6b: cur（を含む view）が見開きペア表示かどうか。ov を省略すると現在の overrides を見る
+    // （togglePageLayout が「override を外したら既定はどうなるか」を仮判定するのに ov を差し替えて使う）。
+    function pageLayoutIsPaired(apiIndex, ov = overrides) {
+        return pagesForView(apiIndex, true, direction, pageCount, ov).length === 2;
+    }
+
+    // stepOneBtn のラベル/aria を cur の実効表示（override 込み）に同期する。
+    function updatePageLayoutLabel() {
+        const paired = pageLayoutIsPaired(cur);
+        stepOneBtn.textContent = paired ? "単頁化" : "見開き化";
+        stepOneBtn.setAttribute("aria-label", paired ? "このページを単独表示にする" : "このページを見開きにする");
+    }
+
+    // 表示中ページ(cur)の単頁/見開きを反転し、ローカル反映＋サーバへ永続化する（G17 T6b）。
+    // ペア表示中なら強制単独(1)、単独表示中なら override を外して既定に戻す。既定でも
+    // 単独のまま（終端 or 次頁が forceSolo）なら強制ペア(0)を試す。それも不可（最終ページ）なら
+    // トーストのみで何もしない。
+    async function togglePageLayout() {
+        const target = cur;
+        const pairedNow = pageLayoutIsPaired(target);
+        let nextMode;
+        if (pairedNow) {
+            nextMode = 1;
+        } else {
+            const withoutOverride = { ...overrides };
+            delete withoutOverride[target];
+            if (pageLayoutIsPaired(target, withoutOverride)) {
+                nextMode = null;
+            } else if (target + 1 < pageCount) {
+                nextMode = 0;
+            } else {
+                toast("これ以上ページがありません");
+                return;
+            }
+        }
+        if (nextMode === null) delete overrides[target];
+        else overrides[target] = nextMode;
+        updatePageLayoutLabel();
+        show(target);
+        try {
+            await postPageLayout(uuid, bookId, target, nextMode);
+        } catch (e) {
+            toast("ページ表示の保存に失敗しました");
+        }
+    }
+
     const stepOneBtn = el("button", {
-        class: "reader-step-one", type: "button", text: "＋1頁",
-        "aria-label": "1ページだけ送る",
-        onClick: () => { show(Math.max(0, Math.min(pageCount - 1, cur + 1))); },
+        class: "reader-step-one", type: "button",
+        text: pageLayoutIsPaired(cur) ? "単頁化" : "見開き化",
+        "aria-label": pageLayoutIsPaired(cur) ? "このページを単独表示にする" : "このページを見開きにする",
+        onClick: () => { togglePageLayout(); },
     });
     stepOneBtn.hidden = !spread;  // 初期は見開き OFF なので非表示
     const sliderEl = el("input", {
@@ -229,7 +309,7 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 10. ナビゲーション
     function go(dir) {
-        const next = step(cur, dir, spread, pageCount);
+        const next = step(cur, dir, spread, pageCount, overrides);
         // 4.2c-11: 最終ページで次方向(dir>0)に進めない＝巻末。3択ダイアログを出す。
         if (next === cur && dir > 0) {
             showEndOfBookDialog();
@@ -251,9 +331,10 @@ export async function renderReader(uuid, bookId, query, deps) {
         sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
         counterEl.textContent = `${uiPage} / ${pageCount}`;
         titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
+        updatePageLayoutLabel();   // G17 T6b: トグルボタンの表示を cur の実効表示に同期
 
         // 描画する apiIndex 配列
-        const indices = pagesForView(cur, spread, direction, pageCount);
+        const indices = pagesForView(cur, spread, direction, pageCount, overrides);
 
         // 読み込み中インジケータを表示
         if (my === renderToken) loadingEl.classList.remove("hidden");
