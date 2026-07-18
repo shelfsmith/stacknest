@@ -266,22 +266,21 @@ struct ViewerStateTests {
     /// v17 migration adds `spread_explicit` to book_viewer_state and existing rows default to 0.
     /// Simulates a pre-v17 row (as if written by an older binary's saveViewerState) by inserting
     /// directly, then re-running migrate() and confirming the column exists with the row at 0.
-    @Test("v17 migration adds spread_explicit column, existing rows default to 0")
-    func migrationAddsSpreadExplicitDefaultingExistingRowsToZero() throws {
+    // 注: v17 の ALTER＋backfill（既存行の明示判定）そのものは、pre-v17 スキーマを直接組める
+    // MigrationV17Tests.swift（GRDB 直）で検証する。ここでは公開 API 経由の挙動のみ確認する。
+    @Test("v17: progress-only row keeps spread_explicit=0; re-migrate is idempotent")
+    func progressOnlyRowStaysNonExplicitAndMigrateIsIdempotent() throws {
         let db = try Database.openInMemory()
         try db.migrate()
         let id = try insertBook(db, title: "Pre-v17", series: nil, volume: nil)
-        // Write a row the way pre-v17 saveViewerState would have (no spread_explicit column
-        // existed yet, so simulate via the current schema but confirm the column is queryable
-        // and defaults to 0 for a row that predates any explicit-flag-aware write).
+        // progress-only writeback（updateLastPage）だけ = DEFAULT のまま。
         try db.updateLastPage(bookID: id, lastPage: 4)
         let loaded = try db.loadViewerState(bookID: id)
         #expect(loaded.hasPersistedState == true)
         #expect(loaded.spreadExplicit == false, "progress-only 行は spread_explicit=0 のまま")
-        // Re-running migrate() must be idempotent (ALTER TABLE ADD COLUMN not attempted twice).
+        // migrate() 再実行は冪等（ALTER TABLE ADD COLUMN を二度実行しない）。
         try db.migrate()
-        let loadedAgain = try db.loadViewerState(bookID: id)
-        #expect(loadedAgain.spreadExplicit == false)
+        #expect(try db.loadViewerState(bookID: id).spreadExplicit == false)
         db.close()
     }
 

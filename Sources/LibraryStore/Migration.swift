@@ -299,6 +299,12 @@ enum Migration {
         let hasColumn = info.contains { ($0["name"] as? String) == "spread_explicit" }
         if !hasColumn {
             try db.execute(sql: Tables.migrateV17AddSpreadExplicit)
+            // Backfill: `updateLastPage`(progress) の素の INSERT は列 DEFAULT の
+            // `spread_enabled=0 AND cover_offset=1` しか作れない。よって `spread_enabled=1` か
+            // `cover_offset=0` の既存行は必ず `saveViewerState`(明示保存)由来 → explicit として復元。
+            // これで「ユーザーが明示的に見開き OFF(＋cover_offset 変更)/ON にした本」の設定が
+            // 昇格で失われない（progress-only 行＝DEFAULT 一致 のみ 0 のまま＝漏れ修正を維持）。
+            try db.execute(sql: Tables.migrateV17BackfillSpreadExplicit)
         }
     }
 }
