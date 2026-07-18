@@ -761,7 +761,12 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 15. visibilitychange / pagehide で progress flush
     function onVisibilityChange() {
-        if (document.hidden) flushProgress(cur);
+        if (document.hidden) {
+            flushProgress(cur);
+            // G17 Pack C review: pointerup/pointercancel が来ないまま非表示になった場合の安全網
+            // （進行中ドラッグが mid-transform で残り、次入力まで新規ドラッグがブロックされるのを防ぐ）。
+            cancelActiveDrag();
+        }
     }
     function onPageHide() {
         flushProgress(cur);
