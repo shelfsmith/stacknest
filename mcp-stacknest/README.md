@@ -1,7 +1,7 @@
 # stacknest MCP サーバ
 
-StackNest ライブラリを MCP 経由で操作します（`stacknest` CLI を subprocess でラップします）。
-StackNest.app を起動し「設定 ▸ 共有 ▸ ローカルアクセス」が ON になっている必要があります。
+StackNest ライブラリを MCP 経由で操作します（`stacknest-cli` を subprocess でラップします）。
+StackNest.app を起動し「設定 ▸ 一般 ▸ ローカルアクセス」が ON になっている必要があります。
 
 ## セットアップ
 
@@ -47,20 +47,20 @@ MCP は起動時に次の順で `stacknest-cli` を自動解決します:
 
 ## ツール
 
-### ライブラリ・書籍（基本）
+### ライブラリと書籍（基本）
 
 - `stacknest_libraries()` — ライブラリ一覧（id/name/bookCount/locked）。
-- `stacknest_list(library, query?, limit?)` — 書籍一覧（items に id＋メタ、total に総数。limit 最大 500）。
+- `stacknest_list(library, query?, limit?)` — 書籍一覧（items に id とメタ、total に総数。limit 最大 500）。
 - `stacknest_detail(library, id)` — 書籍 1 件の全メタデータ。
 - `stacknest_facets(library, field)` — 指定フィールド（author/genre 等）の distinct 値一覧。
 - `stacknest_me()` — 接続トークンの権限情報（role/tier/scope）。
 - `stacknest_add(library, paths[], preset?)` — サーバローカルのパスを追加（in-place）。
 - `stacknest_set(library, id, title?/author?/series?/volume?/genre?/keyword_a?/keyword_b?/memo?/neta?/rating?/unseen?/book_type?/direction?)` — メタ編集。`unseen` は bool、`book_type` は整数、`direction` は `ltr`/`rtl`。
-- `stacknest_remove(library, ids[], trash?)` — 削除（破壊的・`trash=True` で実ファイルを macOS ゴミ箱へ）。
+- `stacknest_remove(library, ids[], trash?)` — 削除（破壊的、`trash=True` で実ファイルを macOS ゴミ箱へ）。
 
 ### 棚（shelf）CRUD
 
-- `stacknest_shelves(library)` — 棚（スマート棚・手動棚）一覧。
+- `stacknest_shelves(library)` — 棚（スマート棚と手動棚）一覧。
 - `stacknest_shelf_create(library, title, smart?, conditions?)` — 棚を作成。`smart=True` でスマート棚、`conditions` に条件 dict を渡す。
 - `stacknest_shelf_delete(library, shelf_id)` — 棚を削除（中身の本はライブラリに残る）。
 - `stacknest_shelf_rename(library, shelf_id, title)` — 棚をリネーム。
@@ -86,7 +86,7 @@ MCP は起動時に次の順で `stacknest-cli` を自動解決します:
 - `stacknest_import_config_global_get()` — グローバルインポート設定を取得。
 - `stacknest_import_config_global_set(auto_classify?, thick?, preset?)` — グローバルインポート設定を更新。
 
-### リンク修復・重複検出
+### リンク修復と重複検出
 
 - `stacknest_relink(library, id, new_path)` — ファイル移動後のリンク修復（本の絶対パスを更新）。
 - `stacknest_dedup_scan(library, query?)` — 重複候補を検出してリストを返す。
@@ -108,4 +108,4 @@ MCP は起動時に次の順で `stacknest-cli` を自動解決します:
 ```bash
 ./.venv/bin/python -m pytest tests/ -q
 ```
-（`cli.py` の純ロジック＝argv 組み立て・JSON パース・終了コード→例外。subprocess はモックします）
+（`cli.py` の純ロジック、すなわち argv 組み立て / JSON パース / 終了コードから例外への変換。subprocess はモックします）

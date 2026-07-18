@@ -7,7 +7,7 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
-## [0.12.0] - Unreleased — Share tokens / headless CLI & MCP / watch-folder import / remote persistent cache / external covers / remote parity wrap-up / viewer stabilization (Phases 4.2d–4.2f, C, G3, G4, G12b, G15, G16)
+## [0.12.0] - Unreleased — Share-token permissions, CLI / MCP automation, and remote-operation wrap-up (Phases 4.2d–4.2f, C, G3, G4, G12b, G15, G16)
 
 > Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07) / `v0.12.0-rc.2` (2026-07-18). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, setting an external image as a book's cover, plus a remote-parity wrap-up (watch-folder tab, admin maintenance, undo/redo) and built-in viewer stabilization.
 
