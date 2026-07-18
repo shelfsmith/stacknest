@@ -891,7 +891,14 @@ final class AppState {
     /// 本ごとの保存状態を読み、raw mode int → PageLayoutOverride に変換した ResolvedViewerState を返す。
     /// Phase 2.6b-2 T5: 本ごとの見開き設定が未保存（book_viewer_state 行なし）の場合は
     /// ViewerSettings.shared.spreadByDefault をデフォルト値として使用する。
-    /// 保存済み行がある場合はその spreadEnabled をそのまま使う（ユーザーの明示設定を尊重）。
+    /// 明示的に保存された行がある場合はその spreadEnabled をそのまま使う（ユーザーの明示設定を尊重）。
+    ///
+    /// G17 T6a: 行の存在（hasPersistedState）だけでは「ユーザーが spread を明示設定した」ことの
+    /// 証拠にならない — Web リーダーの progress writeback（`updateLastPage`）も行を作るが
+    /// spread には一切触れず、SQLite の DEFAULT（spread_enabled=0）が入るだけ。これを信用すると
+    /// Web で読んだ本がネイティブでは常に単ページ表示に見えるリークになる。よって
+    /// `spread_explicit == true`（ネイティブの明示 `saveViewerState` で立つ）のときだけ
+    /// DB の spreadEnabled を信用し、それ以外は spreadByDefault にフォールバックする。
     private static func resolvedState(for book: BookRow, database: Database?) -> ResolvedViewerState {
         guard let db = database, let stored = try? db.loadViewerState(bookID: book.id) else {
             // database が nil または throws: spreadByDefault をグローバルデフォルトとして使用。
@@ -902,10 +909,10 @@ final class AppState {
         for (page, mode) in stored.overrides {
             if let ov = PageLayoutOverride(rawValue: mode) { overrides[page] = ov }
         }
-        // Phase 2.6b-2 T5: 行が存在しない（hasPersistedState == false）場合は
+        // G17 T6a: spread_explicit == false（行なし、または progress-only 行）の場合は
         // spreadByDefault をグローバルデフォルトとして使用する。
-        // 行が存在する場合は保存済み spreadEnabled を使う（'d' キーで設定した per-book 値を尊重）。
-        let spreadEnabled = stored.hasPersistedState ? stored.spreadEnabled : ViewerSettings.shared.spreadByDefault
+        // spread_explicit == true の場合のみ保存済み spreadEnabled を使う（'d' キーで設定した値を尊重）。
+        let spreadEnabled = stored.spreadExplicit ? stored.spreadEnabled : ViewerSettings.shared.spreadByDefault
         return ResolvedViewerState(
             spreadEnabled: spreadEnabled,
             coverOffset: stored.coverOffset,

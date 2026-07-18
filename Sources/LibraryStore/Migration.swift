@@ -57,6 +57,9 @@ enum Migration {
 
         // v16 — normalize existing book text columns to NFC (one-time, flag-gated).
         try migrateV16NormalizeTextToNFCIfNeeded(db: db)
+
+        // v17 — add spread_explicit to book_viewer_state (G17 T6a), idempotent.
+        try migrateV17AddSpreadExplicitIfNeeded(db: db)
     }
 
     /// Adds `thumbnails_directory_path TEXT` to import_meta if it's not already present.
@@ -284,6 +287,18 @@ enum Migration {
                 args.append(id)
                 try db.execute(sql: "UPDATE book SET \(sets.joined(separator: ", ")) WHERE id = ?", arguments: StatementArguments(args))
             }
+        }
+    }
+
+    // MARK: - v17: distinguish explicit spread saves from progress-only rows (G17 T6a)
+
+    /// Adds `spread_explicit` column to `book_viewer_state` if not already present (v17).
+    /// See doc comment on `Tables.migrateV17AddSpreadExplicit` for the semantics.
+    private static func migrateV17AddSpreadExplicitIfNeeded(db: GRDB.Database) throws {
+        let info = try Row.fetchAll(db, sql: "PRAGMA table_info(book_viewer_state)")
+        let hasColumn = info.contains { ($0["name"] as? String) == "spread_explicit" }
+        if !hasColumn {
+            try db.execute(sql: Tables.migrateV17AddSpreadExplicit)
         }
     }
 }

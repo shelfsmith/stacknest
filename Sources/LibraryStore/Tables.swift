@@ -340,4 +340,15 @@ enum Tables {
         """
 
     static let createIndexBookSeries = "CREATE INDEX IF NOT EXISTS idx_book_series ON book(series)"
+
+    // MARK: - v17 migrations (G17 T6a: distinguish explicit spread saves from progress-only rows)
+
+    /// Adds `spread_explicit INTEGER NOT NULL DEFAULT 0` to `book_viewer_state` if not already
+    /// present (v17). Existing rows (created by either `saveViewerState` or the progress-only
+    /// `updateLastPage` path) default to 0 — i.e. "not known to be explicit" — since pre-v17 rows
+    /// cannot be told apart. Only `saveViewerState` (native explicit spread save) sets this to 1
+    /// going forward; `updateLastPage` (remote progress writeback) never touches it.
+    static let migrateV17AddSpreadExplicit = """
+        ALTER TABLE book_viewer_state ADD COLUMN spread_explicit INTEGER NOT NULL DEFAULT 0
+        """
 }
