@@ -1,7 +1,7 @@
 # stacknest MCP サーバ
 
-StackNest ライブラリを MCP 経由で操作する（`stacknest` CLI を subprocess ラップ）。
-StackNest.app を起動し「設定 ▸ 共有 ▸ ローカルアクセス」が ON である必要がある。
+StackNest ライブラリを MCP 経由で操作します（`stacknest` CLI を subprocess でラップします）。
+StackNest.app を起動し「設定 ▸ 共有 ▸ ローカルアクセス」が ON になっている必要があります。
 
 ## セットアップ
 
@@ -25,14 +25,14 @@ python3 -m venv .venv
 `<repo>` は `.../homelab/stacknest`。
 
 `STACKNEST_CLI` は**任意**（通常は不要）。
-MCP は起動時に次の順で `stacknest-cli` を自動解決する:
+MCP は起動時に次の順で `stacknest-cli` を自動解決します:
 
-1. 環境変数 `STACKNEST_CLI` が設定されていればその値を使う
-2. StackNest.app が起動時に `app.shelfsmith.stacknest` → `cli_path` へ記録した同梱 CLI の絶対パスを使う（`StackNest.app/Contents/Helpers/stacknest-cli`）
-3. PATH 上の `stacknest-cli` にフォールバック
+1. 環境変数 `STACKNEST_CLI` が設定されていればその値を使います
+2. StackNest.app が起動時に `app.shelfsmith.stacknest` → `cli_path` へ記録した同梱 CLI の絶対パスを使います（`StackNest.app/Contents/Helpers/stacknest-cli`）
+3. PATH 上の `stacknest-cli` にフォールバックします
 
-通常は StackNest.app を一度起動するだけで同梱 CLI が自動解決されるため、`STACKNEST_CLI` の設定は不要。
-カスタムパスを使いたい場合のみ `env.STACKNEST_CLI` を指定する:
+通常は StackNest.app を一度起動するだけで同梱 CLI が自動解決されるため、`STACKNEST_CLI` の設定は不要です。
+カスタムパスを使いたい場合のみ `env.STACKNEST_CLI` を指定します:
 
 ```json
 "stacknest": {
@@ -43,7 +43,7 @@ MCP は起動時に次の順で `stacknest-cli` を自動解決する:
 }
 ```
 
-登録後は Claude Code を再起動して MCP を読み込む。
+登録後は Claude Code を再起動して MCP を読み込みます。
 
 ## ツール
 
@@ -91,21 +91,21 @@ MCP は起動時に次の順で `stacknest-cli` を自動解決する:
 - `stacknest_relink(library, id, new_path)` — ファイル移動後のリンク修復（本の絶対パスを更新）。
 - `stacknest_dedup_scan(library, query?)` — 重複候補を検出してリストを返す。
 
-`library` はライブラリ名または UUID（`stacknest_libraries` で確認）。`id`/`shelf_id` は各 list/shelves ツールで取得。
+`library` はライブラリ名または UUID です（`stacknest_libraries` で確認できます）。`id`/`shelf_id` は各 list/shelves ツールで取得できます。
 
 ## ロックのセキュリティ設計
 
-`stacknest_lock_set` はパスワードを `--password-stdin` フラグで受け取る CLI モードを使用する。
-パスワード文字列は `subprocess.run(..., input=password)` で **stdin** として渡し、プロセスリスト（`ps aux` 等）に露出しない。
+`stacknest_lock_set` はパスワードを `--password-stdin` フラグで受け取る CLI モードを使用します。
+パスワード文字列は `subprocess.run(..., input=password)` で **stdin** として渡すため、プロセスリスト（`ps aux` 等）に露出しません。
 
 ## 接続先
 
-接続先は CLI が同一 Mac の UserDefaults（`app.shelfsmith.stacknest`）から自動検出する。
-リモート等を使う場合は `STACKNEST_URL` / `STACKNEST_TOKEN` を env に設定すれば CLI へ透過する。
+接続先は CLI が同一 Mac の UserDefaults（`app.shelfsmith.stacknest`）から自動検出します。
+リモート等を使う場合は `STACKNEST_URL` / `STACKNEST_TOKEN` を env に設定すれば CLI へ透過します。
 
 ## テスト
 
 ```bash
 ./.venv/bin/python -m pytest tests/ -q
 ```
-（`cli.py` の純ロジック＝argv 組み立て・JSON パース・終了コード→例外。subprocess はモック）
+（`cli.py` の純ロジック＝argv 組み立て・JSON パース・終了コード→例外。subprocess はモックします）
