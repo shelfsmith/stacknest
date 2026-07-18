@@ -264,6 +264,7 @@ Development proceeds in incremental phases. Summary:
 | **2.8** | **Library safety** (relink missing files, DB auto-backup + integrity check, NFC normalization fix) | ✅ Done |
 | **2.9** | **DB repair** (in-app `.recover` to salvage data from a corrupt DB, with recovered-count prompt) | ✅ Done |
 | 4.0+ | Server / client (sharing server, web browser / reader, native client, offline download, **share tokens** [read / edit / admin × scope], **remote editing** [metadata / stamps / cover: page selection, crop, **external image as cover** / remote add & delete / **undo & redo** (⌘Z / ⌘⇧Z)], **persistent on-disk cache for remote viewing + prefetch + server-tracking cover cache**, screen-size-aware image delivery, **watch-folder auto-import** (now under the Import tab), **built-in viewer instance management** (prevents duplicate windows; "Allow multiple viewer windows" setting), **undo fidelity** (never clobbers concurrent edits; trash-delete undo also restores the file), list auto-scrolls to top when filtering, **security hardening** (closed an arbitrary-file-move path via remote restore), **local access (CLI `stacknest-cli` / MCP `mcp-stacknest` / OpenAPI + Redoc)** — remote parity implementation complete as of the v0.12.0 RC) | ✅ Done |
+| 5.0+ | **Headless / Docker support** (run the sharing server without StackNest.app — always-on, containerized distribution, deployment / config hardening) | ⏳ planned |
 
 Legend: ✅ done / 🔄 in progress / ⏳ planned / 🔭 future
 
