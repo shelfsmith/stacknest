@@ -37,6 +37,10 @@ export async function renderReader(uuid, bookId, query, deps) {
     const maxw = 1600;
     const book = `${uuid}|${bookId}`;
 
+    // 「戻る」先 hash。books.js openAt() が付与した from=（開いた時点の絞り込み一覧 hash）を
+    // 優先し、直リンク/不正値のときのみ従来の #/lib/<uuid> にフォールバックする（G17 T2）。
+    const backHash = resolveBackHash(uuid, query);
+
     // 前インスタンスが残っていれば掃除（多重マウント防止）
     if (activeReaderTeardown) { try { activeReaderTeardown(); } catch {} activeReaderTeardown = null; }
 
@@ -48,7 +52,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         if (e instanceof UnauthorizedError) return; // api.js が #/pair へ遷移済み
         if (e instanceof NetworkError) {
             toast("サーバに接続できません");
-            location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+            location.hash = backHash;
             return;
         }
         if (e && e.status === 404) {
@@ -62,7 +66,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             return;
         }
         toast(e.message || "読み込みに失敗しました");
-        location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+        location.hash = backHash;
         return;
     }
 
@@ -268,7 +272,7 @@ export async function renderReader(uuid, bookId, query, deps) {
                 return; // 中断は正常系
             } else {
                 toast("ページを読み込めませんでした");
-                location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+                location.hash = backHash;
                 teardown();
             }
             return;
@@ -435,9 +439,11 @@ export async function renderReader(uuid, bookId, query, deps) {
     activeReaderTeardown = teardown;
 
     // 18. 戻る導線（flush は teardown 内の 1 回に集約、goBack での二重送信を排除）
+    // ヘッダ戻る/Esc/巻末「本を閉じる」はすべてこの goBack() を通るため、
+    // backHash（from= があればその一覧 hash、なければ #/lib/<uuid>）が一貫して使われる（G17 T2）。
     function goBack() {
         teardown();   // teardown 内で flushProgress(cur) を実行
-        location.hash = `#/lib/${encodeURIComponent(uuid)}`;
+        location.hash = backHash;
     }
 
     // 4.2c-11: 巻末（最終ページで次送り）の3択ダイアログ。次の巻へ / 先頭へ / 本を閉じる。
@@ -473,7 +479,9 @@ export async function renderReader(uuid, bookId, query, deps) {
         const last = book.lastPage ?? 0;
         const gotoVolume = (p) => {
             teardown();
-            location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${p}`;
+            // 元の一覧 hash（backHash）を次巻の reader にも引き継ぐ。多巻読みでも
+            // 最終的な「戻る」は最初に開いたときの絞り込み一覧へ戻る（G17 T2）。
+            location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${p}&from=${encodeURIComponent(backHash)}`;
         };
         if (last > 0) {
             const overlay = el("div", { class: "reader-dialog-overlay" });
@@ -620,4 +628,23 @@ export async function renderReader(uuid, bookId, query, deps) {
 
 function escapeRegExp(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/// リーダーの「戻る」先 hash を解決する（G17 T2）。
+/// query.from は books.js openAt() が付与した、リーダーを開いた時点の一覧 hash
+/// （絞り込み・検索・並び順・facet 選択を含む）。app.js の parseRoute() が hash の
+/// 各クエリ値をすでに一段 decodeURIComponent 済みなので、ここで再デコードしてはいけない
+/// （二重デコードすると検索語に含まれる "%" や "&" を含む値が壊れる — 実測で確認済み）。
+/// from が無い（直リンク/旧リンク）か想定外の形なら、従来どおり #/lib/<uuid> にフォールバックする。
+export function resolveBackHash(uuid, query) {
+    const fallback = `#/lib/${encodeURIComponent(uuid)}`;
+    const from = query && query.from;
+    if (typeof from !== "string" || from.length === 0) return fallback;
+    try {
+        // "#/lib/<何か>"（クエリ付き可）の形だけを受け付ける安全弁。
+        if (/^#\/lib\/[^/]+(\?.*)?$/.test(from)) return from;
+    } catch {
+        // 想定外の値は下のフォールバックへ
+    }
+    return fallback;
 }

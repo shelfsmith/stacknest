@@ -7,7 +7,7 @@ import {
     listLibraries, unlockLibrary, UnauthorizedError, NetworkError,
 } from "./api.js";
 import { renderBooks } from "./books.js";
-import { renderReader } from "./reader.js";
+import { renderReader, resolveBackHash } from "./reader.js";
 import { stopLiveSync } from "./livesync.js";
 
 const appEl = () => document.getElementById("app");
@@ -270,7 +270,7 @@ function consumePairingToken() {
 function init() {
     backBtn().addEventListener("click", () => {
         const r = parseRoute();
-        if (r.name === "read") location.hash = `#/lib/${encodeURIComponent(r.uuid)}`;
+        if (r.name === "read") location.hash = resolveBackHash(r.uuid, r.query);
         else if (r.name === "lib") location.hash = "#/libraries";
         else location.hash = "#/libraries";
     });
