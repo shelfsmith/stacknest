@@ -141,6 +141,58 @@ struct RemotePageCacheTests {
         #expect(await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 99, maxw: 800).isEmpty)
     }
 
+    // G17 T1: HIT パス高速化（WAL/deferred atime/in-mem blob）の回帰確認。
+
+    @Test func consecutiveHitsDoNotWriteAtimeSynchronously() async throws {
+        let clock = Box<Int64>(1000)
+        let cache = RemotePageCache(baseDirectory: tempDir(), limitBytes: 0, maxAgeSeconds: 0, now: { clock.v })
+        _ = try await cache.data(for: key(0)) { Data(count: 10) }   // MISS(store): pendingAtime は確定済みでクリア
+        #expect(await cache.debugPendingAtimeKeys().isEmpty)
+        clock.v += 5
+        _ = try await cache.data(for: key(0)) { Issue.record("expected cache hit"); return Data() }   // HIT
+        clock.v += 5
+        _ = try await cache.data(for: key(0)) { Issue.record("expected cache hit"); return Data() }   // HIT
+        // 連続 HIT は pendingAtime に蓄積されるのみ（同期 UPDATE は発生しない）。
+        #expect(await cache.debugPendingAtimeKeys() == [key(0).string])
+    }
+
+    @Test func evictionRespectsRecencyAfterDeferredAtimeHits() async throws {
+        let clock = Box<Int64>(1000)
+        let cache = RemotePageCache(baseDirectory: tempDir(), limitBytes: 250, maxAgeSeconds: 0, now: { clock.v })
+        _ = try await cache.data(for: key(0)) { Data(count: 100) }; clock.v += 10   // page0 atime=1000
+        _ = try await cache.data(for: key(1)) { Data(count: 100) }; clock.v += 10   // page1 atime=1010
+        // page0 を HIT（最近使った扱いにする）。この時点では pendingAtime に溜まるのみで DB 未反映。
+        _ = try await cache.data(for: key(0)) { Issue.record("expected cache hit"); return Data() }
+        clock.v += 10
+        // page2 追加で容量超過(300>250) → evictToLimit が走る。deferred atime を flush してから
+        // ORDER BY atime するはずなので、直近 HIT した page0 ではなく page1 が退避されるべき。
+        _ = try await cache.data(for: key(2)) { Data(count: 100) }
+        let fetched0 = Box(false), fetched1 = Box(false)
+        _ = try await cache.data(for: key(0)) { fetched0.v = true; return Data(count: 100) }
+        _ = try await cache.data(for: key(1)) { fetched1.v = true; return Data(count: 100) }
+        #expect(!fetched0.v)   // page0 は直前 HIT の deferred atime が反映され残存
+        #expect(fetched1.v)    // page1 が真の最古として退避され再フェッチが必要
+    }
+
+    @Test func explicitFlushPersistsAtimeToDatabase() async throws {
+        let clock = Box<Int64>(1000)
+        let cache = RemotePageCache(baseDirectory: tempDir(), limitBytes: 250, maxAgeSeconds: 0, now: { clock.v })
+        _ = try await cache.data(for: key(0)) { Data(count: 100) }; clock.v += 10
+        _ = try await cache.data(for: key(1)) { Data(count: 100) }; clock.v += 10
+        _ = try await cache.data(for: key(0)) { Issue.record("expected cache hit"); return Data() }   // HIT: pending に溜まる
+        #expect(await cache.debugPendingAtimeKeys() == [key(0).string])
+        await cache.flush()
+        #expect(await cache.debugPendingAtimeKeys().isEmpty)   // flush 後は pending が空
+        clock.v += 10
+        // flush 済みの atime が DB に永続化されていることを、後続の eviction の LRU 順序で確認する。
+        _ = try await cache.data(for: key(2)) { Data(count: 100) }   // 容量超過 → evictToLimit
+        let fetched0 = Box(false), fetched1 = Box(false)
+        _ = try await cache.data(for: key(0)) { fetched0.v = true; return Data(count: 100) }
+        _ = try await cache.data(for: key(1)) { fetched1.v = true; return Data(count: 100) }
+        #expect(!fetched0.v)   // flush 済みの新しい atime のおかげで page0 は残存
+        #expect(fetched1.v)    // page1 が退避される
+    }
+
     @Test func keyVersionChangesStringAndIsBackwardCompatibleWhenNil() {
         let sid = UUID(uuidString: "00000000-0000-0000-0000-0000000000AA")!
         // version nil はページ用＝現行キー文字列と完全一致（後方互換）
