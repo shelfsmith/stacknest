@@ -598,7 +598,7 @@ function materializeCover(img) {
     img.classList.add("cover-materialize");
     const reveal = () => img.classList.add("cover-ready");
     if (typeof img.decode === "function") {
-        img.decode().then(reveal, reveal);
+        try { img.decode().then(reveal, reveal); } catch { reveal(); }
     } else {
         reveal();
     }
