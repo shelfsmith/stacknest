@@ -43,6 +43,21 @@ public actor RemotePageCache {
     private var protectedByOwner: [ObjectIdentifier: Set<String>] = [:]
     private let queue: DatabaseQueue
     private let fm = FileManager.default
+    // G17 T1: HIT パスの高速化。
+    // - pendingAtime: readHit() で atime を同期 UPDATE せず、ここに溜める（key.string -> atime）。
+    //   実体化（flush）は evictToLimit/evictExpired の先頭（eviction 判定前）と、公開 flush()
+    //   （アプリ終了フックからの best-effort 呼び出し）で行う。eviction は必ず flush 後に
+    //   ORDER BY atime するため、direct-evict 経路の LRU 順序は常に最新の pending 分を反映する。
+    //   プロセスクラッシュ等で未 flush のまま失われた場合は該当 key の atime が旧値のまま残るのみ
+    //   （最悪でも「本来より古く見えて先に退避されうる」程度の劣化。best-effort cache の許容範囲）。
+    private var pendingAtime: [String: Int64] = [:]
+    // L1: プロセス内メモリ blob キャッシュ（SQLite/ファイル I/O を完全スキップする前段）。
+    // key は Key.string。totalCostLimit はバイト数換算の目安（NSCache は保証ではなくヒント）。
+    private let blobMemCache: NSCache<NSString, NSData> = {
+        let c = NSCache<NSString, NSData>()
+        c.totalCostLimit = 64 * 1024 * 1024
+        return c
+    }()
 
     public init(baseDirectory: URL? = nil,
                 limitBytes: Int64 = 2 * 1024 * 1024 * 1024,
@@ -61,13 +76,16 @@ public actor RemotePageCache {
         try? FileManager.default.createDirectory(at: blobsDir, withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
         // 索引 DB。失敗時はメモリ DB にフォールバック（best-effort・当該セッションは L2 永続化が効かない）。
+        // G17 T1: WAL + synchronous=NORMAL で HIT/MISS 双方の SQLite トランザクションを軽量化する
+        // （ロールバックジャーナルの毎回 fsync を避ける。クラッシュ時の耐久性は best-effort cache
+        //   なので妥協可＝deleteBook 等の破損時は reconcile() が孤立行/孤立 blob を掃除する）。
         let dbURL = base.appendingPathComponent("index.sqlite")
         let q: DatabaseQueue
-        if let disk = try? DatabaseQueue(path: dbURL.path) {
+        if let disk = try? DatabaseQueue(path: dbURL.path, configuration: Self.makeConfiguration()) {
             q = disk
         } else {
             Self.logger.error("disk index open failed at \(dbURL.path, privacy: .public) — falling back to in-memory (L2 persistence disabled this session)")
-            q = (try? DatabaseQueue()) ?? { fatalError("RemotePageCache: in-memory DatabaseQueue failed") }()
+            q = (try? DatabaseQueue(configuration: Self.makeConfiguration())) ?? { fatalError("RemotePageCache: in-memory DatabaseQueue failed") }()
         }
         self.queue = q
         try? q.write { db in
@@ -108,6 +126,7 @@ public actor RemotePageCache {
 
     public func evictToLimit() {
         guard limitBytes > 0 else { return }
+        flushPendingAtime()   // ORDER BY atime の前に確定させる（deferred atime を反映した正しい LRU 順）
         var total = totalBytes()
         guard total > limitBytes else { return }
         let protectedUnion = protectedByOwner.values.reduce(into: Set<String>()) { $0.formUnion($1) }
@@ -125,6 +144,7 @@ public actor RemotePageCache {
 
     public func evictExpired() {
         guard maxAgeSeconds > 0 else { return }
+        flushPendingAtime()   // WHERE atime < cutoff の前に確定させる（deferred atime を反映）
         let cutoff = now() - maxAgeSeconds
         let rows = (try? queue.read { db in
             try Row.fetchAll(db, sql: "SELECT key, file FROM entries WHERE atime < ?", arguments: [cutoff])
@@ -170,6 +190,8 @@ public actor RemotePageCache {
         try? queue.write { db in try db.execute(sql: "DELETE FROM entries") }
         try? fm.removeItem(at: blobsDir)
         try? fm.createDirectory(at: blobsDir, withIntermediateDirectories: true)
+        pendingAtime.removeAll()
+        blobMemCache.removeAllObjects()
     }
 
     public func reconcile() {
@@ -194,7 +216,40 @@ public actor RemotePageCache {
         evictExpired()
     }
 
+    /// アプリ終了フック等から呼ぶ best-effort フラッシュ。pendingAtime を DB へ反映する。
+    /// 非同期 fire-and-forget（`Task { await RemotePageCache.shared.flush() }`）で呼ばれる場合、
+    /// プロセス終了と競合し得るため完了は保証されない（best-effort cache の許容範囲）。
+    public func flush() {
+        flushPendingAtime()
+    }
+
+    /// テスト観測用（internal＝`@testable import` からのみ到達可能。非 public API）。
+    /// pendingAtime に溜まっている key を返す（HIT パスが同期 DB write をしていないことの確認用）。
+    func debugPendingAtimeKeys() -> Set<String> { Set(pendingAtime.keys) }
+
     // MARK: - 内部
+
+    private static func makeConfiguration() -> Configuration {
+        var config = Configuration()
+        config.prepareDatabase { db in
+            try db.execute(sql: "PRAGMA journal_mode = WAL")
+            try db.execute(sql: "PRAGMA synchronous = NORMAL")
+        }
+        return config
+    }
+
+    /// pendingAtime の内容を 1 トランザクションで DB へ反映してクリアする。
+    /// 呼び出し元: evictToLimit/evictExpired（eviction 判定の直前・必須）／flush()（best-effort）。
+    private func flushPendingAtime() {
+        guard !pendingAtime.isEmpty else { return }
+        let snapshot = pendingAtime
+        pendingAtime.removeAll(keepingCapacity: true)
+        try? queue.write { db in
+            for (key, atime) in snapshot {
+                try db.execute(sql: "UPDATE entries SET atime = ? WHERE key = ?", arguments: [atime, key])
+            }
+        }
+    }
 
     private func fileName(for key: Key) -> String {
         let hash = SHA256.hash(data: Data(key.string.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -202,6 +257,12 @@ public actor RemotePageCache {
     }
 
     private func readHit(_ key: Key) -> Data? {
+        // L1: メモリ blob キャッシュにあれば SQLite/ファイル I/O を完全スキップ。
+        if let cached = blobMemCache.object(forKey: key.string as NSString) {
+            pendingAtime[key.string] = now()
+            return cached as Data
+        }
+        // L2 HIT パス: SELECT + blob 読みのみ（同期 atime UPDATE は行わない＝pendingAtime に蓄積）。
         guard let row = ((try? queue.read({ db in
             try Row.fetchOne(db, sql: "SELECT bytes, file FROM entries WHERE key = ?", arguments: [key.string])
         })) ?? nil) else { return nil }
@@ -211,9 +272,8 @@ public actor RemotePageCache {
             removeRowAndBlob(key: key.string, file: file)   // 破損 → miss
             return nil
         }
-        try? queue.write { db in
-            try db.execute(sql: "UPDATE entries SET atime = ? WHERE key = ?", arguments: [now(), key.string])
-        }
+        pendingAtime[key.string] = now()
+        blobMemCache.setObject(data as NSData, forKey: key.string as NSString, cost: data.count)
         return data
     }
 
@@ -232,6 +292,8 @@ public actor RemotePageCache {
                     ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes, atime=excluded.atime, file=excluded.file
                     """, arguments: [key.string, key.book, key.kind.rawValue, Int64(data.count), now(), file])
             }
+            pendingAtime.removeValue(forKey: key.string)   // 新規 write の atime は上で確定済み
+            blobMemCache.setObject(data as NSData, forKey: key.string as NSString, cost: data.count)
         } catch {
             try? fm.removeItem(at: tmp)   // best-effort
         }
@@ -240,5 +302,7 @@ public actor RemotePageCache {
     private func removeRowAndBlob(key: String, file: String) {
         try? queue.write { db in try db.execute(sql: "DELETE FROM entries WHERE key = ?", arguments: [key]) }
         try? fm.removeItem(at: blobsDir.appendingPathComponent(file))
+        pendingAtime.removeValue(forKey: key)
+        blobMemCache.removeObject(forKey: key as NSString)
     }
 }

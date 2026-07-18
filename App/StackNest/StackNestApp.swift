@@ -1142,6 +1142,9 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを停止する。
         LocalControlController.shared.stop()
         LibraryOpenLockManager.shared.releaseAll()
+        // G17 T1: L2 リモートキャッシュの deferred atime を best-effort でフラッシュする。
+        // fire-and-forget（プロセス終了と競合し得るため完了は保証されない）。
+        Task { await RemotePageCache.shared.flush() }
     }
 }
 
