@@ -89,13 +89,29 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var resizeRedecodeTimer: Timer?
     /// リサイズ再デコードのデバウンス遅延（秒）。
     private let resizeRedecodeDebounce: TimeInterval = 0.2
-    /// 現在デコード済みのページの実ピクセルサイズに対して、新しい target がこの倍率を超えて
-    /// 大きくなった場合のみ再デコードする（僅かな拡大では再デコードしない）。
+    /// 直近に「要求した」デコード target（`maxPixelSize`）をページ単位で記録する。
+    /// G18 C3 review Critical/#4 fix: `kCGImageSourceThumbnailMaxPixelSize` は upscale しないため、
+    /// 低解像度ソースは要求 target より小さい実ピクセルサイズにしかならない。この実ピクセルサイズを
+    /// 成長判定の基準にすると「毎回 target > 実サイズ」が真になり続け、リサイズ拡大のたびに
+    /// 際限なく再デコード（特に RemoteBookContent ではネットワーク再フェッチ）が発生してしまう。
+    /// 代わりに「最後に要求した target」を基準にする。実際にデコード要求を発行した箇所
+    /// （`loadCurrentPage`/`pumpPrefetch`/`checkAndRedecodeForResize`）でのみ更新し、
+    /// キャッシュヒット（新規デコードなし）では触らない。
+    private var lastDecodeTarget: [Int: Int] = [:]
+    /// 現在要求済みの target に対して、新しい target がこの倍率を超えて大きくなった場合のみ
+    /// 再デコードする（僅かな拡大では再デコードしない）。
     private let resizeRedecodeGrowthThreshold: CGFloat = 1.15
-    /// G18 C3: リサイズ再デコードの世代カウンタ。短時間に複数回リサイズが確定すると複数の
-    /// off-main 再デコード Task が並走しうるため、完了時にこの値で最新世代かどうかを判定し、
-    /// 古い（解像度の低い）再デコード結果が新しい結果を上書きしてしまうのを防ぐ。
-    private var resizeRedecodeGeneration = 0
+    /// G18 C3 review Critical fix: コンテンツ/表示の「世代」を表す単一の monotonic ガード。
+    /// 巻スワップ (`performSwap`/`loadVolume`)・新しい現在ページ読み込みの開始 (`loadCurrentPage`)・
+    /// リサイズ再デコードの開始 (`checkAndRedecodeForResize`) のいずれかが起きるたびに増分する。
+    /// 現在ページの画像を `prefetch`/`canvas.setImages` へ書き込む非同期 Task はすべて、
+    /// await 前にこの値をキャプチャし、await 後に `loadGeneration` が一致する場合のみ書き込む。
+    /// これにより「最後に開始された現在ページ描画が勝つ」という単一の不変条件が成立し、
+    /// 巻スワップ後に古い本の Task が新しい本へ誤って書き込む競合（旧 `resizeRedecodeGeneration`
+    /// は世代を切替時にバンプしておらず、`currentSpreadIndex` は新旧モデルで偶然一致しうる
+    /// 生の Int だったため防げなかった）と、リサイズ再デコード Task と通常ロード Task が
+    /// 互いを上書きし合う競合の両方を単一の仕組みで閉じる。
+    private var loadGeneration = 0
 
     init(
         content: BookContent,
@@ -323,6 +339,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// ページ集合が変わった場合のみ 1 回だけ再ロードする（画像はキャッシュ済みなので再デコードは起きず、
     /// 2 周目は同じ向きを記録 → 再構築なし → 収束する）。
     private func loadCurrentPage() {
+        // G18 C3 review Critical fix: 新しい現在ページ描画の開始として世代をバンプする。
+        // これにより、この呼び出しより前に開始された古い loadCurrentPage/checkAndRedecodeForResize
+        // の Task は（await から戻った時点で）確実に自分が古い世代だと判定できる。
+        loadGeneration += 1
+        let gen = loadGeneration
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         let pages = currentSpreadPages()
         guard !pages.isEmpty else { canvas.setImages([]); updateHUD(); return }
@@ -346,11 +367,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                     imgs.append(cached)
                 } else if let img = await Self.loadImage(content: self.content, page: p, maxPixelSize: maxPixelSize) {
                     self.prefetch[p] = img
+                    self.lastDecodeTarget[p] = maxPixelSize
                     imgs.append(img)
                 }
             }
-            // 読み込み中にユーザーが別見開きへ移動していたら差し替えない。
-            guard self.model.currentSpreadIndex == token else { return }
+            // G18 C3 review Critical fix: 世代ガードが主。currentSpreadIndex は補助的な追加チェック
+            // （通常は世代とセットで変化するが、念のため両方確認する）。
+            guard self.loadGeneration == gen, self.model.currentSpreadIndex == token else { return }
             self.canvas.setImages(imgs)
             self.updateHUD()
             self.recordOrientationsThenMaybeReload(displayedPages: pages, images: imgs)
@@ -417,6 +440,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             let content = self.content
             prefetchToken += 1
             let token = prefetchToken
+            // G18 C3 review Critical fix: 現世代を await 前にキャプチャし、完了時に一致するときだけ
+            // prefetch へ書き込む（巻スワップ/新しい現在ページ読み込みで世代が進んでいたら破棄）。
+            let gen = loadGeneration
             // 自分の token に一致するときだけエントリを除去（別 Task に置換済みなら触らない）。
             let removeIfMine: () -> Void = { [weak self] in
                 guard let self, self.inFlightPrefetch[page]?.token == token else { return }
@@ -426,8 +452,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 let img = await Self.loadImage(content: content, page: page, maxPixelSize: maxPixelSize)
                 guard let self else { return }
                 if Task.isCancelled { removeIfMine(); return }
-                if let img {
+                if self.loadGeneration == gen, let img {
                     self.prefetch[page] = img
+                    self.lastDecodeTarget[page] = maxPixelSize
                     // プリフェッチ済み画像からも向きを学習する（前方の横長ページへ進んだ時点で既に正しい配置）。
                     self.recordOrientation(page: page, image: img)
                     self.trimL1(around: self.model.currentPage)
@@ -477,11 +504,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// window/backingScaleFactor が未取得（レイアウト前等）のときは `DecodeTargetMath` 側の
     /// フォールバックへ委ねる。MainActor 上（canvas/window に触れられる場所）で呼び、
     /// 結果の Int だけを off-main の `loadImage` へ渡す（decode 自体は依然 off-main のまま）。
+    ///
+    /// G18 C3 review Important #3 fix: `isSpread` は `model.displayMode == .spread` ではなく、
+    /// 「現在の見開きが実際に 2 ページで構成されているか」で判定する。表紙・T6b 系の強制単独・
+    /// 末尾の余りページなど、見開きモード中でも 1 ページだけの見開きは canvas 全幅で描画される
+    /// ため、モードだけで半幅判定すると過小デコード（表紙がぼやける）になる。
     private func decodeTargetMaxPixelSize() -> Int {
         DecodeTargetMath.decodeTargetMaxPixelSize(
             canvasSize: canvas.bounds.size,
             backingScaleFactor: window?.backingScaleFactor ?? 2.0,
-            isSpread: model.displayMode == .spread
+            isSpread: currentSpreadPages().count == 2
         )
     }
 
@@ -741,6 +773,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                             hudPrefix: String, noVolumeNote: String) {
         guard !isSwapping else { return }
         isSwapping = true
+        // G18 C3 review Critical fix: 解決 await の間に完了しうる古い Task（旧巻の loadCurrentPage/
+        // checkAndRedecodeForResize 等）を、この時点で既に「古い世代」として無効化しておく。
+        loadGeneration += 1
         persistCurrent()                 // 旧巻の最終状態を保存（解決前に確定）
         let cur = book
         Task { [weak self] in
@@ -773,6 +808,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         // ここから content-swap と model-install の間に suspension は無い（atomic swap）。
+        // G18 C3 review Critical fix: 巻/コンテンツの切替そのものとして世代を再度バンプする
+        // （loadVolume 冒頭で既に 1 回バンプ済みだが、ここでも念のため進める。monotonic なので
+        // 二重バンプは無害）。以後に完了する旧世代の Task は書き込みガードで確実に弾かれる。
+        loadGeneration += 1
         // 旧巻の先読みを止める（保護 owner は同一ビューアなので clear 不要・次 recompute で更新）。
         for (_, e) in inFlightPrefetch { e.task.cancel() }
         inFlightPrefetch.removeAll()
@@ -784,6 +823,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         overrides = state.overrides
         orientations = [:]
         prefetch.removeAll()
+        lastDecodeTarget.removeAll()
         let newModel = ViewerModel(pageCount: pageCount, options: options)
         newModel.setCoverOffset(state.coverOffset)
         newModel.setDisplayMode(state.spreadEnabled ? .spread : .single)
@@ -923,9 +963,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         cacheCoverageTimer = nil
         resizeRedecodeTimer?.invalidate()
         resizeRedecodeTimer = nil
-        // 世代を進めて、close 前に開始済みの再デコード Task が完了時に (生きていても) 何もしないよう保証する。
-        resizeRedecodeGeneration += 1
+        // 世代を進めて、close 前に開始済みの loadCurrentPage/再デコード Task が完了時に
+        // (生きていても) prefetch/canvas へ書き込まないよう保証する。
+        loadGeneration += 1
         prefetch.removeAll()
+        lastDecodeTarget.removeAll()
         for (_, e) in inFlightPrefetch { e.task.cancel() }
         inFlightPrefetch.removeAll()
         remotePrefetch?.clearProtection()
@@ -970,21 +1012,28 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         guard !isSwapping else { return }
         let pages = currentSpreadPages()
         guard !pages.isEmpty else { return }
-        let currentDecodedMax = pages.compactMap { prefetch[$0] }
-            .map { max($0.pixelSize.width, $0.pixelSize.height) }
-            .max() ?? 0
-        guard currentDecodedMax > 0 else { return }
+        // G18 C3 review Important #4 fix: 実際にデコードされたピクセルサイズ（`prefetch[$0].pixelSize`）
+        // ではなく、最後に「要求した」target（`lastDecodeTarget`）を成長判定の基準にする。
+        // `kCGImageSourceThumbnailMaxPixelSize` は upscale しないため、低解像度ソースは要求 target
+        // より小さい実ピクセルサイズにしかならず、実ピクセルサイズ基準だと拡大リサイズのたびに
+        // 際限なく再デコード（RemoteBookContent ではネットワーク再フェッチ）が発生してしまう。
+        let lastTarget = pages.compactMap { lastDecodeTarget[$0] }.max() ?? 0
+        guard lastTarget > 0 else { return }
         let newTarget = decodeTargetMaxPixelSize()
-        guard CGFloat(newTarget) > currentDecodedMax * resizeRedecodeGrowthThreshold else { return }
+        guard CGFloat(newTarget) > CGFloat(lastTarget) * resizeRedecodeGrowthThreshold else { return }
 
         // 近傍の低解像キャッシュを破棄する（現在ページ分はどのみち下で上書きされる）。
         // in-flight なプリフェッチも中断し、古い target でのデコードが完了時に紛れ込まないようにする。
         prefetch.removeAll()
+        lastDecodeTarget.removeAll()
         for (_, entry) in inFlightPrefetch { entry.task.cancel() }
         inFlightPrefetch.removeAll()
 
-        resizeRedecodeGeneration += 1
-        let generation = resizeRedecodeGeneration
+        // G18 C3 review Critical fix: 統一世代ガード。この再デコード自体を新しい現在ページ描画の
+        // 開始として扱い、loadGeneration をバンプする。巻スワップ・別ページへの通常ロード・
+        // さらに新しいリサイズ再デコードのいずれが後から起きても、この Task の書き込みは弾かれる。
+        loadGeneration += 1
+        let gen = loadGeneration
         let spreadToken = model.currentSpreadIndex
         let content = self.content
         Task { [weak self] in
@@ -995,15 +1044,23 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                     imgs.append(img)
                 }
             }
-            // 世代ガード: この再デコードが開始された後にさらに新しいリサイズ再デコードが
-            // 走っていたら（古い・より低解像度な結果なので）破棄する。
-            guard self.resizeRedecodeGeneration == generation else { return }
+            // 世代ガード: この再デコードが開始された後にさらに新しい世代（巻スワップ／通常ロード／
+            // 別のリサイズ再デコード）が走っていたら（古い・低優先の結果なので）破棄する。
+            guard self.loadGeneration == gen else { return }
             // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
             // 済みのはずなので）破棄する。
             guard self.model.currentSpreadIndex == spreadToken else { return }
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
-            guard imgs.count == pages.count else { return }
-            for (p, img) in zip(pages, imgs) { self.prefetch[p] = img }
+            // G18 C3 review Minor #4 fix: それでも pump を冷やしたままにしないよう recomputePrefetch
+            // だけは呼ぶ（現在ページの再表示は諦めるが、近傍プリフェッチは正常な target で再開する）。
+            guard imgs.count == pages.count else {
+                self.recomputePrefetch()
+                return
+            }
+            for (p, img) in zip(pages, imgs) {
+                self.prefetch[p] = img
+                self.lastDecodeTarget[p] = newTarget
+            }
             self.canvas.setImages(imgs)
             self.recomputePrefetch()
         }
