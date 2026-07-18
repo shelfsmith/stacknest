@@ -388,12 +388,20 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 後始末する。離脱先の高解像デコードを prefetch/lastDecodeTarget から明示的に破棄し
         // （「高解像は現在ページのみ」の方針）、再訪時は通常の縮小版 target で再デコードさせる。
         // cyclePageLayout 等でページ集合が変わらない再呼び出しでは何もしない（高解像を維持）。
+        //
+        // G18 C4 review Important #1 fix: 新旧が完全一致しない（例: [4,5]→[4] の部分重複）でも、
+        // まだ表示され続けるページ（例: 4）の高解像は破棄してはいけない — 上のループは元々
+        // `pages.contains(p)` で保護されており prefetch からは破棄しないが、以前は直後で
+        // `zoomHighResPages = []` と無条件クリアしていたため、その「まだ表示中の高解像ページ」が
+        // 追跡から外れ、次に本当に離脱するときに明示的な破棄対象から漏れてしまっていた
+        // （trimL1 の LRU 任せになり、いつまでも高解像のまま prefetch に残り得る）。
+        // `filter` で「新しいページ集合にも含まれるものだけ」を残し、追跡を正確に保つ。
         if !zoomHighResPages.isEmpty, zoomHighResPages != pages {
             for p in zoomHighResPages where !pages.contains(p) {
                 prefetch.removeValue(forKey: p)
                 lastDecodeTarget.removeValue(forKey: p)
             }
-            zoomHighResPages = []
+            zoomHighResPages = zoomHighResPages.filter { pages.contains($0) }
             zoomRedecodeTimer?.invalidate()
             zoomRedecodeTimer = nil
         }
@@ -1074,6 +1082,21 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private func checkAndRedecodeForResize() {
         // 巻スワップ中（await content.pageCount 中）は content/model が差し替わり得るため何もしない。
         guard !isSwapping else { return }
+        // G18 C4 review Important #2 fix: この関数の末尾は `canvas.setImages(imgs)` を呼ぶが、
+        // `setImages` は内部で `fitToWindow()` を呼び zoomFactor=1.0/offset=.zero へ無言でリセット
+        // してしまう。ウィンドウリサイズやフルスクリーン切替（いずれも windowDidResize 経由で
+        // この判定を起動する）はズーム中にも普通に起こりうる操作であり、それだけでユーザーの
+        // ズーム/パンが失われるのは「ソフトに見える」どころではない重大な劣化になる
+        // （G18 C4 re-review で発見）。ズーム中（zoomFactor > 1.0）はこの resize 専用経路を使わず、
+        // ズーム対応の `checkAndRedecodeForZoom()`（`swapImagesPreservingZoom` でズーム/パンを維持
+        // したまま、リサイズ後の canvas サイズ×ズーム倍率込みの target で再デコードする）に委譲する。
+        // 既にリサイズのデバウンスが確定した後の呼び出しなので、ここでさらに
+        // `scheduleZoomRedecodeCheck()` で再デバウンスはせず直接呼ぶ（二重デバウンスで無用に
+        // 遅延させない）。ズームしていない（zoomFactor == 1.0）ときは従来どおりこの経路を使う。
+        guard canvas.currentZoomFactor <= 1.0001 else {
+            checkAndRedecodeForZoom()
+            return
+        }
         let pages = currentSpreadPages()
         guard !pages.isEmpty else { return }
         // G18 C3 review Important #4 fix: 実際にデコードされたピクセルサイズ（`prefetch[$0].pixelSize`）
