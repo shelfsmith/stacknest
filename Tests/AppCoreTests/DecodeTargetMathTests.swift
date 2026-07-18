@@ -119,4 +119,38 @@ struct DecodeTargetMathTests {
         )
         #expect(size == DecodeTargetMath.fallbackPixelSize)
     }
+
+    // MARK: - G18 C4: zoomDecodeTarget / shouldRedecodeForZoom
+
+    @Test func zoomDecodeTargetScalesLinearlyWithZoomFactor() {
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 2000, zoomFactor: 1.0) == 2000)
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 2000, zoomFactor: 2.0) == 4000)
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 1600, zoomFactor: 1.5) == 2400)
+    }
+
+    @Test func zoomDecodeTargetClampsToCeiling() {
+        // 2500 * 8 = 20000, far beyond ceilingPixelSize (6000).
+        let target = DecodeTargetMath.zoomDecodeTarget(baseTarget: 2500, zoomFactor: 8.0)
+        #expect(target == DecodeTargetMath.ceilingPixelSize)
+    }
+
+    @Test func zoomDecodeTargetInvalidInputsReturnBaseTarget() {
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 0, zoomFactor: 2.0) == 0)
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 2000, zoomFactor: 0) == 2000)
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 2000, zoomFactor: -1) == 2000)
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 2000, zoomFactor: .infinity) == 2000)
+        #expect(DecodeTargetMath.zoomDecodeTarget(baseTarget: 2000, zoomFactor: .nan) == 2000)
+    }
+
+    @Test func shouldRedecodeForZoomRequiresGrowthBeyondThreshold() {
+        // 2200 / 2000 = 1.10 exactly -> not strictly greater than threshold -> false.
+        #expect(DecodeTargetMath.shouldRedecodeForZoom(lastTarget: 2000, newTarget: 2200, growthThreshold: 1.1) == false)
+        // 2300 / 2000 = 1.15 > 1.1 -> true.
+        #expect(DecodeTargetMath.shouldRedecodeForZoom(lastTarget: 2000, newTarget: 2300, growthThreshold: 1.1) == true)
+    }
+
+    @Test func shouldRedecodeForZoomFalseWhenTargetsInvalid() {
+        #expect(DecodeTargetMath.shouldRedecodeForZoom(lastTarget: 0, newTarget: 5000, growthThreshold: 1.1) == false)
+        #expect(DecodeTargetMath.shouldRedecodeForZoom(lastTarget: 2000, newTarget: 0, growthThreshold: 1.1) == false)
+    }
 }

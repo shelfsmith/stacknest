@@ -101,6 +101,27 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// 現在要求済みの target に対して、新しい target がこの倍率を超えて大きくなった場合のみ
     /// 再デコードする（僅かな拡大では再デコードしない）。
     private let resizeRedecodeGrowthThreshold: CGFloat = 1.15
+
+    // MARK: - G18 C4: ズーム時の再デコード（画質維持）
+
+    /// ズーム操作（ピンチ/±キー）が落ち着いてから再デコード要否を判定するためのデバウンスタイマー。
+    /// 連続ピンチのたびに canvas から `onZoomChanged` が連打されても、実際に判定が走るのは
+    /// ズームが止まってから `zoomRedecodeDebounce` 秒後の 1 回だけ（C3 のリサイズ再デコードと同方式）。
+    private var zoomRedecodeTimer: Timer?
+    /// ズーム再デコードのデバウンス遅延（秒）。150〜250ms の範囲でピンチの連続発火を吸収する。
+    private let zoomRedecodeDebounce: TimeInterval = 0.2
+    /// resize 再デコードの成長閾値（1.15）より緩め（1.1）にする。ズームは「今まさに拡大して
+    /// ソフトに見えている」ことへの直接対応なので、resize より早めに再デコードへ踏み切ってよい。
+    private let zoomRedecodeGrowthThreshold: CGFloat = 1.1
+    /// ズーム再デコード専用のトークン。`renderRequest`/`contentGeneration` の 2 段ガードに加え、
+    /// 「このズーム再デコード Task が、より新しいズーム再デコード Task に置き換わっていないか」を
+    /// 追加で確認する（brief 要求の「dedicated zoom token」）。renderRequest は resize 再デコードや
+    /// 通常のページ送りとも共有されるため、ズーム同士の新旧判定に特化した独立カウンタを持たせる。
+    private var zoomToken = 0
+    /// 現在「ズーム再デコードで高解像度化した」見開きのページ集合（現在ページのみが対象）。
+    /// この集合と異なるページへ移動したら、離脱先の高解像デコードを `prefetch`/`lastDecodeTarget`
+    /// から明示的に破棄する（メモリ方針: 高解像は現在ページのみ・prefetch/近傍は縮小版のまま）。
+    private var zoomHighResPages: [Int] = []
     /// G18 C3 re-review fix: 単一の `loadGeneration` は 2 つの異なる無効化スコープを混同していた。
     /// 「本/コンテンツが変わった」（巻スワップ・クローズ）と「現在ページの描画要求が更新された」
     /// （通常のページ送り・リサイズ再デコード）は別物で、後者は前者よりずっと高頻度に起きる。
@@ -193,6 +214,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
         canvas.translatesAutoresizingMaskIntoConstraints = false
         canvas.onZoneClick = { [weak self] leftHalf in self?.handleZoneClick(leftHalf: leftHalf) }
+        // G18 C4: ズーム操作のたびにデバウンス付き再デコード判定をスケジュールする。
+        canvas.onZoomChanged = { [weak self] _ in self?.scheduleZoomRedecodeCheck() }
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         container.addSubview(canvas)
 
@@ -360,6 +383,20 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         let pages = currentSpreadPages()
         guard !pages.isEmpty else { canvas.setImages([]); updateHUD(); return }
+
+        // G18 C4: 見開き（ページ集合）が変わったら、ズーム再デコードで残っている高解像状態を
+        // 後始末する。離脱先の高解像デコードを prefetch/lastDecodeTarget から明示的に破棄し
+        // （「高解像は現在ページのみ」の方針）、再訪時は通常の縮小版 target で再デコードさせる。
+        // cyclePageLayout 等でページ集合が変わらない再呼び出しでは何もしない（高解像を維持）。
+        if !zoomHighResPages.isEmpty, zoomHighResPages != pages {
+            for p in zoomHighResPages where !pages.contains(p) {
+                prefetch.removeValue(forKey: p)
+                lastDecodeTarget.removeValue(forKey: p)
+            }
+            zoomHighResPages = []
+            zoomRedecodeTimer?.invalidate()
+            zoomRedecodeTimer = nil
+        }
 
         // 全ページがキャッシュ済なら即時表示
         let cachedAll = pages.compactMap { prefetch[$0] }
@@ -845,6 +882,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         orientations = [:]
         prefetch.removeAll()
         lastDecodeTarget.removeAll()
+        zoomHighResPages = []   // G18 C4: 旧巻の高解像状態を持ち越さない
         let newModel = ViewerModel(pageCount: pageCount, options: options)
         newModel.setCoverOffset(state.coverOffset)
         newModel.setDisplayMode(state.spreadEnabled ? .spread : .single)
@@ -984,6 +1022,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         cacheCoverageTimer = nil
         resizeRedecodeTimer?.invalidate()
         resizeRedecodeTimer = nil
+        zoomRedecodeTimer?.invalidate()   // G18 C4
+        zoomRedecodeTimer = nil
+        zoomHighResPages = []
         // 世代を進めて、close 前に開始済みの loadCurrentPage/再デコード/プリフェッチ Task が
         // 完了時に (生きていても) prefetch/canvas へ書き込まないよう保証する。close はコンテンツ
         // ごと消滅させるイベントなので contentGeneration（プリフェッチも含めて全無効化）をバンプする。
@@ -1093,6 +1134,91 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             }
             self.canvas.setImages(imgs)
             self.recomputePrefetch()
+        }
+    }
+
+    // MARK: - G18 C4: ズーム時の再デコード（画質維持）
+
+    /// canvas の `onZoomChanged` から、ズーム操作（±キー/ピンチ）のたびに呼ばれる。
+    /// C3 のリサイズ再デコードと同じデバウンス方式: 連続ピンチのたびに invalidate + 再スケジュール
+    /// するため、実際に判定が走るのはズームが止まってから `zoomRedecodeDebounce` 秒後の 1 回だけ。
+    /// パン（scrollWheel/mouseDragged）は canvas 側で `onZoomChanged` を呼ばないため、ここには
+    /// 到達しない（brief 要求「パン中は再デコードしない」は呼び出し経路自体で担保している）。
+    private func scheduleZoomRedecodeCheck() {
+        zoomRedecodeTimer?.invalidate()
+        zoomRedecodeTimer = Timer.scheduledTimer(withTimeInterval: zoomRedecodeDebounce, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.zoomRedecodeTimer = nil
+                self.checkAndRedecodeForZoom()
+            }
+        }
+    }
+
+    /// デバウンス後に 1 回だけ呼ばれる: 現在の zoom 倍率で表示ピクセルが既存デコードの解像度を
+    /// 十分に上回っていれば（＝縮小版を拡大表示していてソフトに見える）、現在ページ（見開き時は
+    /// 両ページ）を off-main で高解像度に再デコードして差し替える。
+    ///
+    /// C3 の `checkAndRedecodeForResize` と同じ `renderRequest`/`contentGeneration` の 2 段ガードに
+    /// 加え、`zoomToken` でも二重ガードする（brief 要求の「dedicated zoom token」）。C3 と異なり
+    /// ズームは「今見ているページだけ」を高解像化する局所操作なので、近傍プリフェッチ
+    /// （`inFlightPrefetch`/`prefetch` の他ページ分）は一切触らない — 縮小版のまま有効に使い続ける。
+    private func checkAndRedecodeForZoom() {
+        // 巻スワップ中（await content.pageCount 中）は content/model が差し替わり得るため何もしない。
+        guard !isSwapping else { return }
+        let zoomFactor = canvas.currentZoomFactor
+        // フィット(1.0)まで戻っていれば拡大表示ではない＝縮小版のままで十分なので何もしない。
+        // （高解像を積極的に破棄する必要はない。同一ページに留まる限りメモリ方針上は許容範囲。
+        //   離脱時の破棄は loadCurrentPage 冒頭の zoomHighResPages 後始末が担う。）
+        guard zoomFactor > 1.0001 else { return }
+        let pages = currentSpreadPages()
+        guard !pages.isEmpty else { return }
+        // G18 C3 review Important #4 の教訓を踏襲: 実際にデコードされたピクセルサイズではなく
+        // 「最後に要求した」target（lastDecodeTarget）を成長判定の基準にする（ImageIO は upscale
+        // しないため、実ピクセルサイズ基準だと際限なく再デコードが発生してしまう）。
+        // 見開き内で最も解像度の低いページを基準にする（.min()）ことで、片方だけキャッシュヒットで
+        // 古い小さい target だった場合もそのページの再デコードが見送られないようにする。
+        let lastTarget = pages.compactMap { lastDecodeTarget[$0] }.min() ?? 0
+        guard lastTarget > 0 else { return }
+        let baseTarget = decodeTargetMaxPixelSize()
+        let newTarget = DecodeTargetMath.zoomDecodeTarget(baseTarget: baseTarget, zoomFactor: zoomFactor)
+        guard DecodeTargetMath.shouldRedecodeForZoom(lastTarget: lastTarget, newTarget: newTarget, growthThreshold: zoomRedecodeGrowthThreshold) else { return }
+
+        // この再デコード自体を新しい現在ページ描画の開始として扱い renderRequest をバンプする
+        // （contentGeneration には触れない — 本の切替ではないので近傍プリフェッチを無効化しない）。
+        // zoomToken は「このズーム再デコードがより新しいズーム再デコードに置き換わっていないか」を
+        // 判定する専用トークン（renderRequest は resize 再デコード/通常ページ送りとも共有されるため）。
+        renderRequest += 1
+        let rr = renderRequest
+        let cg = contentGeneration
+        zoomToken += 1
+        let zt = zoomToken
+        let spreadToken = model.currentSpreadIndex
+        let content = self.content
+        Task { [weak self] in
+            guard let self else { return }
+            var imgs: [DecodedImage] = []
+            for p in pages {
+                if let img = await Self.loadImage(content: content, page: p, maxPixelSize: newTarget) {
+                    imgs.append(img)
+                }
+            }
+            // 世代ガード: この再デコードが開始された後にさらに新しい描画要求（巻スワップ／通常
+            // ロード／別のリサイズ再デコード／別のズーム再デコード）が走っていたら破棄する。
+            guard self.renderRequest == rr, self.contentGeneration == cg, self.zoomToken == zt else { return }
+            // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
+            // 済みのはずなので）破棄する。
+            guard self.model.currentSpreadIndex == spreadToken else { return }
+            // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
+            guard imgs.count == pages.count else { return }
+            for (p, img) in zip(pages, imgs) {
+                self.prefetch[p] = img
+                self.lastDecodeTarget[p] = newTarget
+            }
+            self.zoomHighResPages = pages
+            // setImages ではなく swapImagesPreservingZoom — ユーザーが今まさに操作している
+            // zoomFactor/offset を維持したまま画像だけ鮮明なものに差し替える（フィットへ戻さない）。
+            self.canvas.swapImagesPreservingZoom(imgs)
         }
     }
 }
