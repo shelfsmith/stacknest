@@ -20,7 +20,7 @@ let activeReaderTeardown = null;
 /// forceSolo ならそのページを巻き込まず apiIndex 単独で表示する（forceSolo ページを常に
 /// 単独の見開きにする＝そのページの手前で組み分けが切れる）。overrides 未指定時は
 /// 従来どおり（override 無しのケースと完全に同じ結果）。
-export function pagesForView(apiIndex, spread, direction, pageCount, overrides = {}) {
+export function pagesForView(apiIndex, spread, pageCount, overrides = {}) {
     if (!spread) return [apiIndex];
     if (overrides[apiIndex] === 1) return [apiIndex];
     const second = apiIndex + 1;
@@ -36,7 +36,7 @@ export function pagesForView(apiIndex, spread, direction, pageCount, overrides =
 export function step(apiIndex, dir, spread, pageCount, overrides = {}) {
     if (!spread) return Math.max(0, Math.min(pageCount - 1, apiIndex + dir));
     if (dir > 0) {
-        const size = pagesForView(apiIndex, spread, direction, pageCount, overrides).length;
+        const size = pagesForView(apiIndex, spread, pageCount, overrides).length;
         return Math.max(0, Math.min(pageCount - 1, apiIndex + size * dir));
     }
     // 後退: 直前の view のアンカーを逆算する。pagesForView(prevPrev) が
@@ -209,7 +209,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     // G17 T6b: cur（を含む view）が見開きペア表示かどうか。ov を省略すると現在の overrides を見る
     // （togglePageLayout が「override を外したら既定はどうなるか」を仮判定するのに ov を差し替えて使う）。
     function pageLayoutIsPaired(apiIndex, ov = overrides) {
-        return pagesForView(apiIndex, true, direction, pageCount, ov).length === 2;
+        return pagesForView(apiIndex, true, pageCount, ov).length === 2;
     }
 
     // stepOneBtn のラベル/aria を cur の実効表示（override 込み）に同期する。
@@ -233,11 +233,12 @@ export async function renderReader(uuid, bookId, query, deps) {
             const withoutOverride = { ...overrides };
             delete withoutOverride[target];
             if (pageLayoutIsPaired(target, withoutOverride)) {
-                nextMode = null;
-            } else if (target + 1 < pageCount) {
-                nextMode = 0;
+                nextMode = null;   // 自分の forceSolo を外せば見開きに戻る
             } else {
-                toast("これ以上ページがありません");
+                // 単頁なのは自分の override 以外の理由（次頁が単頁指定 / 最終ページ）。
+                // forcePair(mode 0) は pagesForView が参照せず無効なので、正直に理由を示して中断する
+                // （無効な書き込みも行わない）。
+                toast("次のページが単頁指定、または最終ページのため見開きにできません");
                 return;
             }
         }
@@ -334,7 +335,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         updatePageLayoutLabel();   // G17 T6b: トグルボタンの表示を cur の実効表示に同期
 
         // 描画する apiIndex 配列
-        const indices = pagesForView(cur, spread, direction, pageCount, overrides);
+        const indices = pagesForView(cur, spread, pageCount, overrides);
 
         // 読み込み中インジケータを表示
         if (my === renderToken) loadingEl.classList.remove("hidden");
