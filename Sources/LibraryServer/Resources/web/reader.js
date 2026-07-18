@@ -596,17 +596,50 @@ export async function renderReader(uuid, bookId, query, deps) {
         });
     }
 
-    /// ページ送りを確定させる: target(±width) までスプリングし、完了後に隣接/現行 view を
-    /// 破棄してから既存 show(newIdx) に収束させる（T6b override reflow・progress 書き戻し・
-    /// スライダー/カウンタ更新はすべて show() 側の既存ロジックに一本化される）。
+    /// このジェスチャで読み込み済みの隣接 view を現在 view に「昇格」させる。show() を経由せず
+    /// 再フェッチ/デコード（＝黒いローディングの一瞬のちらつき）を避けるのが目的。状態同期
+    /// （cur・スライダー/カウンタ・T6b ラベル・先読み・progress）は show() と同一内容を行う。
+    function promoteView(ds, side, newIdx) {
+        const view = side === "right" ? ds.rightView : ds.leftView;
+        const urls = side === "right" ? ds.rightURLs : ds.leftURLs;
+        renderToken++;                 // 万一 in-flight な show() があれば無効化
+        cur = newIdx;
+        // 昇格する view/urls を ds から切り離す（destroyDrag に消させない・revoke させない）。
+        if (side === "right") { ds.rightView = null; ds.rightURLs = []; }
+        else { ds.leftView = null; ds.leftURLs = []; }
+        destroyDrag(ds);               // 反対側隣接 view の掃除＋willChange 解除
+        destroyCurView();              // 旧 curView 破棄（objectURL revoke）
+        view.style.transform = "";     // 着地アニメ終了時点で既に translateX(0)（中央）
+        view.style.willChange = "";
+        curView = view;
+        curViewURLs = urls;
+        const uiPage = cur + 1;
+        sliderEl.value = String(uiPage);
+        sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
+        counterEl.textContent = `${uiPage} / ${pageCount}`;
+        titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
+        updatePageLayoutLabel();
+        engine.setCurrentPage(cur);
+        scheduleProgress(cur);
+    }
+
+    /// ページ送りを確定させる: target(±width) までスプリングし、完了後、読み込み済みの隣接
+    /// view を昇格させる（黒ローディングのちらつき回避）。隣接が未ロード/失敗のときのみ従来の
+    /// show(newIdx) にフォールバック（正規のフェッチ/エラーハンドリング）する。
     function commitDrag(ds, side, velocity, flick) {
         const w = ds.width;
         const target = side === "right" ? -w : w;
         const newIdx = side === "right" ? ds.rightIdx : ds.leftIdx;
         animateTrack(ds, target, velocity, flick, () => {
-            destroyDrag(ds);
-            destroyCurView();
-            show(newIdx);
+            const view = side === "right" ? ds.rightView : ds.leftView;
+            const urls = side === "right" ? ds.rightURLs : ds.leftURLs;
+            if (view && urls.length > 0 && view.firstChild) {
+                promoteView(ds, side, newIdx);
+            } else {
+                destroyDrag(ds);
+                destroyCurView();
+                show(newIdx);
+            }
         });
     }
 
