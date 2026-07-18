@@ -7,6 +7,9 @@
 // Pack C（他画面のトランジション）でも import して再利用する想定。
 
 const TWO_PI = Math.PI * 2;
+// 陽的オイラーの安定化用サブステップ幅（秒）。1 フレーム dt をこれ以下に刻んで積分し、
+// response が小さい（omega0 が大きい）ときの発散を防ぐ（response をクランプせずに済む）。
+const SUB_DT = 1 / 240;
 
 /// 1 フレーム分の状態更新。x=現在値, v=現在速度, target=目標値。
 /// omega0 = 2π / response（response ≈ 特性時間）、c = 2 * damping * omega0。
@@ -60,7 +63,21 @@ export function spring({ from, to, velocity = 0, damping = 1, response = 0.35, o
         // dt をクランプ（バックグラウンドタブ復帰等の巨大な gap で発散しないように）。
         const dt = Math.min(0.05, Math.max(0, (t - lastT) / 1000));
         lastT = t;
-        [x, v] = stepSpring(x, v, to, damping, response, dt);
+        // 固定の小さいサブステップに分割して積分（陽的オイラーの発散防止）。
+        let remaining = dt;
+        while (remaining > 1e-6) {
+            const h = Math.min(SUB_DT, remaining);
+            [x, v] = stepSpring(x, v, to, damping, response, h);
+            remaining -= h;
+        }
+        // 数値異常（万一の発散）で無限 rAF ループにしない: 非有限になったら即確定させる。
+        if (!Number.isFinite(x) || !Number.isFinite(v)) {
+            x = to;
+            if (typeof onUpdate === "function") onUpdate(x);
+            rafId = null;
+            if (typeof onDone === "function") onDone();
+            return;
+        }
 
         if (isSettled(x, v, to, amplitude)) {
             x = to;

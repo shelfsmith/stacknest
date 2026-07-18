@@ -56,7 +56,7 @@ export function step(apiIndex, dir, spread, pageCount, overrides = {}) {
 /// deps: { el, render, toast, appEl, onLibraryUnshared }
 /// query: parseRoute() の query（p=uiPage を含む）
 export async function renderReader(uuid, bookId, query, deps) {
-    const { el, toast, appEl, onLibraryUnshared } = deps;
+    const { el, toast, appEl, onLibraryUnshared, cancelActiveTransition } = deps;
     const maxw = 1600;
     const book = `${uuid}|${bookId}`;
 
@@ -283,7 +283,11 @@ export async function renderReader(uuid, bookId, query, deps) {
     const readerEl = el("div", { class: "reader" }, [stageEl, topChrome, bottomChrome]);
 
     // appEl に直接 append（render() は使わない）
-    // #app の旧画面 DOM をクリアしてからマウント（toast-host は #app 外なので消えない）
+    // #app の旧画面 DOM をクリアしてからマウント（toast-host は #app 外なので消えない）。
+    // Pack B review Important #1: 進行中の push/pop 遷移があれば先に確定させる。これを
+    // 怠ると、遷移中の .nav-layer をここで剥がした後に遅れて finish() が insertBefore で
+    // throw する（リーダー URL へ直接ランディングした場合に発生）。
+    cancelActiveTransition?.();
     const main = appEl();
     while (main.firstChild) main.removeChild(main.firstChild);
     main.append(readerEl);
