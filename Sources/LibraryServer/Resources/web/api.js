@@ -118,6 +118,16 @@ export async function postDirection(uuid, bookId, direction) {
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
 }
 
+/// G17 T6b: 特定ページの単頁/見開き override を書き戻す（page: apiIndex(0始まり)、
+/// mode: 0=forcePair / 1=forceSolo / null=クリア＝自動判定に戻す）。RW 必須（!ok は status 付き Error）。
+export async function postPageLayout(uuid, bookId, page, mode) {
+    const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/page-layout`,
+        { libraryUUID: uuid, method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ page, mode }) });
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+}
+
 /// browse 制約（[{column,value},...] 形式）→ &browse=<URL-encoded JSON>。空なら ""。
 /// constraints は [{column: "genre", value: "SF"}, ...] の配列。
 export function browseParam(constraints) {

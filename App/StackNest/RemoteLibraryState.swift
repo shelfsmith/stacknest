@@ -1721,12 +1721,21 @@ final class RemoteLibraryState {
             // 開いた時点で既読をサーバ確定（/progress は R でも許可）。offline 先行時にサーバを
             // 巻き戻さないよう、解決後ページで POST する。
             Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: resolvedLastPage, libraryToken: self.libraryToken) }
-            // リモートでは per-book の永続見開き状態を持たないため、グローバル既定で開く。
+            // リモートでは per-book の永続見開き状態（spread/coverOffset）を持たないため、グローバル既定で開く。
+            // G17 T6b: ページ単位の単頁/見開き override はサーバの book_page_layout が正なので、
+            // manifest から取得して反映する（オフライン読み出し時はネットワーク回避のため取得しない
+            // — offline detail に direction を使う既存の分岐と同じ方針。取得失敗時も best-effort で [:]）。
+            var remoteOverrides: [Int: PageLayoutOverride] = [:]
+            if !readingOffline {
+                if let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) {
+                    remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
+                }
+            }
             let initialState = ResolvedViewerState(
                 spreadEnabled: ViewerSettings.shared.spreadByDefault,
                 coverOffset: true,
                 lastPage: resolvedLastPage,
-                overrides: [:]
+                overrides: remoteOverrides
             )
             // 一覧 DTO には pageDirection が無いため、サーバの本詳細から実際の読む方向を取得する。
             // これが無いと、方向を変更してもビューアを開き直すたびにグローバル既定へ戻る（smoke G3）。
@@ -1786,8 +1795,17 @@ final class RemoteLibraryState {
                         self.books[i] = self.books[i].withLastPage(lastPage).withUnseen(false).withLastReadAt(Date())
                     }
                 },
-                // ページレイアウト override はリモートでは永続化しない（no-op）。
-                persistPageOverride: { _, _, _ in },
+                // G17 T6b: ページレイアウト override をサーバへ POST する（fire-and-forget・
+                // postProgress と同じパターン。オフライン読み出し中でも book id はサーバ側と共通なので
+                // 常に送る — 次回オンラインで開いたときに manifest 経由で反映される）。
+                persistPageOverride: { [weak self] (b, page, mode) in
+                    guard let self else { return }
+                    Task {
+                        try? await self.client.setPageOverride(
+                            libraryUUID: self.libraryUUID, bookID: b.id, page: page, mode: mode,
+                            libraryToken: self.libraryToken)
+                    }
+                },
                 suppressResumeDialog: resumeDirect,
                 sourceLabel: sourceLabel
             )
@@ -1859,6 +1877,19 @@ final class RemoteLibraryState {
         }
     }
 
+    /// G17 T6b: ManifestDTO.pageOverrides（page_index(String) → mode(Int)）を
+    /// ResolvedViewerState.overrides（[Int: PageLayoutOverride]）に変換する。
+    /// 不正なキー/値（数値化できない・0/1 以外）は黙って捨てる（防御的デコード）。
+    private static func decodePageOverrides(_ dto: [String: Int]?) -> [Int: PageLayoutOverride] {
+        guard let dto else { return [:] }
+        var out: [Int: PageLayoutOverride] = [:]
+        for (key, mode) in dto {
+            guard let page = Int(key), let ov = PageLayoutOverride(rawValue: mode) else { continue }
+            out[page] = ov
+        }
+        return out
+    }
+
     /// BookListItemDTO から ViewerWindowController が必要とする最小限の BookRow を合成する。
     /// path は nil（リモートなので実ファイル参照は無い）だが、ViewerWindowController は
     /// content（RemoteBookContent）経由で読むため path には依存しない。
@@ -1897,17 +1928,27 @@ final class RemoteLibraryState {
             return nil
         }
         guard let dto else { return nil }
+        // G17 T6b: DL 判定を先出しし override 取得可否を決める（オフライン読み出し時はネットワーク
+        // 回避のため manifest を取得しない — 初回オープン時の分岐と同じ方針）。
+        let offlineEntry = offlineStore.all().first {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
+        }
+        var remoteOverrides: [Int: PageLayoutOverride] = [:]
+        if offlineEntry == nil {
+            if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
+                remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
+            }
+        }
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,
             lastPage: max(0, dto.lastPage ?? 0),
-            overrides: [:]
+            overrides: remoteOverrides
         )
         // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
         // 巻ごとに付け替える。未 DL はリモート解決のまま「リモート」バッジに更新する。
-        if let dl = offlineStore.all().first(where: {
-            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
-        }), let made = try? BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) {
+        if let dl = offlineEntry,
+           let made = try? BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) {
             let row = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
             return NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン")
         }

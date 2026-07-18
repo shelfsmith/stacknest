@@ -274,6 +274,15 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
 
+    /// G17 T6b: 特定ページの単頁/見開き override をサーバへ POST する（RW トークン必須）。
+    /// mode: 0=forcePair / 1=forceSolo / nil=クリア（自動判定に戻す）。
+    public func setPageOverride(libraryUUID: String, bookID: Int, page: Int, mode: Int?, libraryToken: String?) async throws {
+        struct PageLayoutBody: Encodable { let page: Int; let mode: Int? }
+        let body = try JSONEncoder().encode(PageLayoutBody(page: page, mode: mode))
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/page-layout")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
     /// 同一シリーズの隣接巻メタ。該当なしは nil。direction は "next"/"prev"。
     public func adjacentVolume(libraryUUID: String, bookID: Int, direction: String,
                                libraryToken: String?) async throws -> BookListItemDTO? {
