@@ -344,11 +344,22 @@ enum Tables {
     // MARK: - v17 migrations (G17 T6a: distinguish explicit spread saves from progress-only rows)
 
     /// Adds `spread_explicit INTEGER NOT NULL DEFAULT 0` to `book_viewer_state` if not already
-    /// present (v17). Existing rows (created by either `saveViewerState` or the progress-only
-    /// `updateLastPage` path) default to 0 — i.e. "not known to be explicit" — since pre-v17 rows
-    /// cannot be told apart. Only `saveViewerState` (native explicit spread save) sets this to 1
-    /// going forward; `updateLastPage` (remote progress writeback) never touches it.
+    /// present (v17). Only `saveViewerState` (native explicit spread save) sets this to 1 going
+    /// forward; `updateLastPage` (remote progress writeback) never touches it. Pre-v17 rows are
+    /// disambiguated by the backfill below.
     static let migrateV17AddSpreadExplicit = """
         ALTER TABLE book_viewer_state ADD COLUMN spread_explicit INTEGER NOT NULL DEFAULT 0
+        """
+
+    /// Backfill run once, right after the v17 ALTER. `updateLastPage`'s bare INSERT can only ever
+    /// yield the column DEFAULTs (`spread_enabled=0 AND cover_offset=1`), so any pre-v17 row that
+    /// deviates from those must have come from an explicit `saveViewerState` — restore it as
+    /// explicit so a user's intentional per-book spread setting survives the upgrade. True
+    /// progress-only rows (matching the DEFAULTs exactly) stay `spread_explicit=0`, preserving the
+    /// leak fix. Residual unrecoverable case: explicit spread=false WITH default cover_offset —
+    /// indistinguishable from a progress-only row, falls back to the app default (documented).
+    static let migrateV17BackfillSpreadExplicit = """
+        UPDATE book_viewer_state SET spread_explicit = 1
+        WHERE spread_enabled = 1 OR cover_offset = 0
         """
 }
