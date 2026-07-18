@@ -216,6 +216,74 @@ function appendItems(container, uuid, items, view, deps) {
     while (built.firstChild) container.append(built.firstChild);
 }
 
+// ---- スケルトン（読込中プレースホルダ・G17 Pack B） --------------------------
+// 最終レイアウト（.book-row / .book-tile）と同じ骨格に .skeleton-block（淡いシマー・
+// style.css 側で定義）を重ねた偽コンテンツ。実データではないので aria-hidden で
+// スクリーンリーダーから隠す。件数はビューポート幅に厳密対応させず「そこそこ埋まる」
+// 固定件数で十分とする（brief 通り）。
+
+const SKELETON_COUNT = 8;
+
+/// list 表示 1 行分のスケルトン（.book-row と同じ骨格）。
+function skeletonRow(deps) {
+    const { el } = deps;
+    return el("div", { class: "book-row skeleton-row", "aria-hidden": "true" }, [
+        el("div", { class: "book-row-thumb skeleton-block" }),
+        el("div", { class: "book-row-main" }, [
+            el("div", { class: "skeleton-block skeleton-line skeleton-line-title" }),
+            el("div", { class: "skeleton-block skeleton-line skeleton-line-meta" }),
+        ]),
+    ]);
+}
+
+/// grid 表示 1 タイル分のスケルトン（.book-tile と同じ骨格）。
+function skeletonTile(deps) {
+    const { el } = deps;
+    return el("div", { class: "book-tile skeleton-tile", "aria-hidden": "true" }, [
+        el("div", { class: "grid-cover-wrap skeleton-block" }),
+        el("div", { class: "skeleton-block skeleton-line skeleton-line-grid" }),
+    ]);
+}
+
+/// view に応じたスケルトン要素を count 個生成して配列で返す（呼び出し側が
+/// container へ append するか、丸ごと DOM を組むかを選べるように配列のまま返す）。
+function buildSkeletonItems(view, deps, count = SKELETON_COUNT) {
+    const nodes = [];
+    for (let i = 0; i < count; i++) nodes.push(view === "grid" ? skeletonTile(deps) : skeletonRow(deps));
+    return nodes;
+}
+
+/// container（.book-list / .book-grid）の末尾へスケルトンを追記する
+/// （無限スクロールの次ページ取得中に使う）。あとで removeSkeletonNodes で剥がせるよう
+/// 追加したノード配列を返す。
+function appendSkeletonItems(container, view, deps, count) {
+    const nodes = buildSkeletonItems(view, deps, count);
+    for (const n of nodes) container.append(n);
+    return nodes;
+}
+
+function removeSkeletonNodes(nodes) {
+    for (const n of nodes) n.remove();
+}
+
+/// books 画面全体のスケルトン（ツールバー概形 + list/grid プレースホルダ）。
+/// renderLib() がデータ到着前・画面への新規エントリ時にのみ render() へ渡す
+/// （view/per は localStorage 記憶から即座に読めるためネットワーク待ちなしで組める）。
+export function buildBooksSkeleton(deps) {
+    const { el } = deps;
+    const view = getView();
+    const toolbar = el("div", { class: "books-toolbar" }, [
+        el("div", { class: "skeleton-block skeleton-search" }),
+        el("div", { class: "books-toolbar-row" }, [
+            el("div", { class: "skeleton-block skeleton-chip" }),
+            el("div", { class: "skeleton-block skeleton-chip" }),
+        ]),
+    ]);
+    const items = el("div", { class: view === "grid" ? "book-grid" : "book-list" },
+        buildSkeletonItems(view, deps));
+    return el("div", { class: "books-screen skeleton-screen" }, [toolbar, items]);
+}
+
 // ---- books 画面本体 ---------------------------------------------------------
 
 /// books 画面を描画する。
@@ -483,8 +551,11 @@ function setupInfiniteScroll(root, container, deps, state) {
     const loadNext = async () => {
         if (loading || loadedPage >= totalPages) return;
         loading = true;
-        status.textContent = "読み込み中…";
+        status.textContent = "";
         status.classList.remove("inf-error");
+        // G17 Pack B: 「読み込み中…」テキストの代わりに、追記される見込みの数件分だけ
+        // container 末尾にスケルトンを仮置きする（最終レイアウト準拠・shimmer 付き）。
+        const skeletonNodes = appendSkeletonItems(container, state.view, deps, 3);
         try {
             const next = loadedPage + 1;
             const data = await fetchBooksPage(state.uuid, {
@@ -492,14 +563,15 @@ function setupInfiniteScroll(root, container, deps, state) {
                 page: next, per: state.per, browse: state.browse,
             });
             const newItems = Array.isArray(data.items) ? data.items : [];
+            removeSkeletonNodes(skeletonNodes);
             appendItems(container, state.uuid, newItems, state.view, deps);
             loadedPage = next;
-            status.textContent = "";
             if (loadedPage >= totalPages) {
                 resetInfiniteScroll();   // 完了。observe を止める。
             }
         } catch (e) {
             // エラー時は停止し、タップで再試行できるようにする。
+            removeSkeletonNodes(skeletonNodes);
             status.textContent = "読み込みに失敗しました。タップで再試行";
             status.classList.add("inf-error");
             status.onclick = () => { status.onclick = null; loadNext(); };

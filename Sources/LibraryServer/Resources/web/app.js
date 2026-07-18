@@ -6,9 +6,10 @@ import {
     api, apiJSON, hasDeviceToken, saveDeviceToken, clearDeviceToken,
     listLibraries, unlockLibrary, UnauthorizedError, NetworkError,
 } from "./api.js";
-import { renderBooks } from "./books.js";
+import { renderBooks, buildBooksSkeleton } from "./books.js";
 import { renderReader, resolveBackHash } from "./reader.js";
 import { stopLiveSync } from "./livesync.js";
+import { spring } from "./anim.js";
 
 const appEl = () => document.getElementById("app");
 const backBtn = () => document.getElementById("back-btn");
@@ -36,14 +37,199 @@ function el(tag, attrs = {}, children = []) {
 
 function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
-/// 画面差し替え。タイトルと戻るボタンの表示も整える。
+// ---- 空間ナビゲーション遷移（G17 Pack B） -----------------------------------
+// 画面（pair/libraries/lib）単位の push/pop を判定し、深さが増えるルート遷移は
+// 「前進」（新ビューが右からスライドイン・旧ビューは左へ少しシフト＋フェード）、
+// 深さが減る遷移は「戻り」（対称に旧ビューが右へスライドアウト）としてアニメーションする。
+// 同一スクリーン内のフィルタ/ページ/ソート変更（route() の再呼び出し）はスクリーンキーが
+// 変わらないため無アニメーション（従来どおりの即時差し替え）。
+//
+// reader（フルスクリーン没入表示）は appEl() を直接操作し render() を経由しない設計
+// （reader.js 側の既存方針）なので、このトランジション機構の対象外
+// （lib ⇄ read の押し込み/引き戻しは reader 自身の演出のまま・本 Pack のファイル範囲外）。
+
+/// ルートからスクリーンの識別キーを作る。フィルタ用の query は含めない
+/// （同じ画面内の絞り込み変更をスクリーン遷移として扱わないため）。
+function screenKeyFor(r) {
+    switch (r.name) {
+        case "pair": return "pair";
+        case "lib": return `lib:${r.uuid}`;
+        case "read": return `read:${r.uuid}:${r.bookId}`;
+        case "libraries":
+        default: return "libraries";
+    }
+}
+
+/// ルートの「深さ」。深さが増える→前進、減る→戻り、の判定に使う。
+function screenDepthFor(r) {
+    switch (r.name) {
+        case "lib": return 1;
+        case "read": return 2;
+        case "pair":
+        case "libraries":
+        default: return 0;
+    }
+}
+
+let currentScreenKey = null;   // 直近に render() で確定したスクリーンキー
+let currentScreenDepth = 0;
+const scrollPositions = new Map();  // screenKey -> 離脱時の window.scrollY
+let pendingNav = null;              // route() が計算し、次の render() が一度だけ消費する
+let activeCancelTransition = null;  // 実行中のアニメーション遷移を即座に確定させる関数
+
+/// route() の冒頭で呼ぶ。今回のルートがどのスクリーンで、前回スクリーンと比べて
+/// 前進/戻り/無変化のどれかを判定し、次の render() 呼び出しに使わせる。
+function prepareNavigation(r) {
+    const key = screenKeyFor(r);
+    const depth = screenDepthFor(r);
+    if (currentScreenKey === null || key === currentScreenKey) {
+        pendingNav = { type: "none", key, depth };
+        return;
+    }
+    pendingNav = { type: depth < currentScreenDepth ? "back" : "forward", key, depth };
+}
+
+/// 現在このスクリーンキーへの遷移が「新規エントリ」（フィルタ変更等ではなく画面自体の
+/// 切替）かどうか。books.js の初回スケルトン表示要否の判定に使う（renderLib 内）。
+function isFreshEntry(key) { return currentScreenKey !== key; }
+
+function cancelActiveTransition() {
+    if (activeCancelTransition) {
+        const fn = activeCancelTransition;
+        activeCancelTransition = null;
+        fn();
+    }
+}
+
+/// 前進/戻り遷移をアニメーションする。old（現在 main の子）を .nav-layer に包んで残し、
+/// new（今回の content）も .nav-layer に包んで重ね、rAF スプリングで transform/opacity を
+/// 動かす。完了後は new を通常の main 直下の子へ戻し（unwrap）、old 側のラッパを除去する。
+/// 途中で割り込まれたら（cancelActiveTransition）即座に確定させ、DOM を単純な状態に戻す。
+function runScreenTransition(main, newContent, nav) {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const startScrollY = window.scrollY;
+    const targetScrollY = nav.type === "back" ? (scrollPositions.get(nav.key) || 0) : 0;
+
+    const oldLayer = el("div", { class: "nav-layer" });
+    oldLayer.append(...Array.from(main.childNodes)); // 現在の main の子を丸ごと退避（main は空になる）
+    const newLayer = el("div", { class: "nav-layer" });
+    newLayer.append(newContent);
+    // この時点で main は空。[oldLayer, newLayer] の順に積む
+    // （このあと render() 呼び出し元が appEl() に直接 append する物、例えば
+    //  promptUnlock のロック解除モーダルは、この後ろに追加されるため影響しない）。
+    main.append(oldLayer, newLayer);
+
+    oldLayer.scrollTop = Math.max(0, startScrollY);
+    newLayer.scrollTop = Math.max(0, targetScrollY);
+
+    let done = false;
+    function finish() {
+        if (done) return;
+        done = true;
+        // newContent を newLayer から main 直下へ戻す（既存の他の子の前に挿入）。
+        main.insertBefore(newContent, oldLayer);
+        oldLayer.remove();
+        newLayer.remove();
+        window.scrollTo(0, targetScrollY);
+        activeCancelTransition = null;
+    }
+
+    if (reduced) {
+        // reduced-motion: transform 無しの短いオパシティ クロスフェード。
+        newLayer.style.opacity = "0";
+        newLayer.style.zIndex = "2";
+        oldLayer.style.opacity = "1";
+        oldLayer.style.zIndex = "1";
+        const tok = spring({
+            from: 0, to: 1, damping: 1, response: 0.18,
+            onUpdate: (v) => {
+                newLayer.style.opacity = String(v);
+                oldLayer.style.opacity = String(1 - v);
+            },
+            onDone: finish,
+        });
+        activeCancelTransition = () => { tok.cancel(); finish(); };
+        return;
+    }
+
+    // フルスライド。前進/戻りで初期値と重なり順を対称にする。
+    let oldTok, newTok;
+    let settledCount = 0;
+    const maybeFinish = () => { settledCount += 1; if (settledCount >= 2) finish(); };
+
+    if (nav.type === "forward") {
+        newLayer.style.zIndex = "2";
+        oldLayer.style.zIndex = "1";
+        newLayer.style.transform = "translateX(100%)";
+        newLayer.style.opacity = "1";
+        oldLayer.style.transform = "translateX(0%)";
+        oldLayer.style.opacity = "1";
+        oldTok = spring({
+            from: 0, to: -30, damping: 1, response: 0.35,
+            onUpdate: (v) => {
+                oldLayer.style.transform = `translateX(${v}%)`;
+                oldLayer.style.opacity = String(1 - Math.min(1, Math.abs(v) / 30) * 0.6);
+            },
+            onDone: maybeFinish,
+        });
+        newTok = spring({
+            from: 100, to: 0, damping: 1, response: 0.35,
+            onUpdate: (v) => { newLayer.style.transform = `translateX(${v}%)`; },
+            onDone: maybeFinish,
+        });
+    } else {
+        // back: 前進の対称形（現在の最前面ビューが右へ抜け、奥のビューが定位置へ戻る）。
+        oldLayer.style.zIndex = "2";
+        newLayer.style.zIndex = "1";
+        oldLayer.style.transform = "translateX(0%)";
+        oldLayer.style.opacity = "1";
+        newLayer.style.transform = "translateX(-30%)";
+        newLayer.style.opacity = "0.4";
+        oldTok = spring({
+            from: 0, to: 100, damping: 1, response: 0.35,
+            onUpdate: (v) => { oldLayer.style.transform = `translateX(${v}%)`; },
+            onDone: maybeFinish,
+        });
+        newTok = spring({
+            from: -30, to: 0, damping: 1, response: 0.35,
+            onUpdate: (v) => {
+                newLayer.style.transform = `translateX(${v}%)`;
+                newLayer.style.opacity = String(1 - Math.min(1, Math.abs(v) / 30) * 0.6);
+            },
+            onDone: maybeFinish,
+        });
+    }
+
+    activeCancelTransition = () => { oldTok.cancel(); newTok.cancel(); finish(); };
+}
+
+/// 画面差し替え。タイトルと戻るボタンの表示は常に即時反映する。
+/// pendingNav（route() が計算した前進/戻り/無変化）を一度だけ消費し、
+/// 前進/戻りならアニメーション遷移、それ以外（無変化・初回）は従来どおり即時差し替え。
 function render(title, content, { showBack = false } = {}) {
     titleEl().textContent = title;
     backBtn().hidden = !showBack;
     const main = appEl();
-    clear(main);
-    main.append(content);
-    main.scrollTop = 0;
+    const nav = pendingNav;
+    pendingNav = null; // 一度だけ消費
+
+    // 前の遷移が残っていれば、素の clear()/新しい遷移のどちらであっても先に即確定させる
+    // （.nav-layer が main の子として残ったまま clear() すると、遅れて firing する
+    //  在り処不明の finish() が insertBefore で例外を投げるため必須）。
+    cancelActiveTransition();
+
+    if (!nav || nav.type === "none") {
+        clear(main);
+        main.append(content);
+        main.scrollTop = 0;
+        if (nav) { currentScreenKey = nav.key; currentScreenDepth = nav.depth; }
+        return;
+    }
+
+    if (currentScreenKey !== null) scrollPositions.set(currentScreenKey, window.scrollY);
+    runScreenTransition(main, content, nav);
+    currentScreenKey = nav.key;
+    currentScreenDepth = nav.depth;
 }
 
 // ---- トースト ---------------------------------------------------------------
@@ -97,6 +283,7 @@ async function route() {
         location.hash = "#/pair";
         return;
     }
+    prepareNavigation(r); // 次の render() 呼び出し用に前進/戻り/無変化を計算しておく
     try {
         switch (r.name) {
             case "pair": return renderPair();
@@ -188,6 +375,12 @@ const booksDeps = { el, render, toast, route, appEl, onLibraryUnshared: handleLi
 const readerDeps = { el, render, toast, appEl, onLibraryUnshared: handleLibraryUnshared };
 
 async function renderLib(uuid, query) {
+    // 画面そのものへの新規エントリ（フィルタ/ページ/ソート変更ではなく画面遷移）のときだけ、
+    // データ到着前に最終レイアウト準拠のスケルトンを即時表示する（G17 Pack B）。
+    // 同一画面内の再描画（route() の再呼び出し）では表示しない（毎回ちらつくのを避ける）。
+    if (isFreshEntry(screenKeyFor({ name: "lib", uuid }))) {
+        render("ライブラリ", buildBooksSkeleton({ el }), { showBack: true });
+    }
     // ロック庫はトークン未保持だと books 取得が 403 になる。先に軽く叩いて判定する。
     const res = await api(`/libraries/${encodeURIComponent(uuid)}/books?per=1`, { libraryUUID: uuid });
     if (res.status === 403) {

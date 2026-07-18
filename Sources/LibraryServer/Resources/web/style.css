@@ -1226,6 +1226,101 @@ body {
   }
 }
 
+/* ============================================================
+   G17 Pack B — 空間ナビゲーション遷移（push/pop）
+   ============================================================ */
+
+/* ---- 遷移中の 2 レイヤ（旧/新ビューの重ね描画） ----
+   app.js の runScreenTransition() が生成・破棄する一時ラッパ。ビューポート基準の
+   position:fixed にして #app の通常フロー（ドキュメントスクロール）から切り離し、
+   transform/opacity だけを rAF スプリングで動かす（compositor-friendly）。
+   padding/max-width は .app-main のブレークポイントに合わせ、遷移完了で通常フローへ
+   戻したときに幅が飛ばないようにする。 */
+.nav-layer {
+  position: fixed;
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  background: var(--bg);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  will-change: transform, opacity;
+  pointer-events: none; /* 遷移中は旧/新どちらも操作不可（中断の競合を避ける） */
+}
+
+.nav-layer > * {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .nav-layer > * { max-width: 1100px; }
+}
+
+@media (min-width: 1200px) {
+  .nav-layer > * { max-width: 1320px; }
+}
+
+/* ---- スケルトン（読込中プレースホルダ・最終レイアウト準拠） ----
+   grey block + 淡いシマー。書籍データではないので中身のクラス（.book-row/.book-tile 等）
+   は流用しつつ pointer-events:none でタップ不可にし、視覚上だけ最終レイアウトに揃える。 */
+.skeleton-row,
+.skeleton-tile {
+  pointer-events: none;
+}
+
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+
+.skeleton-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg,
+    transparent 20%, rgba(255, 255, 255, 0.35) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-color-scheme: dark) {
+  .skeleton-block::after {
+    background: linear-gradient(100deg,
+      transparent 20%, rgba(255, 255, 255, 0.08) 50%, transparent 80%);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.skeleton-line { height: 12px; }
+.skeleton-line-title { width: 70%; height: 14px; margin-bottom: 6px; }
+.skeleton-line-meta { width: 45%; }
+.skeleton-line-grid { height: 11px; width: 80%; margin: 6px auto 0; }
+
+.skeleton-search { height: var(--tap); border-radius: 10px; }
+.skeleton-chip { width: 80px; height: 36px; border-radius: 10px; }
+
+.skeleton-tile .grid-cover-wrap.skeleton-block { aspect-ratio: 3 / 4; }
+
+/* ---- prefers-reduced-motion: reduce ----
+   シマーを完全停止（静止したグレーブロックのみ）。 */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-block::after {
+    animation: none;
+    transform: none;
+    display: none;
+  }
+}
+
 /* ---- prefers-contrast: more ----
    近不透明背景＋明確な境界線。 */
 @media (prefers-contrast: more) {
