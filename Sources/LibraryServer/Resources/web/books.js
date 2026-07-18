@@ -516,6 +516,22 @@ function setupInfiniteScroll(root, container, deps, state) {
     infObserver.observe(sentinel);
 }
 
+// ---- 表紙マテリアライズ（G17 Pack A） ----------------------------------------
+// グリッド/リストの表紙 <img> が decode 完了した時点で、CSS 側の `.cover-ready`
+// クラスを付与しフェード＋わずかなスケールイン（style.css の .cover-materialize /
+// .cover-ready、reduced-motion では即表示に無効化）させる。decode() 非対応環境や
+// デコード失敗（画像破損・404 等）でも表紙自体は既に src で読み込まれているため、
+// 即座に .cover-ready を付けて表示を止めない（フォールバック必須）。
+function materializeCover(img) {
+    img.classList.add("cover-materialize");
+    const reveal = () => img.classList.add("cover-ready");
+    if (typeof img.decode === "function") {
+        img.decode().then(reveal, reveal);
+    } else {
+        reveal();
+    }
+}
+
 // ---- list 表示 --------------------------------------------------------------
 
 function listView(uuid, items, deps) {
@@ -546,9 +562,13 @@ function listView(uuid, items, deps) {
 
         // 4.2c: list 行にも小さな表紙サムネ（遅延読み込み・縮小・キャッシュ）。表紙なしはプレースホルダ。
         const thumbURL = coverURL(uuid, book, 120);
-        const thumb = thumbURL
-            ? el("img", { class: "book-row-thumb", src: thumbURL, loading: "lazy", decoding: "async", alt: "" })
-            : el("div", { class: "book-row-thumb book-row-thumb-empty" });
+        let thumb;
+        if (thumbURL) {
+            thumb = el("img", { class: "book-row-thumb", src: thumbURL, loading: "lazy", decoding: "async", alt: "" });
+            materializeCover(thumb);
+        } else {
+            thumb = el("div", { class: "book-row-thumb book-row-thumb-empty" });
+        }
         const row = el("button", {
             type: "button", class: "book-row",
             onClick: () => openDetail(uuid, book, deps),
@@ -578,6 +598,7 @@ function gridView(uuid, items, deps) {
                 class: "grid-cover", src: url, loading: "lazy", decoding: "async",
                 alt: book.title || "", draggable: "false",
             });
+            materializeCover(cover);
         } else {
             // 表紙なし: タイトル文字のプレースホルダ枠。
             cover = el("div", { class: "grid-cover grid-cover-empty" },
