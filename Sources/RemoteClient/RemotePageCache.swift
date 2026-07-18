@@ -296,6 +296,15 @@ public actor RemotePageCache {
             blobMemCache.setObject(data as NSData, forKey: key.string as NSString, cost: data.count)
         } catch {
             try? fm.removeItem(at: tmp)   // best-effort
+            // Codex Low1: write 失敗時は当該 key の L1/index/blob を破棄し、次回クリーン再取得へ倒す。
+            // （actor 再入＋file 差し替え後に index write 失敗すると、L1 の旧バイトと disk の新バイトが
+            //  食い違い、以後 L1 から stale を返してしまうため。同一 key を完全に purge して整合させる。）
+            blobMemCache.removeObject(forKey: key.string as NSString)
+            pendingAtime.removeValue(forKey: key.string)
+            try? queue.write { db in
+                try db.execute(sql: "DELETE FROM entries WHERE key = ?", arguments: [key.string])
+            }
+            try? fm.removeItem(at: dest)
         }
     }
 

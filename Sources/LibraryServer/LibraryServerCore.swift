@@ -1394,7 +1394,11 @@ public struct LibraryServerCore: Sendable {
             try context.requireEdit()
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: PageLayoutRequestBody.self, context: context)
-            guard body.page >= 0 else { throw HTTPError(.badRequest) }
+            // ページ範囲は下限だけでなく上限も検証する。上限未チェックだと edit 権限で範囲外
+            // index の book_page_layout 行を無制限に溜められ、manifest も肥大化する（G17 Codex Medium）。
+            let content = try await self.contentCache.content(for: row, libraryUUID: lib.uuid)
+            let pageCount = try await content.pageCount
+            guard body.page >= 0, body.page < pageCount else { throw HTTPError(.badRequest) }
             if let mode = body.mode {
                 guard mode == 0 || mode == 1 else { throw HTTPError(.badRequest) }
             }
