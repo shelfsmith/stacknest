@@ -84,6 +84,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// ヘルプオーバーレイ（? / h）。PassthroughHostingView で canvas にジェスチャを通す。
     private var helpOverlayHosting: PassthroughHostingView<ViewerHelpOverlayView>?
     private var helpOverlayTimer: Timer?
+    /// G18 C3: リサイズで表示サイズが拡大したときの再デコードをデバウンスするタイマー。
+    /// ライブドラッグリサイズの連打で再デコードが乱発しないよう、リサイズが落ち着いてから発火する。
+    private var resizeRedecodeTimer: Timer?
+    /// リサイズ再デコードのデバウンス遅延（秒）。
+    private let resizeRedecodeDebounce: TimeInterval = 0.2
+    /// 現在デコード済みのページの実ピクセルサイズに対して、新しい target がこの倍率を超えて
+    /// 大きくなった場合のみ再デコードする（僅かな拡大では再デコードしない）。
+    private let resizeRedecodeGrowthThreshold: CGFloat = 1.15
+    /// G18 C3: リサイズ再デコードの世代カウンタ。短時間に複数回リサイズが確定すると複数の
+    /// off-main 再デコード Task が並走しうるため、完了時にこの値で最新世代かどうかを判定し、
+    /// 古い（解像度の低い）再デコード結果が新しい結果を上書きしてしまうのを防ぐ。
+    private var resizeRedecodeGeneration = 0
 
     init(
         content: BookContent,
@@ -458,21 +470,20 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    /// G18 C2 暫定実装: デコード先の目標最大辺（px）。正確な「表示サイズちょうど」の縮小は
-    /// C3（後続タスク）で扱う（TODO(C3): ページ単体/見開き別の実表示サイズに応じた再デコード）。
-    /// ここでは canvas の現在の bounds（バッキングスケール込み）から大まかな上限を出し、
-    /// レイアウト前などで取得できない/不当に小さい場合はフォールバック定数を使う。
-    /// MainActor 上（canvas/window に触れられる場所）で呼び、結果の Int だけを
-    /// off-main の `loadImage` へ渡す（decode 自体は依然 off-main のまま）。
+    /// G18 C3: デコード先の目標最大辺（px）。canvas の実表示ピクセル（bounds × backingScaleFactor）
+    /// から `DecodeTargetMath`（AppCore・ユニットテスト済の純粋計算）で精密に算出する。
+    /// 見開き表示中は片ページが canvas 幅のおよそ半分しか占めないため、半幅を基準に算出する
+    /// （C2 暫定実装は見開き時も canvas 全幅を基準にしており過剰デコードだった）。
+    /// window/backingScaleFactor が未取得（レイアウト前等）のときは `DecodeTargetMath` 側の
+    /// フォールバックへ委ねる。MainActor 上（canvas/window に触れられる場所）で呼び、
+    /// 結果の Int だけを off-main の `loadImage` へ渡す（decode 自体は依然 off-main のまま）。
     private func decodeTargetMaxPixelSize() -> Int {
-        let scale = window?.backingScaleFactor ?? 2.0
-        let boundsSize = canvas.bounds.size
-        let longestEdge = max(boundsSize.width, boundsSize.height) * scale
-        guard longestEdge.isFinite, longestEdge > 0 else { return Self.fallbackDecodeMaxPixelSize }
-        return max(Int(longestEdge), Self.fallbackDecodeMaxPixelSize / 2)
+        DecodeTargetMath.decodeTargetMaxPixelSize(
+            canvasSize: canvas.bounds.size,
+            backingScaleFactor: window?.backingScaleFactor ?? 2.0,
+            isSpread: model.displayMode == .spread
+        )
     }
-    /// canvas の bounds が未確定（0）なときのフォールバック上限。
-    private static let fallbackDecodeMaxPixelSize = 4000
 
     private func goNext() {
         let result = model.advance()
@@ -910,6 +921,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         helpOverlayTimer = nil
         cacheCoverageTimer?.invalidate()
         cacheCoverageTimer = nil
+        resizeRedecodeTimer?.invalidate()
+        resizeRedecodeTimer = nil
+        // 世代を進めて、close 前に開始済みの再デコード Task が完了時に (生きていても) 何もしないよう保証する。
+        resizeRedecodeGeneration += 1
         prefetch.removeAll()
         for (_, e) in inFlightPrefetch { e.task.cancel() }
         inFlightPrefetch.removeAll()
@@ -927,6 +942,71 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 冗長な安全網: 主トリガは ViewerCanvasView.setFrameSize（bounds 更新後に確実に発火）。
         // windowDidResize は canvas の bounds 更新前に届くことがあるが、handleResize は冪等なので無害。
         canvas.handleResize()
+        scheduleResizeRedecodeCheck()
+    }
+
+    // MARK: - G18 C3: 拡大リサイズ時の再デコード
+
+    /// リサイズのたびに直接判定せず、デバウンスして「落ち着いた」タイミングで 1 回だけ判定する。
+    /// ライブドラッグ中の連続発火では毎回 invalidate + 再スケジュールするため、実際に再デコードが
+    /// 走るのはリサイズが止まってから `resizeRedecodeDebounce` 秒後の 1 回だけになる。
+    private func scheduleResizeRedecodeCheck() {
+        resizeRedecodeTimer?.invalidate()
+        resizeRedecodeTimer = Timer.scheduledTimer(withTimeInterval: resizeRedecodeDebounce, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.resizeRedecodeTimer = nil
+                self.checkAndRedecodeForResize()
+            }
+        }
+    }
+
+    /// デバウンス後に 1 回だけ呼ばれる: 新しい target が現在デコード済みのページより十分大きければ
+    /// （縮小方向は既存の高解像ビットマップが downsample されるだけなので何もしない）、現在ページを
+    /// 新 target で再デコードして差し替える。近傍プリフェッチキャッシュも破棄し、次の pump で
+    /// 新しい target に合わせて自然に再取得させる（brief の「近傍も任意で再デコード」に相当）。
+    private func checkAndRedecodeForResize() {
+        // 巻スワップ中（await content.pageCount 中）は content/model が差し替わり得るため何もしない。
+        guard !isSwapping else { return }
+        let pages = currentSpreadPages()
+        guard !pages.isEmpty else { return }
+        let currentDecodedMax = pages.compactMap { prefetch[$0] }
+            .map { max($0.pixelSize.width, $0.pixelSize.height) }
+            .max() ?? 0
+        guard currentDecodedMax > 0 else { return }
+        let newTarget = decodeTargetMaxPixelSize()
+        guard CGFloat(newTarget) > currentDecodedMax * resizeRedecodeGrowthThreshold else { return }
+
+        // 近傍の低解像キャッシュを破棄する（現在ページ分はどのみち下で上書きされる）。
+        // in-flight なプリフェッチも中断し、古い target でのデコードが完了時に紛れ込まないようにする。
+        prefetch.removeAll()
+        for (_, entry) in inFlightPrefetch { entry.task.cancel() }
+        inFlightPrefetch.removeAll()
+
+        resizeRedecodeGeneration += 1
+        let generation = resizeRedecodeGeneration
+        let spreadToken = model.currentSpreadIndex
+        let content = self.content
+        Task { [weak self] in
+            guard let self else { return }
+            var imgs: [DecodedImage] = []
+            for p in pages {
+                if let img = await Self.loadImage(content: content, page: p, maxPixelSize: newTarget) {
+                    imgs.append(img)
+                }
+            }
+            // 世代ガード: この再デコードが開始された後にさらに新しいリサイズ再デコードが
+            // 走っていたら（古い・より低解像度な結果なので）破棄する。
+            guard self.resizeRedecodeGeneration == generation else { return }
+            // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
+            // 済みのはずなので）破棄する。
+            guard self.model.currentSpreadIndex == spreadToken else { return }
+            // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
+            guard imgs.count == pages.count else { return }
+            for (p, img) in zip(pages, imgs) { self.prefetch[p] = img }
+            self.canvas.setImages(imgs)
+            self.recomputePrefetch()
+        }
     }
 }
 
