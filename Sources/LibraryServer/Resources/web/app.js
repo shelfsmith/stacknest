@@ -372,7 +372,7 @@ async function renderLibraries() {
 const booksDeps = { el, render, toast, route, appEl, onLibraryUnshared: handleLibraryUnshared };
 
 /// reader 画面へ渡す DOM/描画ヘルパ束（booksDeps と同型）。
-const readerDeps = { el, render, toast, appEl, onLibraryUnshared: handleLibraryUnshared };
+const readerDeps = { el, render, toast, appEl, onLibraryUnshared: handleLibraryUnshared, cancelActiveTransition };
 
 async function renderLib(uuid, query) {
     // 画面そのものへの新規エントリ（フィルタ/ページ/ソート変更ではなく画面遷移）のときだけ、
