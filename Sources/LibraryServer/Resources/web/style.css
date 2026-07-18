@@ -12,6 +12,10 @@
   --border: #d1d1d6;
   --bar-h: 48px;
   --tap: 44px;
+  /* G17 Pack A: 半透明クロム（app-bar・books-toolbar-row・reader-chrome の素材）。
+     --surface の半透明版。ダークは prefers-color-scheme で上書き。 */
+  --chrome-bg: rgba(255, 255, 255, 0.72);
+  --chrome-blur: blur(20px) saturate(180%);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -24,6 +28,7 @@
     --accent: #0a84ff;
     --danger: #ff453a;
     --border: #38383a;
+    --chrome-bg: rgba(28, 28, 30, 0.72);
   }
 }
 
@@ -44,6 +49,10 @@ body {
 }
 
 /* ---- アプリバー（固定ヘッダ・ノッチ安全領域対応） ---- */
+/* G17 Pack A: 半透明マテリアル化。1px 罫線→スクロールエッジのフェード
+   （下端 10px を mask-image で透明にフェードアウトし、コンテンツが下を流れる
+   質感にする。固定 px 指定なのでバー内の中央寄せコンテンツ〔.app-bar h1 等〕には
+   掛からない）。 */
 .app-bar {
   position: sticky;
   top: 0;
@@ -53,8 +62,11 @@ body {
   gap: 4px;
   height: calc(var(--bar-h) + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) 12px 0;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
+  background: var(--chrome-bg);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 10px), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0, #000 calc(100% - 10px), transparent 100%);
 }
 
 .app-bar h1 {
@@ -107,6 +119,13 @@ body {
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-secondary { background: var(--surface-2); color: var(--text); }
 
+/* G17 Pack A: 押下の物理感（pointer-down で即スケール）。 */
+.btn-primary:active,
+.btn-secondary:active {
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
+
 /* ---- ペアリングフォーム ---- */
 .pair-form {
   display: flex;
@@ -154,7 +173,11 @@ body {
   cursor: pointer;
 }
 
-.card:active { background: var(--surface-2); }
+.card:active {
+  background: var(--surface-2);
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
 
 .card-title {
   display: flex;
@@ -272,6 +295,10 @@ body {
   /* iPhone 縦など狭幅では 1 行に収まらず seg/件数セレクタが画面外へ溢れて
      押せなくなる。折り返し可にして 2 段目に逃がす（iPad/PC は 1 行のまま）。 */
   flex-wrap: wrap;
+  /* G17 Pack A: 半透明マテリアル化（.app-bar/.reader-chrome と同素材）。 */
+  background: var(--chrome-bg);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
 }
 
 .books-sort {
@@ -389,7 +416,11 @@ body {
   cursor: pointer;
 }
 
-.book-row:active { background: var(--surface-2); }
+.book-row:active {
+  background: var(--surface-2);
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
 
 /* 4.2c: list 行の表紙サムネ（小・遅延読み込み）。 */
 .book-row-thumb {
@@ -487,11 +518,34 @@ body {
   background: var(--surface-2);
 }
 
+/* G17 Pack A: 押下の物理感。CSS :active はアクティベーション対象の祖先にも
+   伝播するため、.book-tile（実タップターゲット）を押すと :active な子孫として
+   このラップにも当たる。 */
+.grid-cover-wrap:active {
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
+
 .grid-cover {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* G17 Pack A: 表紙マテリアライズ（グリッド/リスト共通・books.js の
+   materializeCover() が付与）。decode() 完了で opacity/scale を .cover-ready に
+   遷移。transform/opacity のみ。プレースホルダ（div）には付与されないため
+   no-cover パスは無関係。 */
+.cover-materialize {
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.cover-materialize.cover-ready {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .grid-cover-empty {
@@ -665,12 +719,16 @@ body {
 .tapzone.right { right: 0;  width: 33%; }
 
 /* ---- クロム（半透明バー） ---- */
+/* G17 Pack A: 黒系半透明＋blur のマテリアル化（リーダーは常に黒背景の上なので
+   light/dark スキームに依存しない固定の黒トーン）。 */
 .reader-chrome {
   position: absolute;
   left: 0;
   right: 0;
   z-index: 3;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   color: #fff;
   display: flex;
   align-items: center;
@@ -981,7 +1039,11 @@ body {
 }
 
 .col-item:first-child { border-top: none; }
-.col-item:active { background: var(--surface-2); }
+.col-item:active {
+  background: var(--surface-2);
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
 
 .col-item.all { font-weight: 600; }
 
@@ -1109,3 +1171,80 @@ body {
 }
 
 .reader-loading.hidden { display: none; }
+
+/* ============================================================
+   G17 Pack A — a11y メディアクエリ（必須同時実装。半透明/スケール/
+   マテリアライズを追加する全ルールに対応するフォールバックをここに集約）
+   ============================================================ */
+
+/* ---- prefers-reduced-motion: reduce ----
+   押下スケール・表紙マテリアライズを無効化。表紙は即表示（transform 無し）。
+   opacity/色の変化のみは維持（意味を伝える最小限の変化として許容）。 */
+@media (prefers-reduced-motion: reduce) {
+  .card:active,
+  .book-row:active,
+  .col-item:active,
+  .btn-primary:active,
+  .btn-secondary:active,
+  .grid-cover-wrap:active {
+    transform: none;
+    transition: none;
+  }
+
+  .cover-materialize,
+  .cover-materialize.cover-ready {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* ---- prefers-reduced-transparency: reduce ----
+   全クロム（app-bar / books ツールバー行 / リーダークロム）を不透明化し
+   blur を除去。app-bar はスクロールエッジのフェード（mask）も無効化して
+   1px 罫線に戻す（不透明バーの下端が透けて見えるのを防ぐ）。 */
+@media (prefers-reduced-transparency: reduce) {
+  .app-bar {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .books-toolbar-row {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .reader-chrome {
+    background: rgba(0, 0, 0, 0.92);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ---- prefers-contrast: more ----
+   近不透明背景＋明確な境界線。 */
+@media (prefers-contrast: more) {
+  .app-bar {
+    background: var(--surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+    border-bottom: 2px solid var(--text);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 2px solid var(--text);
+  }
+
+  .book-row {
+    background: var(--surface);
+    border: 2px solid var(--text);
+  }
+}
