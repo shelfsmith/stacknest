@@ -830,8 +830,11 @@ function openDetail(uuid, book, deps) {
 
     const lastUi = (book.lastPage != null && book.lastPage > 0) ? book.lastPage + 1 : null;
     const openAt = (ui) => {
+        // 開いた時点の（絞り込み・並び順込みの）一覧 hash を from= に積んで、
+        // リーダー側の「戻る」がこの一覧状態へ戻れるようにする（G17 T2）。
+        const fromHash = location.hash;
         close();
-        location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}`;
+        location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}&from=${encodeURIComponent(fromHash)}`;
     };
     const readerActions = lastUi
         ? [ el("button", { type: "button", class: "btn-primary", text: "続きから読む", onClick: () => openAt(lastUi) }),
