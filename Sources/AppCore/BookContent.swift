@@ -62,6 +62,9 @@ public actor ArchiveBookContent: BookContent {
     private let url: URL
     private let extractor = LibarchiveCoverExtractor()
     private var entryNames: [String]?
+    /// G18 C5: ページ取得を「毎回開き直して線形スキャン（O(N)）」から「開いたまま順方向 1 パス
+    /// ＋抽出キャッシュ」へ。本 1 冊につき 1 インスタンスを遅延生成し全ページ取得を集約する。
+    private var seqExtractor: SequentialArchiveExtractor?
     private var pdfFallback: PDFBookContent?
     private var pdfFallbackResolved = false
     private var pdfTempURL: URL?
@@ -129,7 +132,12 @@ public actor ArchiveBookContent: BookContent {
             guard page >= 0, page < names.count else {
                 throw BookContentError.pageOutOfRange(page)
             }
-            return try await extractor.imageData(in: url, entryName: names[page])
+            // G18 C5: stateless な per-page 再オープン（O(N)）ではなく、開きっぱなしの順方向
+            // リーダーへ集約する（深いページでも一定コスト・矢印長押しのスムーズさを担保）。
+            if seqExtractor == nil {
+                seqExtractor = SequentialArchiveExtractor(url: url, imageNames: Set(names))
+            }
+            return try await seqExtractor!.data(forName: names[page])
         }
         // PDF fallback 経路: 範囲チェックを先に行い、範囲内の描画失敗は renderFailed に分離（4.1a）
         guard let pdf = try await resolvePDFFallback() else {
