@@ -50,15 +50,44 @@ public actor SequentialArchiveExtractor {
 
     /// 指定エントリ名のデータを返す。キャッシュ済みなら temp から読み、未取得なら現在の cursor から
     /// 物理順に前方ストリームし、通過した画像エントリを抽出キャッシュしつつ目的の名前まで進める。
+    ///
+    /// 耐障害性（review Important 対応）:
+    /// - **キャンセル**: 走査ループ先頭で `Task.checkCancellation()`。取り消し時はハンドルを
+    ///   **エントリ境界で保持したまま** 抜ける（カーソルは有効＝次要求が続きから進める。破棄しない）。
+    /// - **読み取りエラー**: ハンドルを捨てて 1 回だけ再オープン再試行（破損エントリ以降が本全体で
+    ///   全滅するのを防ぎ、旧 stateless の per-page 独立性を回復）。
+    /// - **EOF まで未発見**: 外部でファイルが差し替わった等に備え 1 回だけ再オープンして再走査。
     public func data(forName name: String) throws -> Data {
         if let fileURL = extracted[name] {
             return try Data(contentsOf: fileURL)
         }
+        do {
+            if let data = try streamForward(to: name) { return data }
+        } catch is CancellationError {
+            throw CancellationError()          // カーソル有効のまま（次要求が続きから進める）
+        } catch {
+            resetHandle()                      // 破損等: ハンドルを捨てる
+            if let data = try? streamForward(to: name) { return data }  // 再オープンして 1 回だけ再試行
+            throw error
+        }
+        // EOF まで見つからず: ファイル差し替え等を想定して 1 回だけ再オープン再走査。
+        resetHandle()
+        if let data = try streamForward(to: name) { return data }
+        throw ArchiveAdapterError.noImageEntry(url)
+    }
+
+    // MARK: - private
+
+    /// 現在の cursor から物理順に前方ストリームし、`name` を見つけたらそのデータを返す。
+    /// EOF まで見つからなければ nil。読み取りエラーは throw。既抽出エントリは再抽出せずスキップ
+    /// （再オープン後の重複抽出＝temp リークを防ぐ）。
+    private func streamForward(to name: String) throws -> Data? {
         try openIfNeeded()
         while !atEOF {
+            try Task.checkCancellation()
             var entry: OpaquePointer?
             let r = archive_read_next_header(archive, &entry)
-            if r == ARCHIVE_EOF { atEOF = true; break }
+            if r == ARCHIVE_EOF { atEOF = true; return nil }
             if r != ARCHIVE_OK && r != ARCHIVE_WARN {
                 throw ArchiveAdapterError.archiveUnreadable(url, reason: errorMessage())
             }
@@ -66,6 +95,12 @@ public actor SequentialArchiveExtractor {
                 archive_read_data_skip(archive); continue
             }
             let entryName = String(cString: cName)
+            // 既抽出（再オープン後の再遭遇）: 再抽出しない。対象ならキャッシュから返す。
+            if let existing = extracted[entryName] {
+                archive_read_data_skip(archive)
+                if entryName == name { return try Data(contentsOf: existing) }
+                continue
+            }
             // ページ集合外（ディレクトリ・非画像）はスキップして temp に残さない。
             guard imageNames.contains(entryName) else {
                 archive_read_data_skip(archive); continue
@@ -76,11 +111,17 @@ public actor SequentialArchiveExtractor {
             extracted[entryName] = fileURL
             if entryName == name { return data }
         }
-        // ここに来る＝要求された名前がアーカイブ内に見つからない（ページ集合と不整合）。
-        throw ArchiveAdapterError.noImageEntry(url)
+        return nil
     }
 
-    // MARK: - private
+    /// libarchive ハンドルを解放し、次回 `openIfNeeded()` で頭から開き直せる状態に戻す。
+    /// 抽出済み temp キャッシュ（`extracted`）は保持する（再オープンで再抽出しないため）。
+    private func resetHandle() {
+        if let archive { archive_read_free(archive) }
+        archive = nil
+        opened = false
+        atEOF = false
+    }
 
     private func openIfNeeded() throws {
         if opened { return }
