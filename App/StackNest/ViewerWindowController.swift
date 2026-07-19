@@ -100,6 +100,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var resizeRedecodeTimer: Timer?
     /// リサイズ再デコードのデバウンス遅延（秒）。
     private let resizeRedecodeDebounce: TimeInterval = 0.2
+    /// G18 smoke fix（案A+ per-flip overhead）: 読書位置の永続化（SQLite 書き込み）をデバウンスする
+    /// タイマー。矢印長押し中に毎フレーム同期 DB 書き込みがメインスレッドに乗るのを避け、
+    /// めくりのスムーズさ（cooViewer 比のギャップ）を改善する。close/巻スワップ確定点は即時 flush。
+    private var persistDebounceTimer: Timer?
+    /// 永続化デバウンス遅延（秒）。めくりが落ち着いてから 1 回だけ書き込む。
+    private let persistDebounceDelay: TimeInterval = 0.4
     /// 直近に「要求した」デコード target（`maxPixelSize`）をページ単位で記録する。
     /// G18 C3 review Critical/#4 fix: `kCGImageSourceThumbnailMaxPixelSize` は upscale しないため、
     /// 低解像度ソースは要求 target より小さい実ピクセルサイズにしかならない。この実ピクセルサイズを
@@ -644,7 +650,28 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// 現在の表示状態（last_page + flags）を永続化する。
+    /// 読書位置の永続化をデバウンスする（毎めくりの同期 DB 書き込みを避ける）。
+    /// ページ送りが落ち着いてから `persistDebounceDelay` 後に 1 回だけ実際の書き込みを行う。
+    /// 巻スワップ前・ウィンドウクローズなどの確定点では `flushPersistNow()` で即時書き込む。
     private func persistCurrent() {
+        persistDebounceTimer?.invalidate()
+        // 発火経路は persistDebounceTimer を触らない（後続 persistCurrent が張り直した新タイマーを
+        // 誤って無効化しないため。発火済みの非反復タイマーは run loop 側で自動無効化される）。
+        persistDebounceTimer = Timer.scheduledTimer(withTimeInterval: persistDebounceDelay, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.writePersistNow() }
+        }
+    }
+
+    /// デバウンス待ちの永続化を取り消し、現在状態を即座に書き込む。
+    /// 巻スワップ（旧巻状態の確定）・ウィンドウクローズなど、後続でコンテキストが変わる確定点で使う。
+    private func flushPersistNow() {
+        persistDebounceTimer?.invalidate()
+        persistDebounceTimer = nil
+        writePersistNow()
+    }
+
+    /// 実際の永続化書き込み（現在の book/model 状態を SQLite へ）。
+    private func writePersistNow() {
         persistState(book, model.currentPage, model.displayMode == .spread, model.coverOffset)
     }
 
@@ -863,7 +890,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 無効化しておく。これは本/コンテンツの切替そのものなので contentGeneration をバンプする
         // （renderRequest だけをバンプする通常のページ送りとは違い、プリフェッチも道連れに無効化してよい）。
         contentGeneration += 1
-        persistCurrent()                 // 旧巻の最終状態を保存（解決前に確定）
+        flushPersistNow()                // 旧巻の最終状態を即時保存（解決前に確定・デバウンス待ちも flush）
         let cur = book
         Task { [weak self] in
             guard let self else { return }
@@ -1040,7 +1067,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        persistCurrent()
+        flushPersistNow()                // 閉じる前にデバウンス待ちの読書位置を確定書き込みする
         stopAutoAdvance()
         idleTimer?.invalidate()
         idleTimer = nil
