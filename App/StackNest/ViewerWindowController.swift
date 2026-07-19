@@ -577,7 +577,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     nonisolated private static func loadImage(content: BookContent, page: Int, maxPixelSize: Int) async -> DecodedImage? {
         do {
             let data = try await content.imageData(at: page)
+            // G19: cooViewer 準拠の適応デコード。arm64 スライス＝Apple Silicon は「フル解像度の遅延
+            // デコード」（描画時に HW デコード＝背景が軽く、eager 縮小の閾値が生じない）。x86_64
+            // スライス＝Intel は従来の off-main eager 縮小（描画時デコードは Intel で run loop を
+            // 止めるため）。Universal のスライスで自然に分岐＝実行時 CPU 判定不要。
+            #if arch(arm64)
+            return ViewerImageDecoder.decodeLazy(data)
+            #else
             return ViewerImageDecoder.decode(data, maxPixelSize: maxPixelSize)
+            #endif
         } catch {
             Self.logger.warning("viewer page \(page, privacy: .public) load failed: \(String(describing: error), privacy: .public)")
             return nil
@@ -1114,6 +1122,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// ライブドラッグ中の連続発火では毎回 invalidate + 再スケジュールするため、実際に再デコードが
     /// 走るのはリサイズが止まってから `resizeRedecodeDebounce` 秒後の 1 回だけになる。
     private func scheduleResizeRedecodeCheck() {
+        // G19: arm64（Apple Silicon）はフル解像度の遅延デコードで表示するため、リサイズで高解像に
+        // 差し替える再デコードは不要（既にフル解像度・GPU/Quartz が描画時にスケール）。Intel のみ実施。
+        #if arch(x86_64)
         resizeRedecodeTimer?.invalidate()
         resizeRedecodeTimer = Timer.scheduledTimer(withTimeInterval: resizeRedecodeDebounce, repeats: false) { [weak self] _ in
             Task { @MainActor in
@@ -1122,6 +1133,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 self.checkAndRedecodeForResize()
             }
         }
+        #endif
     }
 
     /// デバウンス後に 1 回だけ呼ばれる: 新しい target が現在デコード済みのページより十分大きければ
@@ -1217,6 +1229,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// パン（scrollWheel/mouseDragged）は canvas 側で `onZoomChanged` を呼ばないため、ここには
     /// 到達しない（brief 要求「パン中は再デコードしない」は呼び出し経路自体で担保している）。
     private func scheduleZoomRedecodeCheck() {
+        // G19: arm64（Apple Silicon）はフル解像度の遅延デコードで表示するため、ズームで高解像に
+        // 差し替える再デコードは不要（フル解像度をそのまま GPU/Quartz が拡大＝ネイティブまで鮮明）。
+        // Intel のみ実施（縮小デコードのためズーム時に高解像再デコードが要る）。
+        #if arch(x86_64)
         zoomRedecodeTimer?.invalidate()
         zoomRedecodeTimer = Timer.scheduledTimer(withTimeInterval: zoomRedecodeDebounce, repeats: false) { [weak self] _ in
             Task { @MainActor in
@@ -1225,6 +1241,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 self.checkAndRedecodeForZoom()
             }
         }
+        #endif
     }
 
     /// デバウンス後に 1 回だけ呼ばれる: 現在の zoom 倍率で表示ピクセルが既存デコードの解像度を

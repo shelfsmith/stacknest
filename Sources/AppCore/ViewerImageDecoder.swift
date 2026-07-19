@@ -82,6 +82,35 @@ public enum ViewerImageDecoder {
         return DecodedImage(cgImage: image, pixelSize: CGSize(width: image.width, height: image.height))
     }
 
+    /// G19: フル解像度の**遅延**デコード（Apple Silicon 用）。
+    ///
+    /// cooViewer 準拠モデル: ダウンサンプルも即時デコードもせず、フル解像度の**遅延** CGImage を返す。
+    /// 実ピクセル展開は描画時（`ctx.draw`）に走り、AS では HW デコードで一瞬。**背景（先読み）は
+    /// バイト取得＋遅延 CGImage 生成だけで軽く**、eager 縮小デコードのように「デコード済みキャッシュを
+    /// 使い切ると各めくりがデコード待ちになる」閾値が生じない（G18 の AS 回帰の根治）。
+    ///
+    /// EXIF 向きの扱い: `CGImageSourceCreateImageAtIndex` は向きを適用しない。向き up（またはタグ無し・
+    /// 漫画スキャンの大多数）は遅延のまま返す。回転/反転あり（稀）は正しさ優先で `decode(maxPixelSize:0)`
+    /// （thumbnail-with-transform で向きをベイク・即時展開）にフォールバックする。
+    ///
+    /// - Important: この遅延経路はメインスレッド描画時にデコードが走るため、**HW デコードのある
+    ///   Apple Silicon 専用**。Intel（x86_64 スライス）は `decode(maxPixelSize:)` の off-main eager を使う
+    ///   （描画時デコードは Intel で run loop を止めるため）。呼び出し側で `#if arch(arm64)` 分岐する。
+    public static func decodeLazy(_ data: Data) -> DecodedImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let orientation = (props?[kCGImagePropertyOrientation] as? UInt32) ?? 1
+        // 向き up 以外（回転/反転）は向きベイクが要るので eager フルデコードにフォールバック。
+        guard orientation == 1 else { return decode(data, maxPixelSize: 0) }
+        // 向き up: フル解像度の遅延 CGImage（描画時に初めてデコード）。
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, [
+            kCGImageSourceShouldCacheImmediately: false,   // 遅延（描画時デコード）
+        ] as CFDictionary) else {
+            return decode(data, maxPixelSize: 0)           // 生成不能時のフォールバック
+        }
+        return DecodedImage(cgImage: image, pixelSize: CGSize(width: image.width, height: image.height))
+    }
+
     /// フル解像度デコード時に thumbnail API へ渡す「縮小させない」ための上限値。
     /// 実在する画像の最大辺がこれを超えることは実運用上ない（想定: 数万 px 級のスキャン画像でも収まる）。
     private static let nativeResolutionSentinel = 1 << 16  // 65536

@@ -86,4 +86,52 @@ struct ViewerImageDecoderTests {
     // EXIF 回転タグ付き fixture がリポジトリに存在しないため、回転適用の直接検証は行わない
     // （kCGImageSourceCreateThumbnailWithTransform: true を ThumbnailLoader と同一に指定して
     // いることのみをコードでミラーする。実 EXIF fixture が追加され次第、別テストで補強する）。
+
+    // MARK: - G19 decodeLazy（AS 用フル解像度遅延デコード）
+
+    /// 指定 EXIF orientation を埋め込んだ JPEG を合成する。
+    private func makeJPEG(width: Int, height: Int, orientation: UInt32) -> Data {
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: cs,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0.3, green: 0.5, blue: 0.7, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let img = ctx.makeImage()!
+        let out = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil)!
+        let props: [CFString: Any] = [kCGImagePropertyOrientation: orientation]
+        CGImageDestinationAddImage(dest, img, props as CFDictionary)
+        _ = CGImageDestinationFinalize(dest)
+        return out as Data
+    }
+
+    @Test func decodeLazyReturnsFullResolutionForUprightImage() {
+        let data = makeJPEG(width: 2000, height: 1200)   // orientation 未指定＝up
+        let decoded = ViewerImageDecoder.decodeLazy(data)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        // フル解像度（縮小なし）で、pixelSize は CGImage 実寸と一致。
+        #expect(decoded.cgImage.width == 2000)
+        #expect(decoded.cgImage.height == 1200)
+        #expect(decoded.pixelSize.width == 2000)
+        #expect(decoded.pixelSize.height == 1200)
+    }
+
+    @Test func decodeLazyBakesOrientationForRotatedImage() {
+        // orientation 6（90°回転）: ベイクされ、寸法が入れ替わる（2000x1200 → 1200x2000）。
+        let data = makeJPEG(width: 2000, height: 1200, orientation: 6)
+        let decoded = ViewerImageDecoder.decodeLazy(data)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        #expect(decoded.cgImage.width == 1200)
+        #expect(decoded.cgImage.height == 2000)
+        #expect(decoded.pixelSize.width == CGFloat(decoded.cgImage.width))
+        #expect(decoded.pixelSize.height == CGFloat(decoded.cgImage.height))
+    }
+
+    @Test func decodeLazyReturnsNilForUndecodable() {
+        #expect(ViewerImageDecoder.decodeLazy(Data([0x00, 0x01, 0x02, 0x03])) == nil)
+        #expect(ViewerImageDecoder.decodeLazy(Data()) == nil)
+    }
 }
