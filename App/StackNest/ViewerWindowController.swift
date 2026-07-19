@@ -72,7 +72,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var inFlightPrefetch: [Int: (token: Int, task: Task<Void, Never>)] = [:]
     private var prefetchToken = 0
     private var prefetchQueue: [Int] = []
-    private let maxConcurrentPrefetch = 3
+    /// G18 smoke fix（案A）: 先読みの並列度を CPU コア数に適応させ、矢印長押しでプリフェッチが
+    /// めくり速度を追い越せるようにする（旧固定値 3 では AS で連打時に先読みが追い付かず、
+    /// off-main eager decode の完了待ちが毎ページ露出して体感が悪化していた）。コア数-2 を
+    /// 3〜6 にクランプ（i9-9900K=16 論理コア→6、Apple Silicon→6）。
+    private let maxConcurrentPrefetch = min(6, max(3, ProcessInfo.processInfo.activeProcessorCount - 2))
+    /// G18 smoke fix（案A）: 常駐デコード済みキャッシュの上限。旧 8 では長押し中の前方バンクが
+    /// 浅く、めくり先がすぐ枯渇していた。12 に拡張して「めくる先を先に用意」の余力を増やす
+    /// （単頁 ~3200px で 1 枚 ~30MB・12 枚で ~350MB 程度に収まる）。
+    private let residentDecodeCap = 12
+    /// G18 smoke fix（案A）: 直近のページ送り方向（+1 前方 / -1 後方）。`recomputePrefetch` で
+    /// `PrefetchPlanner` に渡し、進行方向側を優先的に先読みさせる（後方長押しの是正）。
+    private var navDirection = 1
     /// リモート閲覧時のみ注入（可視保護・tier3）。ローカル/オフラインは nil。
     var remotePrefetch: RemotePrefetchContext?
     /// 現在 content がリモート本なら bookID。巻スワップで content が差し替わると追従（C1 対策）。
@@ -478,9 +489,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         }
         let tier3 = remotePrefetch?.tier3Enabled() ?? false
         let plan = PrefetchPlanner.plan(current: cur, pageCount: model.pageCount,
-                                        spreadPages: spreadPages, neighborSpreads: neighborSpreads, tier3: tier3)
-        // abort: 近傍(先頭8)に無い in-flight を cancel
-        let keep = Set(plan.queue.prefix(8))
+                                        spreadPages: spreadPages, neighborSpreads: neighborSpreads,
+                                        tier3: tier3, direction: navDirection)
+        // abort: 近傍(先頭 residentDecodeCap-2)に無い in-flight を cancel
+        let keep = Set(plan.queue.prefix(residentDecodeCap - 2))
         for (page, entry) in inFlightPrefetch where !keep.contains(page) {
             entry.task.cancel(); inFlightPrefetch.removeValue(forKey: page)
         }
@@ -531,7 +543,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     /// L1 メモリを可視近傍中心に間引く（現行の「最大8・遠方破棄」を踏襲）。
     private func trimL1(around cur: Int) {
-        while prefetch.count > 8 {
+        while prefetch.count > residentDecodeCap {
             if let farthest = prefetch.keys.max(by: { abs($0 - cur) < abs($1 - cur) }) {
                 prefetch.removeValue(forKey: farthest)
             } else { break }
@@ -581,6 +593,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func goNext() {
+        navDirection = 1
         let result = model.advance()
         switch result {
         case .moved:
@@ -600,6 +613,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func goPrev() {
+        navDirection = -1
         model.goBack()
         loadCurrentPage()
         persistCurrent()
@@ -608,6 +622,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private func jumpToPercent(_ fraction: Double) {
         guard model.pageCount > 0 else { return }
         let target = Int((Double(model.pageCount - 1) * fraction).rounded())
+        navDirection = target < model.currentPage ? -1 : 1
         model.goTo(page: target)
         loadCurrentPage()
         persistCurrent()
@@ -615,6 +630,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     private func skipPages(_ delta: Int) {
         guard model.pageCount > 0 else { return }
+        navDirection = delta < 0 ? -1 : 1
         let target = min(max(model.currentPage + delta, 0), model.pageCount - 1)
         model.goTo(page: target)
         loadCurrentPage()
@@ -656,8 +672,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         case .previousPage:    goPrev()
         case .pageLeftward:    (model.options.pageDirection == .rightToLeft) ? goNext() : goPrev()
         case .pageRightward:   (model.options.pageDirection == .rightToLeft) ? goPrev() : goNext()
-        case .firstPage:       model.goFirst(); loadCurrentPage(); persistCurrent()
-        case .lastPage:        model.goLast(); loadCurrentPage(); persistCurrent()
+        case .firstPage:       navDirection = -1; model.goFirst(); loadCurrentPage(); persistCurrent()
+        case .lastPage:        navDirection = 1; model.goLast(); loadCurrentPage(); persistCurrent()
         case .zoomIn:          canvas.zoomIn()
         case .zoomOut:         canvas.zoomOut()
         case .fitToWindow:     canvas.fitToWindow()
