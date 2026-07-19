@@ -337,6 +337,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else { return }
             if response == .alertSecondButtonReturn {
+                self.navDirection = -1  // 案A レビュー Minor #3: 先頭方向へのジャンプとして先読み方向を明示
                 self.model.goFirst()
                 self.rebuildSpreads()
                 self.loadCurrentPage()
@@ -437,7 +438,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 } else if let img = await Self.loadImage(content: self.content, page: p, maxPixelSize: maxPixelSize) {
                     self.prefetch[p] = img
                     self.lastDecodeTarget[p] = maxPixelSize
+                    // G18 smoke fix（案A レビュー Important #2）: 現在ページのデコード挿入経路でも
+                    // 常駐上限を必ず適用する（従来 trimL1 は pumpPrefetch 完了時のみで、キャッシュ済み
+                    // 領域内を往復する等でプリフェッチ完了が発生しないと prefetch dict が residentDecodeCap
+                    // を超えたまま残り得た。cap/並列度を引き上げた本コミットでは上限逸脱の影響が大きい）。
                     imgs.append(img)
+                    self.trimL1(around: self.model.currentPage)
                 }
             }
             // G18 C3 review Critical fix: renderRequest/contentGeneration ガードが主。
