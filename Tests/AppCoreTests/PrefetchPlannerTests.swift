@@ -31,6 +31,22 @@ struct PrefetchPlannerTests {
         #expect(Set(p.queue) == Set(0..<50))         // 全ページ包含
         #expect(Array(p.queue.prefix(6)) == [6,7,8,9,10,11])  // 近傍優先
     }
+    @Test func backwardDirectionPrioritizesBackward() {
+        // G18 案A: 後方送り（direction<0）では後方 -1..-6 が先頭・前方 +1..+2 が後。
+        let p = PrefetchPlanner.plan(current: 20, pageCount: 100, spreadPages: nil, tier3: false, direction: -1)
+        #expect(Array(p.queue.prefix(6)) == [19,18,17,16,15,14])  // 後方 -1..-6 が先頭
+        let iBack = p.queue.firstIndex(of: 19)!
+        let iFwd = p.queue.firstIndex(of: 21)!
+        #expect(iBack < iFwd)                            // 後方 -1 が 前方 +1 より先
+        #expect(p.activeWindow == Set(14...22))          // cur-6..+2（後方側を深く保護）
+    }
+    @Test func forwardDirectionMatchesDefault() {
+        // direction 既定(+1)は従来と同一挙動（前方送りは A1/A2 の回帰を避けるため不変）。
+        let d = PrefetchPlanner.plan(current: 20, pageCount: 100, spreadPages: nil, tier3: false)
+        let f = PrefetchPlanner.plan(current: 20, pageCount: 100, spreadPages: nil, tier3: false, direction: 1)
+        #expect(d.queue == f.queue)
+        #expect(d.activeWindow == f.activeWindow)
+    }
     @Test func spreadModeExpandsNeighbors() {
         let p = PrefetchPlanner.plan(current: 4, pageCount: 100, spreadPages: [4,5],
                                      neighborSpreads: [[2,3],[6,7]], tier3: false)
