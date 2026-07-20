@@ -70,6 +70,24 @@ export function projectMomentum(velocity, d = DRAG_DECEL) {
     return (velocity / 1000) * d / (1 - d);
 }
 
+/// リリース着地の判定（純関数・テスト可能）。
+/// D8 fix: 指を離す瞬間の微小な逆方向ジッタで velocity の符号が反転し、正味は前方ドラッグなのに
+/// 逆向きフリックが誤発火して「前のページへ戻る」不具合を根絶する。velocity は**ドラッグ変位
+/// (trackX) と同符号のときだけ有効**とし（逆符号のリリース速度は 0 扱い＝無視）、モーメンタム射影
+/// とフリック閾値の双方に適用する。これによりページ送りは常にユーザーがドラッグした向きにしか
+/// 起きない。50% 射影ルール（距離）は保持。
+/// trackX 符号: 負=右送り(right)方向へドラッグ / 正=左送り(left)方向へドラッグ。
+export function decideDragSettle({ trackX, velocity, width, forceCancel = false }) {
+    if (forceCancel) return { action: "cancel", flick: false };
+    const dir = Math.sign(trackX);
+    const eff = ((dir < 0 && velocity < 0) || (dir > 0 && velocity > 0)) ? velocity : 0;
+    const projected = trackX + projectMomentum(eff);
+    const flick = Math.abs(eff) > DRAG_FLICK_VELOCITY;
+    if (projected < -width * 0.5 || eff < -DRAG_FLICK_VELOCITY) return { action: "right", flick };
+    if (projected >  width * 0.5 || eff >  DRAG_FLICK_VELOCITY) return { action: "left", flick };
+    return { action: "cancel", flick: false };
+}
+
 // ---- メイン export -----------------------------------------------------------
 
 /// リーダー画面を描画する。
@@ -658,19 +676,13 @@ export async function renderReader(uuid, bookId, query, deps) {
         });
     }
 
-    /// pointerup/pointercancel で呼ぶ着地判定。モーメンタム射影が幅の50%を超えるか、
-    /// フリック速度しきい値を超えていればページ送りを確定する。端で確定を試みた場合は
-    /// ラバーバンドを戻すだけ（巻末方向のみ既存 go() と同じ3択ダイアログに合流する）。
+    /// pointerup/pointercancel で呼ぶ着地判定。判定ロジックは decideDragSettle（純関数）に委譲し、
+    /// ここは端処理・触覚・commitDrag/スナップバックの副作用のみを担う。
     function settleDrag(ds, forceCancel) {
-        const w = ds.width;
         const velocity = forceCancel ? 0 : computeDragVelocity(ds);
-        const trackXNow = ds.trackX;
-        const projected = trackXNow + (forceCancel ? 0 : projectMomentum(velocity));
-        const flick = !forceCancel && Math.abs(velocity) > DRAG_FLICK_VELOCITY;
-        const advanceRight = !forceCancel && (projected < -w * 0.5 || velocity < -DRAG_FLICK_VELOCITY);
-        const advanceLeft  = !forceCancel && (projected >  w * 0.5 || velocity >  DRAG_FLICK_VELOCITY);
+        const d = decideDragSettle({ trackX: ds.trackX, velocity, width: ds.width, forceCancel });
 
-        if (advanceRight) {
+        if (d.action === "right") {
             if (ds.atRightEdge) {
                 navigator.vibrate?.(10);
                 const toEnd = ds.rightDir > 0;
@@ -678,10 +690,10 @@ export async function renderReader(uuid, bookId, query, deps) {
                 return;
             }
             navigator.vibrate?.(10);
-            commitDrag(ds, "right", velocity, flick);
+            commitDrag(ds, "right", velocity, d.flick);
             return;
         }
-        if (advanceLeft) {
+        if (d.action === "left") {
             if (ds.atLeftEdge) {
                 navigator.vibrate?.(10);
                 const toEnd = ds.leftDir > 0;
@@ -689,10 +701,11 @@ export async function renderReader(uuid, bookId, query, deps) {
                 return;
             }
             navigator.vibrate?.(10);
-            commitDrag(ds, "left", velocity, flick);
+            commitDrag(ds, "left", velocity, d.flick);
             return;
         }
-        // 閾値未達 → 元の位置へ戻す。端に突き当たっていた場合のみ触覚を鳴らす。
+        // cancel → 元の位置へ戻す。端に突き当たっていた場合のみ触覚を鳴らす。
+        const trackXNow = ds.trackX;
         if ((trackXNow > 0 && ds.atLeftEdge) || (trackXNow < 0 && ds.atRightEdge)) navigator.vibrate?.(10);
         animateTrack(ds, 0, velocity, false, () => destroyDrag(ds));
     }
