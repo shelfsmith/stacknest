@@ -1261,11 +1261,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 起きても、この Task の現在ページ書き込みは renderRequest/contentGeneration ガードで弾かれる。
         renderRequest += 1
         // G19 案P Codex High #1 fix: renderRequest を進める＝進行中の loadCurrentPage の pending load を
-        // 無効化する。この再デコードが現在ページの表示責任を引き継ぐので、`isDisplayPending` を確定的に
-        // クリアする（さもないと元の pending load が renderRequest 不一致で早期 return しフラグを落とさず、
-        // goNext/goPrev が永久に no-op になる＝Codex 指摘の stuck-true）。同期クリアなので、この再デコード
-        // が後で成功/失敗いずれでも stuck しない。
-        isDisplayPending = false
+        // 無効化する。この再デコードが現在ページの表示責任を**引き継ぐ**。ただし再レビュー（Codex Medium）
+        // 指摘のとおり、ここで即クリアするとまだ表示していないのに held-key の次送りを許してしまい
+        // ペーシングが弱まる。**表示するまで pending を保持**し、下の Task 完了時（成功＝表示・または
+        // デコード失敗で表示断念）にクリアする。guard-fail 経路は別の描画要求が owner なのでクリア不要。
         let rr = renderRequest
         let cg = contentGeneration
         let spreadToken = model.currentSpreadIndex
@@ -1280,6 +1279,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             }
             // 世代ガード: この再デコードが開始された後にさらに新しい描画要求（巻スワップ／通常ロード／
             // 別のリサイズ再デコード）が走っていたら（古い・低優先の結果なので）破棄する。
+            // pending は落とさない — その新しい描画要求が owner として表示・クリアを担う。
             guard self.renderRequest == rr, self.contentGeneration == cg else { return }
             // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
             // 済みのはずなので）破棄する。
@@ -1288,12 +1288,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // G18 C3 review Minor #4 fix: それでも pump を冷やしたままにしないよう recomputePrefetch
             // だけは呼ぶ（現在ページの再表示は諦めるが、近傍プリフェッチは正常な target で再開する）。
             guard imgs.count == pages.count else {
+                self.isDisplayPending = false   // 表示は断念するがフラグは落とす（stuck 防止・この owner の責務）
                 self.recomputePrefetch()
                 return
             }
             for (p, img) in zip(pages, imgs) {
                 self.storeDecoded(page: p, image: img, target: newTarget)   // G19 review Important #2: 単調格納
             }
+            self.isDisplayPending = false   // 現在ページを表示＝ペーシング解除
             self.canvas.setImages(imgs)
             self.recomputePrefetch()
         }
@@ -1356,9 +1358,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // zoomToken は「このズーム再デコードがより新しいズーム再デコードに置き換わっていないか」を
         // 判定する専用トークン（renderRequest は resize 再デコード/通常ページ送りとも共有されるため）。
         renderRequest += 1
-        // G19 案P Codex High #1 fix: resize 再デコードと同じ理由で pending load を引き継ぐため確定的に
-        // クリアする（stuck-true 防止）。
-        isDisplayPending = false
+        // G19 案P Codex High #1 fix（再レビューで修正）: resize 再デコードと同じ扱い。pending は
+        // ここでは落とさず、下の Task が現在ページを表示するまで保持する（成功／デコード失敗で表示断念
+        // のいずれかでクリア。guard-fail 経路は別の描画要求が owner）。実際はズームジェスチャは現在ページ
+        // 表示後にしか発生しないので通常 pending は既に false だが、resize と対称に扱い stuck を防ぐ。
         let rr = renderRequest
         let cg = contentGeneration
         zoomToken += 1
@@ -1380,11 +1383,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // 済みのはずなので）破棄する。
             guard self.model.currentSpreadIndex == spreadToken else { return }
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
-            guard imgs.count == pages.count else { return }
+            guard imgs.count == pages.count else { self.isDisplayPending = false; return }
             for (p, img) in zip(pages, imgs) {
                 self.storeDecoded(page: p, image: img, target: newTarget)   // G19 review Important #2: 単調格納
             }
             self.zoomHighResPages = pages
+            self.isDisplayPending = false   // 現在ページを（高解像で）表示＝ペーシング解除
             // setImages ではなく swapImagesPreservingZoom — ユーザーが今まさに操作している
             // zoomFactor/offset を維持したまま画像だけ鮮明なものに差し替える（フィットへ戻さない）。
             self.canvas.swapImagesPreservingZoom(imgs)
