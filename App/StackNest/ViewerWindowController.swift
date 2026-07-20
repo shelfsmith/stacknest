@@ -90,6 +90,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// めくりが落ち着いてからデバウンスで 1 回だけ行う。ローカル/tier3 OFF は従来どおり即時・影響なし。
     private var wholeBookPrefetchTimer: Timer?
     private let wholeBookPrefetchDebounce: TimeInterval = 0.3
+    /// G19 案P（cooViewer 流ペーシング）: 現在ページが**まだ表示されていない**（miss で off-main
+    /// デコード中）間 true。この間は held-key のページ送り（goNext/goPrev）を**無視**して次へ進めない。
+    /// 実測（Intel・推しの子で decode ~130-173ms・flip の 40% が miss）で、model だけ先に進み表示が
+    /// 遅れて追従＝入力と表示がズレる「飛ぶ/カクつく」がジャンクの正体と判明。cooViewer は描画時
+    /// デコードで自然にペーシングされ 1 枚ずつ滑らかに流れる。これを再現し、全ページを decode 速度で
+    /// 順に表示する（ページ飛ばし無し・ちらつき無し）。キャッシュヒット（軽い本）は即 false ＝影響なし。
+    private var isDisplayPending = false
     /// リモート閲覧時のみ注入（可視保護・tier3）。ローカル/オフラインは nil。
     var remotePrefetch: RemotePrefetchContext?
     /// 現在 content がリモート本なら bookID。巻スワップで content が差し替わると追従（C1 対策）。
@@ -433,12 +440,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 全ページがキャッシュ済なら即時表示
         let cachedAll = pages.compactMap { prefetch[$0] }
         if cachedAll.count == pages.count {
+            isDisplayPending = false   // 案P: 即表示＝ペーシング解除（held-key の次送りを許可）
             canvas.setImages(cachedAll)
             updateHUD()
             recordOrientationsThenMaybeReload(displayedPages: pages, images: cachedAll)
             recomputePrefetch()
             return
         }
+        // 案P: miss＝off-main デコード中は表示保留。デコード完了・表示までは held-key の次送りを止める。
+        isDisplayPending = true
         let token = model.currentSpreadIndex
         let maxPixelSize = decodeTargetMaxPixelSize()
         Task { [weak self] in
@@ -462,6 +472,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // currentSpreadIndex は補助的な追加チェック（通常はセットで変化するが、念のため確認する）。
             guard self.renderRequest == rr, self.contentGeneration == cg,
                   self.model.currentSpreadIndex == token else { return }
+            self.isDisplayPending = false   // 案P: 現ページ表示完了＝次送りを許可
             self.canvas.setImages(imgs)
             self.updateHUD()
             self.recordOrientationsThenMaybeReload(displayedPages: pages, images: imgs)
@@ -604,8 +615,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             let data = try await content.imageData(at: page)
             // G19: cooViewer 準拠の適応デコード。arm64 スライス＝Apple Silicon は「フル解像度の遅延
             // デコード」（描画時に HW デコード＝背景が軽く、eager 縮小の閾値が生じない）。x86_64
-            // スライス＝Intel は従来の off-main eager 縮小（描画時デコードは Intel で run loop を
-            // 止めるため）。Universal のスライスで自然に分岐＝実行時 CPU 判定不要。
+            // スライス＝Intel は `ViewerImageDecoder.decode`（縮小不要な画像は遅延フル解像度・大画像は
+            // off-main eager 縮小）。Universal のスライスで自然に分岐＝実行時 CPU 判定不要。
             #if arch(arm64)
             return ViewerImageDecoder.decodeLazy(data)
             #else
@@ -638,6 +649,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func goNext() {
+        // 案P（cooViewer 流ペーシング）: 現ページがまだ表示されていない（miss デコード中）間は
+        // held-key の次送りを無視し、model が表示より先へ暴走するのを防ぐ（1 枚ずつ滑らかに流す）。
+        guard !isDisplayPending else { return }
         navDirection = 1
         let result = model.advance()
         switch result {
@@ -658,6 +672,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func goPrev() {
+        guard !isDisplayPending else { return }   // 案P: 現ページ表示前は次送りを止める（後方も同様）
         navDirection = -1
         model.goBack()
         loadCurrentPage()
