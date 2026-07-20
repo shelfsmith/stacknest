@@ -453,19 +453,26 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         let maxPixelSize = decodeTargetMaxPixelSize()
         Task { [weak self] in
             guard let self else { return }
+            // G19 Codex High #2b fix: content を Task 開始時点で固定する。ループ内で毎回 self.content を
+            // 読むと、await を跨いで巻スワップが起きたとき 2 ページ見開きの各ページが別世代の content から
+            // 供給され得る（見開きに新旧巻のページが混在）。開始時の 1 個に固定してこれを防ぐ。
+            let content = self.content
             var imgs: [DecodedImage] = []
             for p in pages {
                 if let cached = self.prefetch[p] {
                     imgs.append(cached)
-                } else if let img = await Self.loadImage(content: self.content, page: p, maxPixelSize: maxPixelSize) {
+                } else if let img = await Self.loadImage(content: content, page: p, maxPixelSize: maxPixelSize) {
+                    // G19 Codex High #2a fix: await から戻った時点で世代が変わっていたら（巻スワップ＝
+                    // contentGeneration 進行、または別ページ描画＝renderRequest 進行）、キャッシュへ書き込まず
+                    // 破棄する。さもないと performSwap で clear 済みのキャッシュへ**旧巻の画像**を挿入し、
+                    // 続く新巻ロードの storeDecoded 単調チェックが stale 既存を返して**旧巻ページを表示**しうる。
+                    guard self.renderRequest == rr, self.contentGeneration == cg,
+                          self.model.currentSpreadIndex == token else { return }
                     // G19 review Important #2: target 単調で格納（遅い stale デコードが、より大きい
                     // target で既に入った新しいキャッシュを上書きして解像度を降格させない）。表示には
                     // 「実際にキャッシュに残る方（既存が大きければ既存）」を使う。
                     let use = self.storeDecoded(page: p, image: img, target: maxPixelSize)
-                    // G18 smoke fix（案A レビュー Important #2）: 現在ページのデコード挿入経路でも
-                    // 常駐上限を必ず適用する（従来 trimL1 は pumpPrefetch 完了時のみで、キャッシュ済み
-                    // 領域内を往復する等でプリフェッチ完了が発生しないと prefetch dict が residentDecodeCap
-                    // を超えたまま残り得た。cap/並列度を引き上げた本コミットでは上限逸脱の影響が大きい）。
+                    // 現在ページのデコード挿入経路でも常駐上限を必ず適用する（trimL1）。
                     imgs.append(use)
                     self.trimL1(around: self.model.currentPage)
                 }
@@ -1253,6 +1260,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 巻スワップ・別ページへの通常ロード・さらに新しいリサイズ再デコードのいずれが後から
         // 起きても、この Task の現在ページ書き込みは renderRequest/contentGeneration ガードで弾かれる。
         renderRequest += 1
+        // G19 案P Codex High #1 fix: renderRequest を進める＝進行中の loadCurrentPage の pending load を
+        // 無効化する。この再デコードが現在ページの表示責任を引き継ぐので、`isDisplayPending` を確定的に
+        // クリアする（さもないと元の pending load が renderRequest 不一致で早期 return しフラグを落とさず、
+        // goNext/goPrev が永久に no-op になる＝Codex 指摘の stuck-true）。同期クリアなので、この再デコード
+        // が後で成功/失敗いずれでも stuck しない。
+        isDisplayPending = false
         let rr = renderRequest
         let cg = contentGeneration
         let spreadToken = model.currentSpreadIndex
@@ -1343,6 +1356,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // zoomToken は「このズーム再デコードがより新しいズーム再デコードに置き換わっていないか」を
         // 判定する専用トークン（renderRequest は resize 再デコード/通常ページ送りとも共有されるため）。
         renderRequest += 1
+        // G19 案P Codex High #1 fix: resize 再デコードと同じ理由で pending load を引き継ぐため確定的に
+        // クリアする（stuck-true 防止）。
+        isDisplayPending = false
         let rr = renderRequest
         let cg = contentGeneration
         zoomToken += 1
