@@ -84,6 +84,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// G18 smoke fix（案A）: 直近のページ送り方向（+1 前方 / -1 後方）。`recomputePrefetch` で
     /// `PrefetchPlanner` に渡し、進行方向側を優先的に先読みさせる（後方長押しの是正）。
     private var navDirection = 1
+    /// G19 Intel リモート固まり修正: 「全ページ先読み(tier3)」ON 時、`PrefetchPlanner` が全冊 O(pageCount)
+    /// のキューを毎めくり main スレッドで再構築して run loop を止めていた（Intel の遅い CPU＋高速連打で
+    /// 顕在化）。毎フリックは軽い近傍プラン（tier3=false）で再計算し、重い全冊テールの構築は
+    /// めくりが落ち着いてからデバウンスで 1 回だけ行う。ローカル/tier3 OFF は従来どおり即時・影響なし。
+    private var wholeBookPrefetchTimer: Timer?
+    private let wholeBookPrefetchDebounce: TimeInterval = 0.3
     /// リモート閲覧時のみ注入（可視保護・tier3）。ローカル/オフラインは nil。
     var remotePrefetch: RemotePrefetchContext?
     /// 現在 content がリモート本なら bookID。巻スワップで content が差し替わると追従（C1 対策）。
@@ -486,7 +492,27 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// 移動ごとに Web パリティの先読み plan を再計算し、遠方の in-flight を abort、近傍を優先取得する。
+    ///
+    /// G19 Intel リモート固まり修正: **毎フリックは常に「軽い近傍プラン」（tier3=false）で再計算**する
+    /// （O(bounded)＝main を塞がない）。「全ページ先読み(tier3)」が ON のときだけ、めくりが落ち着いてから
+    /// デバウンスで 1 回だけ全冊テールを積む（`performRecomputePrefetch(includeWholeBook: true)`）。
+    /// これにより、tier3 ON でも高速連打中に O(pageCount) の全冊キュー構築が毎フリック main で走らない。
     private func recomputePrefetch() {
+        performRecomputePrefetch(includeWholeBook: false)
+        if remotePrefetch?.tier3Enabled() == true {
+            wholeBookPrefetchTimer?.invalidate()
+            wholeBookPrefetchTimer = Timer.scheduledTimer(withTimeInterval: wholeBookPrefetchDebounce, repeats: false) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.wholeBookPrefetchTimer = nil
+                    self.performRecomputePrefetch(includeWholeBook: true)
+                }
+            }
+        }
+    }
+
+    /// 先読み plan を実際に再計算して pump する。`includeWholeBook=true` のときだけ tier3（全冊）を積む。
+    private func performRecomputePrefetch(includeWholeBook: Bool) {
         let cur = model.currentPage
         let spreadPages: [Int]?
         var neighborSpreads: [[Int]] = []
@@ -499,10 +525,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         } else {
             spreadPages = nil
         }
-        let tier3 = remotePrefetch?.tier3Enabled() ?? false
         let plan = PrefetchPlanner.plan(current: cur, pageCount: model.pageCount,
                                         spreadPages: spreadPages, neighborSpreads: neighborSpreads,
-                                        tier3: tier3, direction: navDirection)
+                                        tier3: includeWholeBook, direction: navDirection)
         // abort: 近傍(先頭 residentDecodeCap-2)に無い in-flight を cancel
         let keep = Set(plan.queue.prefix(residentDecodeCap - 2))
         for (page, entry) in inFlightPrefetch where !keep.contains(page) {
@@ -1089,6 +1114,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         resizeRedecodeTimer = nil
         zoomRedecodeTimer?.invalidate()   // G18 C4
         zoomRedecodeTimer = nil
+        wholeBookPrefetchTimer?.invalidate()   // G19 tier3 デバウンス
+        wholeBookPrefetchTimer = nil
         zoomHighResPages = []
         // 世代を進めて、close 前に開始済みの loadCurrentPage/再デコード/プリフェッチ Task が
         // 完了時に (生きていても) prefetch/canvas へ書き込まないよう保証する。close はコンテンツ
