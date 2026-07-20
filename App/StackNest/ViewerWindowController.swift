@@ -462,12 +462,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 if let cached = self.prefetch[p] {
                     imgs.append(cached)
                 } else if let img = await Self.loadImage(content: content, page: p, maxPixelSize: maxPixelSize) {
-                    // G19 Codex High #2a fix: await から戻った時点で世代が変わっていたら（巻スワップ＝
+                    // G19 Codex High #2a fix: await から戻った時点で**世代が変わっていたら**（巻スワップ＝
                     // contentGeneration 進行、または別ページ描画＝renderRequest 進行）、キャッシュへ書き込まず
                     // 破棄する。さもないと performSwap で clear 済みのキャッシュへ**旧巻の画像**を挿入し、
                     // 続く新巻ロードの storeDecoded 単調チェックが stale 既存を返して**旧巻ページを表示**しうる。
-                    guard self.renderRequest == rr, self.contentGeneration == cg,
-                          self.model.currentSpreadIndex == token else { return }
+                    // spread-index はここでは見ない（prefetch の向き学習で renderRequest を進めず re-anchor
+                    // されることがあり、その場合でも現世代の有効なページなのでキャッシュしてよい。表示可否は
+                    // 下の spread-index ガードで別途判断する）。
+                    guard self.renderRequest == rr, self.contentGeneration == cg else { return }
                     // G19 review Important #2: target 単調で格納（遅い stale デコードが、より大きい
                     // target で既に入った新しいキャッシュを上書きして解像度を降格させない）。表示には
                     // 「実際にキャッシュに残る方（既存が大きければ既存）」を使う。
@@ -477,11 +479,17 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                     self.trimL1(around: self.model.currentPage)
                 }
             }
-            // G18 C3 review Critical fix: renderRequest/contentGeneration ガードが主。
-            // currentSpreadIndex は補助的な追加チェック（通常はセットで変化するが、念のため確認する）。
-            guard self.renderRequest == rr, self.contentGeneration == cg,
-                  self.model.currentSpreadIndex == token else { return }
-            self.isDisplayPending = false   // 案P: 現ページ表示完了＝次送りを許可
+            // G19 Codex re-review High fix: フラグのクリアは**所有権ガード（renderRequest/contentGeneration）**
+            // 通過時に行う。ここを通った＝この Task が現世代の描画 owner なので、フラグを落とす責務がある。
+            // spread-index はこの後の「表示可否」だけに使う（prefetch 向き学習が renderRequest を進めずに
+            // currentSpreadIndex を変えても owner 不在で stuck しないように、クリアを spread チェックの前に置く）。
+            // クリアと下の表示は await を挟まない同一 MainActor 同期区間なので、goNext が割り込む余地はなく
+            // ペーシングは保たれる。
+            guard self.renderRequest == rr, self.contentGeneration == cg else { return }
+            self.isDisplayPending = false
+            // spread-index が変わっていたら（再アンカー）表示は見送る（stale なので）。owner としての
+            // フラグクリアは上で済ませたので stuck しない。次の操作/再ロードが正しい見開きを表示する。
+            guard self.model.currentSpreadIndex == token else { return }
             self.canvas.setImages(imgs)
             self.updateHUD()
             self.recordOrientationsThenMaybeReload(displayedPages: pages, images: imgs)
@@ -1277,25 +1285,27 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                     imgs.append(img)
                 }
             }
-            // 世代ガード: この再デコードが開始された後にさらに新しい描画要求（巻スワップ／通常ロード／
-            // 別のリサイズ再デコード）が走っていたら（古い・低優先の結果なので）破棄する。
+            // 世代ガード（所有権）: この再デコードが開始された後にさらに新しい描画要求（巻スワップ／通常
+            // ロード／別のリサイズ再デコード）が走っていたら（古い・低優先の結果なので）破棄する。
             // pending は落とさない — その新しい描画要求が owner として表示・クリアを担う。
             guard self.renderRequest == rr, self.contentGeneration == cg else { return }
+            // G19 Codex re-review High fix: 所有権ガードを通った＝この Task が現世代 owner。以降どの経路で
+            // 抜けてもフラグを落とす責務があるので、spread/imgs チェックの前にここでクリアする
+            // （prefetch 向き学習が renderRequest を進めず spread を変える race でも stuck しない）。
+            self.isDisplayPending = false
             // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
-            // 済みのはずなので）破棄する。
+            // 済みのはずなので）表示を見送る。
             guard self.model.currentSpreadIndex == spreadToken else { return }
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
             // G18 C3 review Minor #4 fix: それでも pump を冷やしたままにしないよう recomputePrefetch
             // だけは呼ぶ（現在ページの再表示は諦めるが、近傍プリフェッチは正常な target で再開する）。
             guard imgs.count == pages.count else {
-                self.isDisplayPending = false   // 表示は断念するがフラグは落とす（stuck 防止・この owner の責務）
                 self.recomputePrefetch()
                 return
             }
             for (p, img) in zip(pages, imgs) {
                 self.storeDecoded(page: p, image: img, target: newTarget)   // G19 review Important #2: 単調格納
             }
-            self.isDisplayPending = false   // 現在ページを表示＝ペーシング解除
             self.canvas.setImages(imgs)
             self.recomputePrefetch()
         }
@@ -1376,19 +1386,22 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                     imgs.append(img)
                 }
             }
-            // 世代ガード: この再デコードが開始された後にさらに新しい描画要求（巻スワップ／通常
-            // ロード／別のリサイズ再デコード／別のズーム再デコード）が走っていたら破棄する。
+            // 世代ガード（所有権）: この再デコードが開始された後にさらに新しい描画要求（巻スワップ／通常
+            // ロード／別のリサイズ再デコード／別のズーム再デコード）が走っていたら破棄する。pending は
+            // 落とさない — その新しい描画要求が owner。
             guard self.renderRequest == rr, self.contentGeneration == cg, self.zoomToken == zt else { return }
-            // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
-            // 済みのはずなので）破棄する。
+            // G19 Codex re-review High fix: 所有権ガードを通った＝現世代 owner。spread/imgs チェックの前に
+            // ここでフラグを落とす（prefetch 向き学習が renderRequest を進めず spread を変える race でも
+            // stuck しない）。
+            self.isDisplayPending = false
+            // ページ送りで別の見開きへ移動していたら表示を見送る。
             guard self.model.currentSpreadIndex == spreadToken else { return }
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
-            guard imgs.count == pages.count else { self.isDisplayPending = false; return }
+            guard imgs.count == pages.count else { return }
             for (p, img) in zip(pages, imgs) {
                 self.storeDecoded(page: p, image: img, target: newTarget)   // G19 review Important #2: 単調格納
             }
             self.zoomHighResPages = pages
-            self.isDisplayPending = false   // 現在ページを（高解像で）表示＝ペーシング解除
             // setImages ではなく swapImagesPreservingZoom — ユーザーが今まさに操作している
             // zoomFactor/offset を維持したまま画像だけ鮮明なものに差し替える（フィットへ戻さない）。
             self.canvas.swapImagesPreservingZoom(imgs)
