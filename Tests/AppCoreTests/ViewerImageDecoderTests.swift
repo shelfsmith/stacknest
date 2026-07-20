@@ -55,6 +55,39 @@ struct ViewerImageDecoderTests {
         #expect(nativeMaxDim <= 2000)
     }
 
+    @Test func noDownsampleNeededYieldsFullResolution() {
+        // G19: native ≤ target（縮小不要）なら full-res 経路でネイティブ寸法をそのまま返す。
+        let img = makeJPEG(width: 1521, height: 2160)   // 漫画ページ相当
+        let decoded = ViewerImageDecoder.decode(img, maxPixelSize: 3000)  // target > native
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        #expect(decoded.cgImage.width == 1521)
+        #expect(decoded.cgImage.height == 2160)
+        #expect(decoded.pixelSize.width == 1521)
+        #expect(decoded.pixelSize.height == 2160)
+    }
+
+    @Test func downsampleStillAppliesWhenNativeExceedsTarget() {
+        // G19: native > target（縮小必要）は従来どおり thumbnail で target 以下に縮小する。
+        let img = makeJPEG(width: 4000, height: 3000)
+        let decoded = ViewerImageDecoder.decode(img, maxPixelSize: 2000)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        let maxDim = max(decoded.cgImage.width, decoded.cgImage.height)
+        #expect(maxDim <= 2010)
+        #expect(maxDim >= 1990)
+    }
+
+    @Test func rotatedImageBakesOrientationEvenWhenNoDownsample() {
+        // G19: 縮小不要でも回転ありは thumbnail-with-transform でベイク（寸法が入れ替わる）。
+        let img = makeJPEG(width: 1521, height: 2160, orientation: 6)  // 90°回転
+        let decoded = ViewerImageDecoder.decode(img, maxPixelSize: 3000)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        #expect(decoded.cgImage.width == 2160)
+        #expect(decoded.cgImage.height == 1521)
+    }
+
     @Test func negativeMaxPixelSizeAlsoYieldsNativeResolution() {
         let big = makeJPEG(width: 800, height: 500)
         let decoded = ViewerImageDecoder.decode(big, maxPixelSize: -1)
