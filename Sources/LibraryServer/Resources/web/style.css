@@ -271,6 +271,20 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* D1 fix: app-bar（sticky・z-index:10）の直下に貼り付き、スクロールしても
+     検索/ソート行が画面上端に残る（下をコンテンツが流れる浮いた固定クロム）。
+     top は app-bar の実高（バー高＋ノッチ安全領域）。 */
+  position: sticky;
+  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  z-index: 9;
+  /* sticky 中に下のコンテンツが透けないよう、検索行の背景も半透明素材で満たす
+     （.books-toolbar-row は既に blur 済。検索ボックス上の余白帯をカバー）。 */
+  background: var(--chrome-bg);
+  backdrop-filter: var(--chrome-blur);
+  -webkit-backdrop-filter: var(--chrome-blur);
+  /* 上下に僅かな余白を持たせ、貼り付き時に境界が詰まって見えないように。 */
+  padding: 8px 0;
+  margin-top: -8px;
 }
 
 .books-search {
