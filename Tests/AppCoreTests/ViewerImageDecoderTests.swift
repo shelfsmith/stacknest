@@ -167,4 +167,42 @@ struct ViewerImageDecoderTests {
         #expect(ViewerImageDecoder.decodeLazy(Data([0x00, 0x01, 0x02, 0x03])) == nil)
         #expect(ViewerImageDecoder.decodeLazy(Data()) == nil)
     }
+
+    /// 指定形式で合成画像を書き出す（PNG の HW デコード非対応経路検証用）。
+    private func makeImage(width: Int, height: Int, utType: UTType) -> Data {
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                            bytesPerRow: 0, space: cs,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0.4, green: 0.6, blue: 0.2, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let img = ctx.makeImage()!
+        let out = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(out, utType.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, img, nil)
+        _ = CGImageDestinationFinalize(dest)
+        return out as Data
+    }
+
+    @Test func decodeLazyEagerlyDecodesNonHardwareFormats() {
+        // G19 review Important #3: PNG（AS で HW デコード無し）は遅延にせず eager デコード＝
+        // draw 時に main でソフトデコードが走らないよう即時展開される。full-res・寸法は保持。
+        let png = makeImage(width: 1200, height: 1600, utType: .png)
+        let decoded = ViewerImageDecoder.decodeLazy(png)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        #expect(decoded.cgImage.width == 1200)
+        #expect(decoded.cgImage.height == 1600)
+        // eager（即時展開）: data provider がデコード済みバイトを持つ。
+        #expect(decoded.cgImage.dataProvider?.data != nil)
+    }
+
+    @Test func decodeLazyCapsOversizedImages() {
+        // G19 review Important #3: native が上限(6000px)を超える巨大画像は遅延せず縮小して返す。
+        let huge = makeJPEG(width: 8000, height: 4000)
+        let decoded = ViewerImageDecoder.decodeLazy(huge)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        #expect(max(decoded.cgImage.width, decoded.cgImage.height) <= 6010)
+    }
 }
