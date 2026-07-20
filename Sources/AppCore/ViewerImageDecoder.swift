@@ -111,7 +111,20 @@ public enum ViewerImageDecoder {
         let orientation = (props?[kCGImagePropertyOrientation] as? UInt32) ?? 1
         // 向き up 以外（回転/反転）は向きベイクが要るので eager フルデコードにフォールバック。
         guard orientation == 1 else { return decode(data, maxPixelSize: 0) }
-        // 向き up: フル解像度の遅延 CGImage（描画時に初めてデコード）。
+        // G19 review Important #3: 遅延デコードの前提「描画時に HW デコードで一瞬」が成り立つのは
+        // JPEG/HEIF（Apple Silicon 専用デコードブロックあり）のみ。PNG/TIFF/BMP 等は HW デコードが
+        // 無く、遅延にすると draw 時にメインスレッドでソフトデコード＝G18 の stall を AS で再発する。
+        // また巨大な外れ値ページ（高 DPI カバー等）は遅延でも draw 時コストが大きく上限も無い。
+        // → HW デコード非対応 or 上限超えは off-main eager（巨大は ceiling へ縮小）に回す。
+        let uti = CGImageSourceGetType(source) as String?
+        let hwDecodable = (uti == "public.jpeg" || uti == "public.heic" || uti == "public.heif")
+        let nativeMax = max((props?[kCGImagePropertyPixelWidth] as? Int) ?? 0,
+                            (props?[kCGImagePropertyPixelHeight] as? Int) ?? 0)
+        let ceiling = Self.lazyNativeCeiling
+        if !hwDecodable || nativeMax > ceiling {
+            return decode(data, maxPixelSize: nativeMax > ceiling ? ceiling : 0)
+        }
+        // JPEG/HEIF かつ通常サイズ: フル解像度の遅延 CGImage（描画時に HW デコード）。
         guard let image = CGImageSourceCreateImageAtIndex(source, 0, [
             kCGImageSourceShouldCacheImmediately: false,   // 遅延（描画時デコード）
         ] as CFDictionary) else {
@@ -119,6 +132,10 @@ public enum ViewerImageDecoder {
         }
         return DecodedImage(cgImage: image, pixelSize: CGSize(width: image.width, height: image.height))
     }
+
+    /// arm64 の遅延デコードで「これを超える native はフル遅延せず eager で縮小する」上限（長辺 px）。
+    /// Intel eager 経路の `DecodeTargetMath.ceilingPixelSize` と揃える。
+    private static let lazyNativeCeiling = 6000
 
     /// フル解像度デコード時に thumbnail API へ渡す「縮小させない」ための上限値。
     /// 実在する画像の最大辺がこれを超えることは実運用上ない（想定: 数万 px 級のスキャン画像でも収まる）。

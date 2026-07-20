@@ -45,7 +45,16 @@ public actor SequentialArchiveExtractor {
 
     deinit {
         if let archive { archive_read_free(archive) }
-        try? FileManager.default.removeItem(at: tempDir)
+        // G19 review Important #4: temp ディレクトリ削除は「セッション中に抽出した全ページ」の再帰削除に
+        // なり得る（tier3/全ページ先読み時は 1 冊分）。deinit は最後の強参照が切れたスレッドで走り、
+        // それが巻スワップ/ウィンドウクローズ時に MainActor になり得る（`content` は @MainActor 保持）。
+        // 同期の再帰削除をメインで走らせると「メインスレッドを止めない」という本フェーズの目的に反する。
+        // → tempDir をローカルに退避し、削除だけをバックグラウンド（detached・優先度 utility）へ逃がす。
+        // archive ハンドルの解放は軽量なので同期のまま。
+        let dir = tempDir
+        Task.detached(priority: .utility) {
+            try? FileManager.default.removeItem(at: dir)
+        }
     }
 
     /// 指定エントリ名のデータを返す。キャッシュ済みなら temp から読み、未取得なら現在の cursor から

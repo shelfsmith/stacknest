@@ -413,7 +413,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         let cg = contentGeneration
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         let pages = currentSpreadPages()
-        guard !pages.isEmpty else { canvas.setImages([]); updateHUD(); return }
+        guard !pages.isEmpty else { isDisplayPending = false; canvas.setImages([]); updateHUD(); return }
 
         // G18 C4: 見開き（ページ集合）が変わったら、ズーム再デコードで残っている高解像状態を
         // 後始末する。離脱先の高解像デコードを prefetch/lastDecodeTarget から明示的に破棄し
@@ -458,13 +458,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 if let cached = self.prefetch[p] {
                     imgs.append(cached)
                 } else if let img = await Self.loadImage(content: self.content, page: p, maxPixelSize: maxPixelSize) {
-                    self.prefetch[p] = img
-                    self.lastDecodeTarget[p] = maxPixelSize
+                    // G19 review Important #2: target 単調で格納（遅い stale デコードが、より大きい
+                    // target で既に入った新しいキャッシュを上書きして解像度を降格させない）。表示には
+                    // 「実際にキャッシュに残る方（既存が大きければ既存）」を使う。
+                    let use = self.storeDecoded(page: p, image: img, target: maxPixelSize)
                     // G18 smoke fix（案A レビュー Important #2）: 現在ページのデコード挿入経路でも
                     // 常駐上限を必ず適用する（従来 trimL1 は pumpPrefetch 完了時のみで、キャッシュ済み
                     // 領域内を往復する等でプリフェッチ完了が発生しないと prefetch dict が residentDecodeCap
                     // を超えたまま残り得た。cap/並列度を引き上げた本コミットでは上限逸脱の影響が大きい）。
-                    imgs.append(img)
+                    imgs.append(use)
                     self.trimL1(around: self.model.currentPage)
                 }
             }
@@ -576,10 +578,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 guard let self else { return }
                 if Task.isCancelled { removeIfMine(); return }
                 if self.contentGeneration == cg, let img {
-                    self.prefetch[page] = img
-                    self.lastDecodeTarget[page] = maxPixelSize
+                    // G19 review Important #2: target 単調で格納（stale 小 target が大 target を降格させない）。
+                    let stored = self.storeDecoded(page: page, image: img, target: maxPixelSize)
                     // プリフェッチ済み画像からも向きを学習する（前方の横長ページへ進んだ時点で既に正しい配置）。
-                    self.recordOrientation(page: page, image: img)
+                    self.recordOrientation(page: page, image: stored)
                     self.trimL1(around: self.model.currentPage)
                 }
                 removeIfMine()
@@ -596,6 +598,22 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 prefetch.removeValue(forKey: farthest)
             } else { break }
         }
+    }
+
+    /// G19 review Important #2: デコード結果を target 単調でキャッシュに格納する。
+    /// 既に同ページに**同等以上の target** でデコード済み（`lastDecodeTarget[page] >= target`）なら、
+    /// 遅れて完了した stale な小 target の結果で上書きしない（解像度の降格を防ぐ）。
+    /// 返り値は「表示に使うべき画像」＝上書きしたなら新画像、しなければ既存のより大きい画像。
+    /// x86_64 の resize/zoom 再デコードと通常ロードが同一ページで競合したときの降格レースが対象。
+    /// arm64 は decodeLazy が常にフル解像度（target 無視）だが、この単調ガードは無害（両者フル解像度）。
+    @discardableResult
+    private func storeDecoded(page: Int, image: DecodedImage, target: Int) -> DecodedImage {
+        if target > 0, let existing = prefetch[page], let prev = lastDecodeTarget[page], prev >= target {
+            return existing
+        }
+        prefetch[page] = image
+        lastDecodeTarget[page] = target
+        return image
     }
 
     /// G18 C2 コアフィックス: `nonisolated` にすることで、MainActor（このクラス自体は @MainActor）
@@ -933,6 +951,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                             hudPrefix: String, noVolumeNote: String) {
         guard !isSwapping else { return }
         isSwapping = true
+        // G19 案P review Critical fix: 巻スワップに入る＝旧巻の「現ページ表示待ち」は無効になる。
+        // isDisplayPending を必ずここでクリアする。さもないと、旧巻の loadCurrentPage が miss で
+        // pending=true のまま巻スワップが「隣巻なし/0ページ」で早期 return した場合、旧 in-flight Task も
+        // contentGeneration 不一致で pending を落とさず、以後 goNext/goPrev が永久に no-op になる
+        // （矢印が全く効かなくなる＝本フェーズが直そうとした症状の恒久版）。
+        isDisplayPending = false
         // G18 C3 review Critical fix: 解決 await の間に完了しうる古い Task（旧巻の loadCurrentPage/
         // checkAndRedecodeForResize/pumpPrefetch 等）を、この時点で既に「古いコンテンツ世代」として
         // 無効化しておく。これは本/コンテンツの切替そのものなので contentGeneration をバンプする
@@ -1255,8 +1279,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 return
             }
             for (p, img) in zip(pages, imgs) {
-                self.prefetch[p] = img
-                self.lastDecodeTarget[p] = newTarget
+                self.storeDecoded(page: p, image: img, target: newTarget)   // G19 review Important #2: 単調格納
             }
             self.canvas.setImages(imgs)
             self.recomputePrefetch()
@@ -1343,8 +1366,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
             guard imgs.count == pages.count else { return }
             for (p, img) in zip(pages, imgs) {
-                self.prefetch[p] = img
-                self.lastDecodeTarget[p] = newTarget
+                self.storeDecoded(page: p, image: img, target: newTarget)   // G19 review Important #2: 単調格納
             }
             self.zoomHighResPages = pages
             // setImages ではなく swapImagesPreservingZoom — ユーザーが今まさに操作している
