@@ -184,17 +184,28 @@ struct ViewerImageDecoderTests {
         return out as Data
     }
 
-    @Test func decodeLazyEagerlyDecodesNonHardwareFormats() {
-        // G19 review Important #3: PNG（AS で HW デコード無し）は遅延にせず eager デコード＝
-        // draw 時に main でソフトデコードが走らないよう即時展開される。full-res・寸法は保持。
+    @Test func decodeLazyRoutesNonHardwareFormatThroughEagerDownsampleWhenOversized() {
+        // G19 review Important #3: 非 HW デコード形式（PNG）が「巨大」なら、遅延経路ではなく
+        // eager の decode(maxPixelSize: ceiling) に迂回して**縮小される**ことを外形から一意に示す。
+        // （遅延経路 CreateImageAtIndex は縮小しないので、縮小されている＝eager 迂回が実行された証左。
+        //  re-review 指摘: dataProvider.data は lazy でも materialize されるため経路を区別できない。）
+        let bigPNG = makeImage(width: 8000, height: 4000, utType: .png)
+        let decoded = ViewerImageDecoder.decodeLazy(bigPNG)
+        #expect(decoded != nil)
+        guard let decoded else { return }
+        // 非 HW かつ native(8000) > ceiling(6000) → eager 縮小経路。縮小されていること。
+        #expect(max(decoded.cgImage.width, decoded.cgImage.height) <= 6010)
+        #expect(max(decoded.cgImage.width, decoded.cgImage.height) < 8000)
+    }
+
+    @Test func decodeLazyKeepsNormalPNGFullResolution() {
+        // 通常サイズの非 HW 形式は eager フル解像度（縮小なし・寸法保持）で返る（迂回はするが縮小はしない）。
         let png = makeImage(width: 1200, height: 1600, utType: .png)
         let decoded = ViewerImageDecoder.decodeLazy(png)
         #expect(decoded != nil)
         guard let decoded else { return }
         #expect(decoded.cgImage.width == 1200)
         #expect(decoded.cgImage.height == 1600)
-        // eager（即時展開）: data provider がデコード済みバイトを持つ。
-        #expect(decoded.cgImage.dataProvider?.data != nil)
     }
 
     @Test func decodeLazyCapsOversizedImages() {
