@@ -56,29 +56,38 @@ public enum ViewerImageDecoder {
             return nil
         }
 
-        let cgImage: CGImage?
-        if maxPixelSize > 0 {
-            // ThumbnailLoader.thumbnail(for:maxPixelSize:) と同一パターン（意図的にミラー）。
-            cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,  // EXIF orientation を反映
-            ] as CFDictionary)
-        } else {
-            // フル解像度（縮小なし）。kCGImageSourceShouldCacheImmediately で即時展開しつつ、
-            // kCGImageSourceCreateThumbnailWithTransform 相当の EXIF 回転も適用したいため、
-            // CGImageSourceCreateImageAtIndex ではなく、上限を極端に大きくした thumbnail 生成
-            // を使う（同一コードパスを通すことで EXIF 回転の扱いを一貫させる）。
-            cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceThumbnailMaxPixelSize: Self.nativeResolutionSentinel,
-                kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-            ] as CFDictionary)
+        // G19 Intel スムーズ化: 「**縮小が不要**（native ≤ target）かつ**向き up**」のときは
+        // `CGImageSourceCreateThumbnailAtIndex`（thumbnail 生成）をやめて `CGImageSourceCreateImageAtIndex`
+        // を使う。本機では後者は `ShouldCacheImmediately` を付けても即時展開せず**フル解像度の遅延
+        // CGImage**を返し（ピクセル展開は draw 時）、実測でも thumbnail 経路より高速。これにより
+        // ページ送りは cooViewer と同一機構になる: **先読みは軽い遅延画像を作るだけ（競合なし）→
+        // 実デコードは描画時にメインで 1 枚ずつ**。上位の「現ページ表示までは次送りを止める」
+        // ペーシングと合わさり、6 並列 off-main eager デコードの CPU/メモリ帯域競合（Intel で
+        // 高品質スキャンがカクつく主因＝実測 p50 130ms）を回避して 1 枚ずつ滑らかに流れる。
+        // 一方**縮小が必要な大スキャン（native > target）や回転あり**は従来どおり thumbnail（off-main で
+        // 即時 DCT 縮小＋EXIF 変換）を通す — メモリ節約と、Intel での「大画像を描画時デコード＝
+        // run loop 停止（G18 の“めくれない”）」の回避のため（この経路は G18 の根治を維持）。
+        let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+        let orientation = (props?[kCGImagePropertyOrientation] as? UInt32) ?? 1
+        let nativeMax = max((props?[kCGImagePropertyPixelWidth] as? Int) ?? 0,
+                            (props?[kCGImagePropertyPixelHeight] as? Int) ?? 0)
+        let wantsFullRes = maxPixelSize <= 0
+        let noDownsampleNeeded = nativeMax > 0 && maxPixelSize > 0 && nativeMax <= maxPixelSize
+        if orientation == 1, wantsFullRes || noDownsampleNeeded,
+           let image = CGImageSourceCreateImageAtIndex(source, 0, [
+               kCGImageSourceShouldCacheImmediately: true,   // 即時展開（off-main）
+           ] as CFDictionary) {
+            return DecodedImage(cgImage: image, pixelSize: CGSize(width: image.width, height: image.height))
         }
 
-        guard let image = cgImage else { return nil }
+        // 縮小が必要 or 回転あり: thumbnail（DCT 縮小＋EXIF 変換）。maxPixelSize<=0 は縮小なし上限。
+        let target = maxPixelSize > 0 ? maxPixelSize : Self.nativeResolutionSentinel
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: target,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,  // EXIF orientation を反映
+        ] as CFDictionary) else { return nil }
         return DecodedImage(cgImage: image, pixelSize: CGSize(width: image.width, height: image.height))
     }
 
