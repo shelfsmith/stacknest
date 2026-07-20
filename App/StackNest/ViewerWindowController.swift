@@ -487,9 +487,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // ペーシングは保たれる。
             guard self.renderRequest == rr, self.contentGeneration == cg else { return }
             self.isDisplayPending = false
-            // spread-index が変わっていたら（再アンカー）表示は見送る（stale なので）。owner としての
-            // フラグクリアは上で済ませたので stuck しない。次の操作/再ロードが正しい見開きを表示する。
-            guard self.model.currentSpreadIndex == token else { return }
+            // spread-index が変わっていたら（prefetch 向き学習による再アンカー）、この imgs は stale。
+            // 単に return すると再アンカー後の見開きが未表示のまま残り、次のナビで飛ばされうる（Codex 指摘）。
+            // 正しい現在見開きを表示し直す（loadCurrentPage が renderRequest を進め、pending も再確立する）。
+            guard self.model.currentSpreadIndex == token else { self.loadCurrentPage(); return }
             self.canvas.setImages(imgs)
             self.updateHUD()
             self.recordOrientationsThenMaybeReload(displayedPages: pages, images: imgs)
@@ -1293,9 +1294,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // 抜けてもフラグを落とす責務があるので、spread/imgs チェックの前にここでクリアする
             // （prefetch 向き学習が renderRequest を進めず spread を変える race でも stuck しない）。
             self.isDisplayPending = false
-            // ページ送りで別の見開きへ移動していたら（loadCurrentPage が既に正しい内容を表示
-            // 済みのはずなので）表示を見送る。
-            guard self.model.currentSpreadIndex == spreadToken else { return }
+            // 再アンカーで見開きが変わっていたら、この再デコード結果は stale。正しい現在見開きを
+            // 表示し直す（未表示のまま残さない・Codex 指摘）。
+            guard self.model.currentSpreadIndex == spreadToken else { self.loadCurrentPage(); return }
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
             // G18 C3 review Minor #4 fix: それでも pump を冷やしたままにしないよう recomputePrefetch
             // だけは呼ぶ（現在ページの再表示は諦めるが、近傍プリフェッチは正常な target で再開する）。
@@ -1394,8 +1395,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // ここでフラグを落とす（prefetch 向き学習が renderRequest を進めず spread を変える race でも
             // stuck しない）。
             self.isDisplayPending = false
-            // ページ送りで別の見開きへ移動していたら表示を見送る。
-            guard self.model.currentSpreadIndex == spreadToken else { return }
+            // 再アンカーで見開きが変わっていたら stale。正しい現在見開きを表示し直す（Codex 指摘）。
+            guard self.model.currentSpreadIndex == spreadToken else { self.loadCurrentPage(); return }
             // 一部ページのデコードに失敗していたら、既存の表示を壊さないよう差し替えを見送る。
             guard imgs.count == pages.count else { return }
             for (p, img) in zip(pages, imgs) {
