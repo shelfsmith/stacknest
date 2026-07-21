@@ -37,8 +37,15 @@
 html, body {
   margin: 0;
   padding: 0;
-  height: 100%;
 }
+/* html は viewport 高（body の min-height:100% の基準）。 */
+html { height: 100%; }
+/* D1 fix: body は content 高まで伸びる（min-height で「最低でも viewport 高」を保持）。
+   旧 `height:100%` だと body の箱が viewport 高しかなく、body 直下の `.app-bar`（sticky）の
+   包含ブロックが 1 画面分しかないため、1 スクリーン分スクロールすると app-bar が流れて消えた
+   （＝smoke A1 NG「ナビバーが流れる」の根本原因）。body を content 高まで伸ばすことで app-bar の
+   sticky が全スクロール範囲で効く。空/短コンテンツ時は min-height で従来どおり画面全体を占める。 */
+body { min-height: 100%; }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;
