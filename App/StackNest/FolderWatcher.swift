@@ -81,7 +81,7 @@ final class FolderWatcher {
             for folder in settings.watchedFolders where folder.enabled {
                 let dir = URL(fileURLWithPath: folder.path)
                 let top = WatchFolderScanner.enumerateCandidates(
-                    folder: dir, recurse: folder.subfolderMode == .recurse)
+                    folder: dir, mode: folder.subfolderMode)
                 let importable = WatchFolderScanner.importable(
                     topLevel: top,
                     existingLibraryPaths: existing,

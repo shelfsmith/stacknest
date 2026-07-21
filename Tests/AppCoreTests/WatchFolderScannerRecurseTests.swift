@@ -17,7 +17,7 @@ struct WatchFolderScannerRecurseTests {
 
     @Test func topLevelDoesNotIncludeSubfolderFile() throws {
         let root = try makeTree(); defer { try? FileManager.default.removeItem(at: root) }
-        let urls = WatchFolderScanner.enumerateCandidates(folder: root, recurse: false)
+        let urls = WatchFolderScanner.enumerateCandidates(folder: root, mode: .topLevelOnly)
         let names = Set(urls.map { $0.lastPathComponent })
         #expect(names.contains("top.zip"))
         #expect(!names.contains("inner.zip"))   // 直下のみ＝サブフォルダ内は拾わない
@@ -25,7 +25,7 @@ struct WatchFolderScannerRecurseTests {
 
     @Test func recurseIncludesSubfolderFileButNotDirectories() throws {
         let root = try makeTree(); defer { try? FileManager.default.removeItem(at: root) }
-        let urls = WatchFolderScanner.enumerateCandidates(folder: root, recurse: true)
+        let urls = WatchFolderScanner.enumerateCandidates(folder: root, mode: .recurse)
         let names = Set(urls.map { $0.lastPathComponent })
         #expect(names.contains("top.zip"))
         #expect(names.contains("inner.zip"))    // 再帰でサブフォルダ内も拾う
