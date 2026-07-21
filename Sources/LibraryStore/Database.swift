@@ -720,29 +720,42 @@ public final class Database: @unchecked Sendable {
         }
     }
 
-    /// 再リンク: path を更新し、旧ファイルのハッシュ情報（content_hash/file_size/file_mtime）を
-    /// NULL 化する（再リンク先は別ファイルの可能性があり旧ハッシュは無効。次回 dedup で再計算）。
+    /// 再リンク: path を更新。旧 content_hash は無効化（NULL）するが、file_mtime/file_size は
+    /// 新ファイルを即 stat してセットする（G4d: bookETag が relink 直後に決定的に変わり、
+    /// リモートの stale ページを防ぐ。stat 失敗時のみ NULL）。
     public func relinkBook(id: Int, newPath: String) throws {
         guard let q = queue else { return }
+        let (size, mtime) = Self.statFile(newPath)
         try q.write { db in
             try db.execute(
-                sql: "UPDATE book SET path = ?, content_hash = NULL, file_size = NULL, file_mtime = NULL WHERE id = ?",
-                arguments: [newPath, id]
+                sql: "UPDATE book SET path = ?, content_hash = NULL, file_size = ?, file_mtime = ? WHERE id = ?",
+                arguments: [newPath, size, mtime, id]
             )
         }
     }
 
     /// 複数本の再リンクを 1 トランザクションで適用（フォルダ再マップ用）。
+    /// 各ペアの新パスを即 stat し、file_size/file_mtime を同期セットする（G4d、relinkBook と同じ理由）。
     public func applyRelinks(_ pairs: [(id: Int, newPath: String)]) throws {
         guard let q = queue else { return }
+        let stats = pairs.map { Self.statFile($0.newPath) }
         try q.write { db in
-            for pair in pairs {
+            for (i, pair) in pairs.enumerated() {
+                let (size, mtime) = stats[i]
                 try db.execute(
-                    sql: "UPDATE book SET path = ?, content_hash = NULL, file_size = NULL, file_mtime = NULL WHERE id = ?",
-                    arguments: [pair.newPath, pair.id]
+                    sql: "UPDATE book SET path = ?, content_hash = NULL, file_size = ?, file_mtime = ? WHERE id = ?",
+                    arguments: [pair.newPath, size, mtime, pair.id]
                 )
             }
         }
+    }
+
+    /// 新パスの size(bytes)/mtime(epoch秒) を返す。取得不能なら (nil, nil)。
+    static func statFile(_ path: String) -> (Int64?, Double?) {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return (nil, nil) }
+        let size = (attrs[.size] as? Int64) ?? (attrs[.size] as? NSNumber)?.int64Value
+        let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970
+        return (size, mtime)
     }
 
     public func updateBookTitle(id: Int, newTitle: String) throws {
