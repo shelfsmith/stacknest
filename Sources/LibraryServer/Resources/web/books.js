@@ -98,9 +98,14 @@ function resetInfiniteScroll() {
 // 操作するため（app.js の Pack B スクロール保存が働かない）、ここで hash 単位に明示保存/復元する。
 // key は「開いた時点の一覧 hash（絞り込み・並び順・ページ込み）」。戻り先(from=)が同一 hash なので
 // 一致したときだけ復元する（フィルタを変えて戻った場合は key 不一致＝古い位置を当てない）。一回消費。
+// review #2 fix: 保留は常に高々 1 件（save 前に clear）。リーダーを開くのは一度に 1 冊だけであり、
+// また戻らずに別画面へ抜ける経路（例: 閲覧中にライブラリ配信が OFF→ handleLibraryUnshared が
+// #/libraries へ直行）で古いエントリが残り、後日同一 hash 再訪で誤って復元されるのを防ぐ
+// （＝無制限成長も stale replay も同時に断つ）。
 const listScrollMemory = new Map();
 
 function saveListScroll(hash) {
+    listScrollMemory.clear();
     listScrollMemory.set(hash, window.scrollY);
 }
 

@@ -1238,6 +1238,9 @@ body {
     border-bottom: 1px solid var(--border);
   }
 
+  /* D1 sticky で `.books-toolbar` 自体にも半透明素材を付与したため、親も不透明化する
+     （さもないと padding の帯・検索ボックス周りが reduced-transparency 下でも透ける）。 */
+  .books-toolbar,
   .books-toolbar-row {
     background: var(--surface);
     backdrop-filter: none;
@@ -1356,6 +1359,7 @@ body {
     border-bottom: 2px solid var(--text);
   }
 
+  .books-toolbar,
   .books-toolbar-row {
     background: var(--surface);
     backdrop-filter: none;
