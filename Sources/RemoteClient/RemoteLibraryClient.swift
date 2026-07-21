@@ -172,11 +172,24 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(ManifestDTO.self, try await send(request(url, libraryToken: libraryToken)))
     }
 
-    public func pageData(libraryUUID: String, bookID: Int, index: Int, maxw: Int?, libraryToken: String?) async throws -> Data {
+    /// G4d HTTP キャッシュ追随修正: ページ画像は `Cache-Control: immutable` の長期キャッシュ対象
+    /// （`cacheableImageResponse`）だが、URL がバージョンレスだと relink 後もその URL の
+    /// URLCache エントリが「絶対に変わらない」と誤認され続け、アプリ層のキャッシュキーが
+    /// version でミスして再取得しても、そのリクエストが古い immutable エントリで即答されて
+    /// 古いバイトを新版キーの下に固定してしまう（本 bug の core）。cover（G4b）と同じ設計で、
+    /// version がある時は `?v=` を URL に織り込んで immutable を健全化し（同じ URL の中身は
+    /// 本当に変わらない＝未変更版は無料でキャッシュヒットする）、version が無い（manifest 取得
+    /// 失敗等のフォールバック）ときだけ URLCache を明示バイパスして「版不明な URL の immutable
+    /// エントリを信用しない」を保証する。version は呼び出し元（RemoteBookContent）が
+    /// versionValue（normalizeVersion 済み・キャッシュキーと同じ値）をそのまま渡すこと。
+    public func pageData(libraryUUID: String, bookID: Int, index: Int, maxw: Int?, version: String?,
+                        libraryToken: String?) async throws -> Data {
         var q: [URLQueryItem] = []
         if let maxw, maxw > 0 { q.append(.init(name: "maxw", value: String(maxw))) }
+        if let version { q.append(.init(name: "v", value: version)) }
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/pages/\(index)", query: q)
-        return try await send(request(url, libraryToken: libraryToken))
+        let policy: URLRequest.CachePolicy = version == nil ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
+        return try await send(request(url, libraryToken: libraryToken, cachePolicy: policy))
     }
 
     public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> Data {
