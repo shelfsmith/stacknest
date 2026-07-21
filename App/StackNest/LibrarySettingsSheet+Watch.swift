@@ -37,7 +37,7 @@ extension LibrarySettingsSheet {
                         Divider()
                     }
 
-                    Text("本（アーカイブ/PDF/画像/フォルダ）を移動せずその場所を参照して追加します（追加のみ・サブフォルダは対象外）。NAS など共有ボリュームでは最大 60 秒で反映されます。")
+                    Text("本（アーカイブ/PDF/画像/フォルダ）を移動せずその場所を参照して追加します（追加のみ）。サブフォルダの扱いは各フォルダごとに「取り込まない/1冊として取り込む/中も個別に取り込む」から選べます。NAS など共有ボリュームでは最大 60 秒で反映されます。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .disabled(!settings.folderWatchEnabled)
@@ -93,11 +93,12 @@ extension LibrarySettingsSheet {
                 Text("サブフォルダ").font(.caption).foregroundStyle(.secondary)
                 Picker("", selection: folder.subfolderMode) {
                     Text("サブフォルダを取り込まない").tag(WatchedFolder.SubfolderMode.topLevelOnly)
-                    Text("サブフォルダの中も取り込む").tag(WatchedFolder.SubfolderMode.recurse)
+                    Text("サブフォルダを1冊として取り込む").tag(WatchedFolder.SubfolderMode.archive)
+                    Text("サブフォルダの中も個別に取り込む").tag(WatchedFolder.SubfolderMode.recurse)
                 }
                 .labelsHidden()
-                .frame(maxWidth: 200)
-                .help("サブフォルダ（さらにその下の階層も含む）の中のファイルも取り込むか")
+                .frame(maxWidth: 240)
+                .help("サブフォルダの扱い: 取り込まない / 直下フォルダを1冊としてまとめる / 中のファイルを個別に取り込む")
             }
             // リモート parity: 監視追加時にスキップした既存ファイルを、後からでも取り込めるボタン。
             HStack {
