@@ -327,6 +327,12 @@ export async function renderReader(uuid, bookId, query, deps) {
         try {
             await postPageLayout(uuid, bookId, target, nextMode);
         } catch (e) {
+            // read 権限では page-layout の永続化はサーバ側 requireEdit で 403（Forbidden）になる。
+            // ローカルの単頁/見開き表示は上の show(target) で既に反映済みなので、権限起因
+            // （403、または 401＝api.js が既に #/pair へ誘導済み）のときは保存失敗トーストを出さない。
+            // これは閲覧専用ユーザーが単頁化/見開き化ボタンを押すたびに必ずエラーを見る既存バグの解消。
+            // ネットワーク/サーバ(5xx)等の実際の保存失敗は従来どおり通知する。
+            if (e instanceof UnauthorizedError || (e && e.status === 403)) return;
             toast("ページ表示の保存に失敗しました");
         }
     }
