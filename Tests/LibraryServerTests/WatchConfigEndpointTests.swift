@@ -299,6 +299,42 @@ struct WatchConfigEndpointTests {
         }
     }
 
+    /// G9b Task3: PUT で subfolderMode=archive を送ると、DTO→WatchedFolder ブリッジ経由で
+    /// 保存され、GET で archive のまま返る（デコード時にサイレントに他モードへ落ちないことの回帰）。
+    @Test func putArchiveModeRoundTripsThroughBridge() async throws {
+        let fixture = try TestLibraryFixture(name: "WCArchiveMode", bookCount: 0)
+        defer { fixture.cleanup() }
+        let tmpDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("wc-archive-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpDir) }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture, adminTier: true)
+        try await app.test(.router) { client in
+            let folder = WatchedFolderDTO(id: "f4", path: tmpDir.path, enabled: true,
+                                          baseline: [], subfolderMode: .archive)
+            let putBody = WatchConfigDTO(enabled: true, folders: [folder])
+            let bodyData = try JSONEncoder().encode(putBody)
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(bodyData))
+            ) { response in
+                #expect(response.status == .ok)
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/watch-config",
+                method: .get,
+                headers: [.authorization: "Bearer R"]
+            ) { response in
+                #expect(response.status == .ok)
+                let dto = try JSONDecoder().decode(WatchConfigDTO.self, from: Data(buffer: response.body))
+                #expect(dto.folders.first?.subfolderMode == .archive)
+            }
+        }
+    }
+
     /// G12b-2c: PUT で DTO に含まれない既存 folder id は削除される。
     @Test func putDeletesMissingFolder() async throws {
         let fixture = try TestLibraryFixture(name: "WCDeleteMissing", bookCount: 0)
