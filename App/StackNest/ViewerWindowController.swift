@@ -101,6 +101,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     var remotePrefetch: RemotePrefetchContext?
     /// 現在 content がリモート本なら bookID。巻スワップで content が差し替わると追従（C1 対策）。
     var currentRemoteBookID: Int? { (content as? RemoteBookContent)?.bookIDValue }
+    /// G4d 層2: 現在 content がリモート本なら版トークン（manifest.etag）。ページキャッシュの
+    /// 可視保護キーを実際のキャッシュキーと一致させるために必要。
+    var currentRemoteVersion: String? { (content as? RemoteBookContent)?.versionValue }
     /// G3b: L2 キャッシュ済みページのカバレッジ帯（プログレスバー可視化・リモートのみ・~1s ポーリング）。
     private var cachedSegments: [ClosedRange<Double>] = []
     private var cacheCoverageTimer: Timer?
@@ -563,7 +566,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             entry.task.cancel(); inFlightPrefetch.removeValue(forKey: page)
         }
         // 可視保護（ページ移動追従）。現在のリモート bookID を渡し巻スワップに追従（C1）。
-        remotePrefetch?.reportActiveWindow(plan.activeWindow, currentRemoteBookID)
+        remotePrefetch?.reportActiveWindow(plan.activeWindow, currentRemoteBookID, currentRemoteVersion)
         // enqueue
         prefetchQueue = plan.queue
         pumpPrefetch()

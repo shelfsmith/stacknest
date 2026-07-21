@@ -12,16 +12,21 @@ public struct RemoteBookContent: BookContent {
     private let bookID: Int
     private let libraryToken: String?
     private let maxWidth: Int?
+    /// G4d 層2: ページの版トークン（manifest.etag ＝ bookETag）。relink 等でサーバの本体が
+    /// 差し替わると etag が変わるため、旧版のページキャッシュを引かず素通しで再取得させる。
+    /// nil ＝旧来の版なしキー（後方互換。manifest 取得に失敗した場合のフォールバック）。
+    private let version: String?
     private let cache: RemotePageCache?
 
     public init(client: RemoteLibraryClient, serverID: UUID, libraryUUID: String, bookID: Int,
-                libraryToken: String?, maxWidth: Int?, cache: RemotePageCache? = .shared) {
+                libraryToken: String?, maxWidth: Int?, version: String? = nil, cache: RemotePageCache? = .shared) {
         self.client = client
         self.serverID = serverID
         self.libraryUUID = libraryUUID
         self.bookID = bookID
         self.libraryToken = libraryToken
         self.maxWidth = maxWidth
+        self.version = version
         self.cache = cache
     }
 
@@ -38,10 +43,12 @@ public struct RemoteBookContent: BookContent {
             try await client.pageData(libraryUUID: uuid, bookID: bid, index: page, maxw: mw, libraryToken: token)
         }
         guard let cache else { return try await fetch() }
-        let key = RemotePageCache.Key(serverID: serverID, libraryUUID: uuid, bookID: bid, kind: .page, page: page, maxw: mw)
+        let key = RemotePageCache.Key(serverID: serverID, libraryUUID: uuid, bookID: bid, kind: .page, page: page, maxw: mw, version: version)
         return try await cache.data(for: key, fetch: fetch)
     }
 
     /// G3b: RemotePrefetchContext から保護キーを組み立てるため bookID を公開する。
     public var bookIDValue: Int { bookID }
+    /// G4d 層2: 可視保護キーが imageData(at:) と同じ版キーを組み立てられるよう version を公開する。
+    public var versionValue: String? { version }
 }

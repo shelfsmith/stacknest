@@ -10,10 +10,14 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Stub { let status: Int; let headers: [String: String]; let body: Data }
     nonisolated(unsafe) static var stub: Stub?
     nonisolated(unsafe) static var lastRequest: URLRequest?
+    /// G4d 層2: 実リクエスト回数を数える（version 差でキャッシュがミス→本当に再取得したかの確認用）。
+    /// このスイートは .serialized なので、テスト間の逐次実行下で単純カウンタとして安全に使える。
+    nonisolated(unsafe) static var requestCount = 0
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for r: URLRequest) -> URLRequest { r }
     override func startLoading() {
         Self.lastRequest = request
+        Self.requestCount += 1
         let s = Self.stub ?? Stub(status: 200, headers: [:], body: Data())
         let resp = HTTPURLResponse(url: request.url!, statusCode: s.status,
                                    httpVersion: "HTTP/1.1", headerFields: s.headers)!
@@ -514,6 +518,39 @@ struct StubBackedRemoteClientTests {
             let url = StubURLProtocol.lastRequest?.url
             #expect(url?.path == "/api/v1/libraries/u/books/9/pages/3")
             #expect(url?.query?.contains("maxw=1600") == true)
+        }
+
+        /// G4d 層2 (native) 配線の実地確認: imageData(at:) が実際に version 付きの
+        /// RemotePageCache.Key を組み立てていることを、HTTP スタブの実リクエスト回数で証明する。
+        /// relink 後に manifest.etag（version）が変わった想定＝別 RemoteBookContent 生成でも
+        /// 同一 page は必ず再取得され（stale page を握り続けない）、version が変わらない再オープンは
+        /// キャッシュヒットして再取得しない（帯域節約が壊れていない）ことを確認する。
+        @Test func versionedContentRefetchesOnVersionChangeAndHitsWhenUnchanged() async throws {
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("rbc-ver-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let cache = RemotePageCache(baseDirectory: tempDir, limitBytes: 0, maxAgeSeconds: 0)
+            let sid = UUID()
+            StubURLProtocol.requestCount = 0
+
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([1, 1, 1]))
+            let v1 = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
+                                       libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+            _ = try await v1.imageData(at: 0)
+            #expect(StubURLProtocol.requestCount == 1)
+
+            // 同一 version で開き直す（例: 巻を閉じてまた開く）→ ヒットして実リクエストは増えない。
+            let v1Again = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
+                                            libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+            _ = try await v1Again.imageData(at: 0)
+            #expect(StubURLProtocol.requestCount == 1)   // ヒット・再取得なし
+
+            // relink でサーバの本体が差し替わり etag が変わった想定 → 同じ page でも必ず再取得される。
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([2, 2, 2]))
+            let v2 = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
+                                       libraryToken: nil, maxWidth: 1600, version: "etag-v2", cache: cache)
+            let data2 = try await v2.imageData(at: 0)
+            #expect(StubURLProtocol.requestCount == 2)   // ミス・再取得
+            #expect(data2 == Data([2, 2, 2]))
         }
     }
 
