@@ -15,6 +15,13 @@ let activeReaderTeardown = null;
 const DRAG_HYSTERESIS = 10;      // px。これ未満は方向未確定（タップ/縦スクロールと非衝突）
 const DRAG_FLICK_VELOCITY = 500; // px/s。これを超えたら距離未達でもフリックとして確定
 const DRAG_DECEL = 0.998;        // apple-design のモーメンタム射影に使う減衰率
+// D8 device fix: ドラッグ確定後この時間内に来たタップゾーン click は「指を離した位置で iOS が合成した
+// click」とみなして無視する。iOS Safari は pointerup 後に compat click を合成し、それが右/左タップゾーン
+// （画面幅の 1/3）で発火すると go() が古い cur で逆方向送りをして、進行中の正しいドラッグ確定を
+// cancelActiveDrag が打ち消してしまう（＝smoke C1「左→右で前ページに戻る」の真因・iPhone 特異的）。
+// 既存の suppressClick(capture 握り潰し)は pointer capture 下の合成 click に対し WebKit で確実に効かない
+// ため、デバイス非依存の時間ガードで二重防御する。スプリング(response 0.32s)＋合成 click 遅延を包含。
+const TAP_AFTER_DRAG_GUARD_MS = 450;
 
 // ---- 純関数（export） ---------------------------------------------------------
 
@@ -350,10 +357,19 @@ export async function renderReader(uuid, bookId, query, deps) {
         spreadToggleBtn, stepOneBtn, sliderEl, counterEl,
     ]);
 
+    // D8 device fix: 直近のドラッグ確定時刻（Date.now）。onDragPointerEnd で更新し、タップゾーンの
+    // click ハンドラがこの直後の合成 click を無視するのに使う。
+    let lastDragCommitAt = 0;
+    /// タップゾーン click を、ドラッグ確定直後の合成 click なら無視するようにラップする。
+    const guardTap = (fn) => () => {
+        if (Date.now() - lastDragCommitAt < TAP_AFTER_DRAG_GUARD_MS) return;
+        fn();
+    };
+
     // タップゾーン（透明操作領域）
-    const tapLeft = el("div", { class: "tapzone left", onClick: () => go(physicalToDir("left", direction)) });
-    const tapCenter = el("div", { class: "tapzone center", onClick: () => toggleChrome() });
-    const tapRight = el("div", { class: "tapzone right", onClick: () => go(physicalToDir("right", direction)) });
+    const tapLeft = el("div", { class: "tapzone left", onClick: guardTap(() => go(physicalToDir("left", direction))) });
+    const tapCenter = el("div", { class: "tapzone center", onClick: guardTap(() => toggleChrome()) });
+    const tapRight = el("div", { class: "tapzone right", onClick: guardTap(() => go(physicalToDir("right", direction))) });
 
     // タップゾーンと読み込みインジケータを stage に追加
     stageEl.append(tapLeft, tapCenter, tapRight, loadingEl);
@@ -767,6 +783,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             try { stageEl.releasePointerCapture(e.pointerId); } catch {}
             if (!ds.committed) return;   // ヒステリシス未確定＝タップ相当。click を正常発火させる
             suppressClick = true;
+            lastDragCommitAt = Date.now();   // D8 device fix: 直後の合成 click を guardTap で無視する
             settleDrag(ds, forceCancel);
         };
         stageEl.addEventListener("pointerup", onDragPointerEnd(false));
