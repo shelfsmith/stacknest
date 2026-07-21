@@ -284,14 +284,18 @@ body {
   position: sticky;
   top: calc(var(--bar-h) + env(safe-area-inset-top));
   z-index: 9;
-  /* sticky 中に下のコンテンツが透けないよう、検索行の背景も半透明素材で満たす
-     （.books-toolbar-row は既に blur 済。検索ボックス上の余白帯をカバー）。 */
+  /* sticky 中の半透明マテリアルは**この親要素に一本化**する（検索ボックス周りの帯とソート行を
+     同一レイヤで満たし、二重 blur による透明度のちぐはぐを解消＝smoke 自由記載 #2）。
+     子 .books-toolbar-row の background/blur は撤去した。 */
   background: var(--chrome-bg);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
-  /* 上下に僅かな余白を持たせ、貼り付き時に境界が詰まって見えないように。 */
-  padding: 8px 0;
-  margin-top: -8px;
+  /* smoke 自由記載 #1: `.app-main` の padding-top(16px) を相殺し、検索 UI をスクロール前も
+     app-bar 直下（＝sticky 貼り付き位置 top:bar-h）に置く。旧 -8px では前(56)と貼付(48)に 8px 差が
+     残り、スクロール開始でその分だけ検索 UI が上へ動いて見えた。-16px で前後位置を一致させ移動を消す。
+     safe-area は sticky top と app-bar 高の双方に等しく入るため相殺され margin は固定 -16px でよい。 */
+  padding: 0 0 10px;
+  margin-top: -16px;
 }
 
 .books-search {
@@ -314,10 +318,8 @@ body {
   /* iPhone 縦など狭幅では 1 行に収まらず seg/件数セレクタが画面外へ溢れて
      押せなくなる。折り返し可にして 2 段目に逃がす（iPad/PC は 1 行のまま）。 */
   flex-wrap: wrap;
-  /* G17 Pack A: 半透明マテリアル化（.app-bar/.reader-chrome と同素材）。 */
-  background: var(--chrome-bg);
-  backdrop-filter: var(--chrome-blur);
-  -webkit-backdrop-filter: var(--chrome-blur);
+  /* smoke 自由記載 #2: 半透明マテリアルは親 .books-toolbar に一本化した（ここに background/blur を
+     置くと親と二重になり検索ボックス周りとで透明度がちぐはぐになる）。この行は透過し親の素材を見せる。 */
 }
 
 .books-sort {
