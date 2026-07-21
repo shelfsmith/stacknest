@@ -4,8 +4,10 @@ import { cacheKey, getPage, putPage, evictToLimit, deletePage } from "./idb.js";
 const CONCURRENCY = 3;
 
 export class PrefetchEngine {
-    /// ctx: { uuid, bookId, pageCount, maxw, book, tier3Enabled, cacheLimitBytes,
+    /// ctx: { uuid, bookId, pageCount, maxw, book, version, tier3Enabled, cacheLimitBytes,
     ///        fetchPageBlob(uuid, bookId, apiIndex, maxw, signal) -> Promise<Blob> }
+    /// version: manifest.etag（正規化済み・G4d 層2）。relink 等で本体が差し替わると変わり、
+    /// 旧版キーとは別キーになるため IndexedDB 上の旧ページを誤って再利用しない。
     constructor(ctx) {
         this.ctx = ctx;
         this.current = 0;
@@ -29,7 +31,7 @@ export class PrefetchEngine {
     }
 
     async requestPage(apiIndex, bypass = false) {
-        const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw);
+        const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw, this.ctx.version);
         if (bypass) {
             await deletePage(key);
         } else {
@@ -49,7 +51,7 @@ export class PrefetchEngine {
     }
 
     async requestFullResolution(apiIndex) {
-        const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, null);
+        const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, null, this.ctx.version);
         const cached = await getPage(key);
         if (cached) return cached;
         const blob = await this.ctx.fetchPageBlob(this.ctx.uuid, this.ctx.bookId, apiIndex, undefined, undefined);
@@ -72,7 +74,7 @@ export class PrefetchEngine {
         this.activeWindow = new Set();
         for (let d = -2; d <= 6; d++) {
             const i = cur + d;
-            if (i >= 0 && i < n) this.activeWindow.add(cacheKey(this.ctx.uuid, this.ctx.bookId, i, this.ctx.maxw));
+            if (i >= 0 && i < n) this.activeWindow.add(cacheKey(this.ctx.uuid, this.ctx.bookId, i, this.ctx.maxw, this.ctx.version));
         }
         const keep = new Set(this._queue.slice(0, 8));
         for (const [idx, h] of this.inFlight) {
@@ -84,7 +86,7 @@ export class PrefetchEngine {
         if (this.stopped) return;
         while (this.inFlight.size < CONCURRENCY && this._queue.length > 0) {
             const idx = this._queue.shift();
-            const key = cacheKey(this.ctx.uuid, this.ctx.bookId, idx, this.ctx.maxw);
+            const key = cacheKey(this.ctx.uuid, this.ctx.bookId, idx, this.ctx.maxw, this.ctx.version);
             const hit = await getPage(key);
             if (hit) continue;
             if (this.inFlight.has(idx)) continue;
@@ -103,7 +105,7 @@ export class PrefetchEngine {
         // stop() 後のフェッチは即拒否
         if (this.stopped) return Promise.reject(new Error("stopped"));
 
-        const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw);
+        const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw, this.ctx.version);
         const controller = new AbortController();
         const promise = (async () => {
             try {

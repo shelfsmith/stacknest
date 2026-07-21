@@ -18,6 +18,15 @@ const DRAG_DECEL = 0.998;        // apple-design のモーメンタム射影に�
 
 // ---- 純関数（export） ---------------------------------------------------------
 
+/// G4d 層2: manifest.etag（HTTP ETag 形式・前後にダブルクォート付き）から IndexedDB
+/// キャッシュキーの版トークンを取り出す。クォートで囲まれていない値やクォート・非文字列は
+/// そのまま返す（防御的・後方互換。native 側 RemoteBookContent.normalizeVersion と同じ規約）。
+export function normalizeVersion(raw) {
+    if (typeof raw !== "string" || raw.length < 2) return raw;
+    if (raw.startsWith('"') && raw.endsWith('"')) return raw.slice(1, -1);
+    return raw;
+}
+
 /// 見開き or 単頁表示において、cur 位置で表示する apiIndex の配列を返す。
 /// 単頁: [apiIndex]。見開き: 次頁が存在すれば [apiIndex, apiIndex+1]、なければ [apiIndex]。
 ///
@@ -138,6 +147,12 @@ export async function renderReader(uuid, bookId, query, deps) {
     }
 
     const { pageCount, format } = manifest;
+    // G4d 層2: manifest.etag は HTTP ETag 形式で前後にダブルクォートを含む（例: '"5-...-abc"'）。
+    // クォート付きのまま IndexedDB キーに使うと `...|v"5-..."` のように汚れるうえ、native 側
+    // （RemoteBookContent.normalizeVersion）と正規化規約がずれる。version が web reader へ入る
+    // 唯一の入口はここ（fetchManifest 直後）なので、正規化はここ一箇所で行い、以降は
+    // PrefetchEngine ctx.version 経由で全 cacheKey 呼び出しに配る。
+    const version = normalizeVersion(manifest.etag);
     let direction = manifest.direction || "ltr";   // manifest は実効方向（本 override ?? アプリ既定）
 
     // G17 T6b: ページ単位の単頁/見開き override（{ [apiIndex]: 0|1 }）。manifest.pageOverrides は
@@ -158,6 +173,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     const prefs = readerPrefs();
     const engine = new PrefetchEngine({
         uuid, bookId, pageCount, maxw, book,
+        version,
         tier3Enabled: prefs.tier3Enabled,
         cacheLimitBytes: prefs.cacheLimitBytes,
         fetchPageBlob,
