@@ -98,22 +98,36 @@ function resetInfiniteScroll() {
 // 操作するため（app.js の Pack B スクロール保存が働かない）、ここで hash 単位に明示保存/復元する。
 // key は「開いた時点の一覧 hash（絞り込み・並び順・ページ込み）」。戻り先(from=)が同一 hash なので
 // 一致したときだけ復元する（フィルタを変えて戻った場合は key 不一致＝古い位置を当てない）。一回消費。
-// review #2 fix: 保留は常に高々 1 件（save 前に clear）。リーダーを開くのは一度に 1 冊だけであり、
-// また戻らずに別画面へ抜ける経路（例: 閲覧中にライブラリ配信が OFF→ handleLibraryUnshared が
-// #/libraries へ直行）で古いエントリが残り、後日同一 hash 再訪で誤って復元されるのを防ぐ
-// （＝無制限成長も stale replay も同時に断つ）。
+// 保留は常に高々 1 件（save 前に clear）＝無制限成長なし。
+// Codex Low fix: 保存時刻を持ち、リーダーから戻らず別画面へ抜けた（例: 閲覧中に配信 OFF→
+// handleLibraryUnshared が #/libraries 直行）残存エントリが後日同一 hash 再訪で誤復元されるのを、
+// STALE_MS 超過で破棄して防ぐ（時間で bound）。
 const listScrollMemory = new Map();
+const LIST_SCROLL_STALE_MS = 600000;   // 10 分。通常のリーダー往復はこの窓で完結する。
 
 function saveListScroll(hash) {
     listScrollMemory.clear();
-    listScrollMemory.set(hash, window.scrollY);
+    listScrollMemory.set(hash, { y: window.scrollY, t: Date.now() });
 }
 
 function restoreListScrollIfPending(hash) {
-    if (!listScrollMemory.has(hash)) return;
-    const y = listScrollMemory.get(hash);
+    const rec = listScrollMemory.get(hash);
+    if (!rec) return;
     listScrollMemory.delete(hash); // 一回だけ（以後の同一 hash 再描画＝live-sync 等では復元しない）
-    requestAnimationFrame(() => window.scrollTo(0, y));
+    if (Date.now() - rec.t > LIST_SCROLL_STALE_MS) return;  // 戻らなかった古い保留は破棄
+    const y = rec.y;
+    // Codex Medium fix: 無限スクロール（"無限"）では戻り時に最初のページしか描画されておらず、
+    // 保存 y（ページ 3+ でスクロールして得た位置）に doc 高が足りず scrollTo が clamp される。
+    // clamp 位置で無限スクロールの sentinel が次ページを読み込む→ doc が伸びるので、目標 y に届くまで
+    // 短時間リトライして追従する。paged モード（全件描画済）では初回で一致し即座に停止する。
+    let tries = 0;
+    const maxTries = 40;   // 40 × 50ms = 最大 2s（それでも届かなければ諦める＝doc が縮んだ等）
+    const step = () => {
+        window.scrollTo(0, y);
+        tries += 1;
+        if (Math.abs(window.scrollY - y) > 2 && tries < maxTries) setTimeout(step, 50);
+    };
+    requestAnimationFrame(step);
 }
 
 // ---- 1 件分のメタ表示用ヘルパ -----------------------------------------------
