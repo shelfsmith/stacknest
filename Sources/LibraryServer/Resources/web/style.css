@@ -290,12 +290,17 @@ body {
   background: var(--chrome-bg);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
-  /* smoke 自由記載 #1: `.app-main` の padding-top(16px) を相殺し、検索 UI をスクロール前も
-     app-bar 直下（＝sticky 貼り付き位置 top:bar-h）に置く。旧 -8px では前(56)と貼付(48)に 8px 差が
-     残り、スクロール開始でその分だけ検索 UI が上へ動いて見えた。-16px で前後位置を一致させ移動を消す。
-     safe-area は sticky top と app-bar 高の双方に等しく入るため相殺され margin は固定 -16px でよい。 */
-  padding: 0 0 10px;
-  margin-top: -16px;
+  /* smoke 自由記載 #1: `.app-main` の padding(16px) を上下左右とも負マージンで相殺し、
+     - 上: 検索 UI をスクロール前も app-bar 直下（sticky 貼付位置 top:bar-h）に置き、スクロール開始で
+       検索 UI が動いて見えるのを消す（旧 -8px は 8px の差が残っていた）。
+     - 左右: 半透明マテリアル(blur バンド)を `.app-main` の左右 padding を越えて**画面端いっぱいまで**
+       広げる（smoke: 左右が半透明でないのが違和感）。内側 padding 16px で検索ボックス/行の内容は
+       従来どおりコンテンツ列に揃える。
+     safe-area は sticky top と app-bar 高の双方に等しく入るため相殺され、上マージンは固定 -16px でよい。
+     `.app-main` は wide で max-width:760px 中央寄せ＝そのときは 760px 幅の帯（コンテンツ列と一致）、
+     iPhone では全幅なので画面端まで届く。 */
+  padding: 0 16px 10px;
+  margin: -16px -16px 0;
 }
 
 .books-search {
