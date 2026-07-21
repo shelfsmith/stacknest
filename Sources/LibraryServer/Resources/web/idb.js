@@ -25,8 +25,8 @@ function openDB() {
 function tx(db, mode) { return db.transaction(STORE, mode).objectStore(STORE); }
 function reqP(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
 
-export function cacheKey(uuid, bookId, apiIndex, maxw) {
-    return `${uuid}|${bookId}|${apiIndex}|${maxw ?? "full"}`;
+export function cacheKey(uuid, bookId, apiIndex, maxw, version) {
+    return `${uuid}|${bookId}|${apiIndex}|${maxw ?? "full"}|${version ?? ""}`;
 }
 export async function getPage(key) {
     try {
