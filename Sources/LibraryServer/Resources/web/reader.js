@@ -77,6 +77,12 @@ export function projectMomentum(velocity, d = DRAG_DECEL) {
 /// とフリック閾値の双方に適用する。これによりページ送りは常にユーザーがドラッグした向きにしか
 /// 起きない。50% 射影ルール（距離）は保持。
 /// trackX 符号: 負=右送り(right)方向へドラッグ / 正=左送り(left)方向へドラッグ。
+///
+/// 既知の割り切り（review #1・意図的）: 「途中まで一方向へドラッグ→正味 trackX が反転する前に逆へ
+/// 強くフリック」した稀なケースは、velocity がドラッグ変位と逆符号なので無視され cancel（現ページへ
+/// スナップバック）になる。これは「表示位置＝ドラッグ変位を信頼し、velocity 単独では逆送りしない」
+/// という本 fix の設計そのもの（velocity 単独を信じると狙いのジッタ誤送りが復活する）。ユーザーは
+/// もう一度ドラッグすれば送れるため許容。trackX===0 での release も同様に cancel。
 export function decideDragSettle({ trackX, velocity, width, forceCancel = false }) {
     if (forceCancel) return { action: "cancel", flick: false };
     const dir = Math.sign(trackX);
