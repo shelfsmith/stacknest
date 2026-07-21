@@ -672,7 +672,8 @@ struct RemoteLibrarySettingsSheet: View {
                         set: { if inBounds() { watchConfig?.folders[i].subfolderMode = $0 } }
                     )) {
                         Text("サブフォルダを取り込まない").tag(WatchedFolderDTO.SubfolderMode.topLevelOnly)
-                        Text("サブフォルダの中も取り込む").tag(WatchedFolderDTO.SubfolderMode.recurse)
+                        Text("サブフォルダを1冊として取り込む").tag(WatchedFolderDTO.SubfolderMode.archive)
+                        Text("サブフォルダの中も個別に取り込む").tag(WatchedFolderDTO.SubfolderMode.recurse)
                     }.labelsHidden().frame(maxWidth: 260)
                 }
                 HStack {
