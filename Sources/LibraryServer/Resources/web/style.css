@@ -290,17 +290,17 @@ body {
   background: var(--chrome-bg);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
-  /* smoke 自由記載 #1: `.app-main` の padding(16px) を上下左右とも負マージンで相殺し、
-     - 上: 検索 UI をスクロール前も app-bar 直下（sticky 貼付位置 top:bar-h）に置き、スクロール開始で
-       検索 UI が動いて見えるのを消す（旧 -8px は 8px の差が残っていた）。
-     - 左右: 半透明マテリアル(blur バンド)を `.app-main` の左右 padding を越えて**画面端いっぱいまで**
-       広げる（smoke: 左右が半透明でないのが違和感）。内側 padding 16px で検索ボックス/行の内容は
-       従来どおりコンテンツ列に揃える。
-     safe-area は sticky top と app-bar 高の双方に等しく入るため相殺され、上マージンは固定 -16px でよい。
-     `.app-main` は wide で max-width:760px 中央寄せ＝そのときは 760px 幅の帯（コンテンツ列と一致）、
-     iPhone では全幅なので画面端まで届く。 */
-  padding: 0 16px 10px;
-  margin: -16px -16px 0;
+  /* smoke 自由記載: 半透明マテリアル(blur バンド)を**画面端いっぱいまで**広げ、全幅の `.app-bar`
+     と幅を揃える。`.app-main` は wide で max-width(768px→1100 / 1200px→1320) 中央寄せになるため、
+     固定 -16px 相殺では帯がコンテンツ列幅(中央寄せ)に留まり、全幅の app-bar より狭くなって
+     「D1 が不完全」に見えた（PC 実測: viewport 1900 で app-bar 0-1900 に対し toolbar 290-1610）。
+     → 幅に自動追従する full-bleed（`calc(50%-50vw)` 負マージンで viewport 端まで伸ばし、
+     `calc(50vw-50%)` パディングで内容をコンテンツ列に戻す）。narrow(iPhone) では自動で
+     -16px/16px に収束＝従来挙動。上マージン -16px は `.app-main` の padding-top(16px) を相殺し、
+     スクロール前も検索 UI を app-bar 直下（sticky 貼付位置）に置いて移動を消す。横スクロールは
+     生じない（macOS はオーバーレイスクロールバー・実測 overflow 0）。 */
+  padding: 0 calc(50vw - 50%) 10px;
+  margin: -16px calc(50% - 50vw) 0;
 }
 
 .books-search {
