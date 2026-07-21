@@ -1116,8 +1116,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private func refreshCacheCoverage() {
         guard let ctx = remotePrefetch, let bid = currentRemoteBookID else { return }
         let pageCount = model.pageCount
+        // レビュー Important1 fix: setProtected と同じ「現在版」を渡す（コメント104行目参照）。
+        // ここを bid のみで呼ぶと relink 直後の旧版行を版に関わらず数えてしまい HUD が過大申告する。
+        let version = currentRemoteVersion
         Task { @MainActor in
-            let pages = await ctx.cachedPages(bid)
+            let pages = await ctx.cachedPages(bid, version)
             let segs = CacheCoverage.segments(cached: pages, pageCount: pageCount)
             if segs != self.cachedSegments {
                 self.cachedSegments = segs

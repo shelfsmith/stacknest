@@ -160,20 +160,31 @@ public actor RemotePageCache {
         for row in rows { removeRowAndBlob(key: row["key"], file: row["file"]) }
     }
 
-    /// その本の L2 キャッシュ済みページ番号集合（指定 maxw のページのみ）。プログレスバー可視化用。
-    /// キー形式 `serverID|libraryUUID|bookID|kind|<page>|<maxw>` をパースする。best-effort（失敗は空集合）。
-    public func cachedPages(serverID: UUID, libraryUUID: String, bookID: Int, maxw: Int?) -> Set<Int> {
+    /// その本の L2 キャッシュ済みページ番号集合（指定 maxw・version のページのみ）。プログレスバー可視化用。
+    /// キー形式 `serverID|libraryUUID|bookID|kind|<page>|<maxw>` （無版）または
+    /// `...|<maxw>|v<version>`（有版・`Key.string` と同一規約）をパースする。best-effort（失敗は空集合）。
+    /// レビュー Important1 fix: version 引数を必ず要求し、要求版と一致しない行は数えない。
+    /// version を素通しで無視すると relink 直後に旧版の行がまだ HUD 上「キャッシュ済み」として
+    /// カウントされ続け（実際は全ページがミスして再取得される）カバレッジ帯が過大申告してしまう。
+    public func cachedPages(serverID: UUID, libraryUUID: String, bookID: Int, maxw: Int?, version: String?) -> Set<Int> {
         let book = "\(serverID.uuidString)|\(libraryUUID)|\(bookID)"
         let maxwField = maxw.map(String.init) ?? "full"
+        // Key.string の版サフィックスと同一規約（"|v<version>"）で比較する。
+        let versionField = version.map { "v\($0)" }
         let keys = (try? queue.read { db in
             try String.fetchAll(db, sql: "SELECT key FROM entries WHERE book = ? AND kind = 'page'", arguments: [book])
         }) ?? []
         var pages = Set<Int>()
         for k in keys {
             let f = k.split(separator: "|", omittingEmptySubsequences: false)
-            // G4d 層2: version 付きキーは末尾に "|v<version>" が付き 7 要素になる（無版は 6 要素）。
-            // 版に関わらず「キャッシュ済みか」を数えるだけなので、先頭 6 要素が読めれば十分（>=6）。
             guard f.count >= 6, f[5] == maxwField, let p = Int(f[4]) else { continue }
+            if let versionField {
+                // 要求側が有版 → 同じ版サフィックスを持つ行のみ一致（無版行・別版行は除外）。
+                guard f.count >= 7, f[6] == versionField else { continue }
+            } else {
+                // 要求側が無版 → 無版行のみ一致（有版行を誤って版なしとして数えない）。
+                guard f.count == 6 else { continue }
+            }
             pages.insert(p)
         }
         return pages

@@ -26,8 +26,20 @@ public struct RemoteBookContent: BookContent {
         self.bookID = bookID
         self.libraryToken = libraryToken
         self.maxWidth = maxWidth
-        self.version = version
+        // レビュー Minor4 fix: manifest.etag は HTTP ETag 形式で前後にダブルクォートを含む
+        // （例 `"5-1700000000-1234-abc"` ＝クォート文字そのものが String の中身）。素通しすると
+        // キャッシュキーが `...|v"5-…"` のように汚れる。version が native クライアントへ入る唯一の
+        // 入口はこの init（呼び出し元は RemoteLibraryState.swift の2箇所のみ、いずれも m.etag を渡す）
+        // なので、正規化はここ一箇所で行えば imageData の Key・versionValue 経由の setProtected・
+        // cachedPages が全て同じ正規化済み値を見ることになり、版の食い違いが起きない。
+        self.version = Self.normalizeVersion(version)
         self.cache = cache
+    }
+
+    /// ETag の前後の `"` を剥がす。ETag でない/クォートが無い値はそのまま返す（防御的・後方互換）。
+    static func normalizeVersion(_ raw: String?) -> String? {
+        guard let raw, raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") else { return raw }
+        return String(raw.dropFirst().dropLast())
     }
 
     public var pageCount: Int {

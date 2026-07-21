@@ -136,9 +136,9 @@ struct RemotePageCacheTests {
         _ = try await cache.data(for: otherMaxw) { Data(count: 10) }           // 別 maxw
         let cover = RemotePageCache.Key(serverID: sid, libraryUUID: "lib", bookID: 1, kind: .cover, page: 0, maxw: 300)
         _ = try await cache.data(for: cover) { Data(count: 10) }               // cover
-        let pages = await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 1, maxw: 800)
+        let pages = await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 1, maxw: 800, version: nil)
         #expect(pages == [2, 5])
-        #expect(await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 99, maxw: 800).isEmpty)
+        #expect(await cache.cachedPages(serverID: sid, libraryUUID: "lib", bookID: 99, maxw: 800, version: nil).isEmpty)
     }
 
     // G17 T1: HIT パス高速化（WAL/deferred atime/in-mem blob）の回帰確認。

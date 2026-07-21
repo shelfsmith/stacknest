@@ -1853,8 +1853,10 @@ final class RemoteLibraryState {
                         chain.task = Task { await prev?.value; await RemotePageCache.shared.clearProtected(owner: owner) }
                     },
                     tier3Enabled: { RemoteCacheSettings.wholeBookPrefetch() },
-                    cachedPages: { bid in
-                        await RemotePageCache.shared.cachedPages(serverID: sID, libraryUUID: luid, bookID: bid, maxw: 1600)
+                    cachedPages: { bid, version in
+                        // レビュー Important1 fix: version を透過して RemotePageCache.cachedPages に渡す
+                        // （版を無視すると relink 直後の旧版行を「キャッシュ済み」と数えて HUD が過大申告する）。
+                        await RemotePageCache.shared.cachedPages(serverID: sID, libraryUUID: luid, bookID: bid, maxw: 1600, version: version)
                     }
                 )
             }
@@ -1955,19 +1957,38 @@ final class RemoteLibraryState {
                 manifestVersion = m.etag
             }
         }
+        // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
+        // 巻ごとに付け替える。未 DL はリモート解決のまま「リモート」バッジに更新する。
+        if let dl = offlineEntry,
+           let made = try? BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) {
+            let row = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
+            let state = ResolvedViewerState(
+                spreadEnabled: ViewerSettings.shared.spreadByDefault,
+                coverOffset: true,
+                lastPage: max(0, dto.lastPage ?? 0),
+                overrides: remoteOverrides
+            )
+            return NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン")
+        }
+        // レビュー Minor3 fix: ここに到達するのは (a) offlineEntry == nil（上の manifest 取得済み）、
+        // または (b) offlineEntry != nil だが BookContentFactory.make が失敗した場合。(b) は
+        // offlineEntry == nil ガードにより上の manifest 取得をスキップされているため、version が
+        // 未取得のまま version: nil でリモートへフォールバックすると relink 後も旧版ページを
+        // 返しかねない。この稀な失敗経路でだけ、まだ取得していなければここで一度だけ取得する
+        // （offlineEntry == nil の通常経路は既にフェッチ済みなので二重フェッチしない＝共通経路に
+        // 追加のネットワーク往復は発生しない）。
+        if offlineEntry != nil, manifestVersion == nil {
+            if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
+                remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
+                manifestVersion = m.etag
+            }
+        }
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,
             lastPage: max(0, dto.lastPage ?? 0),
             overrides: remoteOverrides
         )
-        // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
-        // 巻ごとに付け替える。未 DL はリモート解決のまま「リモート」バッジに更新する。
-        if let dl = offlineEntry,
-           let made = try? BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) {
-            let row = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
-            return NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン")
-        }
         let content = RemoteBookContent(
             client: client, serverID: serverID, libraryUUID: libraryUUID,
             bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600, version: manifestVersion)
