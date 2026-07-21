@@ -5,7 +5,7 @@ const CONCURRENCY = 3;
 
 export class PrefetchEngine {
     /// ctx: { uuid, bookId, pageCount, maxw, book, version, tier3Enabled, cacheLimitBytes,
-    ///        fetchPageBlob(uuid, bookId, apiIndex, maxw, signal) -> Promise<Blob> }
+    ///        fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, version) -> Promise<Blob> }
     /// version: manifest.etag（正規化済み・G4d 層2）。relink 等で本体が差し替わると変わり、
     /// 旧版キーとは別キーになるため IndexedDB 上の旧ページを誤って再利用しない。
     constructor(ctx) {
@@ -54,7 +54,9 @@ export class PrefetchEngine {
         const key = cacheKey(this.ctx.uuid, this.ctx.bookId, apiIndex, null, this.ctx.version);
         const cached = await getPage(key);
         if (cached) return cached;
-        const blob = await this.ctx.fetchPageBlob(this.ctx.uuid, this.ctx.bookId, apiIndex, undefined, undefined);
+        // HTTP キャッシュ追随修正: version を渡し忘れると、この経路だけ URL がバージョンレスの
+        // ままになり「半分だけ版管理された」状態（本 bug の再発パターン）になる。
+        const blob = await this.ctx.fetchPageBlob(this.ctx.uuid, this.ctx.bookId, apiIndex, undefined, undefined, this.ctx.version);
         await putPage(key, this.ctx.book, blob);
         return blob;
     }
@@ -110,7 +112,7 @@ export class PrefetchEngine {
         const promise = (async () => {
             try {
                 const blob = await this.ctx.fetchPageBlob(
-                    this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw, controller.signal);
+                    this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw, controller.signal, this.ctx.version);
                 await putPage(key, this.ctx.book, blob);
                 await evictToLimit(this.ctx.cacheLimitBytes, this.activeWindow);
                 return blob;

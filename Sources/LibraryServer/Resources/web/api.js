@@ -84,14 +84,36 @@ export async function fetchAdjacent(uuid, bookId, dir) {
     return reply.book; // BookListItemDTO | null
 }
 
+/// ページ画像 URL のクエリ文字列を組み立てる（fetchPageBlob と分離し純関数としてテスト可能にする）。
+/// maxw 省略/0 以下は原寸で付けない。version は manifest.etag を normalizeVersion 済みの値
+/// （reader.js が PrefetchEngine ctx.version 経由で渡す）をそのまま使うこと — キャッシュキーの
+/// 版と URL の版がずれると、relink 後の再取得が旧 immutable エントリで即答される本 bug が
+/// 半分だけ直った状態で再発する。
+export function pageQuery(maxw, version) {
+    const params = [];
+    if (maxw && maxw > 0) params.push(`maxw=${maxw}`);
+    if (version) params.push(`v=${encodeURIComponent(version)}`);
+    return params.length ? `?${params.join("&")}` : "";
+}
+
 /// ページ画像を Blob で取得（apiIndex は 0 始まり・maxw 省略時は原寸）。
 /// AbortError は素通し（中断は正常系）。それ以外の !ok は status 付き Error。
-export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal) {
-    const q = (maxw && maxw > 0) ? `?maxw=${maxw}` : "";
+///
+/// HTTP キャッシュ追随修正（G4d 見落とし fix）: ページ画像は `Cache-Control: immutable` の
+/// 長期キャッシュ対象だが、URL がバージョンレスだと relink 後もブラウザの HTTP キャッシュが
+/// 古いバイトを immutable として返し続け、それが新しい IndexedDB バージョンキーの下に固定
+/// されてしまう（stale が sticky になる＝本 bug の core）。cover（books.js coverURL の `?v=`）
+/// と同じ設計で、version がある時は `?v=` を URL に織り込んで immutable を健全化し
+/// （同じ URL の中身は本当に変わらない＝未変更版は無料でキャッシュヒットする）、version が
+/// 無い（manifest 取得失敗等のフォールバック）ときだけ `cache: "reload"` でブラウザキャッシュを
+/// 明示バイパスする（版不明な URL の immutable エントリを信用しない）。
+export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, version) {
+    const q = pageQuery(maxw, version);
+    const opts = { libraryUUID: uuid, signal };
+    if (!version) opts.cache = "reload";   // 版不明フォールバック: 今日の URL 形のまま HTTP キャッシュだけ避ける
     let res;
     try {
-        res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/pages/${apiIndex}${q}`,
-            { libraryUUID: uuid, signal });
+        res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/pages/${apiIndex}${q}`, opts);
     } catch (e) {
         if (e && e.name === "AbortError") throw e;   // 中断は素通し
         throw e;

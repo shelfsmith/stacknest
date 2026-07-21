@@ -50,9 +50,12 @@ public struct RemoteBookContent: BookContent {
 
     public func imageData(at page: Int) async throws -> Data {
         let client = self.client, uuid = self.libraryUUID, bid = self.bookID
-        let token = self.libraryToken, mw = self.maxWidth
+        let token = self.libraryToken, mw = self.maxWidth, ver = self.version
+        // HTTP キャッシュ追随修正: URL に載せる版は必ずキャッシュキー(key.version)と同じ
+        // self.version（正規化済み）を使う。ここで別の値を作ると、URL 版とキャッシュキー版が
+        // ずれて本 bug と同種の不整合が再発する。
         let fetch: @Sendable () async throws -> Data = {
-            try await client.pageData(libraryUUID: uuid, bookID: bid, index: page, maxw: mw, libraryToken: token)
+            try await client.pageData(libraryUUID: uuid, bookID: bid, index: page, maxw: mw, version: ver, libraryToken: token)
         }
         guard let cache else { return try await fetch() }
         let key = RemotePageCache.Key(serverID: serverID, libraryUUID: uuid, bookID: bid, kind: .page, page: page, maxw: mw, version: version)

@@ -520,6 +520,41 @@ struct StubBackedRemoteClientTests {
             #expect(url?.query?.contains("maxw=1600") == true)
         }
 
+        /// HTTP キャッシュ追随修正（G4d 見落とし fix）: version 付きで開いた本のページ URL は
+        /// `?v=<versionValue>` を持ち、その値は RemoteBookContent.versionValue（＝アプリ層
+        /// キャッシュキーが使う正規化済み版）と完全一致すること。ここがずれると、URL 版と
+        /// キャッシュキー版が食い違う「半分だけ版管理された」状態になり、本 bug と同種の
+        /// 不整合が再発する。version 付き URL は immutable が健全なので既定ポリシーのままでよい。
+        @Test func imageDataURLCarriesVersionMatchingVersionValue() async throws {
+            let bytes = Data([0xFF, 0xD8, 0x01, 0x02])
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
+            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9,
+                                            libraryToken: nil, maxWidth: 1600, version: "\"etag-abc\"", cache: nil)
+            _ = try await content.imageData(at: 3)
+            let url = StubURLProtocol.lastRequest?.url
+            let comps = URLComponents(url: url!, resolvingAgainstBaseURL: false)!
+            let items = Dictionary(uniqueKeysWithValues: (comps.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            // versionValue は normalizeVersion 済み（クォート剥がし後）— URL の v= もそれと同じでなければならない。
+            #expect(items["v"] == content.versionValue)
+            #expect(content.versionValue == "etag-abc")
+            #expect(StubURLProtocol.lastRequest?.cachePolicy == .useProtocolCachePolicy)
+        }
+
+        /// version が無い（manifest 取得失敗等のフォールバック）ときは、今日の挙動どおり URL に
+        /// `v=` を付けない。かつ、版不明な versionless URL の immutable エントリを信用しないよう
+        /// cover と同じ方針で URLCache をバイパスする（.reloadIgnoringLocalCacheData）。
+        @Test func imageDataNoVersionOmitsVAndBypassesURLCache() async throws {
+            let bytes = Data([0xFF, 0xD8, 0x01, 0x02])
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
+            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9,
+                                            libraryToken: nil, maxWidth: 1600, cache: nil)   // version 省略 → nil
+            #expect(content.versionValue == nil)
+            _ = try await content.imageData(at: 3)
+            let url = StubURLProtocol.lastRequest?.url
+            #expect(url?.query?.contains("v=") != true)
+            #expect(StubURLProtocol.lastRequest?.cachePolicy == .reloadIgnoringLocalCacheData)
+        }
+
         /// G4d 層2 (native) 配線の実地確認: imageData(at:) が実際に version 付きの
         /// RemotePageCache.Key を組み立てていることを、HTTP スタブの実リクエスト回数で証明する。
         /// relink 後に manifest.etag（version）が変わった想定＝別 RemoteBookContent 生成でも
