@@ -6,12 +6,28 @@ import AppCore
 import Hummingbird
 import LibraryServerAPI
 
-/// 本の原本ファイルの mtime+size から弱 ETag を作る（spec §3.3）。
+/// 本の原本ファイルの mtime+size+path から弱 ETag を作る（spec §3.3, G4d）。
+/// path を織り込むことで、relink 直後に mtime/size が万一 nil でも etag が変わり、
+/// また異なるパスの book が "id-0-0" で衝突しない。
 /// fileMtime/fileSize は contentHash 計算時に記録される列で、未計算の本では 0 にフォールバックする。
 func bookETag(for row: BookRow) -> String {
     let mtime = row.fileMtime ?? 0
     let size = row.fileSize ?? 0
-    return "\"\(row.id)-\(Int(mtime))-\(size)\""
+    let pathHash = String(fnv1aHash(row.path ?? ""), radix: 36)
+    return "\"\(row.id)-\(Int(mtime))-\(size)-\(pathHash)\""
+}
+
+/// FNV-1a 64bit hash（プロセスをまたいで安定 = Swift の `String.hashValue` は per-process seed
+/// のため使えない。bookETag が再起動のたびに変わって 304 revalidation が壊れるのを防ぐ）。
+/// 文字列の UTF-8 バイト列に対して計算する。
+func fnv1aHash(_ string: String) -> UInt64 {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325   // FNV offset basis
+    let prime: UInt64 = 0x0000_0100_0000_01B3  // FNV prime
+    for byte in string.utf8 {
+        hash ^= UInt64(byte)
+        hash = hash &* prime
+    }
+    return hash
 }
 
 /// 表紙ファイル自身の mtime+size 由来 ETag（表紙差し替えを追跡 — 4.1a 最終レビュー引き継ぎ(1)）。
