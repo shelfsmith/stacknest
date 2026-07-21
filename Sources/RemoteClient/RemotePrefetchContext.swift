@@ -11,12 +11,15 @@ public struct RemotePrefetchContext: Sendable {
     public let reportActiveWindow: @Sendable (Set<Int>, Int?, String?) -> Void   // pages→Key 写像し setProtected(owner:)
     public let clearProtection: @Sendable () -> Void                    // ビューア閉/巻スワップで clearProtected(owner:)
     public let tier3Enabled: @Sendable () -> Bool                       // RemoteCacheSettings を読む
-    /// 現在 bookID → その本の L2 キャッシュ済みページ集合（プログレスバー可視化用・~1s ポーリング）。
-    public let cachedPages: @Sendable (Int) async -> Set<Int>
+    /// 現在 (bookID, version) → その本の L2 キャッシュ済みページ集合（プログレスバー可視化用・~1s ポーリング）。
+    /// レビュー Important1 fix: version も渡す（呼び出し側が現在表示中の版を都度渡す）。version を
+    /// 渡さず版無視で数えると、relink 直後は旧版の行がまだ disk に残っていて「キャッシュ済み」と
+    /// 誤って数えてしまう（実際は全ページがミスして再取得される）。
+    public let cachedPages: @Sendable (Int, String?) async -> Set<Int>
     public init(reportActiveWindow: @escaping @Sendable (Set<Int>, Int?, String?) -> Void,
                 clearProtection: @escaping @Sendable () -> Void,
                 tier3Enabled: @escaping @Sendable () -> Bool,
-                cachedPages: @escaping @Sendable (Int) async -> Set<Int>) {
+                cachedPages: @escaping @Sendable (Int, String?) async -> Set<Int>) {
         self.reportActiveWindow = reportActiveWindow
         self.clearProtection = clearProtection
         self.tier3Enabled = tier3Enabled
