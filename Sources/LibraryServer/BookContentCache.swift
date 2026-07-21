@@ -8,6 +8,9 @@ import AppCore
 public actor BookContentCache {
     /// row の content 基準（path/mtime/size）。bookETag（ContentEndpoints.swift）と同じ
     /// 3 信号源を使い、relink 後の再構築判定と ETag の変化が食い違わないようにする（G4d 層0）。
+    /// mtime/size は effectiveFileStat 経由（＝フォルダブックは nil のとき request 時 stat で埋める）。
+    /// これを bookETag と共有しないと、ETag だけが動いてサーバ自身が持つ FolderBookContent の
+    /// キャッシュは古いままという食い違いが起きる（最終レビュー Finding 1）。
     private struct Basis: Equatable {
         let path: String?
         let mtime: Double?
@@ -33,7 +36,8 @@ public actor BookContentCache {
         let now = clock.now
         // 期限切れエントリの掃除（呼び出しごとの軽量 sweep）
         entries = entries.filter { now - $0.value.lastAccess < ttl }
-        let basis = Basis(path: row.path, mtime: row.fileMtime, size: row.fileSize)
+        let (mtime, size) = effectiveFileStat(for: row)
+        let basis = Basis(path: row.path, mtime: mtime, size: size)
         if var entry = entries[key], entry.basis == basis {
             entry.lastAccess = now
             entries[key] = entry

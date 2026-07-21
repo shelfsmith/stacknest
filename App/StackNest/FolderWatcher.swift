@@ -87,7 +87,17 @@ final class FolderWatcher {
                     existingLibraryPaths: existing,
                     baseline: Set(folder.baseline))
                 for url in importable {
-                    currentSizes[url.path] = Self.totalSize(of: url)
+                    let size = Self.totalSize(of: url)
+                    // サイズ 0 の候補は記録しない（最終レビュー Finding 2）。
+                    // 空フォルダ（archive モードの新規サブフォルダ）や 0byte ファイルは、2 回連続で
+                    // 観測しても常に 0==0 で「安定」と誤判定され、コピー完了前・中身がまだ空の状態で
+                    // 取り込まれてしまう（例: Finder が先にフォルダを作り、最初の大きいファイルの
+                    // 書き込みが settleInterval を超える／ユーザーが後で詰めるつもりで空フォルダを
+                    // 作った直後）。一度取り込むと path がライブラリ既存になり、コピー完了後も
+                    // 二度と再取込されない事故になるため、そもそも current に載せず lastSizes にも
+                    // 残さない＝次スキャンでサイズが付いてから改めて安定判定させる。
+                    guard size > 0 else { continue }
+                    currentSizes[url.path] = size
                     candidatesByPath[url.path] = (url, folder)
                 }
             }

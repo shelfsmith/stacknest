@@ -6,13 +6,43 @@ import AppCore
 import Hummingbird
 import LibraryServerAPI
 
+/// row の file_mtime/file_size が両方揃っていればそのまま返す。
+/// どちらか nil の場合は、row.path が**ディレクトリ**のときに限り request 時に stat して埋める
+/// （最終レビュー Finding 1）。
+///
+/// なぜディレクトリだけか: file_mtime/file_size は dedup スキャン（DuplicateScanTask）でのみ
+/// 書き込まれ、かつそのスキャンはディレクトリを skip する。そのため G9b archive モードの
+/// フォルダブックは import 後ずっと両方 nil のままで、bookETag が "id-0-0-<pathhash>" に恒久固定
+/// されてしまう（中身を差し替えても誰にも気付かれない＝本 Finding の核心）。
+/// 一方、通常のアーカイブファイル本もインポート直後はまだ dedup スキャンが走っておらず
+/// 両方 nil なことが普通にある。そこまで stat 対象にすると、rating/title だけの編集で
+/// BookContentCache を invalidate しない既存の保証（BookContentCacheInvalidationTests）が、
+/// 「未スキャンファイルの stat 値がリクエストごとに変わりうる」という別の変動要因に晒されて
+/// 壊れてしまう。ディレクトリに限定することで、対象を「本当に恒久固定される行」だけに絞る。
+///
+/// stat が失敗（パス消失等）した場合は (nil, nil) を返し、呼び出し側で 0/0 にフォールバックする。
+func effectiveFileStat(for row: BookRow) -> (mtime: Double?, size: Int64?) {
+    if let mtime = row.fileMtime, let size = row.fileSize {
+        return (mtime, size)
+    }
+    guard let path = row.path else { return (nil, nil) }
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
+        return (nil, nil)
+    }
+    let (statSize, statMtime) = Database.statFile(path)
+    return (statMtime, statSize)
+}
+
 /// 本の原本ファイルの mtime+size+path から弱 ETag を作る（spec §3.3, G4d）。
 /// path を織り込むことで、relink 直後に mtime/size が万一 nil でも etag が変わり、
 /// また異なるパスの book が "id-0-0" で衝突しない。
-/// fileMtime/fileSize は contentHash 計算時に記録される列で、未計算の本では 0 にフォールバックする。
+/// fileMtime/fileSize は contentHash 計算時に記録される列で、未計算の本では 0 にフォールバックする
+/// （ディレクトリの場合は effectiveFileStat が request 時 stat で埋める・Finding 1）。
 func bookETag(for row: BookRow) -> String {
-    let mtime = row.fileMtime ?? 0
-    let size = row.fileSize ?? 0
+    let (mtimeOpt, sizeOpt) = effectiveFileStat(for: row)
+    let mtime = mtimeOpt ?? 0
+    let size = sizeOpt ?? 0
     let pathHash = String(fnv1aHash(row.path ?? ""), radix: 36)
     return "\"\(row.id)-\(Int(mtime))-\(size)-\(pathHash)\""
 }

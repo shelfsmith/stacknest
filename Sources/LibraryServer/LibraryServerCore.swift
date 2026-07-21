@@ -864,7 +864,10 @@ public struct LibraryServerCore: Sendable {
             }
             let maxw = request.uri.queryParameters.get("maxw", as: Int.self)
             if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
-            let etag = bookETag(for: row) + "-entry-" + String(name.hashValue)
+            // fnv1aHash（ContentEndpoints.swift）を使う。String.hashValue はプロセスをまたいで
+            // 安定しない per-process seed のため、再起動のたびに ETag が変わって 304 が壊れる
+            // （最終レビュー Finding 3・bookETag と同じ理由）。
+            let etag = bookETag(for: row) + "-entry-" + String(fnv1aHash(name), radix: 36)
             if request.headers[.ifNoneMatch] == etag { return Response(status: .notModified) }
             return cacheableImageResponse(data: data, etag: etag, request: request)
         }

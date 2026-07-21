@@ -751,7 +751,9 @@ public final class Database: @unchecked Sendable {
     }
 
     /// 新パスの size(bytes)/mtime(epoch秒) を返す。取得不能なら (nil, nil)。
-    static func statFile(_ path: String) -> (Int64?, Double?) {
+    /// public: LibraryServer 側（ContentEndpoints.effectiveFileStat, G4d 最終レビュー Finding 1）が
+    /// フォルダブックの request 時 stat に同じロジックを再利用するため。
+    public static func statFile(_ path: String) -> (Int64?, Double?) {
         guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return (nil, nil) }
         let size = (attrs[.size] as? Int64) ?? (attrs[.size] as? NSNumber)?.int64Value
         let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970
