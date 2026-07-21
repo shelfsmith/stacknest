@@ -1666,41 +1666,60 @@ final class RemoteLibraryState {
         let downloaded = offlineStore.all().first {
             $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == book.id
         }
-        let content: BookContent
-        let row: BookRow
-        let sourceLabel: String
+        // オフライン判定と offline BookContent の合成はネットワーク非依存なので同期のまま決めておく
+        // （既存構造を維持。version 取得（非同期）だけを Task 側に委ねる — 後述）。
         let readingOffline: Bool
-        // G3a: 可視保護用に、リモート閲覧時の RemoteBookContent を静的型のまま保持する
-        // （content は BookContent 抽象のため。オフライン読み出し時は nil）。
-        var remoteContent: RemoteBookContent?
+        let offlineRow: BookRow?
+        let offlineContent: BookContent?
         if let dl = downloaded {
-            let offlineRow = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
-            if let made = try? BookContentFactory.make(for: offlineRow) {
-                content = made
+            let row = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
+            if let made = try? BookContentFactory.make(for: row) {
+                readingOffline = true
+                offlineRow = row
+                offlineContent = made
+            } else {
+                readingOffline = false
+                offlineRow = nil
+                offlineContent = nil
+            }
+        } else {
+            readingOffline = false
+            offlineRow = nil
+            offlineContent = nil
+        }
+        Task { @MainActor in
+            // G3a: 可視保護用に、リモート閲覧時の RemoteBookContent を静的型のまま保持する
+            // （content は BookContent 抽象のため。オフライン読み出し時は nil）。
+            let content: BookContent
+            let row: BookRow
+            let sourceLabel: String
+            var remoteContent: RemoteBookContent?
+            // リモートでは per-book の永続見開き状態（spread/coverOffset）を持たないため、グローバル既定で開く。
+            // G17 T6b: ページ単位の単頁/見開き override はサーバの book_page_layout が正なので、
+            // manifest から取得して反映する（オフライン読み出し時はネットワーク回避のため取得しない
+            // — offline detail に direction を使う既存の分岐と同じ方針。取得失敗時も best-effort で [:]）。
+            // G4d 層2: この manifest 取得で version（etag）も同時に得て RemoteBookContent へ注入する
+            // （content は必ずここで一度だけ構築＝以前のように後から差し替える必要がない）。
+            // manifest 取得に失敗した場合は版なしのまま（既存のページキャッシュ後方互換フォールバック）。
+            var remoteOverrides: [Int: PageLayoutOverride] = [:]
+            if readingOffline, let offlineContent, let offlineRow {
+                content = offlineContent
                 row = offlineRow
                 sourceLabel = "オフライン"
-                readingOffline = true
             } else {
+                var version: String?
+                if let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) {
+                    remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
+                    version = m.etag
+                }
                 let made = RemoteBookContent(
-                    client: client, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id,
-                    libraryToken: libraryToken, maxWidth: 1600)
+                    client: self.client, serverID: self.serverID, libraryUUID: self.libraryUUID, bookID: book.id,
+                    libraryToken: self.libraryToken, maxWidth: 1600, version: version)
                 content = made
                 remoteContent = made
                 row = Self.makeBookRow(from: book)
                 sourceLabel = "リモート"
-                readingOffline = false
             }
-        } else {
-            let made = RemoteBookContent(
-                client: client, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id,
-                libraryToken: libraryToken, maxWidth: 1600)
-            content = made
-            remoteContent = made
-            row = Self.makeBookRow(from: book)
-            sourceLabel = "リモート"
-            readingOffline = false
-        }
-        Task { @MainActor in
             let pageCount: Int
             do {
                 pageCount = try await content.pageCount
@@ -1721,16 +1740,6 @@ final class RemoteLibraryState {
             // 開いた時点で既読をサーバ確定（/progress は R でも許可）。offline 先行時にサーバを
             // 巻き戻さないよう、解決後ページで POST する。
             Task { try? await self.client.postProgress(libraryUUID: self.libraryUUID, bookID: book.id, page: resolvedLastPage, libraryToken: self.libraryToken) }
-            // リモートでは per-book の永続見開き状態（spread/coverOffset）を持たないため、グローバル既定で開く。
-            // G17 T6b: ページ単位の単頁/見開き override はサーバの book_page_layout が正なので、
-            // manifest から取得して反映する（オフライン読み出し時はネットワーク回避のため取得しない
-            // — offline detail に direction を使う既存の分岐と同じ方針。取得失敗時も best-effort で [:]）。
-            var remoteOverrides: [Int: PageLayoutOverride] = [:]
-            if !readingOffline {
-                if let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) {
-                    remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
-                }
-            }
             let initialState = ResolvedViewerState(
                 spreadEnabled: ViewerSettings.shared.spreadByDefault,
                 coverOffset: true,
@@ -1826,11 +1835,15 @@ final class RemoteLibraryState {
                 // 更新は MainActor（recompute/close）からのみ発行されるため @unchecked Sendable で安全。
                 let chain = ProtectionChain()
                 controller.remotePrefetch = RemotePrefetchContext(
-                    reportActiveWindow: { pages, bid in
+                    reportActiveWindow: { pages, bid, version in
                         // bid はビューアが現在 content から渡す（巻スワップ追従・C1）。オフライン巻なら nil→no-op。
+                        // G4d 層2: version も同じく現在の content(RemoteBookContent) から渡され、実際の
+                        // ページキャッシュキー（RemoteBookContent.imageData(at:) が組む Key）と一致させる。
+                        // ここで版を省くと、page キーが manifest.etag で版付けされている以上 setProtected の
+                        // キーが決して一致せず、可視保護が常に空振りしてしまう。
                         guard let bid else { return }
                         let keys = Set(pages.map {
-                            RemotePageCache.Key(serverID: sID, libraryUUID: luid, bookID: bid, kind: .page, page: $0, maxw: 1600)
+                            RemotePageCache.Key(serverID: sID, libraryUUID: luid, bookID: bid, kind: .page, page: $0, maxw: 1600, version: version)
                         })
                         let prev = chain.task
                         chain.task = Task { await prev?.value; await RemotePageCache.shared.setProtected(keys, owner: owner) }
@@ -1934,9 +1947,12 @@ final class RemoteLibraryState {
             $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
         }
         var remoteOverrides: [Int: PageLayoutOverride] = [:]
+        // G4d 層2: 同じ manifest 取得から version（etag）も得て、次巻の RemoteBookContent に注入する。
+        var manifestVersion: String?
         if offlineEntry == nil {
             if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
+                manifestVersion = m.etag
             }
         }
         let state = ResolvedViewerState(
@@ -1954,7 +1970,7 @@ final class RemoteLibraryState {
         }
         let content = RemoteBookContent(
             client: client, serverID: serverID, libraryUUID: libraryUUID,
-            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600)
+            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600, version: manifestVersion)
         let row = Self.makeBookRow(from: dto)
         return NextVolume(content: content, book: row, state: state, sourceLabel: "リモート")
     }

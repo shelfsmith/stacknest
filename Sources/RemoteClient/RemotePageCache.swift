@@ -171,7 +171,9 @@ public actor RemotePageCache {
         var pages = Set<Int>()
         for k in keys {
             let f = k.split(separator: "|", omittingEmptySubsequences: false)
-            guard f.count == 6, f[5] == maxwField, let p = Int(f[4]) else { continue }
+            // G4d 層2: version 付きキーは末尾に "|v<version>" が付き 7 要素になる（無版は 6 要素）。
+            // 版に関わらず「キャッシュ済みか」を数えるだけなので、先頭 6 要素が読めれば十分（>=6）。
+            guard f.count >= 6, f[5] == maxwField, let p = Int(f[4]) else { continue }
             pages.insert(p)
         }
         return pages

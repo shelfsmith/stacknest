@@ -4,13 +4,16 @@ import Foundation
 /// リモート閲覧時にビューアへ注入する先読みフック（ローカル閲覧では nil）。
 /// content 非依存の ViewerWindowController から、可視保護報告・tier3 判定を委譲する。
 public struct RemotePrefetchContext: Sendable {
-    /// (可視ページ集合, 現在のリモート bookID)。bookID は巻スワップ追従のためビューアが都度渡す（C1）。
-    public let reportActiveWindow: @Sendable (Set<Int>, Int?) -> Void   // pages→Key 写像し setProtected(owner:)
+    /// (可視ページ集合, 現在のリモート bookID, その本の版トークン=manifest.etag)。
+    /// bookID/version は巻スワップ追従のためビューアが都度渡す（C1／G4d 層2）。version は
+    /// RemotePageCache.Key の版キーと一致させ、可視保護（setProtected）が実際のページ
+    /// キャッシュエントリを正しく引き当てるために必要（不一致だと保護が空振りする）。
+    public let reportActiveWindow: @Sendable (Set<Int>, Int?, String?) -> Void   // pages→Key 写像し setProtected(owner:)
     public let clearProtection: @Sendable () -> Void                    // ビューア閉/巻スワップで clearProtected(owner:)
     public let tier3Enabled: @Sendable () -> Bool                       // RemoteCacheSettings を読む
     /// 現在 bookID → その本の L2 キャッシュ済みページ集合（プログレスバー可視化用・~1s ポーリング）。
     public let cachedPages: @Sendable (Int) async -> Set<Int>
-    public init(reportActiveWindow: @escaping @Sendable (Set<Int>, Int?) -> Void,
+    public init(reportActiveWindow: @escaping @Sendable (Set<Int>, Int?, String?) -> Void,
                 clearProtection: @escaping @Sendable () -> Void,
                 tier3Enabled: @escaping @Sendable () -> Bool,
                 cachedPages: @escaping @Sendable (Int) async -> Set<Int>) {
