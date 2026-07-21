@@ -94,6 +94,23 @@ function resetInfiniteScroll() {
     if (infObserver) { infObserver.disconnect(); infObserver = null; }
 }
 
+// D5: 一覧→リーダー→戻る のスクロール位置復元。リーダーは render() を経由せず appEl を直接
+// 操作するため（app.js の Pack B スクロール保存が働かない）、ここで hash 単位に明示保存/復元する。
+// key は「開いた時点の一覧 hash（絞り込み・並び順・ページ込み）」。戻り先(from=)が同一 hash なので
+// 一致したときだけ復元する（フィルタを変えて戻った場合は key 不一致＝古い位置を当てない）。一回消費。
+const listScrollMemory = new Map();
+
+function saveListScroll(hash) {
+    listScrollMemory.set(hash, window.scrollY);
+}
+
+function restoreListScrollIfPending(hash) {
+    if (!listScrollMemory.has(hash)) return;
+    const y = listScrollMemory.get(hash);
+    listScrollMemory.delete(hash); // 一回だけ（以後の同一 hash 再描画＝live-sync 等では復元しない）
+    requestAnimationFrame(() => window.scrollTo(0, y));
+}
+
 // ---- 1 件分のメタ表示用ヘルパ -----------------------------------------------
 
 /// シリーズ + 巻数（巻は整数なら整数表示・小数は小数のまま）。シリーズ無しは空文字。
@@ -526,6 +543,7 @@ export async function renderBooks(uuid, query, deps) {
     }
 
     render("ライブラリ", root, { showBack: true });
+    restoreListScrollIfPending(location.hash); // D5: リーダーから同一一覧へ戻ったとき位置を復元
 }
 
 // ---- 無限スクロール ---------------------------------------------------------
@@ -926,6 +944,7 @@ function openDetail(uuid, book, deps) {
         // 開いた時点の（絞り込み・並び順込みの）一覧 hash を from= に積んで、
         // リーダー側の「戻る」がこの一覧状態へ戻れるようにする（G17 T2）。
         const fromHash = location.hash;
+        saveListScroll(fromHash); // D5: 戻ったとき復元するため現在のスクロール位置を保存
         close();
         location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}&from=${encodeURIComponent(fromHash)}`;
     };
