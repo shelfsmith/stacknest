@@ -26,12 +26,6 @@ public enum WatchFolderScanner {
         }
     }
 
-    /// 監視フォルダから取込候補の URL を列挙する（I/O）。旧 2-way 呼び出し（互換用）。
-    /// `recurse:false` は `mode: .topLevelOnly` に、`recurse:true` は `mode: .recurse` に委譲する。
-    public static func enumerateCandidates(folder: URL, recurse: Bool) -> [URL] {
-        enumerateCandidates(folder: folder, mode: recurse ? .recurse : .topLevelOnly)
-    }
-
     /// 監視フォルダ直下の取り込み候補 URL を列挙する（G9b: 3-way）。
     /// - `.topLevelOnly`（ignore）: 直下の**ファイルのみ**（サブフォルダは無視・候補に出ない＝漏れ修正）。
     /// - `.archive`: 直下の**サブフォルダ各1つ**（=1冊のフォルダ本）＋直下の素ファイルも候補。孫には降りない。

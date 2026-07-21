@@ -994,7 +994,7 @@ public struct LibraryServerCore: Sendable {
                     }
                     // baseline = 現在の中身（既存スキップ）
                     let baseline = WatchFolderScanner.enumerateCandidates(
-                        folder: URL(fileURLWithPath: f.path), recurse: mode == .recurse).map { $0.path }
+                        folder: URL(fileURLWithPath: f.path), mode: mode).map { $0.path }
                     merged.append(WatchedFolder(id: f.id, path: f.path, enabled: f.enabled,
                                                 presetID: f.presetID, baseline: baseline, subfolderMode: mode))
                 }
