@@ -120,12 +120,25 @@ function restoreListScrollIfPending(hash) {
     // 保存 y（ページ 3+ でスクロールして得た位置）に doc 高が足りず scrollTo が clamp される。
     // clamp 位置で無限スクロールの sentinel が次ページを読み込む→ doc が伸びるので、目標 y に届くまで
     // 短時間リトライして追従する。paged モード（全件描画済）では初回で一致し即座に停止する。
-    let tries = 0;
-    const maxTries = 40;   // 40 × 50ms = 最大 2s（それでも届かなければ諦める＝doc が縮んだ等）
+    // Codex Low fix: ユーザー操作（wheel/touch/key）or 画面遷移（hash 変化）でリトライを中止する
+    // （手動スクロールを奪わない・別画面で scrollTo しない）。到達不能でも maxTries で必ず止まる。
+    let tries = 0, cancelled = false;
+    const maxTries = 40;   // 40 × 50ms = 最大 2s
+    const cleanup = () => {
+        window.removeEventListener("wheel", cancel);
+        window.removeEventListener("touchstart", cancel);
+        window.removeEventListener("keydown", cancel);
+    };
+    function cancel() { cancelled = true; cleanup(); }
+    window.addEventListener("wheel", cancel, { passive: true });
+    window.addEventListener("touchstart", cancel, { passive: true });
+    window.addEventListener("keydown", cancel);
     const step = () => {
+        if (cancelled || location.hash !== hash) { cleanup(); return; }
         window.scrollTo(0, y);
         tries += 1;
         if (Math.abs(window.scrollY - y) > 2 && tries < maxTries) setTimeout(step, 50);
+        else cleanup();
     };
     requestAnimationFrame(step);
 }
