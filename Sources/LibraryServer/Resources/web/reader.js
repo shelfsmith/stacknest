@@ -350,14 +350,10 @@ export async function renderReader(uuid, bookId, query, deps) {
         spreadToggleBtn, stepOneBtn, sliderEl, counterEl,
     ]);
 
-    // C1 device fix（構造的解決）: タップによるページ送りは click ではなく pointerup で処理する。
-    // iOS Safari は指を離した位置で compat click を合成し、それが右/左タップゾーンで発火すると
-    // 古い位置で逆方向 go() を起こしてドラッグ確定を打ち消していた（＝smoke C1・iPhone 特異）。
-    // click 経由のナビを廃止すれば、合成 click がいつ発火してもページ送りは一切起きない。
-    // tapzone は透明ヒット領域として残すが onClick は付けない（reducedMotion 時のみ下で click ナビ）。
-    const tapLeft = el("div", { class: "tapzone left" });
-    const tapCenter = el("div", { class: "tapzone center" });
-    const tapRight = el("div", { class: "tapzone right" });
+    // タップゾーン（透明操作領域）
+    const tapLeft = el("div", { class: "tapzone left", onClick: () => go(physicalToDir("left", direction)) });
+    const tapCenter = el("div", { class: "tapzone center", onClick: () => toggleChrome() });
+    const tapRight = el("div", { class: "tapzone right", onClick: () => go(physicalToDir("right", direction)) });
 
     // タップゾーンと読み込みインジケータを stage に追加
     stageEl.append(tapLeft, tapCenter, tapRight, loadingEl);
@@ -520,28 +516,10 @@ export async function renderReader(uuid, bookId, query, deps) {
     //  他の Pack A/B 実装と同じ規約）。
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    /// タップ位置（clientX）のゾーン（左/中央/右 = stage 幅の 33/34/33%）でナビする。
-    /// C1 device fix: タップ送りは pointerup（下）or reducedMotion 時の click から呼ぶ。
-    function navByTapX(clientX) {
-        const rect = stageEl.getBoundingClientRect();
-        const frac = (clientX - rect.left) / (rect.width || 1);
-        if (frac < 0.33) go(physicalToDir("left", direction));
-        else if (frac > 0.67) go(physicalToDir("right", direction));
-        else toggleChrome();
-    }
-
-    // reducedMotion 時はポインタドラッグ機構（下の if(!reducedMotion) ブロック）を使わないため、
-    // タップ送りは従来どおり tapzone の click で行う（合成 click 問題はドラッグ由来なので、
-    // ドラッグ機構の無い reducedMotion では発生しない）。
-    if (reducedMotion) {
-        tapLeft.addEventListener("click", () => go(physicalToDir("left", direction)));
-        tapCenter.addEventListener("click", () => toggleChrome());
-        tapRight.addEventListener("click", () => go(physicalToDir("right", direction)));
-    }
-
     let dragState = null;      // アクティブなドラッグの状態（非ドラッグ中は null）
     let releaseSpring = null;  // リリース後の着地/戻りスプリング（token）
     let settlingDs = null;     // releaseSpring が現在動かしている ds（中断時の後始末に必要）
+    let suppressClick = false; // 確定ドラッグ直後の click（tapzone）を握り潰すフラグ
 
     /// 進行中のドラッグ/リリーススプリングを即座に破棄する（DOM 上の隣接 view を消し、
     /// objectURL を revoke する）。curView 自体には触れない（show() 側が管理する）。
@@ -742,6 +720,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         stageEl.addEventListener("pointerdown", (e) => {
             if (e.pointerType === "mouse" && e.button !== 0) return;   // 主ボタンのみ
             if (dragState || releaseSpring) return;                   // 多重ジェスチャ/着地中は無視
+            suppressClick = false;
             dragState = {
                 pointerId: e.pointerId,
                 startX: e.clientX, startY: e.clientY,
@@ -786,17 +765,19 @@ export async function renderReader(uuid, bookId, query, deps) {
             if (!ds || e.pointerId !== ds.pointerId) return;
             dragState = null;
             try { stageEl.releasePointerCapture(e.pointerId); } catch {}
-            if (!ds.committed) {
-                // ヒステリシス未確定＝タップ。C1 device fix: pointerup 位置のゾーンで直接ナビする
-                // （click 経由にしないので、iOS が指を離した位置で合成する click はページ送りを
-                // 一切起こさない）。pointercancel（forceCancel）は無視する。
-                if (!forceCancel) navByTapX(e.clientX);
-                return;
-            }
+            if (!ds.committed) return;   // ヒステリシス未確定＝タップ相当。click を正常発火させる
+            suppressClick = true;
             settleDrag(ds, forceCancel);
         };
         stageEl.addEventListener("pointerup", onDragPointerEnd(false));
         stageEl.addEventListener("pointercancel", onDragPointerEnd(true));
+
+        // 確定ドラッグ直後に tapzone の click（go()/toggleChrome()）が誤発火しないよう、
+        // capture フェーズで握り潰す（capture 段階で stopPropagation すると target の
+        // bubble リスナーまで到達しない）。
+        stageEl.addEventListener("click", (e) => {
+            if (suppressClick) { e.stopPropagation(); e.preventDefault(); suppressClick = false; }
+        }, true);
     }
 
     // 14. キーボードナビゲーション（document レベル）
