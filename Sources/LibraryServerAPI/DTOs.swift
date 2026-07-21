@@ -536,6 +536,7 @@ public struct WatchedFolderDTO: Codable, Sendable {
     /// G9: サブフォルダの扱い。AppCore.WatchedFolder.SubfolderMode と同 raw 値（DTO 層は AppCore を import 不可）。
     public enum SubfolderMode: String, Codable, Sendable {
         case topLevelOnly
+        case archive
         case recurse
     }
     public var id: String

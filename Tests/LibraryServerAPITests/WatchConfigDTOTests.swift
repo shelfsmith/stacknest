@@ -19,6 +19,17 @@ struct WatchConfigDTOTests {
         #expect(back.subfolderMode == .recurse)
     }
 
+    // G9b Task3: archive も DTO で raw 値パススルーでラウンドトリップすること。
+    @Test func subfolderModeArchiveRoundTrips() throws {
+        let f = WatchedFolderDTO(id: "f1", path: "/x", enabled: true, subfolderMode: .archive)
+        let data = try JSONEncoder().encode(f)
+        let back = try JSONDecoder().decode(WatchedFolderDTO.self, from: data)
+        #expect(back.subfolderMode == .archive)
+        // raw 値そのものも "archive" であること（後方互換の生値契約）。
+        let json = String(data: data, encoding: .utf8) ?? ""
+        #expect(json.contains(#""subfolderMode":"archive""#))
+    }
+
     @Test func presetsOptionalDecodesNil() throws {
         let json = #"{"enabled":true,"folders":[]}"#
         let cfg = try JSONDecoder().decode(WatchConfigDTO.self, from: Data(json.utf8))

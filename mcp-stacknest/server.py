@@ -179,7 +179,13 @@ def stacknest_watch_get(library: str, library_token: str | None = None) -> Any:
 @mcp.tool()
 def stacknest_watch_set(library: str, config: dict, library_token: str | None = None) -> str:
     """ライブラリの自動監視フォルダ設定を更新する。
-    config は {"folders":["/path/to/dir"],"preset":"standard"} 等の形式。
+    config は WatchConfigDTO 形式: {"enabled": true, "folders": [...]}。
+    folders: [{"id": "...", "path": "/abs/path", "enabled": true,
+               "presetID": null, "baseline": [],
+               "subfolderMode": "topLevelOnly" | "archive" | "recurse"}]
+      subfolderMode: topLevelOnly=サブフォルダを取り込まない（直下ファイルのみ）／
+                     archive=直下サブフォルダを各1冊として取込（孫には降りない）＋直下の素ファイルも個別取込／
+                     recurse=サブフォルダを再帰走査し中のファイルを個別取込。
     library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
     cli.watch_set(library, config, library_token=library_token)
     return "watch config updated"
