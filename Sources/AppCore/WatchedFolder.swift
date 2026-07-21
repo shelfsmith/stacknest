@@ -3,9 +3,12 @@ import Foundation
 
 /// 監視フォルダ設定（per-library）。ライブラリバンドル設定 DB に JSON 永続。
 public struct WatchedFolder: Identifiable, Codable, Sendable, Equatable {
-    /// サブフォルダの扱い（G9）。
-    public enum SubfolderMode: String, Codable, Sendable, Hashable {
-        case topLevelOnly   // 監視フォルダ直下のみ取込（既定・従来挙動）
+    /// サブフォルダの扱い（G9 → G9b で 3-way 化）。raw 値は後方互換のため topLevelOnly/recurse を維持
+    /// （archive は新規追加）。意味: topLevelOnly=サブフォルダを取り込まない（ignore）／
+    /// archive=直下サブフォルダを各1冊／recurse=中のファイルを個別取込。
+    public enum SubfolderMode: String, Codable, Sendable, Hashable, CaseIterable {
+        case topLevelOnly   // ignore: 監視フォルダ直下のファイルのみ取込（サブフォルダは無視・既定）
+        case archive        // 直下サブフォルダを1つ=1冊として取込（孫には降りない）＋直下の素ファイルも個別取込
         case recurse        // サブフォルダを再帰走査し中のファイルを個別取込
     }
 

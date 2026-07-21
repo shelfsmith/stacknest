@@ -26,24 +26,47 @@ public enum WatchFolderScanner {
         }
     }
 
-    /// 監視フォルダから取込候補の URL を列挙する（I/O）。
-    /// - recurse=false: 直下のみ（従来。ディレクトリを含む＝下流 BookImporter がスキップ）。
-    /// - recurse=true: サブフォルダを再帰走査し、ディレクトリを除いたファイル URL のみを返す。
+    /// 監視フォルダから取込候補の URL を列挙する（I/O）。旧 2-way 呼び出し（互換用）。
+    /// `recurse:false` は `mode: .topLevelOnly` に、`recurse:true` は `mode: .recurse` に委譲する。
     public static func enumerateCandidates(folder: URL, recurse: Bool) -> [URL] {
+        enumerateCandidates(folder: folder, mode: recurse ? .recurse : .topLevelOnly)
+    }
+
+    /// 監視フォルダ直下の取り込み候補 URL を列挙する（G9b: 3-way）。
+    /// - `.topLevelOnly`（ignore）: 直下の**ファイルのみ**（サブフォルダは無視・候補に出ない＝漏れ修正）。
+    /// - `.archive`: 直下の**サブフォルダ各1つ**（=1冊のフォルダ本）＋直下の素ファイルも候補。孫には降りない。
+    /// - `.recurse`: 全階層の**ファイル**を個別候補として列挙（従来どおり。ディレクトリ自体は候補にしない）。
+    ///
+    /// 全モード共通で `.skipsHiddenFiles` によりドットファイル・隠しディレクトリは候補に出ない
+    /// （`isTransient` 側のドット判定と二重防御）。シンボリックリンクは `FileManager` の既定挙動どおり
+    /// リンクそのものの URL として列挙され、リンク先へは辿らない（isDirectory はリンク先ではなくリンク
+    /// 自体の種別を見るため、ディレクトリへのシンボリックリンクは isDir=true 扱いになりうる）。
+    public static func enumerateCandidates(folder: URL, mode: WatchedFolder.SubfolderMode) -> [URL] {
         let fm = FileManager.default
-        let keys: [URLResourceKey] = [.fileSizeKey, .isDirectoryKey]
-        if recurse {
-            guard let en = fm.enumerator(at: folder, includingPropertiesForKeys: keys,
-                                         options: [.skipsHiddenFiles]) else { return [] }
+        switch mode {
+        case .recurse:
+            guard let en = fm.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                         options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
             var out: [URL] = []
-            for case let u as URL in en {
-                let isDir = (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-                if !isDir { out.append(u) }
+            for case let url as URL in en {
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if !isDir { out.append(url) }
             }
             return out
-        } else {
-            return (try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys,
-                                                options: [.skipsHiddenFiles])) ?? []
+        case .topLevelOnly, .archive:
+            guard let items = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
+                                                          options: [.skipsHiddenFiles]) else { return [] }
+            var out: [URL] = []
+            for url in items {
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+                if isDir {
+                    if mode == .archive { out.append(url) }   // archive のみディレクトリを1冊候補に
+                    // topLevelOnly はディレクトリを捨てる＝漏れ修正
+                } else {
+                    out.append(url)                            // 両モードとも直下ファイルは候補
+                }
+            }
+            return out
         }
     }
 
