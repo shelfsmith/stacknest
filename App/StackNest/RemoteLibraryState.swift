@@ -1016,7 +1016,16 @@ final class RemoteLibraryState {
                     inv = cacheFallbacks[id]
                 }
                 if let inv { appliedInverses.append((id, inv)) }
-            } catch { fail += 1 }
+            } catch {
+                // G21 #4 follow-up: startBatchEdit()/cancelBatchEdit() cancel the in-flight PATCH
+                // (editTask?.cancel() + CancelFlag) exactly like the multi-delete SSE race fixed in
+                // cdc92d5 — the in-flight updateBook() throws URLError.cancelled → RemoteClientError.cancelled.
+                // That is not a genuine failure (403/500/offline), it's this book simply not having been
+                // reached before the batch was cut short, so it must fall into "cancelled", not "fail"
+                // (mirrors the loop-top `if cancel.isCancelled { cancelled = true; break }` guard).
+                if cancel.isCancelled || Task.isCancelled { cancelled = true; break }
+                fail += 1
+            }
             editProgress = (i + 1, list.count)
         }
         if !appliedInverses.isEmpty { pushUndo(.rePatch(appliedInverses)) }
