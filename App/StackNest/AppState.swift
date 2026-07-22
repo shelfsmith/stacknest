@@ -1530,26 +1530,49 @@ final class AppState {
         }
         guard let path = book.path else { return }
         let sourceURL = URL(fileURLWithPath: path)
-        guard let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) else {
-            Self.logger.warning("regenerateThumbnail: unsupported format for book \(book.id) path=\(path)")
-            return
-        }
         do {
-            try await CoverRefresher.regenerate(
-                bookID: book.id,
-                sourceURL: sourceURL,
-                preferredName: preferredName,
-                thumbnailsDirURL: thumbDir,
-                extractor: extractor
-            )
+            // G21 followup Important #2: フォルダ/zip 系だけでなく単独 PDF・単独画像も対応する
+            // 共通抽出（Sources/AppCore/CoverRefresher.swift）。非対応形式は
+            // `CoverRefreshError.unsupportedFormat` として個別に log-only で処理する。
+            let data = try await CoverRefresher.extractCoverData(sourceURL: sourceURL, preferredName: preferredName)
+            // G21 followup Important #1 と同じクラスの保護: 抽出の await 中に別クライアント
+            // （埋め込みリモートサーバ経由）が外部表紙をアップロードしていた場合、書き込み直前に
+            // 再確認して上書きを防ぐ（LibraryServerCore.regenerateThumbnail と同じ理由）。
+            if let fresh = try? database?.fetchBook(id: book.id), CoverSource.isExternal(fresh.coverImageName) {
+                Self.coverLogger.info("regenerateThumbnail: became external during extraction, skip write bookID=\(book.id, privacy: .public)")
+                return
+            }
+            let bookDir = thumbDir.appendingPathComponent("\(book.id)")
+            try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+            let resized = CoverImageResizer.resizeJPEG(data, maxPixelSize: 1200)
+            try resized.write(to: bookDir.appendingPathComponent("thumbnail.jpg"))
             Self.coverLogger.info("regenerateThumbnail: file written, bookID=\(book.id)")
             // 🔧 Fix A: per-book purge instead of full-cache purge (cheaper + avoids CGImageSource URL cache).
             await thumbnailLoader?.purge(bookID: book.id)
             Self.coverLogger.info("regenerateThumbnail: cache purged (per-book), bookID=\(book.id)")
             try? refreshDisplayedBooks()
             Self.coverLogger.info("regenerateThumbnail: refresh done, bookID=\(book.id)")
+        } catch CoverRefreshError.unsupportedFormat {
+            Self.logger.warning("regenerateThumbnail: unsupported format for book \(book.id) path=\(path)")
         } catch {
             Self.logger.error("regenerateThumbnail failed for book \(book.id): \(error.localizedDescription)")
+        }
+    }
+
+    /// Review follow-up Important #4: ローカル relink（GUI: 右クリック再指定・テーブルの
+    /// コンテキストメニュー・RelinkSheet の単冊/フォルダ一括リマップ）共通の後処理。
+    /// サーバ側 relink エンドポイント（G21 #5・LibraryServerCore.swift の `/relink` ハンドラ）と
+    /// 同じ理由・同じ挙動: relink はファイルが別物になったということなので、自動表紙は
+    /// 作り直し、ページ数も新ファイルの実数に更新する。外部/手動表紙は
+    /// `regenerateThumbnail(for:)` 内の既存ガードが温存する。relink 自体は既にコミット済みの
+    /// 前提で呼ぶため、ここでの失敗はすべて log-only（relink 自体の成否には影響させない —
+    /// サーバ側の `try?` と同じ best-effort 方針）。
+    func refreshCoverAndPageCount(afterRelinkOf bookID: Int) async {
+        guard let db = database, let row = try? db.fetchBook(id: bookID) else { return }
+        await regenerateThumbnail(for: row)
+        if let content = try? BookContentFactory.make(for: row),
+           let pages = try? await content.pageCount {
+            try? db.updateBookPages(id: bookID, newPages: pages)
         }
     }
 

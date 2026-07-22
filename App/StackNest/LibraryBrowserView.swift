@@ -963,6 +963,10 @@ struct LibraryBrowserView: View {
         if let db = appState.database {
             RelinkSheet(database: db, onApplied: {
                 try? appState.refreshDisplayedBooks()
+            }, afterRelink: { bookID in
+                // Review follow-up Important #4: RelinkSheet の単冊/フォルダ一括リマップ両方に
+                // サーバ側 relink と同じ表紙・ページ数追従を効かせる。
+                await appState.refreshCoverAndPageCount(afterRelinkOf: bookID)
             })
         }
     }
@@ -982,6 +986,12 @@ struct LibraryBrowserView: View {
         do {
             try db.relinkBook(id: book.id, newPath: url.path(percentEncoded: false))
             try? appState.refreshDisplayedBooks()
+            // Review follow-up Important #4: relink 後に表紙・ページ数をサーバ側 relink と
+            // 同様に追従させる（失敗は best-effort・relink 自体の成否には影響しない）。
+            Task { @MainActor in
+                await appState.refreshCoverAndPageCount(afterRelinkOf: book.id)
+                try? appState.refreshDisplayedBooks()
+            }
         } catch {
             let alert = NSAlert()
             alert.messageText = String(localized: "再リンクに失敗しました")

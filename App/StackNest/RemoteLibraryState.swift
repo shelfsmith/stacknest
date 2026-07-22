@@ -1237,7 +1237,7 @@ final class RemoteLibraryState {
             errorText = Self.maintenanceMessage(for: e)
         } catch {
             maintenanceActive = false; maintenanceJob = nil
-            errorText = "表紙圧縮の開始に失敗しました"
+            errorText = "表紙の再生成の開始に失敗しました"
         }
     }
     func cancelMaintenance() async {
@@ -1528,8 +1528,12 @@ final class RemoteLibraryState {
             coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（メタ不変でも）
             if selection == bookID { await selectBook(bookID) }
         } catch {
+            // Review follow-up Important #2: 対応不可な形式（動画・epub・txt 等）はサーバが
+            // 400 + message を返すので、それをそのまま出す（旧実装は 500 で一律「失敗しました」だった）。
             if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
-            else { errorText = "表紙の再生成に失敗しました" }
+            else if case RemoteClientError.badRequest(let message) = error {
+                errorText = message ?? "表紙の再生成に失敗しました"
+            } else { errorText = "表紙の再生成に失敗しました" }
         }
     }
 

@@ -2,11 +2,46 @@
 import Foundation
 import ArchiveAdapter
 
+/// G21 followup Important #2: `extractCoverData` が表紙を作れないと判定した形式
+/// （動画・epub・txt/md/rtf 等、フォルダ/アーカイブ/PDF/単独画像のいずれでもないもの）。
+/// 呼び出し側（サーバは HTTP 4xx、App はログのみ）でハンドリングする。
+public enum CoverRefreshError: Error, Sendable, Equatable {
+    case unsupportedFormat
+}
+
 /// 単一 book の thumbnail.jpg を抽出 + 保存する純粋ユーティリティ。
 /// - 新規 book 追加時 (BookImporter / BookAddCoordinator) 経路
 /// - 既存 book の cover_image_name 変更時 (AppState.regenerateThumbnail) 経路
 /// の両方で再利用される。
 public enum CoverRefresher {
+    /// G21 followup Important #2: フォーマット非依存の表紙データ抽出（書き込みは行わない）。
+    /// フォルダ/zip 系アーカイブは既存の `ArchiveAdapter.coverExtractor` 経由、単独 PDF は
+    /// `PDFBookContent.coverJPEG`（CoverCompression の whole-library ジョブと同じ分岐を再利用）、
+    /// 単独画像はファイルをそのまま読む。対応不可な形式は `.unsupportedFormat` を throw する
+    /// （zip 内に画像もフォールバック PDF も無い等、既存 extractor が nil を返さず失敗する
+    /// ケースはそのまま extractor 側のエラーが伝播する）。
+    public static func extractCoverData(sourceURL: URL, preferredName: String?) async throws -> Data {
+        if sourceURL.pathExtension.lowercased() == "pdf" {
+            guard let pdf = PDFBookContent(url: sourceURL),
+                  let data = pdf.coverJPEG(maxPixelSize: 1200) else {
+                throw CoverRefreshError.unsupportedFormat
+            }
+            return data
+        }
+        if let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) {
+            return try await extractor.extractCoverImage(from: sourceURL, preferredName: preferredName)
+        }
+        if Self.standaloneImageExtensions.contains(sourceURL.pathExtension.lowercased()) {
+            return try Data(contentsOf: sourceURL)
+        }
+        throw CoverRefreshError.unsupportedFormat
+    }
+
+    /// `BookCategory.classify(path:)` の `.image` 判定と同じ拡張子集合（Sources/AppCore/BookCategory.swift）。
+    private static let standaloneImageExtensions: Set<String> =
+        ["jpg", "jpeg", "png", "gif", "webp", "heic", "heif", "bmp", "tiff", "tif"]
+
+
     /// `Thumbnails/<bookID>/thumbnail.jpg` に表紙画像を保存する。
     /// - Parameters:
     ///   - bookID: 対象 book の DB id
