@@ -2166,7 +2166,13 @@ final class RemoteLibraryState {
 
     // MARK: - Error messages
 
-    static func message(for error: RemoteClientError) -> String {
+    /// G21 #4 診断: 赤字（errorText）はこの関数を必ず通る。呼び出し元を `#function` の
+    /// 既定引数で受けて記録し、「削除は成功しているのに赤字」がどの経路から出るかを特定する。
+    /// async 文脈では `Thread.callStackSymbols` が当てにならないため呼び出し元ラベル方式にする。
+    /// 原因確定後にこの診断は削除する。
+    static func message(for error: RemoteClientError, caller: String = #function) -> String {
+        Self.reloadLog.warning(
+            "G21diag errorText from=\(caller, privacy: .public) error=\(String(describing: error), privacy: .public)")
         switch error {
         case .offline: return "サーバに接続できません（ネットワーク/アドレスを確認）"
         case .timeout: return "接続がタイムアウトしました"
