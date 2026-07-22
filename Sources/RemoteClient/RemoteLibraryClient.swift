@@ -436,6 +436,15 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(BookDetailDTO.self, data)
     }
 
+    /// G21 #5: 1 冊の表紙を今のファイルから作り直す。外部表紙の本ではサーバ側で no-op（現状の DTO を返す）。
+    @discardableResult
+    public func regenerateCover(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> BookDetailDTO {
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover/regenerate")
+        // アーカイブから抽出＋縮小＋書き込みを経て応答するため cover-image と同様に長め（30s）を渡す。
+        let data = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
+        return try decode(BookDetailDTO.self, data)
+    }
+
     /// G4b: 外部画像を表紙にアップロード（RW）。画像バイトを PUT し、更新後 DTO を返す。
     @discardableResult
     public func setCoverImage(libraryUUID: String, bookID: Int, imageData: Data,

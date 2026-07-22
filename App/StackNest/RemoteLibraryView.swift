@@ -245,7 +245,12 @@ struct RemoteLibraryView: View {
                 let json = crop.map(BookRow.encodeCoverCropRect)
                 await state.setRemoteExternalCover(bookID: id, imageData: data, cropJSON: json)
             },
-            coverVersion: state.coverVersion
+            coverVersion: state.coverVersion,
+            // G21 #5: 右クリック「表紙を再生成」。外部表紙は disabled 済みなので、
+            // ここに来る呼び出しは常に上書きしてよいケースのみ。
+            onRegenerateCover: { id in
+                Task { await state.regenerateCover(bookID: id) }
+            }
         )
     }
 
