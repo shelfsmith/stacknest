@@ -10,7 +10,7 @@ import UniformTypeIdentifiers
 /// 一時ライブラリバンドル + 任意冊数のダミー本を生成するテストヘルパ。
 /// Database の open/migrate/insert は LibraryStore の実公開 API
 /// （`Database.openFile(at:mode:)` / `migrate()` / `insertBook(_: BookRecord)`）を使う。
-struct TestLibraryFixture {
+final class TestLibraryFixture: @unchecked Sendable {
     let bundleURL: URL
     let db: Database
     let name: String
@@ -155,6 +155,13 @@ struct TestLibraryFixture {
         bytes += [0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0xD9]
         bytes += [UInt8](repeating: 0x00, count: 32)   // サイズを変えるための追加バイト
         try Data(bytes).write(to: file)
+    }
+
+    /// G21 #6-1: テストが途中で落ちても temp を残さない。`cleanup()` の明示呼び出しは
+    /// 従来どおり残すが（早期に消したいケースがある）、呼ばれなくても deinit で必ず消える。
+    /// `removeItem` は `try?` なので二重削除でも安全に no-op になる。
+    deinit {
+        try? FileManager.default.removeItem(at: bundleURL)
     }
 
     func cleanup() {
