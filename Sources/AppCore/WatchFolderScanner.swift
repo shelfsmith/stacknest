@@ -77,4 +77,25 @@ public enum WatchFolderScanner {
         }
         return (stable.sorted(), pending)
     }
+
+    /// review follow-up Finding 2: フォルダゲート（`BookImportError.folderHasNoImportablePages`）
+    /// で拒否された候補の再試行を抑制する。
+    ///
+    /// 失敗シナリオ（この関数が防ぐ不具合そのもの）: 監視フォルダに `_notes/`（テキストのみ）や
+    /// `scans/`（画像が孫階層）のようなディレクトリがあると、サイズは正（>0）なので 2 回連続で
+    /// 同一サイズを観測して "stable" と判定され続け、フォルダゲートに毎回弾かれて「1 件失敗」の
+    /// バナーが 60 秒ごとに永久に出続ける（サイズが変わらない限り stable 判定自体は覆らないため）。
+    ///
+    /// `rejectedSizes` に記録された「最後に拒否されたときのサイズ」と現在サイズが一致する
+    /// stable 候補は、今回の attempt 対象から除外する（＝再試行もバナーも起きない）。
+    /// サイズが変われば（実画像の追加など）自動的に対象へ戻り、再試行される
+    /// （「拒否は永続化しない・内容が変われば必ず再取込される」という保証は壊さない ——
+    /// `rejectedSizes` はプロセス内メモリのみで、DB/ディスクへは一切書かない）。
+    public static func filterRetry(stable: [String], currentSizes: [String: Int64],
+                                   rejectedSizes: [String: Int64]) -> [String] {
+        stable.filter { path in
+            guard let rejectedSize = rejectedSizes[path] else { return true }
+            return currentSizes[path] != rejectedSize
+        }
+    }
 }

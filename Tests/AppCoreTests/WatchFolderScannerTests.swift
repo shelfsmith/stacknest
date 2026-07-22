@@ -29,4 +29,40 @@ struct WatchFolderScannerTests {
         #expect(r3.stable.isEmpty)
         #expect(r3.pending["/d/a.zip"] == 150)
     }
+
+    // ---- filterRetry（review follow-up Finding 2） -----------------------------------------
+    // 失敗シナリオ: `_notes/`（テキストのみ）のような監視フォルダ直下のディレクトリは
+    // フォルダゲートに毎回弾かれるが、サイズが変わらなければ decideStable は永遠に "stable" を
+    // 返し続ける（2 回連続同一サイズの定義上）。filterRetry を挟まないと、FolderWatcher は
+    // 60 秒ごとに再試行→再失敗→「1 件失敗」バナーを無限に出し続ける。
+
+    @Test func filterRetrySuppressesPathRejectedAtSameSize() {
+        let result = WatchFolderScanner.filterRetry(
+            stable: ["/watch/_notes"], currentSizes: ["/watch/_notes": 100],
+            rejectedSizes: ["/watch/_notes": 100])
+        #expect(result.isEmpty,
+                "サイズ不変の拒否済み候補が再試行対象に残っている — 毎スキャン失敗＋バナー無限リピートが再発する")
+    }
+
+    @Test func filterRetryReattemptsOnceSizeChanges() {
+        // 実画像が追加されてディレクトリサイズが増えた想定 → 再試行保証のため必ず対象へ戻る。
+        let result = WatchFolderScanner.filterRetry(
+            stable: ["/watch/_notes"], currentSizes: ["/watch/_notes": 150],
+            rejectedSizes: ["/watch/_notes": 100])
+        #expect(result == ["/watch/_notes"], "サイズが変わっても再試行対象から除外されている — 拒否が事実上永続化してしまう")
+    }
+
+    @Test func filterRetryPassesThroughNeverRejectedPaths() {
+        let result = WatchFolderScanner.filterRetry(
+            stable: ["/watch/a.zip"], currentSizes: ["/watch/a.zip": 100], rejectedSizes: [:])
+        #expect(result == ["/watch/a.zip"], "拒否履歴の無い通常候補まで誤って抑制してはならない")
+    }
+
+    @Test func filterRetryPreservesOrderAndOtherEntries() {
+        let result = WatchFolderScanner.filterRetry(
+            stable: ["/watch/a.zip", "/watch/_notes", "/watch/b.zip"],
+            currentSizes: ["/watch/a.zip": 10, "/watch/_notes": 100, "/watch/b.zip": 20],
+            rejectedSizes: ["/watch/_notes": 100])
+        #expect(result == ["/watch/a.zip", "/watch/b.zip"])
+    }
 }

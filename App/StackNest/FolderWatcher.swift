@@ -16,6 +16,11 @@ final class FolderWatcher {
     private var sources: [DispatchSourceFileSystemObject] = []
     private var timer: Timer?
     private var lastSizes: [String: Int64] = [:]
+    /// review follow-up Finding 2: フォルダゲート（`BookImportError.folderHasNoImportablePages`）で
+    /// 拒否された候補の「拒否時サイズ」を記憶する（プロセス内メモリのみ・DB/ディスクへは書かない）。
+    /// サイズが変わらない限り再試行を飛ばし、「1 件失敗」バナーが 60 秒ごとに無限リピートするのを防ぐ。
+    /// サイズが変われば（実画像追加等）自動的に再試行対象へ戻る（詳細は WatchFolderScanner.filterRetry）。
+    private var rejectedSizes: [String: Int64] = [:]
     private var scanning = false
     private var settleScheduled = false   // pending 候補の短時間 settle 再スキャンが予約済みか
     private static let settleInterval: TimeInterval = 3   // vnode 検知後にサイズ安定を確認する間隔
@@ -108,9 +113,14 @@ final class FolderWatcher {
             // 短時間で再スキャンして安定確認する。これにより vnode 検知 → 数秒で取込（実質リアルタイム）。
             if !decision.pending.isEmpty { scheduleSettleScan() }
 
+            // review follow-up Finding 2: フォルダゲートに拒否されサイズが変わっていない候補は
+            // 今回の attempt 対象から外す（再試行もバナーも起こさない）。
+            let attemptable = WatchFolderScanner.filterRetry(
+                stable: decision.stable, currentSizes: currentSizes, rejectedSizes: rejectedSizes)
+
             var grouped: [String: [URL]] = [:]
             var formatByKey: [String: FilenameFormat] = [:]
-            for path in decision.stable {
+            for path in attemptable {
                 guard let (url, folder) = candidatesByPath[path] else { continue }
                 let key = folder.presetID ?? ""
                 grouped[key, default: []].append(url)
@@ -133,6 +143,23 @@ final class FolderWatcher {
                 total.alreadyPresent += r.alreadyPresent
                 total.failed += r.failed
             }
+
+            // review follow-up Finding 2: 今回フォルダゲートで落ちた候補のサイズを記憶し、次回以降
+            // サイズ不変なら再試行を飛ばす。落ちなかった（成功/別理由で失敗）候補は記憶を持ち越さない
+            // （サイズが変わって再挑戦し成功した場合に古い拒否記憶を残さないためのクリーンアップ）。
+            let gateRejectedPaths = Set(total.failed.compactMap { url, error -> String? in
+                guard let importErr = error as? BookImportError, importErr == .folderHasNoImportablePages else { return nil }
+                return url.path
+            })
+            for path in attemptable {
+                guard let size = currentSizes[path] else { continue }
+                if gateRejectedPaths.contains(path) {
+                    rejectedSizes[path] = size
+                } else {
+                    rejectedSizes.removeValue(forKey: path)
+                }
+            }
+
             if !total.addedIDs.isEmpty || !total.failed.isEmpty { onImported(total) }
         }
     }
