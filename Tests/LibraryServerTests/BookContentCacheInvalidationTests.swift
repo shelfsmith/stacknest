@@ -171,4 +171,70 @@ struct BookContentCacheInvalidationTests {
         let factorySharesInstance = (freshFactory1 as AnyObject) === (freshFactory2 as AnyObject)
         #expect(!factorySharesInstance)
     }
+
+    /// Codex Finding 2: 修正前の manifest/pages ハンドラは `contentCache.content(for:)` で
+    /// content を取得した**後で別に** `bookETag(for: row)` を呼んで ETag を作っていた——
+    /// フォルダ本は request 時に毎回ディレクトリを stat する（effectiveFileStat）ため、この
+    /// 2 回の独立 stat の間にディレクトリが変化すると、advertise した ETag が実際に返した
+    /// pageCount/バイトと対応しなくなる。
+    ///
+    /// このテストは、ディレクトリを丸ごと削除することで「2 回の独立 stat の間にディレクトリが
+    /// 変化する」というハザードをタイミング非依存で決定的に再現する:
+    /// `contentAndETag` が返す `snapshotEtag` はディレクトリがまだ生きていた時点の 1 回の stat
+    /// から作られた**固定文字列**なので、その後の削除では一切変化しない。一方、削除後に
+    /// **独立に** `bookETag(for: row)` を呼ぶ（＝修正前のハンドラが manifest/pages の最後で
+    /// やっていたこと）と、ディレクトリ消失で stored 値 (nil→0) へフォールバックし
+    /// `"<id>-0-0-<hash>"` という全く別の値になる。
+    /// 修正が退行して manifest/pages ハンドラが再び `bookETag(for: row)` を独立に呼ぶように
+    /// なると、応答の etag はこの `restatedIndependently`（0-0 フォールバック）と同じ壊れた
+    /// 値になり、pageCount（3、削除前に確定済み）と対応しなくなる——本テストの
+    /// `snapshotEtag != restatedIndependently` がその退行を検出する。
+    @Test func contentAndETagSnapshotIsImmuneToDirectoryMutationThatHappensAfterward() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bcc-snapshot-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for i in 0..<3 {
+            try Data("page\(i)".utf8).write(to: dir.appendingPathComponent("page\(i).jpg"))
+        }
+        let cache = BookContentCache(ttlSeconds: 300)
+        // fileMtime/fileSize は nil（import 直後の典型状態）。ディレクトリ消失時、
+        // effectiveFileStat はこの nil/nil にフォールバックする。
+        let row = Self.row(id: 55, path: dir.path)
+
+        // 修正後の manifest/pages ハンドラが実際に呼ぶ経路: content と etag を 1 回の
+        // stat から一緒に得る。
+        let (content, snapshotEtag) = try await cache.contentAndETag(for: row, libraryUUID: "L")
+        let pageCount = try await content.pageCount
+        #expect(pageCount == 3)
+
+        // ディレクトリを丸ごと削除 — 「2 回の独立 stat の間にディレクトリが変化する」
+        // という Finding 2 の前提を決定的に再現する。
+        try FileManager.default.removeItem(at: dir)
+
+        // 修正前パターンの再現: この時点で独立に bookETag(for: row) を呼ぶと、
+        // ディレクトリ消失で stored 値 (nil/nil→0/0) へフォールバックする。
+        let restatedIndependently = bookETag(for: row)
+        #expect(restatedIndependently.hasPrefix("\"55-0-0-"))
+
+        // 修正の核心: contentAndETag が返した snapshotEtag は、ディレクトリがまだ存在していた
+        // 時点の 1 回の stat から作られた固定文字列であり、この削除の影響を受けない——
+        // 削除後に独立 restat した値にすり替わってはいけない。
+        #expect(snapshotEtag != restatedIndependently)
+        #expect(!snapshotEtag.hasPrefix("\"55-0-0-"))
+    }
+
+    /// `contentAndETag` の ETag フォーマットは `bookETag(for:)`（ContentEndpoints.swift）と
+    /// バイト完全一致でなければならない（クライアントの immutable キャッシュキーが変わると
+    /// 全クライアントが不要な再ダウンロードをする）。ディレクトリが変化しない定常状態で
+    /// 両者が同一文字列を返すことを確認する。
+    @Test func contentAndETagFormatMatchesBookETagByteForByte() async throws {
+        let (dirURL, threePage, _) = try Self.makeTwoArchives()
+        defer { try? FileManager.default.removeItem(at: dirURL) }
+        let cache = BookContentCache(ttlSeconds: 300)
+        let row = Self.row(id: 63, path: threePage.path)
+
+        let (_, etagFromCache) = try await cache.contentAndETag(for: row, libraryUUID: "L")
+        let etagFromFreeFunction = bookETag(for: row)
+        #expect(etagFromCache == etagFromFreeFunction)
+    }
 }

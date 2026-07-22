@@ -358,6 +358,106 @@ struct ContentEndpointTests {
         }
     }
 
+    /// Codex Finding 1: `?v=` が現在の版と一致するとき（今日通り）は immutable のまま。
+    /// v が無いとき（旧クライアント）も today 通り immutable。
+    @Test func coverStaysImmutableWhenVersionQueryMatchesOrIsAbsent() async throws {
+        let (fixture, app, uuid, bookID) = try makeContentApp()
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            var currentVersion = ""
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.headers[.cacheControl]?.contains("immutable") == true)
+                currentVersion = (response.headers[.eTag] ?? "")
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            }
+            // v が現在版と一致 → today 通り immutable（books.js coverURL の通常経路）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover?v=\(currentVersion)", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.cacheControl]?.contains("immutable") == true)
+            }
+        }
+    }
+
+    /// Codex Finding 1 の核心: `?v=` が現在の版と食い違う（relink/表紙差し替え後、クライアントが
+    /// まだ古い版の URL を持っている状態）とき、サーバは正しい現在バイトを返す（404/409 にしない）
+    /// が、Cache-Control は no-store にして、誤った版キーの下へ HTTP キャッシュにも
+    /// クライアントの IndexedDB 等アプリ内キャッシュにも焼き付けさせてはならない。
+    /// 修正前（`request.uri.queryParameters.get("v"` が LibraryServerCore.swift のどこにも
+    /// 無かった状態）を再現するには cacheable 判定を外して常に true にすればよい——このテストは
+    /// そのケースで確実に FAIL する（Cache-Control が immutable のまま返るため）。
+    @Test func coverServesCurrentBytesButNoStoreWhenVersionQueryIsStale() async throws {
+        let (fixture, app, uuid, bookID) = try makeContentApp()
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover?v=stale-version-does-not-exist",
+                method: .get, headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(Data(buffer: response.body).prefix(2) == Data([0xFF, 0xD8]))   // 正しい現在バイト
+                #expect(response.headers[.cacheControl] == "no-store")
+            }
+        }
+    }
+
+    /// Codex Finding 1（pages 版）: relink 後、クライアントがまだ relink 前の版（v=A）を URL に
+    /// 持ったまま `/pages/:n?v=A` を要求してきても、サーバは relink 後の正しい現在バイトを返す
+    /// （404/409 にしない）が、Cache-Control は no-store にする——immutable のまま返すと、
+    /// A の URL の下に B のバイトが焼き付き、後で A へ戻されたときに汚染された B のバイトが
+    /// キャッシュから返る（本 Finding が防ぐ実害そのもの）。
+    @Test func pagesServeCurrentBytesButNoStoreWhenVersionQueryIsStaleAfterRelink() async throws {
+        let fixture = try TestLibraryFixture(name: "StaleV", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "pdf-only")
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            var versionA = ""
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/manifest", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                struct M: Decodable { let etag: String }
+                let m = try JSONDecoder().decode(M.self, from: Data(buffer: response.body))
+                versionA = m.etag.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            }
+            // v=A（現在版）と一致する間は today 通り immutable。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/2?v=\(versionA)", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.cacheControl]?.contains("immutable") == true)
+            }
+            // 別の実ファイル（two_pages.zip・中身が変わる=版が変わる）へ relink。
+            guard let twoSrc = Bundle.module.url(
+                forResource: "two_pages", withExtension: "zip", subdirectory: "Fixtures"
+            ) else { throw CocoaError(.fileNoSuchFile) }
+            let dst = fixture.bundleURL.appendingPathComponent("relinked.zip")
+            try FileManager.default.copyItem(at: twoSrc, to: dst)
+            try fixture.db.relinkBook(id: bookID, newPath: dst.path)
+
+            // クライアントはまだ古い v=A の URL でページを要求してくる（relink 直後、
+            // manifest を再取得する前の実運用シナリオ）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/0?v=\(versionA)", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)          // 正しい現在（relink 後）バイトを返す
+                #expect(response.headers[.cacheControl] == "no-store")   // 焼き付けない
+            }
+        }
+    }
+
     /// ?maxw= を渡すと縮小されたバイトが返り、ETag に幅が織り込まれて原寸版と別キャッシュキーになる。
     @Test func pagesHonorMaxwWithDistinctETag() async throws {
         let fixture = try TestLibraryFixture(name: "MW", bookCount: 0)

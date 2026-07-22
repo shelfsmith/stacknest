@@ -95,4 +95,58 @@ struct BookImporterTests {
         #expect(!topLevelNames.contains("VolumeA"))
         #expect(topLevelNames.contains("loose.txt"))
     }
+
+    // Codex Finding 3: サイズ>0 でも importable な画像が1枚も無いディレクトリ（テキストのみ）は
+    // 0-page book として insert してはいけない。dedup が path ベースのため、insert してしまうと
+    // 後から本物のページを追加しても二度と再取込されない永久破損 book になる。
+    // このテストは「拒否される」ことに加え、「拒否した path が DB に一切記録されず、後で本物の
+    // 画像が追加された同じ path を再度 add すればちゃんと取り込まれる」ことまで確認する
+    // （ゲートを無くすと 1 回目で insert されてしまい、2 回目が alreadyPresent で弾かれて
+    // addedIDs が空のままになる＝この assert が FAIL する）。
+    @Test func folderWithNoImportablePagesIsNotImportedAndCanBeRetriedLater() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let sub = dir.appendingPathComponent("EmptyVol", isDirectory: true)
+        try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
+        try Data("just text, no images here".utf8).write(to: sub.appendingPathComponent("readme.txt"))
+
+        let r1 = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r1.addedIDs.isEmpty)
+        #expect(r1.failed.count == 1)
+        #expect(r1.failed.first?.0 == sub)
+        #expect(try db.fetchAllBooks().count == 0)   // 誰も DB に記録されていない = dedup を汚さない
+
+        // 後から本物の画像が追加された同じフォルダは、再取込で今度こそ成功しなければならない。
+        try Self.onePixelPNG().write(to: sub.appendingPathComponent("page01.png"))
+        let r2 = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r2.addedIDs.count == 1)
+        #expect(try db.fetchAllBooks().count == 1)
+    }
+
+    // Codex Finding 3 バリエーション: 直下に画像が無く、孫階層にのみ画像があるディレクトリも
+    // 同様に拒否されること（FolderCoverExtractor はサブディレクトリを辿らない仕様なので、
+    // 直下 0 件＝importable page 0 件として扱われるべき）。
+    @Test func folderWithOnlyNestedSubdirectoryImagesIsNotImported() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let sub = dir.appendingPathComponent("NestedOnly", isDirectory: true)
+        let nested = sub.appendingPathComponent("nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try Self.onePixelPNG().write(to: nested.appendingPathComponent("page01.png"))
+
+        let r = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r.addedIDs.isEmpty)
+        #expect(r.failed.count == 1)
+        #expect(try db.fetchAllBooks().count == 0)
+    }
+
+    // 対照: アーカイブ*ファイル*（ディレクトリではない）は本 Finding のスコープ外——
+    // 既存の loose.txt 相当の挙動（0-page でも insert される）を変えていないことの確認。
+    @Test func nonDirectoryFileWithoutImportablePagesIsStillImported() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let txt = dir.appendingPathComponent("loose.txt")
+        try Data("plain".utf8).write(to: txt)
+
+        let r = await importer.add(urls: [txt], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r.addedIDs.count == 1)
+        #expect(try db.fetchAllBooks().count == 1)
+    }
 }

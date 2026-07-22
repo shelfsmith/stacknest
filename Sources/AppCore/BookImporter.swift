@@ -9,6 +9,13 @@ import OSLog
 public enum BookImportError: Error, Equatable {
     /// 指定パスにファイル/フォルダが存在しない（CLI/API から任意パスを渡せるため検証する）。
     case fileNotFound
+    /// ディレクトリ候補が importable な画像/PDF を1件も含まない（Codex Finding 3）。
+    /// FolderWatcher のサイズ>0 ガードは空フォルダ/コピー中を弾くだけで、「サイズは正だが
+    /// 中身に画像が1枚も無い」ディレクトリ（テキストのみ・孫階層のみ・パッケージメタデータのみ）
+    /// は素通りする。これを 0-page book として insert すると、dedup が path ベースのため、
+    /// 後から本物のページを追加しても二度と再取込されない永久破損 book になる。
+    /// アーカイブファイル（zip/rar 等）の 0-page 挙動は変更しない（本 Finding のスコープ外）。
+    case folderHasNoImportablePages
 }
 
 /// headless 取り込みコア。GUI / CLI / サーバ / MCP から再利用できる純粋な Sendable 型。
@@ -99,6 +106,16 @@ public struct BookImporter: Sendable {
                     if let raw = try? Data(contentsOf: url) {
                         coverDataOverride = CoverImageResizer.resizeJPEG(raw, maxPixelSize: 1200)
                     }
+                }
+
+                // Codex Finding 3: ディレクトリ候補は importable ページ 0 件なら insert しない。
+                // アーカイブ*ファイル*（isDir==false）はここでゲートしない — 既存挙動どおり
+                // 0-page でも insert される（本 Finding のスコープ外）。
+                var isDirCandidate: ObjCBool = false
+                _ = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirCandidate)
+                if isDirCandidate.boolValue, pageCount == 0 {
+                    result.failed.append((url, BookImportError.folderHasNoImportablePages))
+                    continue
                 }
 
                 // 2. bookType を確定 (自動分類 ON 時は BookTypeClassifier、OFF 時は旧挙動)。

@@ -1317,7 +1317,13 @@ public struct LibraryServerCore: Sendable {
             if request.headers[.ifNoneMatch] == etag { return Response(status: .notModified) }
             guard var data = try? Data(contentsOf: url) else { throw HTTPError(.notFound) }
             if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
-            return cacheableImageResponse(data: data, etag: etag, request: request)
+            // Finding 1: books.js の coverURL は `?v=<coverVersion>` に thumbnailETag（クォート除去済み）
+            // を載せる。それが現在の baseETag（クォート除去後）と食い違うのは、relink/表紙差し替え後
+            // クライアントがまだ古い版の URL を持っている状態 — immutable で焼き付けず no-store にする。
+            // v が無い（旧クライアント）ときは today 通り常に immutable。
+            let requestedVersion = request.uri.queryParameters.get("v")
+            let cacheable = requestedVersion == nil || requestedVersion == stripETagQuotes(baseETag)
+            return cacheableImageResponse(data: data, etag: etag, request: request, cacheable: cacheable)
         }
         // 本のマニフェスト（ページ数・方向・形式・ETag・ページ単位 override）。
         // direction は実効方向（本ごと override があればその値、なければ config.defaultPageDirection）を
@@ -1331,7 +1337,11 @@ public struct LibraryServerCore: Sendable {
         let contentCache = self.contentCache
         api.get("libraries/:lib/books/:id/manifest") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
-            let content = try await contentCache.content(for: row, libraryUUID: lib.uuid)
+            // Finding 2: content と etag を同じ 1 回の effectiveFileStat 呼び出しから得る
+            // （content(for:) の後で独立に bookETag(for: row) を呼び直すと、フォルダ本では
+            // その間にディレクトリが変化しうるため、advertise する版と実際の pageCount が
+            // 食い違う可能性があった）。
+            let (content, etag) = try await contentCache.contentAndETag(for: row, libraryUUID: lib.uuid)
             let pageCount = try await content.pageCount
             let overrides = (try? lib.db.loadViewerState(bookID: row.id))?.overrides ?? [:]
             let pageOverrides: [String: Int]? = overrides.isEmpty
@@ -1341,7 +1351,7 @@ public struct LibraryServerCore: Sendable {
                 pageCount: pageCount,
                 direction: directionString(row.pageDirection ?? config.defaultPageDirection),
                 format: formatString(BookCategory.classify(path: row.path ?? "")),
-                etag: bookETag(for: row),
+                etag: etag,
                 pageOverrides: pageOverrides
             )
         }
@@ -1351,14 +1361,22 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/books/:id/pages/:n") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let n = try context.parameters.require("n", as: Int.self)
-            let content = try await contentCache.content(for: row, libraryUUID: lib.uuid)
+            // Finding 2: manifest と同じ理由で、content と book 版 ETag を同じ 1 回の stat から得る。
+            let (content, bookVersion) = try await contentCache.contentAndETag(for: row, libraryUUID: lib.uuid)
             let maxw = request.uri.queryParameters.get("maxw", as: Int.self)
-            let etag = maxwETag(bookETag(for: row) + "-p\(n)", maxw: maxw)
+            let etag = maxwETag(bookVersion + "-p\(n)", maxw: maxw)
             if request.headers[.ifNoneMatch] == etag { return Response(status: .notModified) }
             do {
                 var data = try await content.imageData(at: n)
                 if let maxw, maxw > 0 { data = config.transcoder.scaled(data, maxWidth: maxw) }
-                return cacheableImageResponse(data: data, etag: etag, request: request)
+                // Finding 1: reader.js/RemoteBookContent が付ける `?v=` は manifest.etag を
+                // normalizeVersion した値（book レベル・-pN や maxw は含まない）。bookVersion は
+                // まさにその形（クォート付き）なので、比較は stripETagQuotes で正規化して行う。
+                // 食い違えば（relink 直後に古い版の URL がまだ使われている等）immutable で
+                // 焼き付けず no-store にする。v が無ければ today 通り常に immutable。
+                let requestedVersion = request.uri.queryParameters.get("v")
+                let cacheable = requestedVersion == nil || requestedVersion == stripETagQuotes(bookVersion)
+                return cacheableImageResponse(data: data, etag: etag, request: request, cacheable: cacheable)
             } catch let e as BookContentError {
                 switch e {
                 case .pageOutOfRange: throw HTTPError(.notFound)
