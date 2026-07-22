@@ -71,12 +71,22 @@ public struct RemoteLibraryClient: Sendable {
         } catch let e as RemoteClientError {
             throw e
         } catch let e as URLError {
-            switch e.code {
-            case .timedOut: throw RemoteClientError.timeout
-            case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost:
-                throw RemoteClientError.offline
-            default: throw RemoteClientError.server(-1)
-            }
+            throw Self.classify(e)
+        }
+    }
+
+    /// URLError → RemoteClientError の純粋な写像（テスト可能な形に切り出し）。
+    /// G21 #4: `.cancelled` は「上位の Task キャンセルで in-flight リクエストが打ち切られた」ことを表す
+    /// 専用ケースとして分類する。以前は default 分岐に落ちて `server(-1)` に丸められており、
+    /// 複数削除で誘発される SSE デバウンス flush の cancel→再実行が liveReload に赤いエラーバナーを
+    /// 誤表示させていた（実機ログで確認済み）。他のケースの挙動は変えない。
+    static func classify(_ e: URLError) -> RemoteClientError {
+        switch e.code {
+        case .cancelled: return .cancelled
+        case .timedOut: return .timeout
+        case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost:
+            return .offline
+        default: return .server(-1)
         }
     }
 
