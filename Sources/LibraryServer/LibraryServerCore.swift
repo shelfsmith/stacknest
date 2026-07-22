@@ -48,6 +48,12 @@ public struct LibraryServerConfig: Sendable {
     /// G12b-3a: 監視フォルダの「今すぐスキャン」がリクエストされたとき App に通知する（libraryUUID）。
     /// App は該当ライブラリの FolderWatcher の scanNow() を発火する。
     public var onScanNowRequested: (@Sendable (String) -> Void)?
+    /// G21 #6-2: true のとき `buildApplication()` が起動時に古い実行時 temp（`stacknest-arc-*`,
+    /// 24h TTL）を掃除する。既定は false — `buildApplication()` は `swift test` から ~90 箇所で
+    /// 直接呼ばれるため、既定 true にすると実マシンの実 `$TMPDIR` を毎テスト実行のたびに触ってしまう
+    /// （実運用の他インスタンスの temp を誤って掃除しかねない）。実サーバ起動経路
+    /// （ServerController.start / LocalControlController.startIfEnabled）だけが true を渡す。
+    public var sweepRuntimeTempOnStartup: Bool
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -61,7 +67,8 @@ public struct LibraryServerConfig: Sendable {
                 apiOnly: Bool = false,
                 adminTier: Bool = false,
                 grantsProvider: (@Sendable () -> [Grant])? = nil,
-                onScanNowRequested: (@Sendable (String) -> Void)? = nil) {
+                onScanNowRequested: (@Sendable (String) -> Void)? = nil,
+                sweepRuntimeTempOnStartup: Bool = false) {
         self.host = host
         self.port = port
         self.token = token
@@ -76,6 +83,7 @@ public struct LibraryServerConfig: Sendable {
         self.adminTier = adminTier
         self.grantsProvider = grantsProvider
         self.onScanNowRequested = onScanNowRequested
+        self.sweepRuntimeTempOnStartup = sweepRuntimeTempOnStartup
     }
 }
 
@@ -204,6 +212,13 @@ public struct LibraryServerCore: Sendable {
     }
 
     public func buildApplication() -> some ApplicationProtocol {
+        // G21 #6-2: 強制終了で残った実行時 temp を起動時に掃除する（24h TTL・best-effort）。
+        // `buildApplication()` はテストからも ~90 箇所直接呼ばれるため、実サーバ起動経路が
+        // 明示的に config.sweepRuntimeTempOnStartup = true を渡したときだけ実行する
+        // （既定 false・詳細は LibraryServerConfig のコメント参照）。
+        if config.sweepRuntimeTempOnStartup {
+            TempSweeper.sweepRuntimeTemp()
+        }
         let router = Router(context: LibraryRequestContext.self)
         // /server/info は認証不要（ペアリング前の到達性確認用）。
         let transcodes = config.transcoder.supportsScaling

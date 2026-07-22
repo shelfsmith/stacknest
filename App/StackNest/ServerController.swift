@@ -107,7 +107,8 @@ final class ServerController {
                         state.scanWatchedFoldersNow()
                     }
                 }
-            }
+            },
+            sweepRuntimeTempOnStartup: true  // G21 #6-2: 実サーバ起動経路のみ古い temp を掃除
         )
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
         self.runningCore = core
