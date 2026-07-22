@@ -6,32 +6,42 @@ import AppCore
 import Hummingbird
 import LibraryServerAPI
 
-/// row の file_mtime/file_size が両方揃っていればそのまま返す。
-/// どちらか nil の場合は、row.path が**ディレクトリ**のときに限り request 時に stat して埋める
-/// （最終レビュー Finding 1）。
+/// row.path が**ディレクトリ**の場合は、保存済み file_mtime/file_size の有無にかかわらず
+/// 常に request 時にディレクトリ自身を stat する。それ以外（ファイル・path なし）は、
+/// file_mtime/file_size が両方揃っていればそのまま返し、揃っていなければ (nil, nil) を返す
+/// （最終レビュー Finding 1 → 実機 smoke で発覚した再発防止の追加修正）。
 ///
-/// なぜディレクトリだけか: file_mtime/file_size は dedup スキャン（DuplicateScanTask）でのみ
-/// 書き込まれ、かつそのスキャンはディレクトリを skip する。そのため G9b archive モードの
-/// フォルダブックは import 後ずっと両方 nil のままで、bookETag が "id-0-0-<pathhash>" に恒久固定
-/// されてしまう（中身を差し替えても誰にも気付かれない＝本 Finding の核心）。
-/// 一方、通常のアーカイブファイル本もインポート直後はまだ dedup スキャンが走っておらず
-/// 両方 nil なことが普通にある。そこまで stat 対象にすると、rating/title だけの編集で
-/// BookContentCache を invalidate しない既存の保証（BookContentCacheInvalidationTests）が、
-/// 「未スキャンファイルの stat 値がリクエストごとに変わりうる」という別の変動要因に晒されて
-/// 壊れてしまう。ディレクトリに限定することで、対象を「本当に恒久固定される行」だけに絞る。
+/// なぜディレクトリは stored 値を無視するか: file_mtime/file_size は dedup スキャン
+/// （DuplicateScanTask）でのみ書き込まれ、かつそのスキャンはディレクトリを skip する。
+/// そのため G9b archive モードのフォルダブックは import 直後、両方 nil のままで、
+/// 旧実装ではここで request 時 stat にフォールバックしていた。
+/// ところが relinkBook/applyRelinks（G4d 層1・アーカイブファイル本向け）は path 更新のたびに
+/// file_size/file_mtime を**無条件に**書き込む。フォルダブックが一度でも relink を経由すると
+/// 両方 non-nil になり、以後は「両方揃っていればそのまま返す」旧ロジックの stored-value
+/// ショートカットに恒久的に吸い込まれる。ディレクトリの mtime/size は relink 以降誰も更新しない
+/// ため、そのフォルダブックの bookETag は relink 時点の値に凍りつき、直下に子ファイルを
+/// 追加/削除/リネームしても二度と変化しない（実機 smoke で id=19 にて再現：manifest の
+/// pageCount は BookContentFactory.make を毎回呼ぶので増えるが、pages/:n は凍りついた ETag を
+/// basis にした BookContentCache から古い FolderBookContent を返し続け、新ページは 404 になる）。
+/// ディレクトリという「本当に stored 値が信用できない」対象に限って常に request 時 stat を
+/// 優先することで、relink 済みかどうかに関わらずフォルダブックの ETag が正しく追従するようにする。
+/// ファイル本（アーカイブ）は stored 値が dedup スキャンで一度計算されれば以後不変で正しいため、
+/// 従来どおり stored 値を優先し続ける（stat 値の churn で ETag が動くと全クライアントが
+/// 再ダウンロードすることになるため、ここは変えてはいけない）。
 ///
 /// stat が失敗（パス消失等）した場合は (nil, nil) を返し、呼び出し側で 0/0 にフォールバックする。
 func effectiveFileStat(for row: BookRow) -> (mtime: Double?, size: Int64?) {
+    if let path = row.path {
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
+            let (statSize, statMtime) = Database.statFile(path)
+            return (statMtime, statSize)
+        }
+    }
     if let mtime = row.fileMtime, let size = row.fileSize {
         return (mtime, size)
     }
-    guard let path = row.path else { return (nil, nil) }
-    var isDir: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue else {
-        return (nil, nil)
-    }
-    let (statSize, statMtime) = Database.statFile(path)
-    return (statMtime, statSize)
+    return (nil, nil)
 }
 
 /// 本の原本ファイルの mtime+size+path から弱 ETag を作る（spec §3.3, G4d）。

@@ -1324,9 +1324,14 @@ public struct LibraryServerCore: Sendable {
         // 常に返す。null を返さないことで Web リーダーがアプリ設定と同じ既定方向で開く（4.1c）。
         // pageOverrides（G17 T6b）: book_page_layout の全行を page_index(String)→mode で返す。
         // 1 件も無ければ nil（旧クライアント互換・ペイロード節約）。
+        // pageCount は pages/:n と同じ BookContentCache から取る（BookContentFactory.make を毎回
+        // 呼ぶと常に「今の実ファイル」を見るため、キャッシュ済みの古い FolderBookContent を
+        // 返す pages/:n と食い違い、manifest が advertise した末尾ページが 404 になる回帰があった。
+        // 実機 smoke で id=19 のフォルダブックにて再現・詳細は effectiveFileStat のコメント参照）。
+        let contentCache = self.contentCache
         api.get("libraries/:lib/books/:id/manifest") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
-            let content = try BookContentFactory.make(for: row)
+            let content = try await contentCache.content(for: row, libraryUUID: lib.uuid)
             let pageCount = try await content.pageCount
             let overrides = (try? lib.db.loadViewerState(bookID: row.id))?.overrides ?? [:]
             let pageOverrides: [String: Int]? = overrides.isEmpty
@@ -1343,7 +1348,6 @@ public struct LibraryServerCore: Sendable {
         // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。
         // 範囲外 → 404 / 範囲内の描画失敗 → 500（BookContentError.renderFailed 分離・4.1a）。
         // ?maxw= が指定された場合は ETag に幅を織り込み、縮小バイトを返す（4.1c）。
-        let contentCache = self.contentCache
         api.get("libraries/:lib/books/:id/pages/:n") { [config] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let n = try context.parameters.require("n", as: Int.self)
