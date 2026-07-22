@@ -110,6 +110,27 @@ public actor RemotePageCache {
         return data
     }
 
+    /// review follow-up Finding 1: `fetch` がバイトと一緒に「永続化してよいか」を返せるオーバーロード。
+    /// サーバがページ画像を `Cache-Control: no-store`（リクエストの `?v=` が現在版と食い違う＝
+    /// relink 直後に旧版キーの URL がまだ使われている状態）で返したとき、呼び出し元
+    /// （`RemoteBookContent.imageData` 経由）はここへ `cacheable: false` を渡す。バイト自体は
+    /// 常に呼び出し元へ返す（表示には使ってよい）が、`cacheable: false` のときは L1(NSCache)/
+    /// L2(SQLite+blob) のどちらにも書き込まない ―― でないと、relink で B に切り替わった直後に
+    /// 届いた「別版のバイト」が旧版キー（version=A）の下に固定され、後で A へ relink し戻った
+    /// ときに A のキーが即ヒットして B のページを表示し続けてしまう（本 no-store 機構が防ごうと
+    /// しているまさに core の再発）。既存の `Data` を返す `fetch` を使う呼び出し元
+    /// （`RemoteCoverCache` 等）は今まで通り上のオーバーロードへ解決されるため無改修・無影響。
+    public func data(for key: Key, fetch: @Sendable () async throws -> (data: Data, cacheable: Bool)) async throws -> Data {
+        if let hit = readHit(key) { return hit }
+        let (data, cacheable) = try await fetch()
+        if cacheable {
+            store(key: key, data: data)
+            evictExpired()
+            evictToLimit()
+        }
+        return data
+    }
+
     public func setProtected(_ keys: Set<Key>, owner: ObjectIdentifier) {
         protectedByOwner[owner] = Set(keys.map { $0.string })
     }

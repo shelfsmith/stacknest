@@ -49,11 +49,19 @@ public struct RemoteLibraryClient: Sendable {
     }
 
     private func send(_ req: URLRequest) async throws -> Data {
+        try await sendWithResponse(req).data
+    }
+
+    /// `send(_:)` と同じステータス判定を行うが、応答ヘッダ確認が必要な呼び出し元
+    /// （review follow-up Finding 1: `pageData` の `Cache-Control: no-store` 判定）のために
+    /// `HTTPURLResponse` も一緒に返す最小限の分岐。`send(_:)` は本メソッドの `data` だけを
+    /// 使う薄いラッパに変えてあるため、既存の全呼び出し元の挙動は変わらない。
+    private func sendWithResponse(_ req: URLRequest) async throws -> (data: Data, response: HTTPURLResponse) {
         do {
             let (data, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw RemoteClientError.badResponse }
             switch http.statusCode {
-            case 200...299: return data
+            case 200...299: return (data, http)
             case 400: throw RemoteClientError.badRequest(Self.errorMessage(from: data))
             case 401: throw RemoteClientError.unauthorized
             case 403: throw RemoteClientError.forbidden
@@ -182,14 +190,24 @@ public struct RemoteLibraryClient: Sendable {
     /// 失敗等のフォールバック）ときだけ URLCache を明示バイパスして「版不明な URL の immutable
     /// エントリを信用しない」を保証する。version は呼び出し元（RemoteBookContent）が
     /// versionValue（normalizeVersion 済み・キャッシュキーと同じ値）をそのまま渡すこと。
+    ///
+    /// review follow-up Finding 1: 戻り値は `(data, noStore)`（以前は `Data` 単体）。サーバは
+    /// リクエストの `?v=` が現在版と食い違うとき、正しい現在バイトを 200 で返しつつ
+    /// `Cache-Control: no-store` を立てる（`cacheableImageResponse` 参照）。これは URLCache
+    /// （HTTP キャッシュ層）は無効化するが、アプリ層の `RemotePageCache` には自動では及ばない
+    /// ため、`noStore` をここで呼び出し元（`RemoteBookContent.imageData`）へ伝播し、
+    /// `RemotePageCache` への `store` をスキップさせる（でないと relink 直後に届いた別版の
+    /// バイトが旧版キーの下に永続化され、後で relink し戻ったときに stale を返し続ける）。
     public func pageData(libraryUUID: String, bookID: Int, index: Int, maxw: Int?, version: String?,
-                        libraryToken: String?) async throws -> Data {
+                        libraryToken: String?) async throws -> (data: Data, noStore: Bool) {
         var q: [URLQueryItem] = []
         if let maxw, maxw > 0 { q.append(.init(name: "maxw", value: String(maxw))) }
         if let version { q.append(.init(name: "v", value: version)) }
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/pages/\(index)", query: q)
         let policy: URLRequest.CachePolicy = version == nil ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
-        return try await send(request(url, libraryToken: libraryToken, cachePolicy: policy))
+        let (data, response) = try await sendWithResponse(request(url, libraryToken: libraryToken, cachePolicy: policy))
+        let noStore = (response.value(forHTTPHeaderField: "Cache-Control") ?? "").lowercased().contains("no-store")
+        return (data, noStore)
     }
 
     public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> Data {
@@ -248,6 +266,14 @@ public struct RemoteLibraryClient: Sendable {
         return data
     }
 
+    /// review follow-up Finding 1（cover 経路の確認）: この呼び出しは `?v=` を一切送らない
+    /// （引数にも version が無い）ため、サーバの `cacheableImageResponse` は常に
+    /// `requestedVersion == nil` の分岐を通り `cacheable=true`（`Cache-Control: immutable`）
+    /// のままになる ―― つまり native の表紙取得はそもそも `no-store` を受け取り得ない。
+    /// `RemoteCoverCache.data`/`RemotePageCache.data(for:fetch:)` がこの結果を無条件に
+    /// L1/L2 へ store しても、pageData と同種の「誤った版キーへのバイト固定」は起きない
+    /// （表紙差し替え時のキャッシュ無効化は `RemoteCoverCache.invalidate` が別途担っている）。
+    /// よってページ画像と異なり、cover 側には no-store 伝播の追加対応は不要（確認済み）。
     public func coverData(libraryUUID: String, bookID: Int, maxw: Int?, libraryToken: String?) async throws -> Data {
         var q: [URLQueryItem] = []
         if let maxw, maxw > 0 { q.append(.init(name: "maxw", value: String(maxw))) }

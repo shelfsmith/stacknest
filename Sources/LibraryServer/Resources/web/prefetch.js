@@ -5,11 +5,23 @@ const CONCURRENCY = 3;
 
 export class PrefetchEngine {
     /// ctx: { uuid, bookId, pageCount, maxw, book, version, tier3Enabled, cacheLimitBytes,
-    ///        fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, version) -> Promise<Blob> }
+    ///        fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, version)
+    ///            -> Promise<{ blob, noStore }> }
+    /// review follow-up Finding 1: fetchPageBlob の戻り値は `Blob` 単体ではなく
+    /// `{ blob, noStore }`。`noStore`（サーバの `Cache-Control: no-store` ＝ ?v= が現在版と
+    /// 食い違う）が true のときは、そのバイトを呼び出し元へ返す（表示には使う）が
+    /// `putPage` は必ずスキップする ―― でないと relink 直後に届いた「別版のバイト」が
+    /// IndexedDB の旧版キーの下に固定され、後で元の版へ relink し戻ったときにキーがヒットして
+    /// 誤ったページが（7日 purge まで）表示され続ける（サーバ側 no-store が防ごうとしている
+    /// core の再発）。
     /// version: manifest.etag（正規化済み・G4d 層2）。relink 等で本体が差し替わると変わり、
     /// 旧版キーとは別キーになるため IndexedDB 上の旧ページを誤って再利用しない。
     constructor(ctx) {
         this.ctx = ctx;
+        // テスト容易化（review follow-up Finding 1）: fetchPageBlob と同様に putPage も
+        // ctx から差し替え可能にする（省略時は実装＝idb.js の putPage）。実 IndexedDB に依存せず
+        // 「no-store 応答のときは保存しなかった」を直接観測できるようにするためのフック。
+        this._putPage = ctx.putPage ?? putPage;
         this.current = 0;
         this.skipStride = 10;
         this.inFlight = new Map();   // apiIndex -> { promise, controller, tier }
@@ -56,8 +68,9 @@ export class PrefetchEngine {
         if (cached) return cached;
         // HTTP キャッシュ追随修正: version を渡し忘れると、この経路だけ URL がバージョンレスの
         // ままになり「半分だけ版管理された」状態（本 bug の再発パターン）になる。
-        const blob = await this.ctx.fetchPageBlob(this.ctx.uuid, this.ctx.bookId, apiIndex, undefined, undefined, this.ctx.version);
-        await putPage(key, this.ctx.book, blob);
+        const { blob, noStore } = await this.ctx.fetchPageBlob(this.ctx.uuid, this.ctx.bookId, apiIndex, undefined, undefined, this.ctx.version);
+        // review follow-up Finding 1: no-store（版食い違い）応答は IndexedDB に残さない。
+        if (!noStore) await this._putPage(key, this.ctx.book, blob);
         return blob;
     }
 
@@ -111,10 +124,13 @@ export class PrefetchEngine {
         const controller = new AbortController();
         const promise = (async () => {
             try {
-                const blob = await this.ctx.fetchPageBlob(
+                const { blob, noStore } = await this.ctx.fetchPageBlob(
                     this.ctx.uuid, this.ctx.bookId, apiIndex, this.ctx.maxw, controller.signal, this.ctx.version);
-                await putPage(key, this.ctx.book, blob);
-                await evictToLimit(this.ctx.cacheLimitBytes, this.activeWindow);
+                // review follow-up Finding 1: no-store（版食い違い）応答は IndexedDB に残さない。
+                if (!noStore) {
+                    await this._putPage(key, this.ctx.book, blob);
+                    await evictToLimit(this.ctx.cacheLimitBytes, this.activeWindow);
+                }
                 return blob;
             } finally {
                 this.inFlight.delete(apiIndex);

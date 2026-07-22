@@ -96,8 +96,15 @@ export function pageQuery(maxw, version) {
     return params.length ? `?${params.join("&")}` : "";
 }
 
-/// ページ画像を Blob で取得（apiIndex は 0 始まり・maxw 省略時は原寸）。
+/// ページ画像を取得（apiIndex は 0 始まり・maxw 省略時は原寸）。
 /// AbortError は素通し（中断は正常系）。それ以外の !ok は status 付き Error。
+/// 戻り値は `{ blob, noStore }`（review follow-up Finding 1 で `Blob` 単体から変更）。
+/// `noStore` はサーバ応答の `Cache-Control: no-store`（?v= が現在版と食い違う＝relink 直後の
+/// 旧版 URL）を表す。呼び出し側（prefetch.js）はバイト自体は表示に使ってよいが、
+/// `noStore === true` のときは IndexedDB（putPage）への保存を必ずスキップすること
+/// ―― でないと、relink で B に切り替わった直後に古い版キー(vA)の URL へ届いた B のバイトが
+/// IndexedDB の vA キーの下に固定され、後で A に relink し戻ったとき A のキーが即ヒットして
+/// B のページが（7日 purge まで）表示され続ける（本 no-store 機構が守ろうとしている core の再発）。
 ///
 /// HTTP キャッシュ追随修正（G4d 見落とし fix）: ページ画像は `Cache-Control: immutable` の
 /// 長期キャッシュ対象だが、URL がバージョンレスだと relink 後もブラウザの HTTP キャッシュが
@@ -119,7 +126,8 @@ export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, versio
         throw e;
     }
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
-    return res.blob();
+    const noStore = (res.headers.get("cache-control") || "").toLowerCase().includes("no-store");
+    return { blob: await res.blob(), noStore };
 }
 
 /// 進行状況の書き込み（apiIndex は 0 始まり）。!ok は status 付き Error。

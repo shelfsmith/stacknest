@@ -148,8 +148,20 @@ func stripETagQuotes(_ raw: String) -> String {
 /// ETag/immutable 付き画像レスポンス。If-None-Match 一致なら 304。
 /// `cacheable=false`（Finding 1: リクエストの `?v=` が現在の版と食い違う）のときは
 /// Cache-Control を `no-store` に差し替える。中身は常に「今の正しいバイト」を返す
-/// （404/409 にはしない）が、誤った版キーの URL の下へは HTTP キャッシュにも
-/// クライアントの IndexedDB 等アプリ内キャッシュにも一切残さない。
+/// （404/409 にはしない）。
+/// この `no-store` はあくまで HTTP キャッシュ層（ブラウザ/URLSession の URLCache）を
+/// 無効化するだけで、クライアントのアプリ内バイトキャッシュ（web IndexedDB / native
+/// RemotePageCache）には自動では及ばない ―― サーバはヘッダを立てるところまでしかできず、
+/// 実際に「保存しない」を実行するのは各クライアントの責務（review follow-up Finding 1）。
+/// ページ画像は web 側 `Resources/web/prefetch.js`（`fetchPageBlob` の cache-control 判定→
+/// `putPage` をスキップ）、native 側 `RemoteBookContent.imageData` 経由の
+/// `RemoteLibraryClient.pageData`（`Cache-Control` を見て `RemotePageCache` への `store` を
+/// スキップ）がそれぞれこの応答を見て IndexedDB/RemotePageCache への永続化を止めることで、
+/// 誤った版キーの下へバイトが固定されるのを防いでいる。
+/// 表紙はこの経路の対象外: native の cover 取得（`RemoteLibraryClient.coverData`）はそもそも
+/// `?v=` を送らないため常に cacheable=true になり、web の表紙は `<img src>` 経由でブラウザ
+/// HTTP キャッシュのみに依存しアプリ内バイトキャッシュを持たないため、この no-store は
+/// HTTP キャッシュに対してのみ効けば十分＝クライアント側の追加対応は不要（確認済み）。
 /// v が無い（旧クライアント/version 不明フォールバック）ときは cacheable=true のまま
 /// 呼び出す＝挙動は今日と完全に同じ。
 func cacheableImageResponse(data: Data, etag: String, request: Request, cacheable: Bool = true) -> Response {

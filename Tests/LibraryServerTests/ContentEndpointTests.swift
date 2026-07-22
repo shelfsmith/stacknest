@@ -381,6 +381,18 @@ struct ContentEndpointTests {
                 #expect(response.status == .ok)
                 #expect(response.headers[.cacheControl]?.contains("immutable") == true)
             }
+            // review follow-up Finding 3 (Minor): 実際の web リクエスト形は常に
+            // `?maxw=320&v=...`（web/books.js:238 の coverURL）のように両方載る。v 単体しか
+            // 検証していないと、maxw 込みの ETag と v を取り違えて比較する回帰（毎回 no-store＝
+            // グリッドの表紙キャッシュ全損）を検知できない。maxw+v 同時指定でも current version と
+            // 一致すれば immutable のままであることを確認する。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books/\(bookID)/cover?maxw=320&v=\(currentVersion)", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.cacheControl]?.contains("immutable") == true)
+            }
         }
     }
 

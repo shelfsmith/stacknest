@@ -54,10 +54,15 @@ public struct RemoteBookContent: BookContent {
         // HTTP キャッシュ追随修正: URL に載せる版は必ずキャッシュキー(key.version)と同じ
         // self.version（正規化済み）を使う。ここで別の値を作ると、URL 版とキャッシュキー版が
         // ずれて本 bug と同種の不整合が再発する。
-        let fetch: @Sendable () async throws -> Data = {
-            try await client.pageData(libraryUUID: uuid, bookID: bid, index: page, maxw: mw, version: ver, libraryToken: token)
+        // review follow-up Finding 1: pageData の noStore（サーバが Cache-Control: no-store
+        // で返した＝?v= が現在版と食い違う）を cacheable の否定として RemotePageCache へ伝え、
+        // 誤った版キーの下へバイトが永続化されるのを防ぐ（詳細は RemotePageCache.data(for:fetch:)
+        // の tuple オーバーロードのコメント参照）。
+        let fetch: @Sendable () async throws -> (data: Data, cacheable: Bool) = {
+            let (data, noStore) = try await client.pageData(libraryUUID: uuid, bookID: bid, index: page, maxw: mw, version: ver, libraryToken: token)
+            return (data, !noStore)
         }
-        guard let cache else { return try await fetch() }
+        guard let cache else { return try await fetch().data }
         let key = RemotePageCache.Key(serverID: serverID, libraryUUID: uuid, bookID: bid, kind: .page, page: page, maxw: mw, version: version)
         return try await cache.data(for: key, fetch: fetch)
     }

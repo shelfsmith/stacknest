@@ -587,6 +587,50 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.requestCount == 2)   // ミス・再取得
             #expect(data2 == Data([2, 2, 2]))
         }
+
+        /// review follow-up Finding 1: サーバが `Cache-Control: no-store` で返した応答
+        /// （リクエストの `?v=` が現在版と食い違う＝relink 直後にまだ旧版の URL が使われている状態）
+        /// は、バイト自体は呼び出し元へ返す（表示に使ってよい）が `RemotePageCache` へ永続化して
+        /// はならない。
+        ///
+        /// 失敗シナリオ（このテストが再現する不具合そのもの）: リーダーが version A で開く →
+        /// 外部で relink されて版が B に切り替わる → 旧版キー(vA)での再取得が
+        /// `?v=A` を伴って飛び、サーバは現在の正しいバイト（B）を 200 + no-store で返す →
+        /// ここで store してしまうと、B のバイトが RemotePageCache の vA キーの下に固定され、
+        /// 後で A へ relink し戻ったとき vA キーが即ヒットして B のページが（TTL まで）
+        /// 表示され続ける。
+        ///
+        /// 検証方法: 同一 version・同一 page に対して1回目は no-store 応答（body=A）、
+        /// 2回目は別の body（B）を stub し、2回目も実リクエストが飛ぶこと（＝1回目が
+        /// キャッシュに保存されていないこと）を実リクエスト回数で確認する。もし保存していれば
+        /// 2回目が HIT して実リクエストが増えず、かつ 2回目の戻り値が古い body(A) のままになる
+        /// （このテストは両方を見る）。
+        @Test func imageDataDoesNotPersistNoStoreResponseToPageCache() async throws {
+            let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("rbc-nostore-\(UUID().uuidString)")
+            try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let cache = RemotePageCache(baseDirectory: tempDir, limitBytes: 0, maxAgeSeconds: 0)
+            let sid = UUID()
+            StubURLProtocol.requestCount = 0
+
+            // 1回目: サーバが no-store で応答（?v= が現在版と食い違うケースを模す）。
+            StubURLProtocol.stub = .init(status: 200, headers: ["Cache-Control": "no-store"], body: Data([0xA]))
+            let content = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
+                                            libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+            let data1 = try await content.imageData(at: 0)
+            #expect(data1 == Data([0xA]), "no-store でも今の正しいバイトはそのまま返す")
+            #expect(StubURLProtocol.requestCount == 1)
+
+            // 2回目: 同一 version・同一 page・別 body を stub。
+            // store していなければ必ずミス→再取得され、2回目の戻り値は新 body(B) になる。
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([0xB]))
+            let contentAgain = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
+                                                 libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+            let data2 = try await contentAgain.imageData(at: 0)
+            #expect(StubURLProtocol.requestCount == 2,
+                     "no-store 応答が RemotePageCache に保存されている — 誤った版キーの下へバイトが固定される（relink 巻き戻し時に stale 表示が再発する）")
+            #expect(data2 == Data([0xB]),
+                     "1回目の no-store 応答が誤ってキャッシュから返っている（stale バイト）")
+        }
     }
 
     @Suite("RemoteLibraryClient events (G8a/G14)")

@@ -1321,6 +1321,10 @@ public struct LibraryServerCore: Sendable {
             // を載せる。それが現在の baseETag（クォート除去後）と食い違うのは、relink/表紙差し替え後
             // クライアントがまだ古い版の URL を持っている状態 — immutable で焼き付けず no-store にする。
             // v が無い（旧クライアント）ときは today 通り常に immutable。
+            // review follow-up Finding 1: native cover 取得はそもそも ?v= を送らないため
+            // ここは常に cacheable=true（native 側の追加対応は不要）。web の表紙は <img src>
+            // 経由でブラウザ HTTP キャッシュのみに依存する（IndexedDB 等アプリ内キャッシュを
+            // 持たない）ため、no-store は HTTP キャッシュに対してのみ効けばよい。
             let requestedVersion = request.uri.queryParameters.get("v")
             let cacheable = requestedVersion == nil || requestedVersion == stripETagQuotes(baseETag)
             return cacheableImageResponse(data: data, etag: etag, request: request, cacheable: cacheable)
@@ -1374,6 +1378,11 @@ public struct LibraryServerCore: Sendable {
                 // まさにその形（クォート付き）なので、比較は stripETagQuotes で正規化して行う。
                 // 食い違えば（relink 直後に古い版の URL がまだ使われている等）immutable で
                 // 焼き付けず no-store にする。v が無ければ today 通り常に immutable。
+                // review follow-up Finding 1: この no-store は HTTP キャッシュ層を無効化する
+                // だけなので、ページ画像は web 側 prefetch.js（fetchPageBlob の cache-control
+                // 判定→putPage スキップ）・native 側 RemoteBookContent.imageData
+                // （RemoteLibraryClient.pageData の no-store 判定→RemotePageCache への
+                // store スキップ）がそれぞれ IndexedDB/RemotePageCache への永続化を止める。
                 let requestedVersion = request.uri.queryParameters.get("v")
                 let cacheable = requestedVersion == nil || requestedVersion == stripETagQuotes(bookVersion)
                 return cacheableImageResponse(data: data, etag: etag, request: request, cacheable: cacheable)
