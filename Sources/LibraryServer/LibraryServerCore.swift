@@ -1620,7 +1620,9 @@ public struct LibraryServerCore: Sendable {
     /// - フォーマット判定は `CoverRefresher.extractCoverData`（AppCore）に委譲する。フォルダ/zip 系に
     ///   加え単独 PDF・単独画像も対応し、真に表紙を作れない形式（動画・epub・txt 等）だけ
     ///   `HTTPError(.badRequest, message:)` を投げる（クライアントが説明できる 4xx。旧実装は
-    ///   PDF/単独画像を含め非対応形式をすべて 500 にしていた）。
+    ///   PDF/単独画像を含め非対応形式をすべて 500 にしていた）。抽出・resize は
+    ///   `CoverRefresher` 側で `Task.detached` に包まれており、呼び出し元の actor（App 側の
+    ///   MainActor 含む）をブロックしない（re-review Important 指摘）。
     /// - `extractCoverData` の `await`（アーカイブ展開・大きいファイルだと数秒かかりうる）の**後**、
     ///   ファイル書き込みの**直前**に `db.fetchBook` で行を再取得し `CoverSource.isExternal` を
     ///   再確認する。呼び出し側（PUT cover / POST cover/regenerate / relink）はどれも「この行が
@@ -1629,6 +1631,16 @@ public struct LibraryServerCore: Sendable {
     ///   それを上書きしてしまう（Sources/AppCore/CoverCompression.swift:40-44 で一度直した
     ///   whole-library ジョブと同じクラスの不具合）。再確認と書き込みの間に await は無い
     ///   （`simulateRaceBeforeWrite` はテスト専用フックで、既定は no-op）。
+    ///
+    ///   re-review Critical fix: 「external かつファイルが既に存在する」ときだけ no-op にする
+    ///   （ファイル存在チェックを追加）。DELETE は `Thumbnails/<id>` を丸ごと消し、restore は
+    ///   行を `@external` のまま再挿入して本関数を呼ぶ（BookRestoreEndpointTests になかった
+    ///   経路）。ここでファイル不在なのに external だからと no-op すると、そのブランチが
+    ///   意図していた「外部サムネ不在→自動へフォールバックして恒久欠番を防ぐ」動作が死ぬ。
+    ///   `PUT /cover-image` は thumbnail を atomic 書き込みした**後**に DB を `@external` にする
+    ///   （直下の実装参照）ため、「行が external」は「ファイルが既に存在する」を含意する —
+    ///   つまりファイル存在チェックを足しても Important #1 のレースは閉じたままである
+    ///   （別クライアントが外部表紙をアップロードした場合、その時点で書き込みも完了済み）。
     static func regenerateThumbnail(
         bookID: Int, sourceURLPath: String?, preferredName: String?, bundleURL: URL, db: Database,
         simulateRaceBeforeWrite: (@Sendable () async -> Void)? = nil
@@ -1644,13 +1656,14 @@ public struct LibraryServerCore: Sendable {
             let ext = sourceURL.pathExtension
             throw HTTPError(.badRequest, message: "この形式（.\(ext.isEmpty ? "?" : ext)）は表紙を自動生成できません")
         }
-        let resized = CoverImageResizer.resizeJPEG(data, maxPixelSize: 1200)
+        let resized = await CoverRefresher.resizeCoverDataOffMain(data, maxPixelSize: 1200)
+        let url = coverURL(bundleURL: bundleURL, bookID: bookID)
         await simulateRaceBeforeWrite?()   // テスト専用: 再確認直前に割り込ませるためのフック（本番は常に nil）
         // Important #1 の再確認（この行の直後に await は無い＝書き込みまでアトミック）。
-        if let fresh = try? db.fetchBook(id: bookID), CoverSource.isExternal(fresh.coverImageName) {
-            return   // 外部表紙へ切り替わっていた: 何もせず no-op で返す（呼び出し側は既存の 200/204 を維持）
+        if let fresh = try? db.fetchBook(id: bookID), CoverSource.isExternal(fresh.coverImageName),
+           FileManager.default.fileExists(atPath: url.path) {
+            return   // 外部表紙へ切り替わっていて、かつその表紙ファイルが現存する: no-op（既存 200/204 を維持）
         }
-        let url = coverURL(bundleURL: bundleURL, bookID: bookID)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try resized.write(to: url)
     }
