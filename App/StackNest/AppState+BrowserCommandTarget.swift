@@ -12,6 +12,7 @@ extension AppState: BrowserCommandTarget {
     func openSettings() { NotificationCenter.default.post(name: .openLibrarySettings, object: nil) }
     var canEditMeta: Bool { true }
     var canManageFiles: Bool { true }
+    var canManageLocalFiles: Bool { true }
     var canRate: Bool { true }
     var canMarkUnread: Bool { true }
     var librarySettingsForColumns: LibrarySettings? { librarySettings }

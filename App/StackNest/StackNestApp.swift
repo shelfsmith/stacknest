@@ -774,18 +774,18 @@ struct FileCommands: Commands {
                 NotificationCenter.default.post(name: .renameSelectedBooks, object: nil)
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(!(target?.canManageFiles ?? false))
+            .disabled(!(target?.canManageLocalFiles ?? false))
 
             Button("ファイルを移動…") {
                 NotificationCenter.default.post(name: .moveSelectedBooks, object: nil)
             }
             .keyboardShortcut("d", modifiers: .command)
-            .disabled(!(target?.canManageFiles ?? false))
+            .disabled(!(target?.canManageLocalFiles ?? false))
 
             Button("リンク切れを検出…") {
                 NotificationCenter.default.post(name: .detectBrokenLinks, object: nil)
             }
-            .disabled(!(target?.canManageFiles ?? false))
+            .disabled(!(target?.canManageLocalFiles ?? false))
 
             // G12b-2 smoke: 「重複を検出…」は表示メニューではなく File メニューの
             // 「リンク切れを検出…」の下が適切（ユーザー要望）。gate はローカル/リモート共通の
