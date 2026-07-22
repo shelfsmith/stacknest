@@ -475,18 +475,47 @@ export function scrollbarWidthPx(win, docEl) {
     return diff;
 }
 
+/// G21 #1 追補（レビュー指摘）: 直近に適用した値と同じなら DOM への書き込み自体を省略する
+/// 純粋な判定。理由は二つ:
+///  1) `--sbw` の書き込みは `.books-toolbar` の左右 padding/margin を変えるだけで、
+///     スクロールバー出現の引き金になる `document.body` の**高さ**には影響しない。
+///     つまり ResizeObserver(body) が自分の書き込みで再発火することは基本的に無い。
+///  2) それでも仮に（`.books-toolbar` 内の折り返し閾値をまたぐ等）何らかの経路で
+///     もう一度 ResizeObserver が発火しても、次の計測値は前回と同じになるため、
+///     この関数が false を返して 2 回目の書き込みをブロックし、そこで収束する
+///     （無限ループにはならない＝最悪でも「発火→再計測→不一致なしで即終了」の 1 往復）。
+/// previousPx が `null`（未適用＝初回）のときは常に適用する。
+export function shouldUpdateScrollbarWidth(nextPx, previousPx) {
+    return previousPx === null || nextPx !== previousPx;
+}
+
+let lastAppliedSbw = null; // 直近に `--sbw` へ書き込んだ px 値（初回は null）
+
 function applyScrollbarWidth() {
     const px = scrollbarWidthPx(window, document.documentElement);
+    if (!shouldUpdateScrollbarWidth(px, lastAppliedSbw)) return;
+    lastAppliedSbw = px;
     document.documentElement.style.setProperty("--sbw", px + "px");
 }
 
 function init() {
     applyScrollbarWidth();
     let sbwRAF = 0;
-    window.addEventListener("resize", () => {
+    // G21 #1 追補（レビュー指摘）: init() 時点はまだ #app が空の静的シェルで、
+    // 書籍グリッドが入っていないためほぼ確実に縦スクロール無し(=0px)と実測されてしまう。
+    // 実際にスクロールバーが出現/消失するのは route() が内容を描画した後（コンテンツの
+    // 高さが viewport を超えた/下回った瞬間）なので、resize（viewport 変化）だけでなく
+    // document.body の高さ変化（コンテンツ主導の変化）も監視して再計測する。
+    // どちらの経路も同じ rAF ラッチ（scheduleScrollbarWidthUpdate）に集約し、
+    // 短時間に何度も発火しても実際の再計測は 1 フレームに 1 回に間引く。
+    const scheduleScrollbarWidthUpdate = () => {
         if (sbwRAF) return;                       // rAF 1 フレームに間引く
         sbwRAF = requestAnimationFrame(() => { sbwRAF = 0; applyScrollbarWidth(); });
-    });
+    };
+    window.addEventListener("resize", scheduleScrollbarWidthUpdate);
+    if (typeof ResizeObserver !== "undefined") {
+        new ResizeObserver(scheduleScrollbarWidthUpdate).observe(document.body);
+    }
     backBtn().addEventListener("click", () => {
         const r = parseRoute();
         if (r.name === "read") location.hash = resolveBackHash(r.uuid, r.query);
