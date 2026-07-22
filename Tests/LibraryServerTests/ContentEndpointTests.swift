@@ -214,9 +214,13 @@ struct ContentEndpointTests {
     /// ショートカットに永久に吸い込まれ、以後ディレクトリへ子ファイルを追加しても
     /// BookContentCache の basis が変わらず、manifest だけが新しい pageCount を報告して
     /// pages/:n は古いエントリ数のまま 404 を返し続ける、という食い違いが起きていた。
-    /// このテストは (1) effectiveFileStat がディレクトリでは stored 値を無視して常に live stat する
-    /// こと、(2) manifest が pages と同じ BookContentCache を経由すること、の両方が揃って初めて
-    /// 通る。どちらか一方でも元の実装に戻すと、4枚目追加後の pages/3 が 404 のままで FAIL する。
+    /// このテストが判別できるのは (1)「effectiveFileStat がディレクトリでは stored 値を無視して
+    /// 常に live stat する」だけ。(1) を元に戻すと 4 枚目追加後の pages/3 が 404 のままで FAIL する。
+    /// (2)「manifest が pages と同じ BookContentCache を経由する」は**このテストでは判別できない**
+    /// （APFS ではディレクトリの size 属性がエントリ数の増減で即座に変わるため、(1) だけで basis が
+    /// 動いて両エンドポイントが一致してしまう。実測: (2) を戻しても本 suite は全 pass）。
+    /// (2) は将来 basis 判定が退行したときの保険と、manifest ごとの全アーカイブ走査
+    /// （listImageEntries）を無くす性能上の意味で入れている。
     @Test func manifestAndPagesAgreeForRelinkedFolderBookAfterChildAdded() async throws {
         let fixture = try TestLibraryFixture(name: "FolderRelink", bookCount: 0)
         defer { fixture.cleanup() }
