@@ -135,14 +135,32 @@ func maxwETag(_ base: String, maxw: Int?) -> String {
     return base + "-w\(maxw)"
 }
 
+/// クライアント側 normalizeVersion（Sources/RemoteClient/RemoteBookContent.swift の
+/// `RemoteBookContent.normalizeVersion` / Sources/LibraryServer/Resources/web/reader.js の
+/// `normalizeVersion`）と**同じ規約**で ETag の前後の `"` を剥がす。`?v=` に載る値は常にこの
+/// 正規化を経ているため、サーバ側で比較する際も同じ変換をかけないと絶対に一致しない
+/// （Finding 1: ?v= 検証の比較関数）。
+func stripETagQuotes(_ raw: String) -> String {
+    guard raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") else { return raw }
+    return String(raw.dropFirst().dropLast())
+}
+
 /// ETag/immutable 付き画像レスポンス。If-None-Match 一致なら 304。
-func cacheableImageResponse(data: Data, etag: String, request: Request) -> Response {
+/// `cacheable=false`（Finding 1: リクエストの `?v=` が現在の版と食い違う）のときは
+/// Cache-Control を `no-store` に差し替える。中身は常に「今の正しいバイト」を返す
+/// （404/409 にはしない）が、誤った版キーの URL の下へは HTTP キャッシュにも
+/// クライアントの IndexedDB 等アプリ内キャッシュにも一切残さない。
+/// v が無い（旧クライアント/version 不明フォールバック）ときは cacheable=true のまま
+/// 呼び出す＝挙動は今日と完全に同じ。
+func cacheableImageResponse(data: Data, etag: String, request: Request, cacheable: Bool = true) -> Response {
     if request.headers[.ifNoneMatch] == etag {
         return Response(status: .notModified)
     }
     var headers = HTTPFields()
     headers[.eTag] = etag
-    headers[.cacheControl] = "private, max-age=31536000, immutable"
+    headers[.cacheControl] = cacheable
+        ? "private, max-age=31536000, immutable"
+        : "no-store"
     headers[.contentType] = sniffImageContentType(data)
     return Response(status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))
 }
