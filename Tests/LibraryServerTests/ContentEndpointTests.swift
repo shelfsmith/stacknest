@@ -450,6 +450,18 @@ struct ContentEndpointTests {
                 #expect(response.status == .ok)
                 #expect(response.headers[.cacheControl]?.contains("immutable") == true)
             }
+            // **実クライアントが必ず送る形**（maxw + v）でも immutable であること。
+            // 比較対象を bookVersion（-pN / -w<n> を織り込む前）から etag（織り込み後）へ
+            // 取り違えると、実運用の全ページ要求が no-store になり HTTP キャッシュ・IndexedDB・
+            // RemotePageCache のすべてが効かなくなる。maxw 無しの上の assertion だけでは
+            // その退行を検知できないため、cover 側と対称にここも張る（レビュー Important）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/2?maxw=32&v=\(versionA)",
+                method: .get, headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                #expect(response.headers[.cacheControl]?.contains("immutable") == true)
+            }
             // 別の実ファイル（two_pages.zip・中身が変わる=版が変わる）へ relink。
             guard let twoSrc = Bundle.module.url(
                 forResource: "two_pages", withExtension: "zip", subdirectory: "Fixtures"
