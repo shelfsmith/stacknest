@@ -460,7 +460,33 @@ function consumePairingToken() {
     }
 }
 
+// ---- G21 #1: スクロールバー幅の実測 ------------------------------------------
+/// `50vw` は縦スクロールバー幅を含み `50%`（包含ブロック基準）は含まないため、
+/// スクロールバーが常時表示の環境では full-bleed 要素が左右にはみ出して横スクロールが出る。
+/// CSS だけの定番手 `calc(100vw - 100%)` は**使えない**（カスタムプロパティは使用箇所で
+/// 展開されるため `100%` が :root ではなく対象要素の包含ブロックに解決され、引きすぎる。
+/// 実測で帯が全幅でなくなることを確認済み）。ここで px 実測して CSS 変数に入れる。
+export function scrollbarWidthPx(win, docEl) {
+    const w = Number(win?.innerWidth) || 0;
+    const c = Number(docEl?.clientWidth) || 0;
+    const diff = w - c;
+    // 0 未満、または明らかに異常（スクロールバーとしてありえない幅）は 0 に倒して従来挙動にする。
+    if (!Number.isFinite(diff) || diff <= 0 || diff > 64) return 0;
+    return diff;
+}
+
+function applyScrollbarWidth() {
+    const px = scrollbarWidthPx(window, document.documentElement);
+    document.documentElement.style.setProperty("--sbw", px + "px");
+}
+
 function init() {
+    applyScrollbarWidth();
+    let sbwRAF = 0;
+    window.addEventListener("resize", () => {
+        if (sbwRAF) return;                       // rAF 1 フレームに間引く
+        sbwRAF = requestAnimationFrame(() => { sbwRAF = 0; applyScrollbarWidth(); });
+    });
     backBtn().addEventListener("click", () => {
         const r = parseRoute();
         if (r.name === "read") location.hash = resolveBackHash(r.uuid, r.query);
@@ -491,4 +517,10 @@ function init() {
     }
 }
 
-document.addEventListener("DOMContentLoaded", init);
+// `typeof document` ガード: Node の `node --test` から本ファイルを import して
+// `scrollbarWidthPx` のような純関数だけを単体テストできるようにするため
+// （DOM が無い環境でモジュール評価時にこの副作用行が即座に throw するのを防ぐ）。
+// ブラウザでは document は必ず定義されているため実際の起動挙動は変わらない。
+if (typeof document !== "undefined") {
+    document.addEventListener("DOMContentLoaded", init);
+}
