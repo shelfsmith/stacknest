@@ -275,10 +275,18 @@ final class RemoteLibraryState {
                 await openBookByID(pend.id, resumeDirect: pend.resume)
             }
         } catch let e as RemoteClientError {
+            // G21 #4: reload() は「キャンセル源が無い」とは言い切れない — 初回ロード
+            // （RemoteBookTable.swift の `.task { await state.reload(); ...; await state.runLiveSync() }`）は
+            // SwiftUI `.task` の view 消滅キャンセルに乗るし、scheduleSearchReload() の
+            // `searchDebounce?.cancel()` も同じ Task 文脈で走っている reload() の in-flight fetch を
+            // URLError.cancelled にしうる。どちらも「より新しい reload/画面破棄に追い越された」だけで
+            // 異常ではないため、liveReload と同様に赤字にしない。
+            if case .cancelled = e { return }
             // G12b-3b Task 1: 赤バナー切り分け用（一括編集中の自エコー reload 競合を activeBatchCount で判別）。
             Self.reloadLog.warning("reload failed during activeBatchCount=\(self.activeBatchCount, privacy: .public): \(String(describing: e), privacy: .public)")
             errorText = Self.message(for: e)
         } catch {
+            if Task.isCancelled { return }
             errorText = "読み込みに失敗しました"
         }
         // 4.2c-7: filter/sort/facet/sidebar/mode 変更はいずれも reload を伴うため、
@@ -355,8 +363,14 @@ final class RemoteLibraryState {
             }
             errorText = nil
         } catch let e as RemoteClientError {
+            // G21 #4: この liveReload は SSE 由来のデバウンス flush から呼ばれ、後続イベントで
+            // liveFlushTask?.cancel() されると in-flight fetch が URLError.cancelled になる。
+            // キャンセルは「より新しい reload に追い越された」だけで異常ではないので赤字にしない
+            // （現在の一覧はローカルで既に正しく、追い越した reload が続けて反映する）。
+            if case .cancelled = e { return }
             errorText = Self.message(for: e)
         } catch {
+            if Task.isCancelled { return }
             errorText = "読み込みに失敗しました"
         }
         persistBrowseState()
@@ -947,19 +961,6 @@ final class RemoteLibraryState {
                 ok += 1
             } catch {
                 fail += 1
-                // G21 #4 診断: 「削除は成功しているのに赤字（サーバエラー -1）」の実体を突き止める。
-                // -1 は RemoteClientError.server(-1)＝RemoteLibraryClient の「分類外 URLError」。
-                // URLError.code をそのまま出して、cancelled(-999) なのか別物なのかを確定させる。
-                let detail: String
-                if let ue = error as? URLError {
-                    detail = "URLError code=\(ue.code.rawValue)"
-                } else if let rce = error as? RemoteClientError {
-                    detail = "RemoteClientError \(String(describing: rce))"
-                } else {
-                    detail = String(describing: type(of: error))
-                }
-                Self.reloadLog.warning(
-                    "G21diag deleteBook failed id=\(id, privacy: .public) trash=\(trash, privacy: .public) count=\(list.count, privacy: .public) activeBatchCount=\(self.activeBatchCount, privacy: .public): \(detail, privacy: .public)")
             }
         }
         if !restored.isEmpty { pushUndo(.restore(restored)) }
@@ -2166,13 +2167,7 @@ final class RemoteLibraryState {
 
     // MARK: - Error messages
 
-    /// G21 #4 診断: 赤字（errorText）はこの関数を必ず通る。呼び出し元を `#function` の
-    /// 既定引数で受けて記録し、「削除は成功しているのに赤字」がどの経路から出るかを特定する。
-    /// async 文脈では `Thread.callStackSymbols` が当てにならないため呼び出し元ラベル方式にする。
-    /// 原因確定後にこの診断は削除する。
-    static func message(for error: RemoteClientError, caller: String = #function) -> String {
-        Self.reloadLog.warning(
-            "G21diag errorText from=\(caller, privacy: .public) error=\(String(describing: error), privacy: .public)")
+    static func message(for error: RemoteClientError) -> String {
         switch error {
         case .offline: return "サーバに接続できません（ネットワーク/アドレスを確認）"
         case .timeout: return "接続がタイムアウトしました"
@@ -2183,6 +2178,9 @@ final class RemoteLibraryState {
         case .server(let code): return "サーバエラー（\(code)）"
         case .decoding: return "応答の解析に失敗しました"
         case .badResponse: return "不正な応答を受信しました"
+        // G21 #4: 実際にはキャンセル追い越しを握り潰す呼び出し元（liveReload）では表示されないが、
+        // message(for:) は switch の網羅性のため文言を用意しておく。
+        case .cancelled: return "操作が中断されました"
         }
     }
 }

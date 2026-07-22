@@ -11,4 +11,7 @@ public enum RemoteClientError: Error, Equatable, Sendable {
     case server(Int)
     case decoding
     case badResponse
+    /// G21 #4: in-flight リクエストが上位の Task キャンセルで打ち切られた（URLError.cancelled）。
+    /// より新しい呼び出しに追い越されただけで、サーバ/ネットワークの異常ではない。
+    case cancelled
 }
