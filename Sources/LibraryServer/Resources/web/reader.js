@@ -322,9 +322,12 @@ export async function renderReader(uuid, bookId, query, deps) {
     }
 
     // 表示中ページ(cur)の単頁/見開きを反転し、ローカル反映＋サーバへ永続化する（G17 T6b）。
-    // ペア表示中なら強制単独(1)、単独表示中なら override を外して既定に戻す。既定でも
-    // 単独のまま（終端 or 次頁が forceSolo）なら強制ペア(0)を試す。それも不可（最終ページ）なら
-    // トーストのみで何もしない。
+    // ペア表示中なら強制単独(1)、単独表示中なら override を外して既定に戻す。既定でも単独の
+    // ままなら、target が先頭ページ(0)かつペアが実際に組める（次頁が存在し forceSolo でない）
+    // 場合に限り強制ペア(0)を書き込む（G21 #3: 先頭ページは coverOffset 相当で既定が単独表示に
+    // なったため、override を外すだけでは見開きに戻らない — forcePair(0) がその唯一のペア化
+    // 経路になる。pagesForView の `apiIndex === 0 && overrides[0] !== 0` 分岐と対称）。
+    // それ以外（先頭ページ以外、または次頁が単頁指定/最終ページ）はトーストのみで何もしない。
     async function togglePageLayout() {
         const target = cur;
         const pairedNow = pageLayoutIsPaired(target);
@@ -336,10 +339,15 @@ export async function renderReader(uuid, bookId, query, deps) {
             delete withoutOverride[target];
             if (pageLayoutIsPaired(target, withoutOverride)) {
                 nextMode = null;   // 自分の forceSolo を外せば見開きに戻る
+            } else if (target === 0 && pageCount > 1 && overrides[1] !== 1) {
+                // G21 #3: 先頭ページは既定で単独表示（coverOffset 相当）なので、own override を
+                // 外しても見開きには戻らない。次頁が存在し forceSolo でなければペアは組めるので、
+                // forcePair(0) を明示指定する（pagesForView が唯一参照する page 0 の override）。
+                nextMode = 0;
             } else {
-                // 単頁なのは自分の override 以外の理由（次頁が単頁指定 / 最終ページ）。
-                // forcePair(mode 0) は pagesForView が参照せず無効なので、正直に理由を示して中断する
-                // （無効な書き込みも行わない）。
+                // 単頁なのは自分の override 以外の理由（次頁が単頁指定 / 最終ページ）、または
+                // 先頭ページ以外（forcePair(mode 0) は先頭ページ以外では pagesForView が参照せず
+                // 無効）。正直に理由を示して中断する（無効な書き込みも行わない）。
                 toast("次のページが単頁指定、または最終ページのため見開きにできません");
                 return;
             }
