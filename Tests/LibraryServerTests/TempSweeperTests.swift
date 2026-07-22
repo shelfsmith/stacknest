@@ -13,6 +13,14 @@ struct TempSweeperTests {
         return d
     }
 
+    private func makeFile(_ parent: URL, _ name: String, ageHours: Double) throws -> URL {
+        let f = parent.appendingPathComponent(name, isDirectory: false)
+        try Data().write(to: f)
+        let when = Date().addingTimeInterval(-ageHours * 3600)
+        try FileManager.default.setAttributes([.modificationDate: when], ofItemAtPath: f.path)
+        return f
+    }
+
     @Test func removesOnlyOldPrefixedDirectories() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -21,6 +29,8 @@ struct TempSweeperTests {
         let old = try makeDir(root, "stacknest-arc-old", ageHours: 30)
         let fresh = try makeDir(root, "stacknest-arc-fresh", ageHours: 1)
         let other = try makeDir(root, "unrelated-dir", ageHours: 100)
+        // prefix は一致するが「ディレクトリ」ではない＝isDirectory ガードがなければ消えてしまうケース。
+        let oldFile = try makeFile(root, "stacknest-arc-plainfile", ageHours: 30)
 
         let now = Date()
         let removed = TempSweeper.sweep(in: root, prefix: "stacknest-arc-", olderThan: 24 * 3600, now: now)
@@ -29,6 +39,7 @@ struct TempSweeperTests {
         #expect(!FileManager.default.fileExists(atPath: old.path))       // 24h 超 → 消える
         #expect(FileManager.default.fileExists(atPath: fresh.path))      // 稼働中の可能性 → 残す
         #expect(FileManager.default.fileExists(atPath: other.path))      // prefix 不一致 → 触らない
+        #expect(FileManager.default.fileExists(atPath: oldFile.path))   // prefix 一致だがファイル → isDirectory ガードで残す
     }
 
     @Test func missingDirectoryIsNoOp() {

@@ -51,15 +51,31 @@ enum TempSweeper {
     }
 
     /// 既定の掃除（プロセス起動後、実際に呼ばれた最初の 1 回だけ実行）。`stacknest-arc-*` を
-    /// 24 時間 TTL で掃く。`static let` の遅延初期化は Swift ランタイムが排他的に一度だけ走らせる
-    /// ことを保証するため、呼び出し側（本番のサーバ起動経路が複数回呼んでもよい）が何度呼んでも
-    /// 実処理は 1 回に収まる。
+    /// 24 時間 TTL で掃く。
+    ///
+    /// **メインスレッドを塞がない**: 実呼び出し元（`ServerController.start()` /
+    /// `LocalControlController.startIfEnabled()`）はどちらも `@MainActor` から同期関数として
+    /// `buildApplication()` を呼ぶ。stale なディレクトリは 1 つでも「アーカイブ全ページ抽出済み」
+    /// の可能性があり、`removeItem` は再帰削除＝同期的に走らせるとメインスレッドを止め得る
+    /// （`SequentialArchiveExtractor.deinit` が同じ理由で `Task.detached(priority: .utility)` に
+    /// 逃がしているのと同じ事情・同じ対処）。掃除はサーバ起動の成否と順序依存が一切ないため、
+    /// fire-and-forget で良い（await しない）。
+    ///
+    /// **多重実行しないことの保証**: `static let` の遅延初期化は Swift ランタイムが
+    /// スレッドセーフ・排他的に「初回アクセス時に 1 回だけ」走らせることを言語仕様上保証する
+    /// （グローバル/static な定数・変数の遅延初期化。C++ の `std::call_once` / GCD の
+    /// `dispatch_once` と同等の一度きり保証）。この一度きりの初期化の**中で**
+    /// `Task.detached` を 1 回だけ起動しているため、`sweepRuntimeTemp()` が同時に何度・何スレッドから
+    /// 呼ばれても、実際に spawn される検知タスクは高々 1 個であり、2 つの掃除タスクが並走すること
+    /// はない（ガードしているのは「タスクの完了」ではなく「タスクの起動」そのもの）。
     static func sweepRuntimeTemp() {
         _ = sweepOnce
     }
 
     private static let sweepOnce: Void = {
-        sweep(in: FileManager.default.temporaryDirectory,
-              prefix: "stacknest-arc-", olderThan: 24 * 3600, now: Date())
+        Task.detached(priority: .utility) {
+            sweep(in: FileManager.default.temporaryDirectory,
+                  prefix: "stacknest-arc-", olderThan: 24 * 3600, now: Date())
+        }
     }()
 }
