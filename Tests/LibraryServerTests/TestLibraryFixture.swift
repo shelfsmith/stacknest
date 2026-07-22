@@ -74,6 +74,30 @@ struct TestLibraryFixture {
         ))
     }
 
+    /// G9b archive モードのフォルダ本を模す: バンドル内にディレクトリを作り、ダミー画像を
+    /// `imageCount` 枚直下に置いて、その path を持つ本を insert する（file_mtime/file_size は
+    /// dedup スキャンを経ないので import 直後どおり両方 NULL のまま）。
+    /// フォルダ本 ETag/BookContentCache の凍結バグ再現テスト用（実機 smoke id=19 相当）。
+    func addFolderBook(imageCount: Int) throws -> (id: Int, dirURL: URL) {
+        let dir = bundleURL.appendingPathComponent("folder-book-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for i in 0..<imageCount {
+            try Data("page\(i)".utf8).write(to: dir.appendingPathComponent("page\(i).jpg"))
+        }
+        let id = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "Folder Book", path: dir.path, dateAdded: Date()
+        ))
+        return (id, dir)
+    }
+
+    /// フォルダ直下に画像を1枚追加し、ディレクトリ自身の mtime を明示的に進める
+    /// （テストの決定性のため OS 側の自然な mtime 更新に依存しない）。
+    func addImageToFolderBook(dirURL: URL, name: String, bumpMtimeTo epoch: TimeInterval) throws {
+        try Data(name.utf8).write(to: dirURL.appendingPathComponent(name))
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: epoch)], ofItemAtPath: dirURL.path)
+    }
+
     /// 最小 JPEG を実規約どおり `Thumbnails/<bookID>/thumbnail.jpg` に書く。
     /// 実コード（CoverRefresher / ThumbnailLoader）の規約はファイル名固定 `thumbnail.jpg` で、
     /// `coverImageName` はアーカイブ内エントリ名（手動表紙の選択記録）であり

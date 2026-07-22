@@ -207,6 +207,70 @@ struct ContentEndpointTests {
         }
     }
 
+    /// フォルダ本（G9b archive モード）が relink を経由した後でも、manifest（pageCount）と
+    /// pages/:n（実データ）が食い違わないことの E2E 検証（実機 smoke id=19 で再現した回帰の再発防止）。
+    /// relinkBook はアーカイブファイル向けに file_mtime/file_size を無条件で書き込むため、
+    /// フォルダ本がこれを一度でも経由すると effectiveFileStat の「両方揃っていれば stored 値を使う」
+    /// ショートカットに永久に吸い込まれ、以後ディレクトリへ子ファイルを追加しても
+    /// BookContentCache の basis が変わらず、manifest だけが新しい pageCount を報告して
+    /// pages/:n は古いエントリ数のまま 404 を返し続ける、という食い違いが起きていた。
+    /// このテストは (1) effectiveFileStat がディレクトリでは stored 値を無視して常に live stat する
+    /// こと、(2) manifest が pages と同じ BookContentCache を経由すること、の両方が揃って初めて
+    /// 通る。どちらか一方でも元の実装に戻すと、4枚目追加後の pages/3 が 404 のままで FAIL する。
+    @Test func manifestAndPagesAgreeForRelinkedFolderBookAfterChildAdded() async throws {
+        let fixture = try TestLibraryFixture(name: "FolderRelink", bookCount: 0)
+        defer { fixture.cleanup() }
+        let (bookID, dirURL) = try fixture.addFolderBook(imageCount: 3)
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            // 1) import 直後（file_mtime/file_size は NULL）: manifest/pages とも 3 ページ。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/manifest", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                struct M: Decodable { let pageCount: Int }
+                let m = try JSONDecoder().decode(M.self, from: Data(buffer: response.body))
+                #expect(m.pageCount == 3)
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/2", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+            }
+
+            // 2) relink をシミュレート: フォルダ本の path を自分自身へ relink し、
+            //    file_mtime/file_size を（G4d 層1 の実挙動どおり）無条件で埋めさせる。
+            try fixture.db.relinkBook(id: bookID, newPath: dirURL.path)
+
+            // 3) 直下へ4枚目を追加し、ディレクトリ mtime を明示的に進める
+            //    （実運用ではファイル追加そのものが OS 側で mtime を進める）。
+            try fixture.addImageToFolderBook(
+                dirURL: dirURL, name: "page3.jpg", bumpMtimeTo: 3_000_000)
+
+            // 4) manifest は 4 ページを報告し、pages/3（新規ページ）も 200 を返さねばならない。
+            //    修正前は pages/3 が 404 になっていた（manifest だけが増分を認識・pages は凍結）。
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/manifest", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                struct M: Decodable { let pageCount: Int }
+                let m = try JSONDecoder().decode(M.self, from: Data(buffer: response.body))
+                #expect(m.pageCount == 4)
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/pages/3", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+    }
+
     /// cover の ETag は thumbnail.jpg 自身の mtime+size 由来（原本ではなく表紙の変化を追跡）。
     /// 単一 app.test ブロック内で 2 リクエストを実行する（既存 coverReturnsJPEG... と同様 —
     /// 別ブロックに分けると #expect が var をキャプチャして SendableClosureCaptures エラーになる）。

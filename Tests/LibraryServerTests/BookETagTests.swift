@@ -56,13 +56,46 @@ struct BookETagTests {
         #expect(before != after)
     }
 
-    // 両方揃っている行（アーカイブファイル本、または relink 済みのフォルダ本）は、実在しない
-    // パスであっても stat を経由せず保存値だけを使う＝churn なし（全クライアント再ダウンロード
-    // を招く ETag 変化を起こさない）。
+    // 両方揃っている「ファイル」行（アーカイブ本）は、path が実在しなくても stat を経由せず
+    // 保存値だけを使う＝churn なし（全クライアント再ダウンロードを招く ETag 変化を起こさない）。
+    // 注意: path が存在しない（= isDirectory 判定できない）ため、このケースは
+    // effectiveFileStat の「ディレクトリなら常に live stat」分岐を通らず旧来どおり
+    // stored 値を使う側に落ちる。ディレクトリ（relink 済みフォルダ本含む）の挙動は
+    // 下の etagFollowsDirectoryMtimeEvenWhenStoredStatsPresentAfterRelink で別途検証する。
     @Test func etagUnchangedWhenBothStatsAlreadySet() {
         let path = "/nonexistent/should-not-be-statted.cbz"
         let a = row(id: 7, path: path, fileMtime: 123, fileSize: 456)
         let expectedHash = String(fnv1aHash(path), radix: 36)
         #expect(bookETag(for: a) == "\"7-123-456-\(expectedHash)\"")
+    }
+
+    // 実機 smoke 回帰: relinkBook/applyRelinks（G4d 層1）はアーカイブファイル向けに
+    // file_mtime/file_size を無条件で書き込む。フォルダ本がこれを一度でも経由すると
+    // 両方 non-nil になり、effectiveFileStat の「両方揃っていれば stored 値を使う」旧ロジックの
+    // ショートカットに永久に吸い込まれ、以後ディレクトリへ子ファイルを追加/削除しても bookETag が
+    // 二度と変化しなくなっていた（実機 id=19 で再現）。
+    // ディレクトリは stored 値の有無に関わらず常に request 時 live stat を使うべきで、
+    // このテストは「ディレクトリで stored 値ショートカットを復活させると FAIL する」ことを保証する。
+    @Test func etagFollowsDirectoryMtimeEvenWhenStoredStatsPresentAfterRelink() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bookETag-relinked-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_000_000)], ofItemAtPath: tmp.path)
+
+        // relink 直後を模す: file_mtime/file_size が両方 non-nil（かつ relink 時点の値で）埋まっている行。
+        let relinkedFolderRow = row(id: 19, path: tmp.path, fileMtime: 1_000_000, fileSize: 4096)
+        let before = bookETag(for: relinkedFolderRow)
+
+        // 直下に子ファイルを追加し、ディレクトリの mtime を進める（archive モードのフォルダ本に
+        // ページが増える操作を模す）。row の fileMtime/fileSize は relink 時点のまま更新されない
+        // ことが重要（＝実運用でも誰もこれを更新しない）。
+        try Data("page".utf8).write(to: tmp.appendingPathComponent("page1.jpg"))
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000_000)], ofItemAtPath: tmp.path)
+        let after = bookETag(for: relinkedFolderRow)
+
+        #expect(before != after)
     }
 }
