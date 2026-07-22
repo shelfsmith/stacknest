@@ -1533,19 +1533,32 @@ final class AppState {
         do {
             // G21 followup Important #2: フォルダ/zip 系だけでなく単独 PDF・単独画像も対応する
             // 共通抽出（Sources/AppCore/CoverRefresher.swift）。非対応形式は
-            // `CoverRefreshError.unsupportedFormat` として個別に log-only で処理する。
+            // `CoverRefreshError.unsupportedFormat` として個別に log-only で処理する。抽出・resize
+            // は CoverRefresher 側で Task.detached に包まれており、MainActor（この関数自体）を
+            // ブロックしない（re-review Important 指摘）。
             let data = try await CoverRefresher.extractCoverData(sourceURL: sourceURL, preferredName: preferredName)
+            let bookDir = thumbDir.appendingPathComponent("\(book.id)")
+            let thumbURL = bookDir.appendingPathComponent("thumbnail.jpg")
+            let resized = await CoverRefresher.resizeCoverDataOffMain(data, maxPixelSize: 1200)
             // G21 followup Important #1 と同じクラスの保護: 抽出の await 中に別クライアント
             // （埋め込みリモートサーバ経由）が外部表紙をアップロードしていた場合、書き込み直前に
             // 再確認して上書きを防ぐ（LibraryServerCore.regenerateThumbnail と同じ理由）。
-            if let fresh = try? database?.fetchBook(id: book.id), CoverSource.isExternal(fresh.coverImageName) {
+            //
+            // re-review Critical fix: 「external かつファイルが既に存在する」ときだけ no-op に
+            // する。ファイル存在チェックを外すと、関数冒頭の「外部サムネ不在→自動へフォールバック」
+            // 分岐（この do ブロックに入る前段で preferredName=nil にしている当のケース）が、
+            // ここで無条件に isExternal だけ見て return してしまい死ぬ（コメントにある
+            // 「恒久的な空白表紙を防ぐ」目的が壊れる）。PUT /cover-image・setExternalCover は
+            // どちらもファイルを書いてから DB を external にするため、「external かつファイル
+            // 現存」だけを弾いてもレース対策としては十分（LibraryServerCore.regenerateThumbnail
+            // の同じ注記を参照）。
+            if let fresh = try? database?.fetchBook(id: book.id), CoverSource.isExternal(fresh.coverImageName),
+               FileManager.default.fileExists(atPath: thumbURL.path) {
                 Self.coverLogger.info("regenerateThumbnail: became external during extraction, skip write bookID=\(book.id, privacy: .public)")
                 return
             }
-            let bookDir = thumbDir.appendingPathComponent("\(book.id)")
             try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
-            let resized = CoverImageResizer.resizeJPEG(data, maxPixelSize: 1200)
-            try resized.write(to: bookDir.appendingPathComponent("thumbnail.jpg"))
+            try resized.write(to: thumbURL)
             Self.coverLogger.info("regenerateThumbnail: file written, bookID=\(book.id)")
             // 🔧 Fix A: per-book purge instead of full-cache purge (cheaper + avoids CGImageSource URL cache).
             await thumbnailLoader?.purge(bookID: book.id)

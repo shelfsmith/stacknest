@@ -3,6 +3,7 @@ import Testing
 import Foundation
 import Hummingbird
 import HummingbirdTesting
+import AppCore
 import LibraryServerAPI
 import LibraryStore
 import StackroomFormat
@@ -113,6 +114,56 @@ struct BookRestoreEndpointTests {
         }
         // restore がサムネイルを再生成した（ローカル undo と同じ結果）。
         #expect(FileManager.default.fileExists(atPath: thumb.path))
+    }
+
+    /// re-review Critical regression test: 外部表紙（`@external`）の本を削除→Undo（restore）すると、
+    /// DELETE が `Thumbnails/<id>` を丸ごと消すため、restore 時点では行が `@external` のまま
+    /// サムネイルファイルだけが存在しない。この状態で `regenerateThumbnail` の外部表紙ガードが
+    /// 「isExternal というだけで無条件 no-op」だと、恒久的に無表紙のまま直せなくなる
+    /// （regenerate は外部表紙に no-op、CoverCompression も外部表紙をスキップ、UI のメニューも
+    /// 無効化されるため）。ガードは「isExternal かつファイルが現存する」ときだけ no-op にすべきで、
+    /// このケース（ファイル不在）はソースアーカイブから自動表紙を作り直して復帰する必要がある。
+    @Test func restoreRegeneratesAutoThumbnailWhenExternalCoverWasDeleted() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreExtCover", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        // アップロード済み外部表紙を模す: coverImageName=@external ＋ 実サムネイルファイル配置。
+        try fx.db.updateBook(id: id, patch: BookPatch(coverImageName: CoverSource.externalSentinel))
+        try fx.addCover(bookID: id)
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        #expect(FileManager.default.fileExists(atPath: thumb.path))   // 前提: 表紙あり（外部）
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            #expect(dto.hasCover == true)
+            #expect(dto.coverImageName == CoverSource.externalSentinel)     // 外部表紙のまま捕捉
+            #expect(!FileManager.default.fileExists(atPath: thumb.path))   // DELETE がサムネを消した
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        // restore 後: 行は @external のままだが（アップロードされた画像自体はもう無いので取り戻せない
+        // ことは仕方ないが）、恒久的に無表紙のままにはせず、ソースから自動表紙を作り直して
+        // 表紙が「ある」状態に復帰する（ファイル存在チェックを外した旧修正だとここが false のまま
+        // 永遠に直らなかった）。
+        #expect(FileManager.default.fileExists(atPath: thumb.path))
+        #expect(try fx.db.fetchBook(id: id)?.coverImageName == CoverSource.externalSentinel)
     }
 
     /// 削除時に表紙が無かった本は、restore でサムネイルを新規生成しない
