@@ -14,6 +14,10 @@ import AppCore
     func openSettings()            // ライブラリ設定（シート表示）
     var canEditMeta: Bool { get }     // 設定の有効条件（リモート R では false ＝ RW のみ）
     var canManageFiles: Bool { get }  // 削除/リネーム/移動等（ローカル=true / リモート=false）
+    /// G21 #2: **ローカル窓でしか実装されていない**操作（ファイル名変更・移動・リンク切れ検出）。
+    /// `canManageFiles` は「admin 権限の破壊的操作」を表すが、リモートに受け側が無い操作まで
+    /// 有効化してしまい「押せるのに無反応」になっていた。権限と実装有無を分離する。
+    var canManageLocalFiles: Bool { get }
     var canRate: Bool { get }         // レート（ローカル/リモートとも true・R 可）
     var canMarkUnread: Bool { get }   // 未読トグル（ローカル/リモートとも true・R 可）
     /// テーブル列メニュー（表示 ▸ テーブル列）が参照する LibrarySettings（列トグル用）。
@@ -45,6 +49,7 @@ extension FocusedValues {
     func openSettings() { openSettingsAction() }
     var canEditMeta: Bool { state.canEdit }
     var canManageFiles: Bool { state.canDelete }   // C-②.1: admin リモートで File メニュー削除を有効化
+    var canManageLocalFiles: Bool { false }   // リモートには rename/move/relink の受け側が無い
     var canRate: Bool { true }
     var canMarkUnread: Bool { true }
     var librarySettingsForColumns: LibrarySettings? { settings }
