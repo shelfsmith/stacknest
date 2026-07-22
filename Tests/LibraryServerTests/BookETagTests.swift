@@ -29,6 +29,31 @@ struct BookETagTests {
         #expect(bookETag(for: a) == bookETag(for: b))
     }
 
+    // churn ガード（レビュー Minor）: **実在するファイル**で、stored 値が実際の stat 値と
+    // わざと食い違っていても、ファイルなら stored 値がそのまま使われる。
+    // 「ディレクトリなら live stat」の分岐を誤って実在パス全般へ広げると、この期待が崩れて
+    // ETag が動く＝全クライアントがページキャッシュを捨てて再ダウンロードすることになる。
+    @Test func etagUsesStoredValuesForExistingFileEvenIfRealStatDiffers() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("real.cbz")
+        try Data(repeating: 9, count: 4321).write(to: file)   // 実サイズ 4321
+
+        let r = row(id: 5, path: file.path, fileMtime: 100, fileSize: 50)   // stored は 100/50
+        let expectedHash = String(fnv1aHash(file.path), radix: 36)
+        #expect(bookETag(for: r) == "\"5-100-50-\(expectedHash)\"")
+    }
+
+    // stat 失敗時のフォールバック（レビュー Minor）: ディレクトリとして解決できないパスでは
+    // stored 値へ落ちる。NAS の一時的な不調で ETag が "id-0-0" に崩れて全クライアントが
+    // 再ダウンロードする事故を防ぐための保険。
+    @Test func directoryStatFailureFallsBackToStoredValues() {
+        let r = row(id: 6, path: "/nonexistent-dir-xyz", fileMtime: 777, fileSize: 888)
+        let expectedHash = String(fnv1aHash("/nonexistent-dir-xyz"), radix: 36)
+        #expect(bookETag(for: r) == "\"6-777-888-\(expectedHash)\"")
+    }
+
     // 最終レビュー Finding 1: フォルダブック（G9b archive）は dedup スキャンがディレクトリを
     // skip するため file_mtime/file_size が import 後ずっと nil のまま＝旧実装では bookETag が
     // "id-0-0-<pathhash>" に恒久固定され、中身を差し替えても誰にも気付かれなかった。

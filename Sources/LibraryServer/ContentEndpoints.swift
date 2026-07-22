@@ -29,13 +29,20 @@ import LibraryServerAPI
 /// 従来どおり stored 値を優先し続ける（stat 値の churn で ETag が動くと全クライアントが
 /// 再ダウンロードすることになるため、ここは変えてはいけない）。
 ///
-/// stat が失敗（パス消失等）した場合は (nil, nil) を返し、呼び出し側で 0/0 にフォールバックする。
+/// ディレクトリの stat が失敗した場合（NAS の一時的な不調・権限喪失・削除との競合など）は、
+/// (nil, nil) を返さず stored 値のフォールバックへ**落とす**。ここで (nil, nil) を返すと ETag が
+/// "id-0-0-hash" に崩れ、一瞬の I/O 不調だけで全クライアントがそのフォルダブックのページ
+/// キャッシュを丸ごと捨てて再ダウンロードし、復旧時にもう一度捨てることになる（レビュー Minor）。
+/// path 自体が無い／ファイルで stored 値も無い場合は従来どおり (nil, nil)（呼び出し側で 0/0）。
 func effectiveFileStat(for row: BookRow) -> (mtime: Double?, size: Int64?) {
     if let path = row.path {
         var isDir: ObjCBool = false
         if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
             let (statSize, statMtime) = Database.statFile(path)
-            return (statMtime, statSize)
+            if statMtime != nil || statSize != nil {
+                return (statMtime, statSize)
+            }
+            // stat 失敗 → stored 値へフォールバック（下の分岐へ落ちる）
         }
     }
     if let mtime = row.fileMtime, let size = row.fileSize {
