@@ -430,7 +430,10 @@ struct RemoteLibrarySettingsSheet: View {
             GroupBox("メタデータ") {
                 VStack(alignment: .leading, spacing: 10) {
                     if let job = state.maintenanceJob {
-                        let label = job.job == "compress-covers" ? "表紙を圧縮中…" : "メタデータを補完中…"
+                        // Review follow-up Important #3: このジョブは全冊の表紙を元ファイルから
+                        // 作り直す（1200px 超は縮小、外部表紙は対象外）— 「圧縮」ではない
+                        // （ローカル LibrarySettingsSheet の Step 9 修正と同じ文言に揃える）。
+                        let label = job.job == "compress-covers" ? "表紙を再生成中…" : "メタデータを補完中…"
                         HStack {
                             if job.total > 0 { ProgressView(value: Double(job.done), total: Double(job.total)) }
                             else { ProgressView() }
@@ -445,10 +448,10 @@ struct RemoteLibrarySettingsSheet: View {
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         Button { Task { await state.runCompressCovers() } } label: {
-                            Label("表紙を圧縮", systemImage: "arrow.down.circle")
+                            Label("表紙を再生成", systemImage: "arrow.down.circle")
                         }
                         .disabled(!state.canDelete)
-                        Text("上限 1200px を超える内部表紙のみ圧縮します（外部表紙は対象外）。")
+                        Text("全ての表紙を元ファイルから作り直します（1200px を超えるものは縮小されます。手動で選んだ表紙・アップロードした表紙は対象外）。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }

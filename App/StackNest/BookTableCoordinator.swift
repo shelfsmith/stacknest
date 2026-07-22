@@ -763,6 +763,12 @@ extension BookTableCoordinator: NSMenuDelegate {
         do {
             try db.relinkBook(id: book.id, newPath: url.path(percentEncoded: false))
             try? appState.refreshDisplayedBooks()
+            // Review follow-up Important #4: relink 後に表紙・ページ数をサーバ側 relink と
+            // 同様に追従させる（失敗は best-effort・relink 自体の成否には影響しない）。
+            Task { @MainActor in
+                await appState.refreshCoverAndPageCount(afterRelinkOf: book.id)
+                try? appState.refreshDisplayedBooks()
+            }
         } catch {
             let alert = NSAlert()
             alert.messageText = String(localized: "再リンクに失敗しました")

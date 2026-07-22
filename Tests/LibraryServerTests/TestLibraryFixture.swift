@@ -74,6 +74,56 @@ final class TestLibraryFixture: @unchecked Sendable {
         ))
     }
 
+    /// G21 followup Important #2: 単独 PDF 本（アーカイブに包まれていない .pdf そのもの）を
+    /// バンドルへコピーして登録する。`regenerateThumbnail` の PDF 分岐（`PDFBookContent.coverJPEG`）
+    /// を単独ファイル経路で検証するためのヘルパ。
+    func addPDFBook(pdfFixtureNamed name: String = "1page") throws -> Int {
+        guard let src = Bundle.module.url(
+            forResource: name, withExtension: "pdf", subdirectory: "Fixtures") else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        let dst = bundleURL.appendingPathComponent("\(name).pdf")
+        try FileManager.default.copyItem(at: src, to: dst)
+        return try db.insertBookReturningID(BookRecord(
+            id: 0, title: name, path: dst.path, dateAdded: Date()
+        ))
+    }
+
+    /// G21 followup Important #2: 単独画像本（.jpg そのものが 1 冊）を登録する。
+    /// `regenerateThumbnail` の単独画像分岐（ファイルをそのまま読む）を検証するためのヘルパ。
+    func addImageBook(width: Int = 40, height: Int = 40) throws -> Int {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let ctx = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8,
+            bytesPerRow: width * 4, space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        ctx.setFillColor(red: 0.2, green: 0.6, blue: 0.9, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let cgImage = ctx.makeImage() else { throw CocoaError(.fileWriteUnknown) }
+        let dest = NSMutableData()
+        guard let imgDest = CGImageDestinationCreateWithData(
+            dest, UTType.jpeg.identifier as CFString, 1, nil
+        ) else { throw CocoaError(.fileWriteUnknown) }
+        CGImageDestinationAddImage(imgDest, cgImage, nil)
+        guard CGImageDestinationFinalize(imgDest) else { throw CocoaError(.fileWriteUnknown) }
+        let dst = bundleURL.appendingPathComponent("standalone-\(UUID().uuidString).jpg")
+        try (dest as Data).write(to: dst)
+        return try db.insertBookReturningID(BookRecord(
+            id: 0, title: "image book", path: dst.path, dateAdded: Date()
+        ))
+    }
+
+    /// G21 followup Important #2: 表紙を作りようがない形式（動画・epub・txt 等）を模す最小ファイル。
+    /// 拡張子だけで判定されるため中身はダミーで良い。
+    func addUnsupportedFormatBook(extension ext: String = "txt") throws -> Int {
+        let dst = bundleURL.appendingPathComponent("unsupported-\(UUID().uuidString).\(ext)")
+        try Data("dummy".utf8).write(to: dst)
+        return try db.insertBookReturningID(BookRecord(
+            id: 0, title: "unsupported", path: dst.path, dateAdded: Date()
+        ))
+    }
+
     /// G9b archive モードのフォルダ本を模す: バンドル内にディレクトリを作り、ダミー画像を
     /// `imageCount` 枚直下に置いて、その path を持つ本を insert する（file_mtime/file_size は
     /// dedup スキャンを経ないので import 直後どおり両方 NULL のまま）。

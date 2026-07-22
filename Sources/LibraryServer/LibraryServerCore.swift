@@ -841,7 +841,7 @@ public struct LibraryServerCore: Sendable {
                     if dto.hasCover == true, pathIsSafe {
                         try? await Self.regenerateThumbnail(
                             bookID: dto.id, sourceURLPath: effectiveDTO.path,
-                            preferredName: dto.coverImageName, bundleURL: lib.bundleURL)
+                            preferredName: dto.coverImageName, bundleURL: lib.bundleURL, db: lib.db)
                     }
                 } catch {
                     // id が既に別の本に再利用されている（restoreBook は plain INSERT なので
@@ -898,7 +898,7 @@ public struct LibraryServerCore: Sendable {
                 try lib.db.updateBook(id: row.id, patch: patch)
                 try await Self.regenerateThumbnail(
                     bookID: row.id, sourceURLPath: row.path, preferredName: body.coverImageName,
-                    bundleURL: lib.bundleURL)
+                    bundleURL: lib.bundleURL, db: lib.db)
             }
             if body.setCoverCropRect {
                 try lib.db.updateBookCoverCropRect(id: row.id, json: body.coverCropRect)
@@ -920,7 +920,7 @@ public struct LibraryServerCore: Sendable {
             }
             try await Self.regenerateThumbnail(
                 bookID: row.id, sourceURLPath: row.path, preferredName: row.coverImageName,
-                bundleURL: lib.bundleURL)
+                bundleURL: lib.bundleURL, db: lib.db)
             self.notifyBookChanged(lib.uuid, row.id)
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
@@ -1276,7 +1276,7 @@ public struct LibraryServerCore: Sendable {
                 if !CoverSource.isExternal(updatedRow.coverImageName) {
                     try? await Self.regenerateThumbnail(
                         bookID: updatedRow.id, sourceURLPath: updatedRow.path,
-                        preferredName: updatedRow.coverImageName, bundleURL: lib.bundleURL)
+                        preferredName: updatedRow.coverImageName, bundleURL: lib.bundleURL, db: lib.db)
                 }
                 if let content = try? BookContentFactory.make(for: updatedRow),
                    let n = try? await content.pageCount {
@@ -1614,13 +1614,42 @@ public struct LibraryServerCore: Sendable {
     }
 
     /// 4.2c-6b: 選択ページから Thumbnails/<id>/thumbnail.jpg を再生成する（App の CoverRefresher 相当）。
-    /// preferredName=nil は自動先頭ページ。非対応/失敗は throws（呼び出し側で 500）。
-    static func regenerateThumbnail(bookID: Int, sourceURLPath: String?, preferredName: String?, bundleURL: URL) async throws {
-        guard let path = sourceURLPath, let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) else {
-            throw HTTPError(.internalServerError)
+    /// preferredName=nil は自動先頭ページ。
+    ///
+    /// G21 followup review（Important #1, #2）:
+    /// - フォーマット判定は `CoverRefresher.extractCoverData`（AppCore）に委譲する。フォルダ/zip 系に
+    ///   加え単独 PDF・単独画像も対応し、真に表紙を作れない形式（動画・epub・txt 等）だけ
+    ///   `HTTPError(.badRequest, message:)` を投げる（クライアントが説明できる 4xx。旧実装は
+    ///   PDF/単独画像を含め非対応形式をすべて 500 にしていた）。
+    /// - `extractCoverData` の `await`（アーカイブ展開・大きいファイルだと数秒かかりうる）の**後**、
+    ///   ファイル書き込みの**直前**に `db.fetchBook` で行を再取得し `CoverSource.isExternal` を
+    ///   再確認する。呼び出し側（PUT cover / POST cover/regenerate / relink）はどれも「この行が
+    ///   呼び出し開始時点で external でない」ことしか保証しないため、この await の間に
+    ///   別クライアントが外部表紙をアップロードすると、初期スナップショットの判定だけでは
+    ///   それを上書きしてしまう（Sources/AppCore/CoverCompression.swift:40-44 で一度直した
+    ///   whole-library ジョブと同じクラスの不具合）。再確認と書き込みの間に await は無い
+    ///   （`simulateRaceBeforeWrite` はテスト専用フックで、既定は no-op）。
+    static func regenerateThumbnail(
+        bookID: Int, sourceURLPath: String?, preferredName: String?, bundleURL: URL, db: Database,
+        simulateRaceBeforeWrite: (@Sendable () async -> Void)? = nil
+    ) async throws {
+        guard let path = sourceURLPath else {
+            throw HTTPError(.badRequest, message: "本の実ファイルが見つかりません")
         }
-        let data = try await ex.extractCoverImage(from: URL(fileURLWithPath: path), preferredName: preferredName)
+        let sourceURL = URL(fileURLWithPath: path)
+        let data: Data
+        do {
+            data = try await CoverRefresher.extractCoverData(sourceURL: sourceURL, preferredName: preferredName)
+        } catch CoverRefreshError.unsupportedFormat {
+            let ext = sourceURL.pathExtension
+            throw HTTPError(.badRequest, message: "この形式（.\(ext.isEmpty ? "?" : ext)）は表紙を自動生成できません")
+        }
         let resized = CoverImageResizer.resizeJPEG(data, maxPixelSize: 1200)
+        await simulateRaceBeforeWrite?()   // テスト専用: 再確認直前に割り込ませるためのフック（本番は常に nil）
+        // Important #1 の再確認（この行の直後に await は無い＝書き込みまでアトミック）。
+        if let fresh = try? db.fetchBook(id: bookID), CoverSource.isExternal(fresh.coverImageName) {
+            return   // 外部表紙へ切り替わっていた: 何もせず no-op で返す（呼び出し側は既存の 200/204 を維持）
+        }
         let url = coverURL(bundleURL: bundleURL, bookID: bookID)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try resized.write(to: url)

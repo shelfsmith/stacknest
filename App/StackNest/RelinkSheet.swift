@@ -7,6 +7,12 @@ import LibraryStore
 struct RelinkSheet: View {
     let database: Database
     var onApplied: () -> Void
+    /// Review follow-up Important #4: relink 成功後に呼ばれるフック。サーバ側 relink
+    /// エンドポイント（G21 #5）と同様、自動表紙の作り直し・ページ数の追従を行わせる
+    /// （実体は `AppState.refreshCoverAndPageCount(afterRelinkOf:)`）。RelinkSheet 自体は
+    /// AppState を持たないため、呼び出し側（LibraryBrowserView）から注入する。
+    /// 既定は no-op（テスト/プレビュー等で AppState が無い場合の後方互換）。
+    var afterRelink: (Int) async -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
 
     @State private var phase: Phase = .idle
@@ -116,6 +122,10 @@ struct RelinkSheet: View {
             try database.relinkBook(id: b.id, newPath: url.path(percentEncoded: false))
             onApplied()
             startScan()
+            // Review follow-up Important #4: 表紙・ページ数の追従は best-effort のバックグラウンド
+            // 処理（relink 自体の成否・再スキャンはこれを待たない）。完了後にもう一度 onApplied()
+            // して新しい表紙をグリッドへ反映する。
+            Task { await afterRelink(b.id); onApplied() }
         } catch {
             let a = NSAlert(); a.messageText = String(localized: "再リンクに失敗しました")
             a.informativeText = error.localizedDescription; a.runModal()
@@ -142,6 +152,18 @@ struct RelinkSheet: View {
                 let a = NSAlert()
                 a.messageText = String(localized: "\(apply.count) 件を再リンク、\(skipped) 件は新しい場所に見つからずスキップしました。")
                 a.runModal()
+            }
+            // Review follow-up Important #4: フォルダ一括リマップは数百冊規模になりうる
+            // （brief の指摘どおり最もボリュームの大きい経路）。表紙再生成はアーカイブ展開を
+            // 伴い 1 冊あたり数百ms〜数秒かかりうるため、UI スレッドを塞がないバックグラウンド
+            // Task で「1 冊ずつ順番に」処理する（無制限並列にすると、特にネットワークボリューム上で
+            // I/O が輻輳し Important #1 の指摘するとおり遅くなる/フリーズして見えるおそれがある）。
+            // 途中経過は都度 refresh せず、全件完了後に 1 回だけ onApplied() して UI 再描画を
+            // まとめる（数百件ぶんの refreshDisplayedBooks 連打による UI スラッシュを避ける）。
+            let ids = apply.map(\.id)
+            Task {
+                for id in ids { await afterRelink(id) }
+                onApplied()
             }
         } catch {
             let a = NSAlert(); a.messageText = String(localized: "再リンクに失敗しました")
