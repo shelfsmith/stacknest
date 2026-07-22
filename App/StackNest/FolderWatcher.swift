@@ -159,6 +159,9 @@ final class FolderWatcher {
                     rejectedSizes.removeValue(forKey: path)
                 }
             }
+            // 監視フォルダから消えた（削除/リネームされた）パスの記録は捨てる。
+            // 放置してもプロセス生存中の数十バイトだが、残しておく意味が無い（レビュー Minor）。
+            rejectedSizes = rejectedSizes.filter { currentSizes[$0.key] != nil }
 
             if !total.addedIDs.isEmpty || !total.failed.isEmpty { onImported(total) }
         }
