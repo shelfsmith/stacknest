@@ -947,6 +947,19 @@ final class RemoteLibraryState {
                 ok += 1
             } catch {
                 fail += 1
+                // G21 #4 診断: 「削除は成功しているのに赤字（サーバエラー -1）」の実体を突き止める。
+                // -1 は RemoteClientError.server(-1)＝RemoteLibraryClient の「分類外 URLError」。
+                // URLError.code をそのまま出して、cancelled(-999) なのか別物なのかを確定させる。
+                let detail: String
+                if let ue = error as? URLError {
+                    detail = "URLError code=\(ue.code.rawValue)"
+                } else if let rce = error as? RemoteClientError {
+                    detail = "RemoteClientError \(String(describing: rce))"
+                } else {
+                    detail = String(describing: type(of: error))
+                }
+                Self.reloadLog.warning(
+                    "G21diag deleteBook failed id=\(id, privacy: .public) trash=\(trash, privacy: .public) count=\(list.count, privacy: .public) activeBatchCount=\(self.activeBatchCount, privacy: .public): \(detail, privacy: .public)")
             }
         }
         if !restored.isEmpty { pushUndo(.restore(restored)) }
