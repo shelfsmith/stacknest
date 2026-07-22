@@ -297,10 +297,13 @@ body {
      → 幅に自動追従する full-bleed（`calc(50%-50vw)` 負マージンで viewport 端まで伸ばし、
      `calc(50vw-50%)` パディングで内容をコンテンツ列に戻す）。narrow(iPhone) では自動で
      -16px/16px に収束＝従来挙動。上マージン -16px は `.app-main` の padding-top(16px) を相殺し、
-     スクロール前も検索 UI を app-bar 直下（sticky 貼付位置）に置いて移動を消す。横スクロールは
-     生じない（macOS はオーバーレイスクロールバー・実測 overflow 0）。 */
-  padding: 0 calc(50vw - 50%) 10px;
-  margin: -16px calc(50% - 50vw) 0;
+     スクロール前も検索 UI を app-bar 直下（sticky 貼付位置）に置いて移動を消す。当時の macOS
+     オーバーレイスクロールバーでは横スクロールは生じなかった（実測 overflow 0）が、常時表示
+     スクロールバー環境では `50vw`/`50%` の差分ではみ出す（→ 下記 G21 #1 の実測補正で対応）。 */
+  /* G21 #1: `--sbw`（app.js が実測した縦スクロールバー幅 px）を左右で半分ずつ差し引く。
+     未設定・JS 未実行時は 0px にフォールバックして従来の挙動になる。 */
+  padding: 0 calc(50vw - 50% - var(--sbw, 0px) / 2) 10px;
+  margin: -16px calc(50% - 50vw + var(--sbw, 0px) / 2) 0;
 }
 
 .books-search {
