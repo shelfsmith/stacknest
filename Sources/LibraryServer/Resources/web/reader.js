@@ -37,6 +37,11 @@ export function normalizeVersion(raw) {
 /// 従来どおり（override 無しのケースと完全に同じ結果）。
 export function pagesForView(apiIndex, spread, pageCount, overrides = {}) {
     if (!spread) return [apiIndex];
+    // G21 #3: 先頭ページは表紙のことが多いため単独表示する（ネイティブ SpreadPaginator の
+    // coverOffset と同じ規約・リモート閲覧時のネイティブは常に coverOffset=true）。
+    // ただし forcePair(0) が明示されている場合は従来どおりペアを組む
+    // （SpreadPaginator の `coverOffset && override(0) != .forcePair` と同条件）。
+    if (apiIndex === 0 && overrides[0] !== 0) return [0];
     if (overrides[apiIndex] === 1) return [apiIndex];
     const second = apiIndex + 1;
     if (second >= pageCount) return [apiIndex];
@@ -59,8 +64,11 @@ export function step(apiIndex, dir, spread, pageCount, overrides = {}) {
     // 前進計算と対称になるようにする（apiIndex が既に有効なアンカーである前提）。
     const prev = apiIndex - 1;
     if (prev < 0) return 0;
+    // G21 #3: 先頭が単独表示のときは 1 の手前は必ず 0（0 と 1 は組まない）。
+    if (prev === 0) return 0;
     const prevPrev = prev - 1;
-    const pairsWithPrevPrev = prevPrev >= 0 && overrides[prevPrev] !== 1 && overrides[prev] !== 1;
+    const pairsWithPrevPrev = prevPrev >= 0 && overrides[prevPrev] !== 1 && overrides[prev] !== 1
+        && !(prevPrev === 0 && overrides[0] !== 0);
     const anchor = pairsWithPrevPrev ? prevPrev : prev;
     return Math.max(0, Math.min(pageCount - 1, anchor));
 }
