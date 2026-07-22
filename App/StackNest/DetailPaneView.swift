@@ -58,6 +58,10 @@ struct DetailPaneView: View {
     var remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
     /// G4a: 外部画像を表紙に設定（imageData, crop, bookID）。ローカルのみ注入・リモート/オフラインは nil。
     let onSetExternalCover: ((Data, CGRect?, Int) async -> Void)?
+    /// G21 #5: 1 冊だけ表紙を今のファイルから作り直す（右クリック「表紙を再生成」）。
+    /// nil ならメニュー項目自体が無効（オフライン等・編集不可の閲覧専用ビュー）。
+    /// 外部表紙（@external）の本は呼び出し側で disabled にする（サーバ/ローカルいずれも no-op 規約）。
+    var onRegenerateCover: ((Int) -> Void)? = nil
     /// G4b: 表紙書き込みごとに増える版数。詳細ペイン表紙ビューの identity に含め、
     /// メタ不変（外部画像の差し替え等）でも再描画/再取得させる。リモートは state.coverVersion を注入、
     /// ローカル/オフラインは 0 固定（従来挙動＝メタ変化で再描画）。
@@ -94,7 +98,8 @@ struct DetailPaneView: View {
         remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil,
         remoteEntryImage: ((Int, String) async -> NSImage?)? = nil,
         onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil,
-        coverVersion: Int = 0
+        coverVersion: Int = 0,
+        onRegenerateCover: ((Int) -> Void)? = nil
     ) {
         self.books = books
         self.librarySettings = librarySettings
@@ -123,6 +128,7 @@ struct DetailPaneView: View {
         self.remoteEntryImage = remoteEntryImage
         self.onSetExternalCover = onSetExternalCover
         self.coverVersion = coverVersion
+        self.onRegenerateCover = onRegenerateCover
     }
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
@@ -609,6 +615,13 @@ struct DetailPaneView: View {
                         }
                         // 既に自動 (coverImageName == nil) かつ crop_rect も nil の場合は完全に no-op のため disabled
                         .disabled(!isSingleSelection || !canEdit || (book.coverImageName == nil && book.coverCropRect == nil))
+                        // G21 #5: 表紙を今のファイルから作り直す。外部表紙（@external）はサーバ/ローカル
+                        // いずれも上書きしない規約のため、押しても何もしないより disabled にする。
+                        Button("表紙を再生成") {
+                            onRegenerateCover?(book.id)
+                        }
+                        .disabled(!isSingleSelection || !canEdit || onRegenerateCover == nil
+                                  || CoverSource.isExternal(book.coverImageName))
                     }
                     .sheet(isPresented: $showCoverPicker) {
                         // 選択確定の共通処理（cover write→crop write の atomicity はローカル/リモート共通）。

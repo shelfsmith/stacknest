@@ -563,7 +563,13 @@ struct LibraryWindowContainer: View {
                     onSetExternalCover: { data, crop, id in
                         try? await appState.setExternalCover(bookID: id, imageData: data, cropRect: crop, undoManager: appState.undoManager)
                     },
-                    coverVersion: appState.coverVersionByBook[appState.displayedSelectedBooks.first?.id ?? -1] ?? 0
+                    coverVersion: appState.coverVersionByBook[appState.displayedSelectedBooks.first?.id ?? -1] ?? 0,
+                    // G21 #5: 右クリック「表紙を再生成」。既存の regenerateThumbnail(for:) を再利用する
+                    // （AppState.swift・per-book purge+refresh 込みの既存経路。外部表紙は自前で保護する）。
+                    onRegenerateCover: { id in
+                        guard let book = appState.displayedBooks.first(where: { $0.id == id }) else { return }
+                        Task { await appState.regenerateThumbnail(for: book) }
+                    }
                 )
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)
             }

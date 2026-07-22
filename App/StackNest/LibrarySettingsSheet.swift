@@ -117,23 +117,23 @@ struct LibrarySettingsSheet: View {
             stagedBookTypeLabels = settings.customBookTypeLabels
         }
         .confirmationDialog(
-            "表紙を圧縮します",
+            "全ての表紙を再生成します",
             isPresented: $showRegenerationConfirm,
             titleVisibility: .visible
         ) {
-            Button("圧縮 (\(bookCount) 件)") {
+            Button("再生成 (\(bookCount) 件)") {
                 startRegeneration()
             }
             Button("キャンセル", role: .cancel) {}
         } message: {
-            Text("上限 1200 px を超える表紙を圧縮します。続行しますか?")
+            Text("全ての表紙を元ファイルから作り直します（1200 px を超えるものは縮小されます）。手動で選んだ表紙・アップロードした表紙は変更されません。続行しますか?")
         }
         .sheet(isPresented: Binding(
             get: { regenerationTask != nil && !showRegenerationResult },
             set: { _ in }
         )) {
             VStack(spacing: 16) {
-                Text("表紙を圧縮中…").font(.headline)
+                Text("表紙を再生成中…").font(.headline)
                 ProgressView(value: Double(regenerationProgress.0),
                              total: Double(max(regenerationProgress.1, 1)))
                 Text("\(regenerationProgress.0) / \(regenerationProgress.1)")
@@ -145,10 +145,10 @@ struct LibrarySettingsSheet: View {
             .padding(24)
             .frame(width: 320)
         }
-        .alert("圧縮完了", isPresented: $showRegenerationResult) {
+        .alert("再生成完了", isPresented: $showRegenerationResult) {
             Button("OK") { regenerationTask = nil }
         } message: {
-            Text(String(format: "%d 件処理、約 %.1f MB 削減",
+            Text(String(format: "%d 件を再生成しました（約 %.1f MB 削減）",
                         regenerationProgress.0, regenerationSavedMB))
         }
     }
@@ -287,10 +287,10 @@ struct LibrarySettingsSheet: View {
                 Button {
                     showRegenerationConfirm = true
                 } label: {
-                    Label("表紙を圧縮", systemImage: "arrow.down.circle")
+                    Label("表紙を再生成", systemImage: "arrow.down.circle")
                 }
                 .disabled(appState?.database == nil || bundleURL == nil)
-                Text("上限 1200 px を超える表紙のみ圧縮します。")
+                Text("全ての表紙を元ファイルから作り直します（手動・アップロードした表紙は対象外）。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -907,6 +907,24 @@ public struct LibraryServerCore: Sendable {
             let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
             return makeBookDetailDTO(from: updated)
         }
+        // G21 #5: 1 冊だけ表紙を今のファイルから作り直す（RW）。庫全体の再生成
+        // （maintenance/compress-covers）は 12,000 冊規模で現実的でないため、単冊経路を用意する。
+        // 外部表紙（手動アップロード）は上書きしない。アーカイブ内エントリを手動指定した本は
+        // coverImageName を preferredName として尊重し、同じエントリから作り直す。
+        api.post("libraries/:lib/books/:id/cover/regenerate") { [self] request, context in
+            try context.requireEdit()
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            guard !CoverSource.isExternal(row.coverImageName) else {
+                // 外部表紙は再抽出対象外。現状を返して no-op とする（エラーにはしない）。
+                return makeBookDetailDTO(from: row)
+            }
+            try await Self.regenerateThumbnail(
+                bookID: row.id, sourceURLPath: row.path, preferredName: row.coverImageName,
+                bundleURL: lib.bundleURL)
+            self.notifyBookChanged(lib.uuid, row.id)
+            let updated = (try? lib.db.fetchBook(id: row.id)) ?? row
+            return makeBookDetailDTO(from: updated)
+        }
         // G4b: 外部画像を表紙に（RW）。画像バイトを thumbnail.jpg として保存＋coverImageName="@external"＋crop。
         api.put("libraries/:lib/books/:id/cover-image") { [self] request, context in
             try context.requireEdit()
@@ -1251,6 +1269,20 @@ public struct LibraryServerCore: Sendable {
             let body = try await request.decode(as: RelinkRequest.self, context: context)
             guard !body.newPath.isEmpty else { throw HTTPError(.badRequest) }
             try lib.db.relinkBook(id: bookID, newPath: body.newPath)
+            // G21 #5: relink はファイルが別物になったということなので、自動表紙は作り直し、
+            // ページ数も新しいファイルの実数に更新する（smoke A10: 表紙とページ数だけ旧のまま問題）。
+            // 手動指定・外部表紙は温存する。失敗しても relink 自体は成功扱いにする。
+            if let updatedRow = (try? lib.db.fetchBook(id: bookID)) ?? nil {
+                if !CoverSource.isExternal(updatedRow.coverImageName) {
+                    try? await Self.regenerateThumbnail(
+                        bookID: updatedRow.id, sourceURLPath: updatedRow.path,
+                        preferredName: updatedRow.coverImageName, bundleURL: lib.bundleURL)
+                }
+                if let content = try? BookContentFactory.make(for: updatedRow),
+                   let n = try? await content.pageCount {
+                    try? lib.db.updateBookPages(id: updatedRow.id, newPages: n)
+                }
+            }
             self.notifyStructureChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }
