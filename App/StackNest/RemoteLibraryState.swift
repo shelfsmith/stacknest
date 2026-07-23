@@ -943,7 +943,7 @@ final class RemoteLibraryState {
 
     /// リモート削除のコア（単一/複数で共有）。進捗（editProgress）・×中断（cancel）・要約を出す。
     /// キャンセル意味論: 各項目の前で `cancel.isCancelled` を判定＝**残りの未処理分を止める**。×ボタンは
-    /// `cancelBatchEdit()`（editCancel＋editTask）を呼ぶため、in-flight の `deleteBook` も Task
+    /// `cancelActiveBatch()`（editCancel＋editTask）を呼ぶため、in-flight の `deleteBook` も Task
     /// キャンセルで打ち切られる（`URLError.cancelled` → 下の catch で「失敗」ではなく「中断」に寄せる。
     /// applyRemotePatchMulti と同じ）。in-flight の 1 件はサーバが commit 済みかどうか曖昧になりうるが、
     /// 次回 `liveReload` で一覧は自己補正され、trash 削除ならファイルは macOS ゴミ箱から手動復旧可能＝
@@ -954,7 +954,9 @@ final class RemoteLibraryState {
         errorText = nil
         var ok = 0, fail = 0, cancelled = false
         var restored: [BookRestoreDTO] = []
-        editProgress = (0, list.count)
+        // Fix 1 (Codex High): editProgress は編集/削除で共有される。所有時（editCancel === cancel）のみ書き、
+        // 後続バッチに超越された旧タスクの末尾が新タスクの進捗を壊さないようにする。
+        if editCancel === cancel { editProgress = (0, list.count) }
         for (i, id) in list.enumerated() {
             if cancel.isCancelled { cancelled = true; break }   // 反復前の中断＝残りを止める
             do {
@@ -970,18 +972,30 @@ final class RemoteLibraryState {
                 if cancel.isCancelled || Task.isCancelled { cancelled = true; break }
                 fail += 1
             }
-            editProgress = (i + 1, list.count)
+            if editCancel === cancel { editProgress = (i + 1, list.count) }
         }
-        editProgress = nil
+        // 実際に起きた作業の反映（undo・total）は所有権に関係なく行う（消えた本の undo を失わない）。
         if !restored.isEmpty { pushUndo(.restore(restored)) }
+        total = max(0, total - ok)
+        // ここから先の共有 UI 状態（editProgress/multiSelection/selection/editSummary）は所有時のみ書く。
+        // 後続バッチに超越されていれば editCancel !== cancel となり、末尾処理をまるごと skip する。
+        // なおユーザーが×で中断した場合は cancel.isCancelled は真だが editCancel === cancel は保たれる
+        // ため、従来どおり要約「N削除/K中断」が出る（identity で所有と中断を区別）。
+        guard editCancel === cancel else { return }
+        editProgress = nil
         multiSelection.removeAll()
         if let sel = selection, !books.contains(where: { $0.id == sel }) { selection = nil }
-        total = max(0, total - ok)
         var parts = ["\(ok) 件削除"]
         if fail > 0 { parts.append("\(fail) 件失敗") }
         if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }
         showEditSummary(parts.joined(separator: " / "),
                         kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
+        // Fix 3 (Codex Medium): cancel された in-flight 削除がサーバでは commit 済みだと、その 1 件が
+        // books に残る（catch で removeAll に到達しない）。所有している今だけ liveReload で自己補正する
+        // （guard を通っている＝editCancel === cancel。後続バッチがあればそちらが最新化を担当）。
+        if cancelled {
+            await liveReload()
+        }
     }
 
     /// リモート削除を開始（×中断トークン付き・編集バッチと相互排他）。
@@ -992,8 +1006,6 @@ final class RemoteLibraryState {
         editTask = Task { [weak self] in await self?.performDeleteBooks(ids: ids, trash: trash, cancel: flag) }
     }
 
-    func cancelBatchDelete() { editCancel?.cancel(); editTask?.cancel() }
-
     /// 詳細ペインの複数選択一括編集を開始（RW 必須・×中断トークン付き）。
     func startBatchEdit(ids: Set<Int>, patch: BookPatch) {
         guard canEdit, !ids.isEmpty else { return }
@@ -1002,7 +1014,9 @@ final class RemoteLibraryState {
         editTask = Task { [weak self] in await self?.applyRemotePatchMulti(ids: ids, patch: patch, cancel: flag) }
     }
 
-    func cancelBatchEdit() { editCancel?.cancel(); editTask?.cancel() }
+    /// 実行中の一括編集/削除バッチを中断する（editCancel＋editTask を立てる。両者は共有トークンなので
+    /// 編集・削除いずれのバッチにも効く。× ボタンから呼ぶ）。
+    func cancelActiveBatch() { editCancel?.cancel(); editTask?.cancel() }
 
     /// 一律 patch を選択本へ per-book PATCH（replace）。進捗・中断・要約を出す。
     private func applyRemotePatchMulti(ids: Set<Int>, patch: BookPatch, cancel: CancelFlag) async {
@@ -1025,7 +1039,8 @@ final class RemoteLibraryState {
         errorText = nil
         var ok = 0, fail = 0, cancelled = false
         var appliedInverses: [(bookID: Int, patch: BookPatchDTO)] = []
-        editProgress = (0, list.count)
+        // Fix 1 (Codex High): editProgress は編集/削除で共有される。所有時のみ書く（下記末尾も同様）。
+        if editCancel === cancel { editProgress = (0, list.count) }
         for (i, id) in list.enumerated() {
             if cancel.isCancelled { cancelled = true; break }
             do {
@@ -1039,7 +1054,7 @@ final class RemoteLibraryState {
                 }
                 if let inv { appliedInverses.append((id, inv)) }
             } catch {
-                // G21 #4 follow-up: startBatchEdit()/cancelBatchEdit() cancel the in-flight PATCH
+                // G21 #4 follow-up: startBatchEdit()/cancelActiveBatch() cancel the in-flight PATCH
                 // (editTask?.cancel() + CancelFlag) exactly like the multi-delete SSE race fixed in
                 // cdc92d5 — the in-flight updateBook() throws URLError.cancelled → RemoteClientError.cancelled.
                 // That is not a genuine failure (403/500/offline), it's this book simply not having been
@@ -1048,10 +1063,13 @@ final class RemoteLibraryState {
                 if cancel.isCancelled || Task.isCancelled { cancelled = true; break }
                 fail += 1
             }
-            editProgress = (i + 1, list.count)
+            if editCancel === cancel { editProgress = (i + 1, list.count) }
         }
+        // 実際に適用した分の undo は所有権に関係なく積む（取り消し可能性を失わない）。
         if !appliedInverses.isEmpty { pushUndo(.rePatch(appliedInverses)) }
-        editProgress = nil
+        // editProgress は共有 UI 状態なので所有時のみクリアする。liveReload/selectBook（一覧・詳細の
+        // 最新化）と activeBatchCount/flushLiveEvents（SSE 抑止の参照カウント）は所有権とは別軸なので従来どおり。
+        if editCancel === cancel { editProgress = nil }
         await liveReload()                 // 位置保持で一覧を最新化
         if let id = selection { await selectBook(id) }   // 詳細ペインを最新化
         // batch 自前の reload でサーバ真値へ揃えたので、抑止していた自エコー分は捨ててよい。
@@ -1071,6 +1089,8 @@ final class RemoteLibraryState {
                 await flushLiveEvents()
             }
         }
+        // editSummary も共有 UI 状態なので所有時のみ出す（超越された旧タスクが旧要約を出さない）。
+        guard editCancel === cancel else { return }
         var parts = ["\(ok) 件更新"]
         if fail > 0 { parts.append("\(fail) 件失敗") }
         if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }

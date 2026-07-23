@@ -51,6 +51,13 @@ public enum CoverCompression {
                 let resized = await CoverRefresher.resizeCoverDataOffMain(data, maxPixelSize: 1200)
                 let bookDir = thumbURL.deletingLastPathComponent()
                 try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+                // Codex(G22) Medium: 抽出の await 中に別クライアントが外部表紙をアップロードした場合、
+                // write 直前に再確認して上書きを防ぐ（LibraryServerCore.regenerateThumbnail と同じ理由・
+                // 「external かつ thumbnail 現存」だけを弾く＝外部サムネ不在のフォールバックは殺さない）。
+                if let fresh2 = try? db.fetchBook(id: book.id), CoverSource.isExternal(fresh2.coverImageName),
+                   FileManager.default.fileExists(atPath: thumbURL.path) {
+                    continue
+                }
                 try resized.write(to: thumbURL)
             } catch CoverRefreshError.unsupportedFormat {
                 logger.warning("Unsupported format, skip cover regenerate id=\(book.id, privacy: .public)")
