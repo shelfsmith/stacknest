@@ -931,7 +931,7 @@ private struct RemoteBatchEditButton: View {
                 ProgressView(value: Double(p.done) / Double(max(1, p.total))).frame(width: 80)
                 Text("\(p.done)/\(p.total)").font(.caption).foregroundStyle(.secondary)
                 Button { state.cancelBatchEdit() } label: { Image(systemName: "xmark.circle") }
-                    .help("一括編集を中断")
+                    .help("中断")
             } else if let summary = state.editSummary {
                 let style = Self.summaryStyle(state.editSummaryKind)
                 Label(summary, systemImage: style.icon).font(.caption).foregroundStyle(style.color)

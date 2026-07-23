@@ -941,17 +941,18 @@ final class RemoteLibraryState {
         }
     }
 
-    /// Phase C-②: 選択本をサーバから削除（admin 必須）。trash=true でゴミ箱＋DB削除、false で DB のみ。
-    /// G12b-3c S5: 削除成功分は BookRestoreDTO として undo スタックに積み、undo() で復元できる。
-    /// 成功分をローカル一覧から除去し、失敗は要約表示する。
-    func deleteBooks(ids: Set<Int>, trash: Bool) async {
+    /// リモート削除のコア（単一/複数で共有）。進捗（editProgress）・×中断（cancel）・要約を出す。
+    /// キャンセル意味論: 各項目の前で中断＝残りの未処理分を止める。in-flight の deleteBook は完走させる
+    /// （サーバ状態の曖昧さ回避）。削除は不可逆なので処理済みは戻さない。
+    private func performDeleteBooks(ids: Set<Int>, trash: Bool, cancel: CancelFlag) async {
         guard canDelete, !ids.isEmpty else { return }
         let list = Array(ids)
         errorText = nil
-        var ok = 0, fail = 0
-        // G12b-3c S5: 削除に成功した行の BookRestoreDTO を集め、undo（restore）に使う。
+        var ok = 0, fail = 0, cancelled = false
         var restored: [BookRestoreDTO] = []
-        for id in list {
+        editProgress = (0, list.count)
+        for (i, id) in list.enumerated() {
+            if cancel.isCancelled { cancelled = true; break }   // 反復前の中断＝残りを止める
             do {
                 let row = try await client.deleteBook(libraryUUID: libraryUUID, bookID: id, trash: trash, libraryToken: libraryToken)
                 restored.append(row)
@@ -960,17 +961,34 @@ final class RemoteLibraryState {
                 books.removeAll { $0.id == id }
                 ok += 1
             } catch {
+                // in-flight delete が編集バッチと同じくキャンセルで URLError.cancelled になった場合は
+                // 「失敗」ではなく「中断」に寄せる（applyRemotePatchMulti と同じ扱い）。
+                if cancel.isCancelled || Task.isCancelled { cancelled = true; break }
                 fail += 1
             }
+            editProgress = (i + 1, list.count)
         }
+        editProgress = nil
         if !restored.isEmpty { pushUndo(.restore(restored)) }
         multiSelection.removeAll()
         if let sel = selection, !books.contains(where: { $0.id == sel }) { selection = nil }
         total = max(0, total - ok)
         var parts = ["\(ok) 件削除"]
         if fail > 0 { parts.append("\(fail) 件失敗") }
-        showEditSummary(parts.joined(separator: " / "), kind: fail > 0 ? .warning : .success)
+        if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }
+        showEditSummary(parts.joined(separator: " / "),
+                        kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
     }
+
+    /// リモート削除を開始（×中断トークン付き・編集バッチと相互排他）。
+    func startBatchDelete(ids: Set<Int>, trash: Bool) {
+        guard canDelete, !ids.isEmpty else { return }
+        editCancel?.cancel(); editTask?.cancel()
+        let flag = CancelFlag(); editCancel = flag
+        editTask = Task { [weak self] in await self?.performDeleteBooks(ids: ids, trash: trash, cancel: flag) }
+    }
+
+    func cancelBatchDelete() { editCancel?.cancel(); editTask?.cancel() }
 
     /// 詳細ペインの複数選択一括編集を開始（RW 必須・×中断トークン付き）。
     func startBatchEdit(ids: Set<Int>, patch: BookPatch) {

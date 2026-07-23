@@ -21,6 +21,6 @@ enum RemoteDeleteCommand {
         }
         alert.addButton(withTitle: String(localized: "キャンセル"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        Task { await state.deleteBooks(ids: ids, trash: trash) }
+        state.startBatchDelete(ids: ids, trash: trash)
     }
 }
