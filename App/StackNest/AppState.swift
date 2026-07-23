@@ -1503,6 +1503,10 @@ final class AppState {
         } catch {
             Self.coverLogger.error("setExternalCover: crop write failed bookID=\(bookID, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
+        // G22 #2: 外部表紙 A→B 差し替えは coverImageName（@external）も crop も変えないことがあり、
+        // BookCell の .task(id:) 識別子が動かず古い表紙のまま残る（G21 Bug A と同クラス・regenerate 側は
+        // 既に bump 済みだが setExternalCover が漏れていた）。per-book token を bump して再描画させる。
+        coverVersionByBook[bookID, default: 0] &+= 1
         try? refreshDisplayedBooks()
         Self.coverLogger.info("setExternalCover: applyPatch+crop done, bookID=\(bookID, privacy: .public)")
     }
