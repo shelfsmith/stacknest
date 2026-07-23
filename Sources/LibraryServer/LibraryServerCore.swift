@@ -851,7 +851,7 @@ public struct LibraryServerCore: Sendable {
                         let willFallBackToAuto = CoverSource.isExternal(dto.coverImageName)
                             && !FileManager.default.fileExists(
                                 atPath: coverURL(bundleURL: lib.bundleURL, bookID: dto.id).path)
-                        try? await Self.regenerateThumbnail(
+                        let regenOutcome = try? await Self.regenerateThumbnail(
                             bookID: dto.id, sourceURLPath: effectiveDTO.path,
                             preferredName: dto.coverImageName, bundleURL: lib.bundleURL, db: lib.db)
                         // `bookRow(from:)` reintroduced the crop the DTO carried, which was
@@ -861,7 +861,14 @@ public struct LibraryServerCore: Sendable {
                         // auto/manual regenerate/relink (both of which guard `!isExternal` before
                         // ever calling regenerateThumbnail), keeps its own legitimately-authored
                         // crop untouched.
-                        if willFallBackToAuto {
+                        //
+                        // Codex review #4 (G21 followup): additionally require that regeneration
+                        // actually WROTE the auto cover (`.wroteAuto`). If the source is gone /
+                        // unreadable / unsupported, `regenerateThumbnail` throws (→ `try?` yields
+                        // nil) or returns `.skippedExternal`, meaning no auto cover exists; clearing
+                        // the crop then would discard the restored rectangle for nothing. Only clear
+                        // when the fallback both was predicted AND produced a fresh auto cover.
+                        if willFallBackToAuto, regenOutcome == .wroteAuto {
                             try? lib.db.updateBookCoverCropRect(id: dto.id, json: nil)
                         }
                     }
@@ -1296,7 +1303,7 @@ public struct LibraryServerCore: Sendable {
             // 手動指定・外部表紙は温存する。失敗しても relink 自体は成功扱いにする。
             if let updatedRow = (try? lib.db.fetchBook(id: bookID)) ?? nil {
                 if !CoverSource.isExternal(updatedRow.coverImageName) {
-                    try? await Self.regenerateThumbnail(
+                    _ = try? await Self.regenerateThumbnail(
                         bookID: updatedRow.id, sourceURLPath: updatedRow.path,
                         preferredName: updatedRow.coverImageName, bundleURL: lib.bundleURL, db: lib.db)
                 }
@@ -1663,10 +1670,21 @@ public struct LibraryServerCore: Sendable {
     ///   （直下の実装参照）ため、「行が external」は「ファイルが既に存在する」を含意する —
     ///   つまりファイル存在チェックを足しても Important #1 のレースは閉じたままである
     ///   （別クライアントが外部表紙をアップロードした場合、その時点で書き込みも完了済み）。
+    /// `regenerateThumbnail` の結果。G21 followup Codex review #4 の crop クリア判定に使う。
+    /// crop（消えた外部画像用に authored された矩形）は「フォールバックで自動表紙を**実際に
+    /// 書いた**」ときだけクリアしてよい。抽出失敗や external 保護 no-op では自動表紙が
+    /// 書かれていないため、crop を消すと復元した矩形を根拠なく失うことになる（成功を確認して
+    /// から消す＝`.wroteAuto` のときだけ）。
+    enum CoverRegenOutcome: Sendable {
+        case wroteAuto        // 自動（先頭ページ等）表紙を書いた
+        case skippedExternal  // 外部表紙へ切り替わり済み＋ファイル現存で no-op（Important #1 レース保護）
+    }
+
+    @discardableResult
     static func regenerateThumbnail(
         bookID: Int, sourceURLPath: String?, preferredName: String?, bundleURL: URL, db: Database,
         simulateRaceBeforeWrite: (@Sendable () async -> Void)? = nil
-    ) async throws {
+    ) async throws -> CoverRegenOutcome {
         guard let path = sourceURLPath else {
             throw HTTPError(.badRequest, message: "本の実ファイルが見つかりません")
         }
@@ -1684,10 +1702,11 @@ public struct LibraryServerCore: Sendable {
         // Important #1 の再確認（この行の直後に await は無い＝書き込みまでアトミック）。
         if let fresh = try? db.fetchBook(id: bookID), CoverSource.isExternal(fresh.coverImageName),
            FileManager.default.fileExists(atPath: url.path) {
-            return   // 外部表紙へ切り替わっていて、かつその表紙ファイルが現存する: no-op（既存 200/204 を維持）
+            return .skippedExternal   // 外部表紙へ切り替わっていて、かつその表紙ファイルが現存する: no-op（既存 200/204 を維持）
         }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try resized.write(to: url)
+        return .wroteAuto
     }
 
     /// G12b-2c: GET/PUT 応答用に現在の監視設定を DTO 化する（folders に subfolderMode 反映＋presets 同梱）。

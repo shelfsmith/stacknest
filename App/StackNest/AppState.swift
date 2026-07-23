@@ -1512,13 +1512,14 @@ final class AppState {
     /// 指定 book の thumbnail を cover_image_name に基づいて再生成。
     /// thumbnail loader cache を purge して UI に再表示を促す。
     /// エラーは log only — UI へのアラートは出さない (Task 8 で background refresh として利用)。
-    func regenerateThumbnail(for book: BookRow) async {
+    func regenerateThumbnail(for book: BookRow, refreshUI: Bool = true) async {
         Self.coverLogger.info("regenerateThumbnail: bookID=\(book.id), coverImageName=\(book.coverImageName ?? "nil")")
         let thumbDir = bundleURL.appending(path: "Thumbnails")
         // 外部表紙（@external）: 既存の外部サムネが**存在するとき**だけ保護スキップ。
         // 不在（delete→Undo でサムネごと消える等・外部バイトは復旧不能）なら自動表紙へフォールバックさせ、
         // 恒久的な空白表紙を防ぐ。フォールバック時は preferredName=nil（先頭ページ）で archive 経路へ。
         var preferredName = book.coverImageName
+        var didFallbackFromExternal = false
         if CoverSource.isExternal(book.coverImageName) {
             let extThumb = thumbDir.appendingPathComponent("\(book.id)/thumbnail.jpg")
             if FileManager.default.fileExists(atPath: extThumb.path) {
@@ -1529,10 +1530,14 @@ final class AppState {
             preferredName = nil
             // Bug B fix (G21 #5 smoke follow-up): crop was authored for the now-gone external
             // image; once we fall back to the auto (first-page) cover, that crop no longer
-            // applies and would distort the auto cover if left in place. This branch is reached
-            // only on external + thumbnail-file-missing (the fallback case), so clearing here is
-            // never reached for a preserved external cover or a normal auto/manual regenerate.
-            try? database?.updateBookCoverCropRect(id: book.id, json: nil)
+            // applies and would distort the auto cover if left in place.
+            //
+            // Codex review #4 (G21 followup): defer the actual clear until AFTER a successful
+            // write. If `book.path` is nil (guard below) or extraction/resize/write throws, no
+            // auto cover is produced — clearing the crop here would discard the restored rectangle
+            // for nothing (and leave the book with neither a valid external image nor its crop).
+            // Mirror the server restore handler, which clears only on `.wroteAuto`.
+            didFallbackFromExternal = true
         }
         guard let path = book.path else { return }
         let sourceURL = URL(fileURLWithPath: path)
@@ -1558,14 +1563,37 @@ final class AppState {
             // どちらもファイルを書いてから DB を external にするため、「external かつファイル
             // 現存」だけを弾いてもレース対策としては十分（LibraryServerCore.regenerateThumbnail
             // の同じ注記を参照）。
-            if let fresh = try? database?.fetchBook(id: book.id), CoverSource.isExternal(fresh.coverImageName),
-               FileManager.default.fileExists(atPath: thumbURL.path) {
-                Self.coverLogger.info("regenerateThumbnail: became external during extraction, skip write bookID=\(book.id, privacy: .public)")
-                return
+            if let fresh = try? database?.fetchBook(id: book.id) {
+                if CoverSource.isExternal(fresh.coverImageName),
+                   FileManager.default.fileExists(atPath: thumbURL.path) {
+                    Self.coverLogger.info("regenerateThumbnail: became external during extraction, skip write bookID=\(book.id, privacy: .public)")
+                    return
+                }
+                // Codex review #2 (G21 followup): relink follow-up work runs in independent,
+                // untracked Tasks; extraction suspends for seconds on large sources. If the book
+                // was relinked to a *different* path while this task was extracting from `path`,
+                // a newer regenerate is authoritative and may already have written the correct
+                // cover for the new source — writing our stale extraction (from the now-superseded
+                // path) would overwrite it. Skip when the live path no longer matches the snapshot
+                // we extracted from. (Detached extraction does not inherit cancellation reliably,
+                // so a final state guard is required even if we also cancelled the prior task.)
+                if fresh.path != book.path {
+                    Self.coverLogger.info("regenerateThumbnail: path changed during extraction (stale relink), skip write bookID=\(book.id, privacy: .public)")
+                    return
+                }
             }
             try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
             try resized.write(to: thumbURL)
             Self.coverLogger.info("regenerateThumbnail: file written, bookID=\(book.id)")
+            // Codex review #4 (G21 followup): the crop authored for the now-gone external image is
+            // cleared only here — after the auto cover was actually written — not up-front in the
+            // fallback branch. If path was nil or extraction/write failed, we never reach this line
+            // and the restored crop is preserved (mirrors the server restore handler's `.wroteAuto`
+            // gate). Reached only on the external→auto fallback (didFallbackFromExternal) after a
+            // real write.
+            if didFallbackFromExternal {
+                try? database?.updateBookCoverCropRect(id: book.id, json: nil)
+            }
             // 🔧 Fix A: per-book purge instead of full-cache purge (cheaper + avoids CGImageSource URL cache).
             await thumbnailLoader?.purge(bookID: book.id)
             Self.coverLogger.info("regenerateThumbnail: cache purged (per-book), bookID=\(book.id)")
@@ -1579,8 +1607,15 @@ final class AppState {
             // preserved, became-external-during-extraction race) and the catch blocks below (
             // unsupported format, generic failure) never reach this line, since nothing was written.
             coverVersionByBook[book.id, default: 0] &+= 1
-            try? refreshDisplayedBooks()
-            Self.coverLogger.info("regenerateThumbnail: refresh done, bookID=\(book.id)")
+            // Codex review #3 (G21 followup): the per-book `refreshDisplayedBooks()` is what made
+            // a 40-book bulk folder remap run 40 full list/DB rebuilds on the MainActor — the exact
+            // UI churn `RelinkSheet.remapFolder` believed it had deferred to a single trailing
+            // `onApplied()`. In bulk mode the caller passes `refreshUI: false`; the per-book cover
+            // token is still bumped above (so identities change), and one `refreshDisplayedBooks()`
+            // after the whole loop picks up every bumped identity at once. Single-book callers keep
+            // the default `true`.
+            if refreshUI { try? refreshDisplayedBooks() }
+            Self.coverLogger.info("regenerateThumbnail: refresh done (refreshUI=\(refreshUI)), bookID=\(book.id)")
         } catch CoverRefreshError.unsupportedFormat {
             Self.logger.warning("regenerateThumbnail: unsupported format for book \(book.id) path=\(path)")
         } catch {
@@ -1596,9 +1631,13 @@ final class AppState {
     /// `regenerateThumbnail(for:)` 内の既存ガードが温存する。relink 自体は既にコミット済みの
     /// 前提で呼ぶため、ここでの失敗はすべて log-only（relink 自体の成否には影響させない —
     /// サーバ側の `try?` と同じ best-effort 方針）。
-    func refreshCoverAndPageCount(afterRelinkOf bookID: Int) async {
+    /// Codex review #3 (G21 followup): `refreshUI` は表紙再生成後の `refreshDisplayedBooks()` を
+    /// 出すか。フォルダ一括リマップ（数十〜数百冊）では `false` を渡して per-book refresh を抑止し、
+    /// 呼び出し側が全件完了後に 1 回だけ refresh する（`RelinkSheet.remapFolder`）。単冊 relink は
+    /// 既定 `true`。ページ数更新（DB 書込）は refreshUI に関係なく常に行う。
+    func refreshCoverAndPageCount(afterRelinkOf bookID: Int, refreshUI: Bool = true) async {
         guard let db = database, let row = try? db.fetchBook(id: bookID) else { return }
-        await regenerateThumbnail(for: row)
+        await regenerateThumbnail(for: row, refreshUI: refreshUI)
         if let content = try? BookContentFactory.make(for: row),
            let pages = try? await content.pageCount {
             try? db.updateBookPages(id: bookID, newPages: pages)

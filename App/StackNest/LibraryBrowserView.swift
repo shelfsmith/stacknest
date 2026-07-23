@@ -963,10 +963,12 @@ struct LibraryBrowserView: View {
         if let db = appState.database {
             RelinkSheet(database: db, onApplied: {
                 try? appState.refreshDisplayedBooks()
-            }, afterRelink: { bookID in
+            }, afterRelink: { bookID, refreshUI in
                 // Review follow-up Important #4: RelinkSheet の単冊/フォルダ一括リマップ両方に
                 // サーバ側 relink と同じ表紙・ページ数追従を効かせる。
-                await appState.refreshCoverAndPageCount(afterRelinkOf: bookID)
+                // Codex review #3 (G21 followup): 一括リマップは refreshUI=false で per-book refresh
+                // を抑止（末尾 onApplied で 1 回）。単冊は true。
+                await appState.refreshCoverAndPageCount(afterRelinkOf: bookID, refreshUI: refreshUI)
             })
         }
     }

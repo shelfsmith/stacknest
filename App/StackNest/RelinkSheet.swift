@@ -9,10 +9,13 @@ struct RelinkSheet: View {
     var onApplied: () -> Void
     /// Review follow-up Important #4: relink 成功後に呼ばれるフック。サーバ側 relink
     /// エンドポイント（G21 #5）と同様、自動表紙の作り直し・ページ数の追従を行わせる
-    /// （実体は `AppState.refreshCoverAndPageCount(afterRelinkOf:)`）。RelinkSheet 自体は
+    /// （実体は `AppState.refreshCoverAndPageCount(afterRelinkOf:refreshUI:)`）。RelinkSheet 自体は
     /// AppState を持たないため、呼び出し側（LibraryBrowserView）から注入する。
     /// 既定は no-op（テスト/プレビュー等で AppState が無い場合の後方互換）。
-    var afterRelink: (Int) async -> Void = { _ in }
+    /// Codex review #3 (G21 followup): 第 2 引数 `refreshUI` は表紙再生成後に list refresh を
+    /// 出すか。フォルダ一括リマップは `false`（per-book refresh を抑止＝全件後に onApplied で 1 回）、
+    /// 単冊は `true`。
+    var afterRelink: (Int, Bool) async -> Void = { _, _ in }
     @Environment(\.dismiss) private var dismiss
 
     @State private var phase: Phase = .idle
@@ -125,7 +128,7 @@ struct RelinkSheet: View {
             // Review follow-up Important #4: 表紙・ページ数の追従は best-effort のバックグラウンド
             // 処理（relink 自体の成否・再スキャンはこれを待たない）。完了後にもう一度 onApplied()
             // して新しい表紙をグリッドへ反映する。
-            Task { await afterRelink(b.id); onApplied() }
+            Task { await afterRelink(b.id, true); onApplied() }
         } catch {
             let a = NSAlert(); a.messageText = String(localized: "再リンクに失敗しました")
             a.informativeText = error.localizedDescription; a.runModal()
@@ -160,9 +163,13 @@ struct RelinkSheet: View {
             // I/O が輻輳し Important #1 の指摘するとおり遅くなる/フリーズして見えるおそれがある）。
             // 途中経過は都度 refresh せず、全件完了後に 1 回だけ onApplied() して UI 再描画を
             // まとめる（数百件ぶんの refreshDisplayedBooks 連打による UI スラッシュを避ける）。
+            // Codex review #3 (G21 followup): 各 afterRelink に refreshUI=false を渡して per-book の
+            // refreshDisplayedBooks を抑止する（従来はこの内部 refresh が生きていて「1 回だけ」の
+            // 意図が破れ、40 冊で 40 回 refresh していた）。cover 識別子の bump は各冊で行われ、
+            // 末尾の onApplied() 1 回でまとめて反映される。
             let ids = apply.map(\.id)
             Task {
-                for id in ids { await afterRelink(id) }
+                for id in ids { await afterRelink(id, false) }
                 onApplied()
             }
         } catch {
