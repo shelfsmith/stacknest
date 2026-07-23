@@ -166,6 +166,106 @@ struct BookRestoreEndpointTests {
         #expect(try fx.db.fetchBook(id: id)?.coverImageName == CoverSource.externalSentinel)
     }
 
+    // MARK: - G21 #5 smoke follow-up (Bug B): crop残存 on external→auto fallback
+
+    /// 外部表紙＋crop 付きの本を削除→Undo（restore）すると、DELETE がサムネごと消すため
+    /// 外部表紙は復旧不能→自動（先頭ページ）表紙へフォールバックする。この時、restore が
+    /// 再導入した crop（外部画像のために設定されたもの）は自動表紙には適用不能なので、
+    /// クリアされていること（Bug B: クリアしないと自動表紙が歪んで表示される）。
+    @Test func restoreClearsCropWhenExternalCoverFallsBackToAuto() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreExtCropFallback", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        try fx.db.updateBook(id: id, patch: BookPatch(coverImageName: CoverSource.externalSentinel))
+        try fx.addCover(bookID: id)
+        let cropRect = CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4)
+        try fx.db.updateBookCoverCropRect(id: id, json: BookRow.encodeCoverCropRect(cropRect))
+        let before = try #require(try fx.db.fetchBook(id: id))
+        #expect(before.coverCropRect != nil)   // 前提: crop が設定されている
+
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        let app = makeApp(fixture: fx, adminTier: true)
+        nonisolated(unsafe) var captured: BookRestoreDTO?
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(id)", method: .delete,
+                headers: [.authorization: "Bearer W"]
+            ) { response in
+                #expect(response.status == .ok)
+                captured = try JSONDecoder().decode(BookRestoreDTO.self, from: Data(buffer: response.body))
+            }
+            let dto = try #require(captured)
+            #expect(dto.coverImageName == CoverSource.externalSentinel)
+            // DTO は削除前の crop を運んでいる（bookRow(from:) がこれを再導入する）。
+            #expect(dto.coverCropX != nil)
+            #expect(!FileManager.default.fileExists(atPath: thumb.path))   // DELETE がサムネを消した
+
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        let after = try #require(try fx.db.fetchBook(id: id))
+        #expect(after.coverCropRect == nil)                              // crop がクリアされている
+        #expect(after.coverImageName == CoverSource.externalSentinel)    // 行自体は external のまま
+        #expect(FileManager.default.fileExists(atPath: thumb.path))      // 自動表紙が生成された
+    }
+
+    /// Control: 外部サムネイルファイルが現存する（＝保護 no-op される）ケースでは crop は
+    /// クリアされない。DELETE エンドポイントは Thumbnails/<id> を必ず丸ごと消すため、この状況は
+    /// エンドポイント経由の delete→restore では再現できない（それ自体が「isExternal だけでは
+    /// fallback かどうか区別できないが、DELETE の全消し挙動により restore 時点では実質的に
+    /// fallback 一択になる」という本文の分析の裏付け）。よって DB からだけ行を消し、サムネイル
+    /// ファイルは手動で残したまま restore を直接叩いて、保護 no-op 分岐（サーバー側
+    /// `regenerateThumbnail` の isExternal-かつ-ファイル現存 no-op）に到達させる。
+    @Test func restorePreservesCropWhenExternalThumbnailStillPresent() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreExtCropPreserved", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        let originalPath = try #require(try fx.db.fetchBook(id: id)?.path)
+        let cropRect = CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4)
+
+        // DB からだけ行を消す（DELETE エンドポイントは使わない＝サムネイルを丸ごと消してしまうため）。
+        try fx.db.deleteBook(id: id)
+        try fx.addCover(bookID: id)   // 外部サムネイル現存を模す
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        #expect(FileManager.default.fileExists(atPath: thumb.path))
+        let beforeThumbData = try Data(contentsOf: thumb)
+
+        let dto = BookRestoreDTO(
+            id: id, title: "three_pages", author: nil, genre: nil, path: originalPath,
+            dateAdded: Date().timeIntervalSince1970, playDate: nil,
+            bookType: 0, fileType: 2, pages: nil, rating: 0, unseen: false,
+            keywordA: nil, keywordB: nil, keywordC: nil,
+            neta: nil, memo: nil, series: nil, volume: nil,
+            coverImageName: CoverSource.externalSentinel,
+            coverCropX: Double(cropRect.origin.x), coverCropY: Double(cropRect.origin.y),
+            coverCropW: Double(cropRect.size.width), coverCropH: Double(cropRect.size.height),
+            hasCover: true)
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        try await app.test(.router) { client in
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        let after = try #require(try fx.db.fetchBook(id: id))
+        #expect(after.coverCropRect == cropRect)   // 外部サムネイル現存＝保護 no-op なので crop は残る
+        let afterThumbData = try Data(contentsOf: thumb)
+        #expect(afterThumbData == beforeThumbData)  // 上書きされていない（regenerateThumbnail no-op）
+    }
+
     /// 削除時に表紙が無かった本は、restore でサムネイルを新規生成しない
     /// （無表紙本に先頭ページ表紙を勝手に付けない＝忠実性）。
     @Test func restoreDoesNotAddCoverWhenBookHadNone() async throws {
