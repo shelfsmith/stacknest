@@ -1647,6 +1647,16 @@ final class AppState {
         await regenerateThumbnail(for: row, refreshUI: refreshUI)
         if let content = try? BookContentFactory.make(for: row),
            let pages = try? await content.pageCount {
+            // Codex re-review #2 follow-on: the cover write in regenerateThumbnail is guarded against
+            // a superseded relink, but the page count is computed from the originally-fetched `row`
+            // (its captured path). `content.pageCount` can await for seconds on a large PDF, during
+            // which the book may be relinked again — writing this stale count would overwrite the
+            // newer relink's page count. Re-fetch immediately before the write and skip if the live
+            // path no longer matches the source we counted (mirrors regenerateThumbnail's path guard).
+            guard let latest = try? db.fetchBook(id: bookID), latest.path == row.path else {
+                Self.coverLogger.info("refreshCoverAndPageCount: path changed during pageCount (stale relink), skip pages write bookID=\(bookID, privacy: .public)")
+                return
+            }
             try? db.updateBookPages(id: bookID, newPages: pages)
         }
     }
