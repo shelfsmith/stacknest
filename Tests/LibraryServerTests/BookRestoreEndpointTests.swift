@@ -266,6 +266,57 @@ struct BookRestoreEndpointTests {
         #expect(afterThumbData == beforeThumbData)  // 上書きされていない（regenerateThumbnail no-op）
     }
 
+    /// Codex review #4 (G21 followup): 外部表紙＋crop の本を restore する際、外部サムネイルが
+    /// 不在で fallback が予測される（willFallBackToAuto=true）が、ソースアーカイブ自体も消えていて
+    /// 自動表紙の再生成が**失敗**する場合、crop は**クリアしてはならない**（自動表紙は書けておらず、
+    /// 復元した矩形を根拠なく捨てることになる）。修正前は `willFallBackToAuto` だけで無条件に
+    /// クリアしていた。修正後は `regenerateThumbnail` が `.wroteAuto` を返したときだけクリアする。
+    @Test func restorePreservesCropWhenFallbackRegenerationFails() async throws {
+        let fx = try TestLibraryFixture(name: "RestoreExtCropRegenFail", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+        let id = try fx.addRealBook(zipFixtureNamed: "three_pages")
+        let originalPath = try #require(try fx.db.fetchBook(id: id)?.path)
+        let cropRect = CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.4)
+
+        // DB からだけ行を消す（DELETE エンドポイントは使わない）。外部サムネイルは配置しない
+        // （→ restore 時 willFallBackToAuto=true）。さらに実アーカイブも消して抽出失敗を強制する。
+        try fx.db.deleteBook(id: id)
+        let thumb = coverURL(bundleURL: fx.bundleURL, bookID: id)
+        try? FileManager.default.removeItem(at: thumb)
+        #expect(!FileManager.default.fileExists(atPath: thumb.path))
+        try FileManager.default.removeItem(atPath: originalPath)   // ソース消失 → 再生成が throw
+        #expect(!FileManager.default.fileExists(atPath: originalPath))
+
+        // path は元と同じ（許可ルート内で安全）だが実ファイルが無い。
+        let dto = BookRestoreDTO(
+            id: id, title: "three_pages", author: nil, genre: nil, path: originalPath,
+            dateAdded: Date().timeIntervalSince1970, playDate: nil,
+            bookType: 0, fileType: 2, pages: nil, rating: 0, unseen: false,
+            keywordA: nil, keywordB: nil, keywordC: nil,
+            neta: nil, memo: nil, series: nil, volume: nil,
+            coverImageName: CoverSource.externalSentinel,
+            coverCropX: Double(cropRect.origin.x), coverCropY: Double(cropRect.origin.y),
+            coverCropW: Double(cropRect.size.width), coverCropH: Double(cropRect.size.height),
+            hasCover: true)
+
+        let app = makeApp(fixture: fx, adminTier: true)
+        try await app.test(.router) { client in
+            let encoded = try JSONEncoder().encode([dto])
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/restore", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(encoded))
+            ) { response in
+                #expect(response.status == .ok)
+            }
+        }
+        let after = try #require(try fx.db.fetchBook(id: id))
+        #expect(after.coverCropRect == cropRect)                       // 再生成失敗 → crop は保持
+        #expect(!FileManager.default.fileExists(atPath: thumb.path))   // 自動表紙も書けていない
+        #expect(after.coverImageName == CoverSource.externalSentinel)  // 行は external のまま
+    }
+
     /// 削除時に表紙が無かった本は、restore でサムネイルを新規生成しない
     /// （無表紙本に先頭ページ表紙を勝手に付けない＝忠実性）。
     @Test func restoreDoesNotAddCoverWhenBookHadNone() async throws {

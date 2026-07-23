@@ -331,7 +331,7 @@ struct CoverRegenerateEndpointTests {
         let lib = fixture.servedLibrary()
 
         let sourcePath = try fixture.db.fetchBook(id: bookID)?.path
-        try await LibraryServerCore.regenerateThumbnail(
+        let outcome = try await LibraryServerCore.regenerateThumbnail(
             bookID: bookID, sourceURLPath: sourcePath, preferredName: nil,
             bundleURL: lib.bundleURL, db: fixture.db,
             simulateRaceBeforeWrite: {
@@ -344,5 +344,40 @@ struct CoverRegenerateEndpointTests {
         // 抽出済みのアーカイブ表紙で上書きされていない: アップロード済みバイト列のまま。
         #expect(try Data(contentsOf: thumb) == uploadedBytes)
         #expect(CoverSource.isExternal(try fixture.db.fetchBook(id: bookID)?.coverImageName))
+        // Codex review #4 (G21 followup): レース保護で書き込みを飛ばしたので `.skippedExternal`。
+        #expect(outcome == .skippedExternal)
+    }
+
+    // MARK: - Codex review #4 (G21 followup): regenerateThumbnail の outcome
+
+    /// 通常の再生成（外部レース無し）は自動表紙を実際に書き、`.wroteAuto` を返す。
+    /// この戻り値が restore ハンドラの「crop を消してよいのは自動表紙を書いたときだけ」判定の要。
+    @Test func regenerateThumbnailReturnsWroteAutoOnNormalWrite() async throws {
+        let fixture = try TestLibraryFixture(name: "CRWROTE", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "three_pages")
+        let lib = fixture.servedLibrary()
+        let sourcePath = try fixture.db.fetchBook(id: bookID)?.path
+        let outcome = try await LibraryServerCore.regenerateThumbnail(
+            bookID: bookID, sourceURLPath: sourcePath, preferredName: nil,
+            bundleURL: lib.bundleURL, db: fixture.db)
+        #expect(outcome == .wroteAuto)
+        // 実ファイルも書かれている。
+        let thumb = fixture.bundleURL.appendingPathComponent("Thumbnails/\(bookID)/thumbnail.jpg")
+        #expect(FileManager.default.fileExists(atPath: thumb.path))
+    }
+
+    /// ソースが見つからない（path=nil）ときは throw する＝restore の `try?` で nil になり、
+    /// crop は消されない（#4 の「書けていないのに crop を捨てる」退行を防ぐ根拠）。
+    @Test func regenerateThumbnailThrowsWhenSourcePathMissing() async throws {
+        let fixture = try TestLibraryFixture(name: "CRNOSRC", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "three_pages")
+        let lib = fixture.servedLibrary()
+        await #expect(throws: (any Error).self) {
+            try await LibraryServerCore.regenerateThumbnail(
+                bookID: bookID, sourceURLPath: nil, preferredName: nil,
+                bundleURL: lib.bundleURL, db: fixture.db)
+        }
     }
 }
