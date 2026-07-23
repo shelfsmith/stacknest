@@ -158,12 +158,13 @@ struct BookRestoreEndpointTests {
                 #expect(response.status == .ok)
             }
         }
-        // restore 後: 行は @external のままだが（アップロードされた画像自体はもう無いので取り戻せない
-        // ことは仕方ないが）、恒久的に無表紙のままにはせず、ソースから自動表紙を作り直して
-        // 表紙が「ある」状態に復帰する（ファイル存在チェックを外した旧修正だとここが false のまま
-        // 永遠に直らなかった）。
+        // restore 後: 恒久的に無表紙のままにはせず、ソースから自動表紙を作り直して表紙が「ある」
+        // 状態に復帰する（ファイル存在チェックを外した旧修正だとここが false のまま永遠に直らなかった）。
         #expect(FileManager.default.fileExists(atPath: thumb.path))
-        #expect(try fx.db.fetchBook(id: id)?.coverImageName == CoverSource.externalSentinel)
+        // Smoke H3 fix (G21 followup): 外部画像は失われ auto 表紙を書いたので、行も auto(nil) に
+        // 落とす。以前は @external のままで、regenerate/relink が isExternal ガードで無効・「自動に
+        // 戻す」が有効のまま、という画像と噛み合わない状態で本が固まっていた。
+        #expect(try fx.db.fetchBook(id: id)?.coverImageName == nil)
     }
 
     // MARK: - G21 #5 smoke follow-up (Bug B): crop残存 on external→auto fallback
@@ -212,7 +213,8 @@ struct BookRestoreEndpointTests {
         }
         let after = try #require(try fx.db.fetchBook(id: id))
         #expect(after.coverCropRect == nil)                              // crop がクリアされている
-        #expect(after.coverImageName == CoverSource.externalSentinel)    // 行自体は external のまま
+        // Smoke H3 fix (G21 followup): fallback で auto 表紙を書いたので行も auto(nil) に落とす。
+        #expect(after.coverImageName == nil)
         #expect(FileManager.default.fileExists(atPath: thumb.path))      // 自動表紙が生成された
     }
 

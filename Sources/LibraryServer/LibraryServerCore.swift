@@ -869,6 +869,13 @@ public struct LibraryServerCore: Sendable {
                         // the crop then would discard the restored rectangle for nothing. Only clear
                         // when the fallback both was predicted AND produced a fresh auto cover.
                         if willFallBackToAuto, regenOutcome == .wroteAuto {
+                            // Smoke H3 fix (G21 followup): the external image is unrecoverable and we
+                            // wrote a plain auto (first-page) cover, so the row is auto now. Drop the
+                            // @external sentinel too — otherwise coverImageName stays @external while
+                            // the image is auto, leaving the book stuck (regenerate/relink disabled by
+                            // the isExternal guard, "revert to auto" still offered). Mirror the local
+                            // AppState.regenerateThumbnail fallback.
+                            try? lib.db.updateBook(id: dto.id, patch: BookPatch(clearCoverImageName: true))
                             try? lib.db.updateBookCoverCropRect(id: dto.id, json: nil)
                         }
                     }
