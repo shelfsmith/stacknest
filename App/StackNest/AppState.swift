@@ -1519,26 +1519,30 @@ final class AppState {
         // 不在（delete→Undo でサムネごと消える等・外部バイトは復旧不能）なら自動表紙へフォールバックさせ、
         // 恒久的な空白表紙を防ぐ。フォールバック時は preferredName=nil（先頭ページ）で archive 経路へ。
         var preferredName = book.coverImageName
-        var didFallbackFromExternal = false
-        if CoverSource.isExternal(book.coverImageName) {
-            let extThumb = thumbDir.appendingPathComponent("\(book.id)/thumbnail.jpg")
-            if FileManager.default.fileExists(atPath: extThumb.path) {
-                Self.coverLogger.info("regenerateThumbnail: skip external (thumbnail present) bookID=\(book.id, privacy: .public)")
-                return
-            }
+        let extThumb = thumbDir.appendingPathComponent("\(book.id)/thumbnail.jpg")
+        let entry = CoverRegen.classifyEntry(
+            wasExternal: CoverSource.isExternal(book.coverImageName),
+            externalThumbnailExists: FileManager.default.fileExists(atPath: extThumb.path))
+        switch entry {
+        case .preserveExternal:
+            Self.coverLogger.info("regenerateThumbnail: skip external (thumbnail present) bookID=\(book.id, privacy: .public)")
+            return
+        case .fallbackToAuto:
             Self.coverLogger.warning("regenerateThumbnail: external thumbnail missing → fallback to auto, bookID=\(book.id, privacy: .public)")
             preferredName = nil
-            // Bug B fix (G21 #5 smoke follow-up): crop was authored for the now-gone external
-            // image; once we fall back to the auto (first-page) cover, that crop no longer
-            // applies and would distort the auto cover if left in place.
-            //
-            // Codex review #4 (G21 followup): defer the actual clear until AFTER a successful
-            // write. If `book.path` is nil (guard below) or extraction/resize/write throws, no
-            // auto cover is produced — clearing the crop here would discard the restored rectangle
-            // for nothing (and leave the book with neither a valid external image nor its crop).
-            // Mirror the server restore handler, which clears only on `.wroteAuto`.
-            didFallbackFromExternal = true
+        case .notExternal:
+            break
         }
+        // Bug B fix (G21 #5 smoke follow-up): crop was authored for the now-gone external
+        // image; once we fall back to the auto (first-page) cover, that crop no longer
+        // applies and would distort the auto cover if left in place.
+        //
+        // Codex review #4 (G21 followup): defer the actual clear until AFTER a successful
+        // write. If `book.path` is nil (guard below) or extraction/resize/write throws, no
+        // auto cover is produced — clearing the crop here would discard the restored rectangle
+        // for nothing (and leave the book with neither a valid external image nor its crop).
+        // Mirror the server restore handler, which clears only on `.wroteAuto`.
+        let didFallbackFromExternal = (entry == .fallbackToAuto)
         guard let path = book.path else { return }
         let sourceURL = URL(fileURLWithPath: path)
         do {
@@ -1564,22 +1568,26 @@ final class AppState {
             // 現存」だけを弾いてもレース対策としては十分（LibraryServerCore.regenerateThumbnail
             // の同じ注記を参照）。
             if let fresh = try? database?.fetchBook(id: book.id) {
-                if CoverSource.isExternal(fresh.coverImageName),
-                   FileManager.default.fileExists(atPath: thumbURL.path) {
+                switch CoverRegen.writeDecision(
+                    liveIsExternal: CoverSource.isExternal(fresh.coverImageName),
+                    liveThumbnailExists: FileManager.default.fileExists(atPath: thumbURL.path),
+                    snapshotPath: book.path, livePath: fresh.path) {
+                case .skipExternalRace:
                     Self.coverLogger.info("regenerateThumbnail: became external during extraction, skip write bookID=\(book.id, privacy: .public)")
                     return
-                }
-                // Codex review #2 (G21 followup): relink follow-up work runs in independent,
-                // untracked Tasks; extraction suspends for seconds on large sources. If the book
-                // was relinked to a *different* path while this task was extracting from `path`,
-                // a newer regenerate is authoritative and may already have written the correct
-                // cover for the new source — writing our stale extraction (from the now-superseded
-                // path) would overwrite it. Skip when the live path no longer matches the snapshot
-                // we extracted from. (Detached extraction does not inherit cancellation reliably,
-                // so a final state guard is required even if we also cancelled the prior task.)
-                if fresh.path != book.path {
+                case .skipStaleRelink:
+                    // Codex review #2 (G21 followup): relink follow-up work runs in independent,
+                    // untracked Tasks; extraction suspends for seconds on large sources. If the book
+                    // was relinked to a *different* path while this task was extracting from `path`,
+                    // a newer regenerate is authoritative and may already have written the correct
+                    // cover for the new source — writing our stale extraction (from the now-superseded
+                    // path) would overwrite it. Skip when the live path no longer matches the snapshot
+                    // we extracted from. (Detached extraction does not inherit cancellation reliably,
+                    // so a final state guard is required even if we also cancelled the prior task.)
                     Self.coverLogger.info("regenerateThumbnail: path changed during extraction (stale relink), skip write bookID=\(book.id, privacy: .public)")
                     return
+                case .write:
+                    break
                 }
             }
             try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
@@ -1653,7 +1661,8 @@ final class AppState {
             // which the book may be relinked again — writing this stale count would overwrite the
             // newer relink's page count. Re-fetch immediately before the write and skip if the live
             // path no longer matches the source we counted (mirrors regenerateThumbnail's path guard).
-            guard let latest = try? db.fetchBook(id: bookID), latest.path == row.path else {
+            guard let latest = try? db.fetchBook(id: bookID),
+                  CoverRegen.shouldWritePageCount(snapshotPath: row.path, livePath: latest.path) else {
                 Self.coverLogger.info("refreshCoverAndPageCount: path changed during pageCount (stale relink), skip pages write bookID=\(bookID, privacy: .public)")
                 return
             }
