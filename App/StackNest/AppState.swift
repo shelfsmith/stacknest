@@ -1527,6 +1527,12 @@ final class AppState {
             }
             Self.coverLogger.warning("regenerateThumbnail: external thumbnail missing → fallback to auto, bookID=\(book.id, privacy: .public)")
             preferredName = nil
+            // Bug B fix (G21 #5 smoke follow-up): crop was authored for the now-gone external
+            // image; once we fall back to the auto (first-page) cover, that crop no longer
+            // applies and would distort the auto cover if left in place. This branch is reached
+            // only on external + thumbnail-file-missing (the fallback case), so clearing here is
+            // never reached for a preserved external cover or a normal auto/manual regenerate.
+            try? database?.updateBookCoverCropRect(id: book.id, json: nil)
         }
         guard let path = book.path else { return }
         let sourceURL = URL(fileURLWithPath: path)
@@ -1563,6 +1569,16 @@ final class AppState {
             // 🔧 Fix A: per-book purge instead of full-cache purge (cheaper + avoids CGImageSource URL cache).
             await thumbnailLoader?.purge(bookID: book.id)
             Self.coverLogger.info("regenerateThumbnail: cache purged (per-book), bookID=\(book.id)")
+            // Bug A fix (G21 #5 smoke follow-up): bump the per-book cover token so the grid cell's
+            // `.task(id:)`/`.id(...)` and the detail pane's `coverRenderIdentity`/`coverFetchIdentity`
+            // (which key on coverVersionByBook, not on coverImageName/crop alone — those two are
+            // often unchanged across a regenerate) actually change identity and re-run the image
+            // load. Mirrors the already-correct remote path `handleExternalBookChange` (~:1696).
+            // Placed here (after a successful write+purge, before the function returns) so it fires
+            // exactly once per real thumbnail rewrite — the early returns above (external cover
+            // preserved, became-external-during-extraction race) and the catch blocks below (
+            // unsupported format, generic failure) never reach this line, since nothing was written.
+            coverVersionByBook[book.id, default: 0] &+= 1
             try? refreshDisplayedBooks()
             Self.coverLogger.info("regenerateThumbnail: refresh done, bookID=\(book.id)")
         } catch CoverRefreshError.unsupportedFormat {

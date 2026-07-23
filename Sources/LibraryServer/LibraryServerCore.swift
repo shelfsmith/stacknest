@@ -839,9 +839,31 @@ public struct LibraryServerCore: Sendable {
                     // 抽出不可）は握り潰し、DB 復元自体は成立させる。path が未検証で危険な場合は
                     // アーカイブを一切開かない（任意ファイル読み取りの芽を摘む）。
                     if dto.hasCover == true, pathIsSafe {
+                        // Bug B fix (G21 #5 smoke follow-up): decide *before* calling
+                        // regenerateThumbnail whether this restore will hit the external→auto
+                        // fallback branch — mirrors regenerateThumbnail's own no-op condition
+                        // (`isExternal(fresh.coverImageName) && fileExists(url.path)` at its
+                        // "Important #1" recheck above) rather than assuming DELETE always wiped
+                        // the thumbnail (it does today, via `removeItem(at: thumbDir)` above, but
+                        // pinning to the actual file-existence check keeps this correct even if
+                        // that assumption ever changes, and correctly does NOT clear when the
+                        // external thumbnail file is still present — the protected-no-op case).
+                        let willFallBackToAuto = CoverSource.isExternal(dto.coverImageName)
+                            && !FileManager.default.fileExists(
+                                atPath: coverURL(bundleURL: lib.bundleURL, bookID: dto.id).path)
                         try? await Self.regenerateThumbnail(
                             bookID: dto.id, sourceURLPath: effectiveDTO.path,
                             preferredName: dto.coverImageName, bundleURL: lib.bundleURL, db: lib.db)
+                        // `bookRow(from:)` reintroduced the crop the DTO carried, which was
+                        // authored for the now-gone external image; left in place it would
+                        // distort the auto (first-page) cover the fallback just wrote. Clear it
+                        // only on that fallback — a preserved external cover, or a normal
+                        // auto/manual regenerate/relink (both of which guard `!isExternal` before
+                        // ever calling regenerateThumbnail), keeps its own legitimately-authored
+                        // crop untouched.
+                        if willFallBackToAuto {
+                            try? lib.db.updateBookCoverCropRect(id: dto.id, json: nil)
+                        }
                     }
                 } catch {
                     // id が既に別の本に再利用されている（restoreBook は plain INSERT なので
