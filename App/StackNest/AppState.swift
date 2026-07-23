@@ -1591,7 +1591,14 @@ final class AppState {
             // and the restored crop is preserved (mirrors the server restore handler's `.wroteAuto`
             // gate). Reached only on the external→auto fallback (didFallbackFromExternal) after a
             // real write.
+            //
+            // Smoke H3 fix (G21 followup): also drop the @external sentinel — the external image is
+            // gone and we just wrote a plain auto (first-page) cover, so the row IS auto now. Left
+            // as @external the book got stuck: "表紙を再生成"/relink are disabled by the isExternal
+            // guard and "自動に戻す" stays enabled, none matching the auto image actually on disk.
+            // Clearing coverImageName to nil makes the row consistent with the cover it now shows.
             if didFallbackFromExternal {
+                try? database?.updateBook(id: book.id, patch: BookPatch(clearCoverImageName: true))
                 try? database?.updateBookCoverCropRect(id: book.id, json: nil)
             }
             // 🔧 Fix A: per-book purge instead of full-cache purge (cheaper + avoids CGImageSource URL cache).
