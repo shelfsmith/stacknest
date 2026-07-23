@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryStore
-import ArchiveAdapter
 import OSLog
 
 /// 内部表紙を再生成して 1200px cap を適用するバッチ（CoverRefresher が cap を内蔵）。
@@ -43,29 +42,20 @@ public enum CoverCompression {
             // 上書きしてしまう窓がある（初期スナップショットの skip だけでは防げない）。
             if let fresh = try? db.fetchBook(id: book.id), CoverSource.isExternal(fresh.coverImageName) { continue }
 
-            // PDF / extractor 分岐: 単独 PDF は PDFBookContent、それ以外は ArchiveAdapter。
-            if sourceURL.pathExtension.lowercased() == "pdf",
-               let content = PDFBookContent(url: sourceURL),
-               let pdfCover = content.coverJPEG(maxPixelSize: 1200) {
+            // G22 #3: PDF/アーカイブの二分岐をやめ、単独 PDF・単独画像・アーカイブ・フォルダを一括で
+            // 扱える共通抽出（CoverRefresher.extractCoverData・G21 #5 で単独画像対応済）に一本化する。
+            // 旧二分岐は単独画像本（.jpg/.png 1 枚）を素通りさせていた。真に表紙を作れない形式は
+            // CoverRefreshError.unsupportedFormat として log-only でスキップ（従来と同じ best-effort）。
+            do {
+                let data = try await CoverRefresher.extractCoverData(sourceURL: sourceURL, preferredName: book.coverImageName)
+                let resized = await CoverRefresher.resizeCoverDataOffMain(data, maxPixelSize: 1200)
                 let bookDir = thumbURL.deletingLastPathComponent()
-                do {
-                    try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
-                    try pdfCover.write(to: thumbURL)
-                } catch {
-                    logger.warning("PDF cover write failed id=\(book.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
-            } else if let extractor = ArchiveAdapter.coverExtractor(for: sourceURL) {
-                do {
-                    try await CoverRefresher.regenerate(
-                        bookID: book.id,
-                        sourceURL: sourceURL,
-                        preferredName: book.coverImageName,
-                        thumbnailsDirURL: thumbnailsDir,
-                        extractor: extractor
-                    )
-                } catch {
-                    logger.warning("Cover regenerate failed id=\(book.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
-                }
+                try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+                try resized.write(to: thumbURL)
+            } catch CoverRefreshError.unsupportedFormat {
+                logger.warning("Unsupported format, skip cover regenerate id=\(book.id, privacy: .public)")
+            } catch {
+                logger.warning("Cover regenerate failed id=\(book.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
             }
 
             let afterSize = (try? FileManager.default.attributesOfItem(atPath: thumbURL.path)[.size] as? Int64) ?? 0
