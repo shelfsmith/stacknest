@@ -942,8 +942,12 @@ final class RemoteLibraryState {
     }
 
     /// リモート削除のコア（単一/複数で共有）。進捗（editProgress）・×中断（cancel）・要約を出す。
-    /// キャンセル意味論: 各項目の前で中断＝残りの未処理分を止める。in-flight の deleteBook は完走させる
-    /// （サーバ状態の曖昧さ回避）。削除は不可逆なので処理済みは戻さない。
+    /// キャンセル意味論: 各項目の前で `cancel.isCancelled` を判定＝**残りの未処理分を止める**。×ボタンは
+    /// `cancelBatchEdit()`（editCancel＋editTask）を呼ぶため、in-flight の `deleteBook` も Task
+    /// キャンセルで打ち切られる（`URLError.cancelled` → 下の catch で「失敗」ではなく「中断」に寄せる。
+    /// applyRemotePatchMulti と同じ）。in-flight の 1 件はサーバが commit 済みかどうか曖昧になりうるが、
+    /// 次回 `liveReload` で一覧は自己補正され、trash 削除ならファイルは macOS ゴミ箱から手動復旧可能＝
+    /// 編集バッチと同じ許容範囲。削除は不可逆なので**処理済みは戻さない**（成功分のみ undo に積む）。
     private func performDeleteBooks(ids: Set<Int>, trash: Bool, cancel: CancelFlag) async {
         guard canDelete, !ids.isEmpty else { return }
         let list = Array(ids)
