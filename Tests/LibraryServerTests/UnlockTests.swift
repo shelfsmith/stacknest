@@ -122,6 +122,48 @@ struct UnlockTests {
         }
     }
 
+    /// #2: UnlockRateLimiter は閾値到達でロックアウトし、期限切れ／成功でリセットする。
+    @Test func rateLimiterLocksOutAfterThresholdAndResets() async {
+        let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(await rl.isLockedOut("L", now: t0) == false)
+        await rl.recordFailure("L", now: t0)
+        #expect(await rl.isLockedOut("L", now: t0) == false)      // 1 回目 < 閾値
+        await rl.recordFailure("L", now: t0)                       // 2 回目で閾値到達 → ロックアウト
+        #expect(await rl.isLockedOut("L", now: t0) == true)
+        #expect(await rl.isLockedOut("L", now: t0.addingTimeInterval(31)) == false)   // 期限切れで解除
+        await rl.recordFailure("L", now: t0.addingTimeInterval(31))
+        await rl.recordSuccess("L")                                // 成功で完全リセット
+        #expect(await rl.isLockedOut("L", now: t0.addingTimeInterval(31)) == false)
+    }
+
+    /// #2: 連続失敗が閾値（既定 5）を超えると unlock が 429 で拒否される（正しいパスワードでも拒否）。
+    @Test func repeatedWrongPasswordEventuallyRateLimited() async throws {
+        let (fixture, app, uuid) = try makeLockedFixtureApp()
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            for _ in 0..<5 {   // 既定 maxFailures=5：5 回まで 403
+                try await client.execute(
+                    uri: "/api/v1/libraries/\(uuid)/unlock", method: .post,
+                    headers: [.authorization: "Bearer tk"],
+                    body: .init(string: #"{"password":"nope"}"#)
+                ) { #expect($0.status == .forbidden) }
+            }
+            // 6 回目はロックアウト → 429
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/unlock", method: .post,
+                headers: [.authorization: "Bearer tk"],
+                body: .init(string: #"{"password":"nope"}"#)
+            ) { #expect($0.status == .tooManyRequests) }
+            // ロックアウト中は正しいパスワードでも 429（ブルートフォース抑止）
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/unlock", method: .post,
+                headers: [.authorization: "Bearer tk"],
+                body: .init(string: #"{"password":"pw123"}"#)
+            ) { #expect($0.status == .tooManyRequests) }
+        }
+    }
+
     /// 非ロック庫はライブラリトークン不要。
     @Test func unlockedLibraryNeedsNoLibraryToken() async throws {
         let fixture = try TestLibraryFixture(name: "Open", bookCount: 1)
