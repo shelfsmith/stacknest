@@ -705,10 +705,31 @@ public final class Database: @unchecked Sendable {
 
     /// whitelist バリデーション。multiValueColumns を共用する。
     private static func validateMultiValueColumn(_ column: String) throws {
-        guard multiValueColumns.contains(column) else {
+        _ = try validatedColumn(column, allowed: multiValueColumns)
+    }
+
+    /// SQL カラム識別子の共通バリデーションヘルパ（#16 セキュリティ強化・defense-in-depth）。
+    /// 値は bind パラメータ化できるが、カラム識別子は SQLite の性質上どうしても文字列補間する
+    /// しかない。呼び出し元（LibraryServerCore の `allowedFacetColumns` / BrowserPaneState.BrowseField
+    /// など）が既に許可リストで絞っているが、この境界（LibraryStore）でも独立に検証し、
+    /// 未知の識別子は補間前に throw する。`column` を補間する全ての SQL builder はこの関数を経由する。
+    /// internal（非 private）: LibraryStoreTests から直接ユニットテストするため。
+    static func validatedColumn(_ column: String, allowed: Set<String>) throws -> String {
+        guard allowed.contains(column) else {
             throw DatabaseError.invalidColumn(column)
         }
+        return column
     }
+
+    /// distinctValues(forColumn:) / buildBrowserClause(_:) が受け付けるカラム識別子の許可リスト。
+    /// BrowserPaneState.BrowseField.allCases.map { $0.sqlColumn }（genre/series/author/neta/
+    /// keyword_a/b/c）に加え、buildBrowserClause が整数カラムとして特別扱いする rating/book_type
+    /// を含む（LibraryStore は AppCore に依存できないため、実際の book テーブルカラムから直接
+    /// 定義する。上記 enum の変更時は両方を同期すること）。
+    private static let browseColumns: Set<String> = [
+        "genre", "series", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
+        "rating", "book_type",
+    ]
 
     public func updateBookPath(id: Int, newPath: String) throws {
         guard let q = queue else { return }
@@ -1148,11 +1169,12 @@ public final class Database: @unchecked Sendable {
     /// 整数カラム (rating / book_type) は Int として bind、それ以外は String として bind。
     public static func buildBrowserClause(
         _ constraints: [(column: String, value: String)]
-    ) -> (whereSQL: String, args: [DatabaseValueConvertible]) {
+    ) throws -> (whereSQL: String, args: [DatabaseValueConvertible]) {
         guard !constraints.isEmpty else { return ("", []) }
         var clauses: [String] = []
         var args: [DatabaseValueConvertible] = []
-        for (col, value) in constraints {
+        for (rawCol, value) in constraints {
+            let col = try validatedColumn(rawCol, allowed: browseColumns)
             if multiValueColumns.contains(col) {
                 // multi-value columns use 4-pattern LIKE matching (exact / leading / middle / trailing)
                 let (clause, likeArgs) = multiValueClauseForOneValue(column: "b.\(col)", value: value)
@@ -1207,10 +1229,11 @@ public final class Database: @unchecked Sendable {
         browserConstraints: [(column: String, value: String)] = []
     ) throws -> [String] {
         guard let q = queue else { return [] }
+        let column = try Self.validatedColumn(column, allowed: Self.browseColumns)
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCount = trimmed.count
         let (filterSQL, filterArgs) = Self.buildFilterClause(filter)
-        let (browserSQL, browserArgs) = Self.buildBrowserClause(browserConstraints)
+        let (browserSQL, browserArgs) = try Self.buildBrowserClause(browserConstraints)
 
         // スマートシェルフ条件を WHERE 句断片に解決（library scope + 注入 WHERE）。
         // `.smartShelf` 以外は ("", []) なので SQL に影響しない。
@@ -1394,7 +1417,7 @@ public final class Database: @unchecked Sendable {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedCount = trimmed.count
         let (filterSQL, filterArgs) = Self.buildFilterClause(filter)
-        let (browserSQL, browserArgs) = Self.buildBrowserClause(browserConstraints)
+        let (browserSQL, browserArgs) = try Self.buildBrowserClause(browserConstraints)
 
         // スマートシェルフ条件を WHERE 句断片に解決（library scope + 注入 WHERE）。
         // `.smartShelf` 以外は ("", []) なので SQL に影響しない。
