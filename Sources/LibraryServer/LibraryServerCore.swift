@@ -174,6 +174,8 @@ public struct LibraryServerCore: Sendable {
     let dataSource: any LibraryServerDataSource
     /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
     let tokenStore = LibraryTokenStore()
+    /// #2: ロック庫 unlock のブルートフォース抑止（ライブラリ単位の失敗回数＋ロックアウト）。
+    public let unlockRateLimiter = UnlockRateLimiter()
     /// 本ごとの BookContent ハンドルキャッシュ（アーカイブ再オープン排除・spec §3.3）。
     let contentCache = BookContentCache(ttlSeconds: 300)
     /// G8a: ライブ同期の配信ハブ。/events が subscribe し、mutation が publish する。
@@ -260,6 +262,7 @@ public struct LibraryServerCore: Sendable {
             .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: config.grantsProvider))
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
+        let unlockRateLimiter = self.unlockRateLimiter
         let resolver = LibraryResolver(dataSource: dataSource, tokenStore: tokenStore)
         // 提示トークンの tier（read/edit/admin）と role（互換）、スコープを返す（4.2b-3・B1・B2b）。
         api.get("me") { _, context in
@@ -337,8 +340,14 @@ public struct LibraryServerCore: Sendable {
             guard let lib = await dataSource.servedLibraries().first(where: { $0.uuid == uuid }) else {
                 throw HTTPError(.notFound)
             }
+            // #2: ブルートフォース抑止。連続失敗が閾値超のライブラリは一定時間 429 で拒否する。
+            if await unlockRateLimiter.isLockedOut(uuid) { throw HTTPError(.tooManyRequests) }
             let body = try await request.decode(as: UnlockRequestBody.self, context: context)
-            guard lib.verifyPassword(body.password) else { throw HTTPError(.forbidden) }
+            guard lib.verifyPassword(body.password) else {
+                await unlockRateLimiter.recordFailure(uuid)
+                throw HTTPError(.forbidden)
+            }
+            await unlockRateLimiter.recordSuccess(uuid)
             return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
         }
         // books 一覧（ページング・検索・ソート・進行状況・scope/filter/browse）。ロック庫は X-Library-Token 必須。
