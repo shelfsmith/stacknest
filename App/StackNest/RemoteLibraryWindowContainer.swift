@@ -86,6 +86,14 @@ struct RemoteLibraryWindowContainer: View {
             }
         }
         .task { await resolve() }
+        .onDisappear {
+            // #7: ウィンドウを閉じたら認証（library token）を無効化する。RemoteLibraryState は
+            // weak registry に残ることがあり、token を保持したままだと ⌘⇧O（resume）の
+            // already-open 枝が「認証済み」と誤判定して施錠庫の本を解錠なしで開いてしまう（B1 バイパス）。
+            // token を落とせば、閉じた施錠庫の resume は解錠ゲートに委ねられる（開いたままなら
+            // onDisappear は発火せず認証は維持＝認証済みウィンドウでの復帰は妨げない）。
+            if state?.locked == true { state?.libraryToken = nil }
+        }
     }
 
     private var missingView: some View {

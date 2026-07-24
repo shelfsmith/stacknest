@@ -88,6 +88,7 @@ struct GrantManagementSection: View {
                 Button("QR") { qrTarget = grant }
                     .disabled(!server.isRunning)
                     .help(server.isRunning ? "この共有トークンの QR を表示" : "サーバ稼働中のみ")
+                Button("編集…") { editorTarget = .edit(grant) }
                 Button("トークンコピー") {
                     // #14: 共有トークンは秘匿情報のため、平文コピーに加えて
                     // org.nspasteboard.ConcealedType マーカーを同一 pasteboard item に載せる。
@@ -100,7 +101,6 @@ struct GrantManagementSection: View {
                     item.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
                     pasteboard.writeObjects([item])
                 }
-                Button("編集…") { editorTarget = .edit(grant) }
                 Button("トークン再生成…") { pendingRegenerate = grant }
                 Button("削除…", role: .destructive) { pendingDelete = grant }
             }
