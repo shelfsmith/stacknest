@@ -10,6 +10,24 @@ public extension Notification.Name {
     static let offlineResumeRequested = Notification.Name("stacknest.offlineResumeRequested")
 }
 
+/// #6: `OfflineStore.save` が受け取る `libraryUUID`/`fileExtension` はリモートサーバ応答由来の
+/// 文字列で、そのまま `appendingPathComponent` へ渡ってディスクパスの一部になる。悪意あるサーバが
+/// `../` などを混入させると Offline ディレクトリ外へ書き込める（パストラバーサル）ため、
+/// 正規の値（UUID / 英数字拡張子）以外は `save` の先頭で弾く。
+public enum OfflineStoreError: Error, Equatable, Sendable, LocalizedError {
+    /// `libraryUUID` が正規 UUID 文字列（8-4-4-4-12 の16進数）でない。
+    case invalidLibraryUUID
+    /// `fileExtension` が英数字のみ・妥当な長さの拡張子でない。
+    case invalidFileExtension
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidLibraryUUID: return "不正な libraryUUID です"
+        case .invalidFileExtension: return "不正なファイル拡張子です"
+        }
+    }
+}
+
 public struct DownloadedBook: Codable, Sendable, Identifiable {
     public var detail: BookDetailDTO
     public var serverID: UUID
@@ -50,8 +68,21 @@ public struct OfflineStore: @unchecked Sendable {
         return list
     }
 
+    /// `fileExtension` として許容する最大文字数（正規の zip/cbz/pdf/jpg/png/cover 等を大きく上回る余裕値）。
+    static let maxFileExtensionLength = 10
+
+    /// 英数字のみ・妥当な長さの拡張子か（`.`/`..`/パス区切りを含まない）。
+    static func isValidFileExtension(_ ext: String) -> Bool {
+        guard !ext.isEmpty, ext.count <= maxFileExtensionLength else { return false }
+        return ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
+    }
+
     public func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
                      fileExtension: String, fileData: Data, coverData: Data?) throws {
+        // #6: 悪意あるサーバが `libraryUUID`/`fileExtension` に `../` 等を混入させて
+        // Offline ディレクトリ外へ書き込むのを防ぐ（下の appendingPathComponent に渡す前に検証する）。
+        guard UUID(uuidString: libraryUUID) != nil else { throw OfflineStoreError.invalidLibraryUUID }
+        guard Self.isValidFileExtension(fileExtension) else { throw OfflineStoreError.invalidFileExtension }
         let dir = baseDirectory.appendingPathComponent("\(serverID.uuidString)/\(libraryUUID)", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let rel = "\(serverID.uuidString)/\(libraryUUID)/\(detail.id).\(fileExtension)"

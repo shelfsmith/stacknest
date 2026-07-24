@@ -233,6 +233,31 @@ public struct RemoteLibraryClient: Sendable {
         return min(1.0, max(0.0, Double(received) / Double(total)))
     }
 
+    /// #12: `reserveCapacity` に渡す確保量の上限。悪意あるサーバが `Content-Length` に巨大な値
+    /// （例: Int64.max 近辺）を詐称するだけで、実データが来る前に即座に巨大メモリ確保が起きる
+    /// （クライアント DoS）。正規の書籍ファイルはこの上限を大きく下回るため、クランプしても
+    /// 実害はない（`Data.append` は reserveCapacity を超えても正しく伸長する＝実データ受信自体は
+    /// 別の上限 `maxDownloadBytes` で扱う）。
+    static let maxReserveCapacityBytes = 512 * 1024 * 1024   // 512MiB
+
+    /// 宣言された Content-Length から、安全な reserveCapacity 引数を算出する。
+    static func clampedReserveCapacity(declaredLength total: Int64) -> Int {
+        guard total > 0 else { return 0 }
+        return Int(min(total, Int64(maxReserveCapacityBytes)))
+    }
+
+    /// #12: 1 ファイルダウンロードの総受信量上限。`Content-Length` を詐称/省略された上で
+    /// 実際に無限に近いバイト列を送り続けるサーバに対する保険（reserveCapacity のクランプだけでは
+    /// 実受信ループそのものは止まらない）。既存の正規書庫（zip/cbz/pdf）はこの上限を大きく
+    /// 下回るため、通常利用への影響はない。
+    static let maxDownloadBytes: Int64 = 4 * 1024 * 1024 * 1024   // 4GiB
+
+    /// 受信済みバイト数が総受信量上限を超えたか（純粋な比較のみ。GiB 単位のダミーデータを
+    /// 実際に流さずとも境界値をユニットテストできるよう切り出す）。
+    static func exceedsMaxDownloadBytes(received: Int64) -> Bool {
+        received > maxDownloadBytes
+    }
+
     /// 進捗通知つき本ファイル取得。onProgress は 0...1（総量不明時は最後に 1.0 のみ）。
     /// shouldCancel: 非 nil の場合、受信中に true を返すと即座に CancellationError で中断する
     /// （ダウンロードの即時キャンセル用。バイトストリームは MainActor 外で回るため、呼び出し側は
@@ -259,11 +284,13 @@ public struct RemoteLibraryClient: Sendable {
         }
         let total = response.expectedContentLength   // 不明は -1
         var data = Data()
-        if total > 0 { data.reserveCapacity(Int(total)) }
+        data.reserveCapacity(Self.clampedReserveCapacity(declaredLength: total))
         var received: Int64 = 0
         for try await byte in bytes {
             data.append(byte)
             received += 1
+            // #12: 宣言 Content-Length の真偽に関わらず、実受信量そのものに上限を課す。
+            if Self.exceedsMaxDownloadBytes(received: received) { throw RemoteClientError.responseTooLarge }
             if received % 65536 == 0 {
                 // 即時キャンセル: トークンが立っていれば受信を打ち切る（in-flight 中断）。
                 if shouldCancel?() == true { throw CancellationError() }
