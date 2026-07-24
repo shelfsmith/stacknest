@@ -89,8 +89,16 @@ struct GrantManagementSection: View {
                     .disabled(!server.isRunning)
                     .help(server.isRunning ? "この共有トークンの QR を表示" : "サーバ稼働中のみ")
                 Button("コピー") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(grant.token, forType: .string)
+                    // #14: 共有トークンは秘匿情報のため、平文コピーに加えて
+                    // org.nspasteboard.ConcealedType マーカーを同一 pasteboard item に載せる。
+                    // クリップボード履歴アプリ（Maccy 等）はこの慣習（nspasteboard.org）を尊重し、
+                    // 当該アイテムを履歴に保存しない。通常の貼り付け動作（.string）は変わらない。
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    let item = NSPasteboardItem()
+                    item.setString(grant.token, forType: .string)
+                    item.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+                    pasteboard.writeObjects([item])
                 }
                 Button("編集…") { editorTarget = .edit(grant) }
                 Button("トークン再生成…") { pendingRegenerate = grant }

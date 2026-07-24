@@ -138,6 +138,34 @@ let allowedFacetColumns: Set<String> = Set(
     BrowserPaneState.BrowseField.allCases.map { $0.sqlColumn }
 )
 
+/// #5: books ページングの `page` 上限。`(page - 1) * per` が Int をオーバーフローしないよう、
+/// `per` の最大クランプ値（500・BooksQuery 構築時に `min(500, ...)` で保証）を基準に、
+/// `(page - 1) * 500` が Int.max を超えない最大の page を許容する。実データの total は
+/// 遥かに小さいため、この上限を超えるページは既存の「start >= total → 空スライス」に必ず乗る
+/// （正当な小さい page 値の挙動は変えない・regression なし）。
+let maxSafeBooksPage: Int = Int.max / 500
+
+/// #3: `inner` スコープが `outer` スコープの部分集合かどうか（grants 一覧/PATCH/DELETE の scope フィルタで使用）。
+/// - `outer == .all`（グローバル admin）: 常に true（全 grant を閲覧/操作できる）。
+/// - `outer == .libraries(...)`（scope 限定 admin）:
+///   - `inner == .all` は false とする（.all は「無制限」であり、限定スコープの部分集合ではない。
+///     ここを true にすると scope 限定 admin が全ライブラリ共有トークンを閲覧/削除できてしまう）。
+///   - `inner == .libraries(...)` は `inner` の UUID 集合が `outer` の UUID 集合の部分集合なら true。
+/// GrantScope に他の containment/allows ヘルパが無いため、ここに最小実装を追加する。
+func grantScopeIsContained(_ inner: GrantScope, within outer: GrantScope) -> Bool {
+    switch outer {
+    case .all:
+        return true
+    case .libraries(let outerUUIDs):
+        switch inner {
+        case .all:
+            return false
+        case .libraries(let innerUUIDs):
+            return Set(innerUUIDs).isSubset(of: Set(outerUUIDs))
+        }
+    }
+}
+
 /// HTTP サーバ本体。Router 構築と Application 生成を担う。
 /// AppKit / ImageIO / PDFKit を import しないこと（Linux 移植規律・spec §3.2）。
 public struct LibraryServerCore: Sendable {
@@ -241,9 +269,13 @@ public struct LibraryServerCore: Sendable {
         // 認証は grantsProvider が毎リクエスト GrantStore を参照するため即時反映される（C-③a）。
         api.get("grants") { _, context in
             try context.requireAdmin()
-            return GrantStore.list().map {
-                GrantDTO(id: $0.id, label: $0.label, token: $0.token, tier: $0.tier, scope: $0.scope)
-            }
+            // #3: scope 限定 admin には自分の scope に含まれる（⊆）grant のみを返す。
+            // グローバル admin（scope == .all）は従来どおり全 grant を見る。
+            return GrantStore.list()
+                .filter { grantScopeIsContained($0.scope, within: context.scope) }
+                .map {
+                    GrantDTO(id: $0.id, label: $0.label, token: $0.token, tier: $0.tier, scope: $0.scope)
+                }
         }
         api.post("grants") { request, context in
             try context.requireAdmin()
@@ -260,6 +292,10 @@ public struct LibraryServerCore: Sendable {
             guard var g = GrantStore.list().first(where: { $0.id == id }) else {
                 throw HTTPError(.notFound)
             }
+            // #3: scope 外の grant は 404（存在の有無を漏らさない・GET 一覧と同じ containment）。
+            guard grantScopeIsContained(g.scope, within: context.scope) else {
+                throw HTTPError(.notFound)
+            }
             let req = try await request.decode(as: GrantUpdateRequest.self, context: context)
             if let l = req.label { g.label = l }
             if let t = req.tier  { g.tier  = t }
@@ -270,6 +306,13 @@ public struct LibraryServerCore: Sendable {
         api.delete("grants/:id") { _, context in
             try context.requireAdmin()
             let id = try context.parameters.require("id")
+            guard let g = GrantStore.list().first(where: { $0.id == id }) else {
+                throw HTTPError(.notFound)
+            }
+            // #3: scope 外の grant は 404（GET/PATCH と同じ containment。存在の有無を漏らさない）。
+            guard grantScopeIsContained(g.scope, within: context.scope) else {
+                throw HTTPError(.notFound)
+            }
             GrantStore.delete(id: id)
             return HTTPResponse.Status.noContent
         }
@@ -285,6 +328,10 @@ public struct LibraryServerCore: Sendable {
         // swiftc の ASTMangler が無限再帰でクラッシュするため）。
         api.post("libraries/:lib/unlock") { request, context in
             let uuid = try context.parameters.require("lib")
+            // #2a: scope 外のライブラリは 404（/libraries 一覧・resolver と同じ写像）。
+            // .forbidden ではなく .notFound にすることで、scope 外の grant に対して
+            // 「その uuid のライブラリが存在するかどうか」自体を漏らさない（existence oracle 防止）。
+            guard context.scope.allows(uuid) else { throw HTTPError(.notFound) }
             guard let lib = await dataSource.servedLibraries().first(where: { $0.uuid == uuid }) else {
                 throw HTTPError(.notFound)
             }
@@ -323,7 +370,9 @@ public struct LibraryServerCore: Sendable {
                 q: qp.get("q"),
                 sort: sort,
                 order: order,
-                page: max(1, qp.get("page", as: Int.self) ?? 1),
+                // #5: page はオーバーフロー防御のため maxSafeBooksPage で上限クランプする
+                // （実データの total は遥かに小さいため、正当な page 値の挙動は変わらない）。
+                page: min(maxSafeBooksPage, max(1, qp.get("page", as: Int.self) ?? 1)),
                 per: min(500, max(1, qp.get("per", as: Int.self) ?? 100)),
                 scope: decodeSidebarScope(scope: qp.get("scope"), scopeId: qp.get("scopeId", as: Int64.self), recentDays: qp.get("recentDays", as: Int.self)),
                 filter: filter,

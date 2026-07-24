@@ -654,5 +654,40 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.timeoutInterval == 12)
             #expect(StubURLProtocol.lastRequest?.timeoutInterval != .infinity)
         }
+
+        /// #12: 進捗つきダウンロードは通常サイズの本文なら従来どおり全バイトを返す（回帰なし）。
+        @Test func bookFileWithProgressReturnsNormalSizedBytes() async throws {
+            let bytes = Data(repeating: 0xAB, count: 4096)
+            StubURLProtocol.stub = .init(status: 200, headers: ["Content-Length": "4096"], body: bytes)
+            let data = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: nil,
+                                                        onProgress: nil, shouldCancel: nil)
+            #expect(data == bytes)
+        }
+    }
+}
+
+/// #12: クライアント側 DoS 対策として追加したガード関数・定数の直接検証。
+/// 実際に GiB 単位のデータを流すのは非現実的なので、境界値の純粋な計算のみをテストする。
+@Suite("RemoteLibraryClient download guards (#12)")
+struct RemoteLibraryClientDownloadGuardTests {
+    @Test func clampedReserveCapacityPassesThroughSmallDeclaredLength() {
+        #expect(RemoteLibraryClient.clampedReserveCapacity(declaredLength: 4096) == 4096)
+    }
+    @Test func clampedReserveCapacityIsZeroForUnknownOrNonPositiveLength() {
+        #expect(RemoteLibraryClient.clampedReserveCapacity(declaredLength: -1) == 0)   // 不明（-1）
+        #expect(RemoteLibraryClient.clampedReserveCapacity(declaredLength: 0) == 0)
+    }
+    @Test func clampedReserveCapacityClampsHugeDeclaredLength() {
+        // 悪意あるサーバが Content-Length に巨大値（Int64.max 近辺）を詐称しても、
+        // reserveCapacity には上限値しか渡らない。
+        let clamped = RemoteLibraryClient.clampedReserveCapacity(declaredLength: Int64.max)
+        #expect(clamped == RemoteLibraryClient.maxReserveCapacityBytes)
+    }
+    @Test func exceedsMaxDownloadBytesFalseAtAndBelowLimit() {
+        #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: 0) == false)
+        #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: RemoteLibraryClient.maxDownloadBytes) == false)
+    }
+    @Test func exceedsMaxDownloadBytesTrueJustAboveLimit() {
+        #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: RemoteLibraryClient.maxDownloadBytes + 1) == true)
     }
 }

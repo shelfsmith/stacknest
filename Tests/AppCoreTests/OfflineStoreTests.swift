@@ -20,7 +20,8 @@ struct OfflineStoreTests {
     @Test func saveListFileURLRemove() throws {
         let store = tmpStore()
         let sid = UUID()
-        try store.save(detail(7, "Book"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+        let lib = UUID().uuidString
+        try store.save(detail(7, "Book"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
                        fileExtension: "zip", fileData: Data([1,2,3]), coverData: Data([9]))
         let all = store.all()
         #expect(all.count == 1)
@@ -31,31 +32,80 @@ struct OfflineStoreTests {
         #expect(FileManager.default.fileExists(atPath: url.path))
         #expect(try Data(contentsOf: url) == Data([1,2,3]))
         #expect(store.totalSizeBytes() >= 3)
-        store.remove(serverID: sid, libraryUUID: "u", bookID: 7)
+        store.remove(serverID: sid, libraryUUID: lib, bookID: 7)
         #expect(store.all().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
     @Test func updateLastPagePersists() throws {
         let store = tmpStore()
         let sid = UUID()
-        try store.save(detail(1, "B"), serverID: sid, libraryUUID: "u", libraryName: "L",
+        let lib = UUID().uuidString
+        try store.save(detail(1, "B"), serverID: sid, libraryUUID: lib, libraryName: "L",
                        fileExtension: "zip", fileData: Data([0]), coverData: nil)
-        store.updateLastPage(serverID: sid, libraryUUID: "u", bookID: 1, page: 5)
+        store.updateLastPage(serverID: sid, libraryUUID: lib, bookID: 1, page: 5)
         #expect(OfflineStore(baseDirectory: store.baseDirectory).all().first?.lastPage == 5)
     }
     @Test func isDownloadedReflectsState() throws {
         let store = tmpStore()
         let sid = UUID()
-        #expect(store.isDownloaded(serverID: sid, libraryUUID: "u", bookID: 1) == false)
-        try store.save(detail(1, "B"), serverID: sid, libraryUUID: "u", libraryName: "L",
+        let lib = UUID().uuidString
+        #expect(store.isDownloaded(serverID: sid, libraryUUID: lib, bookID: 1) == false)
+        try store.save(detail(1, "B"), serverID: sid, libraryUUID: lib, libraryName: "L",
                        fileExtension: "zip", fileData: Data([0]), coverData: nil)
-        #expect(store.isDownloaded(serverID: sid, libraryUUID: "u", bookID: 1) == true)
+        #expect(store.isDownloaded(serverID: sid, libraryUUID: lib, bookID: 1) == true)
+    }
+
+    @Test func saveRejectsNonUUIDLibraryUUIDAndWritesNothingOutsideBase() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        // 非 UUID かつパストラバーサルを狙った値。書き込みが起きないこと・base 外に何も
+        // 作られないことを検証する。
+        let malicious = "../../../../tmp/evil-\(UUID().uuidString)"
+        #expect(throws: OfflineStoreError.invalidLibraryUUID) {
+            try store.save(detail(1, "B"), serverID: sid, libraryUUID: malicious, libraryName: "L",
+                           fileExtension: "zip", fileData: Data([0xDE, 0xAD]), coverData: nil)
+        }
+        #expect(store.all().isEmpty)
+        // base directory 自体がまだ作られていない（createDirectory より前に弾かれる）はず。
+        #expect(!FileManager.default.fileExists(atPath: store.baseDirectory.path))
+
+        // 単に UUID 形式でないだけの値も同様に拒否される。
+        #expect(throws: OfflineStoreError.invalidLibraryUUID) {
+            try store.save(detail(1, "B"), serverID: sid, libraryUUID: "not-a-uuid", libraryName: "L",
+                           fileExtension: "zip", fileData: Data([0]), coverData: nil)
+        }
+        #expect(store.all().isEmpty)
+    }
+
+    @Test func saveRejectsBadFileExtension() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        let lib = UUID().uuidString
+        for bad in ["../evil", "a/b", "zip.", "..", "a b", "toolongextensionxx"] {
+            #expect(throws: OfflineStoreError.invalidFileExtension) {
+                try store.save(detail(1, "B"), serverID: sid, libraryUUID: lib, libraryName: "L",
+                               fileExtension: bad, fileData: Data([0]), coverData: nil)
+            }
+        }
+        #expect(store.all().isEmpty)
+    }
+
+    @Test func saveAcceptsValidUUIDAndNormalExtensions() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        for ext in ["zip", "cbz", "pdf", "jpg", "PNG"] {
+            let lib = UUID().uuidString
+            try store.save(detail(1, "B"), serverID: sid, libraryUUID: lib, libraryName: "L",
+                           fileExtension: ext, fileData: Data([1]), coverData: nil)
+            let book = store.all().first { $0.libraryUUID == lib }
+            #expect(book?.relativeFilePath == "\(sid.uuidString)/\(lib)/1.\(ext)")
+        }
     }
 
     @Test func adjacentConsecutiveOnlyStopsOnGap() throws {
         let store = tmpStore()
         let sid = UUID()
-        let lib = "libA"
+        let lib = UUID().uuidString
 
         // Helper to make a detail with series/volume
         func detailSV(_ id: Int, _ title: String, series: String, volume: Double) -> BookDetailDTO {
@@ -91,7 +141,7 @@ struct OfflineStoreTests {
         #expect(fromVol5Prev == nil)
 
         // library isolation: different libraryUUID with vol1 -> next -> nil (vol2 not downloaded there)
-        let otherLib = "libB"
+        let otherLib = UUID().uuidString
         try store.save(detailSV(1, "S vol1 other", series: "S", volume: 1), serverID: sid, libraryUUID: otherLib,
                        libraryName: "L2", fileExtension: "zip", fileData: Data([10]), coverData: nil)
         let fromOtherLibNext = store.adjacentDownloaded(serverID: sid, libraryUUID: otherLib, series: "S", volume: 1, direction: .next)
@@ -101,12 +151,13 @@ struct OfflineStoreTests {
     @Test func removeBooksDeletesAllGiven() throws {
         let store = tmpStore()
         let sid = UUID()
+        let lib = UUID().uuidString
         // Save 3 books in the same server/library with different IDs
-        try store.save(detail(10, "Book A"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+        try store.save(detail(10, "Book A"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
                        fileExtension: "zip", fileData: Data([1]), coverData: nil)
-        try store.save(detail(20, "Book B"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+        try store.save(detail(20, "Book B"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
                        fileExtension: "zip", fileData: Data([2]), coverData: nil)
-        try store.save(detail(30, "Book C"), serverID: sid, libraryUUID: "u", libraryName: "Lib",
+        try store.save(detail(30, "Book C"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
                        fileExtension: "zip", fileData: Data([3]), coverData: nil)
         let books = store.all()
         #expect(books.count == 3)
