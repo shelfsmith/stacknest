@@ -41,7 +41,12 @@ enum ResumeLastReadCoordinator {
                 $0.serverID == serverID && $0.libraryUUID == libraryUUID
             }) {
                 openWindow(value: RemoteLibraryRef(serverID: serverID, libraryUUID: libraryUUID)) // フォーカス
-                await st.openBookByID(bookID, resumeDirect: true)
+                // #7: 既に開いているウィンドウが認証済み（非施錠 or library token 取得済み）なら、
+                // ユーザーは既にそのライブラリを解錠して閲覧中なので resume を再認証なしで受け入れる。
+                // 施錠かつ未認証（解錠シート表示中など）の場合は本を開かず、フォーカスのみに留めて解錠に委ねる。
+                if !st.locked || st.libraryToken != nil {
+                    await st.openBookByID(bookID, resumeDirect: true)
+                }
                 return
             }
             let store = ServerConnectionStore()
@@ -49,14 +54,17 @@ enum ResumeLastReadCoordinator {
                 presentInfo("最後に開いた本のサーバ接続が見つかりません。「共有 → サーバに接続」で接続してから再度実行してください。")
                 return
             }
-            let cacheKey = RemoteResumeIntent.key(serverID, libraryUUID)
-            var token: String? = locked ? RemoteResumeIntent.shared.unlockTokens[cacheKey] : nil
-            if locked && token == nil {
+            // #7: 施錠リモートライブラリの resume はロックを迂回しない。以前はセッション内で unlock
+            // トークンを unlockTokens にキャッシュして再プロンプトを省いていたが、ライブラリを閉じても
+            // トークンが残り「ライブラリは解錠要求されるのに本だけパスワード無しで開く」バイパスになっていた。
+            // resume では常に解錠を要求する（ウィンドウが既に開いている＝解錠済みの場合は上の
+            // early-return 枝で扱われるため、ここに来る時点でライブラリは開いていない＝再解錠が正しい）。
+            var token: String? = nil
+            if locked {
                 guard let pw = promptPassword() else { return }   // キャンセルで中止
                 let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
                 do {
                     token = try await client.unlock(libraryUUID: libraryUUID, password: pw)
-                    RemoteResumeIntent.shared.unlockTokens[cacheKey] = token
                 } catch {
                     presentInfo("解錠に失敗しました（パスワードを確認してください）。")
                     return

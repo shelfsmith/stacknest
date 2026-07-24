@@ -88,7 +88,7 @@ struct GrantManagementSection: View {
                 Button("QR") { qrTarget = grant }
                     .disabled(!server.isRunning)
                     .help(server.isRunning ? "この共有トークンの QR を表示" : "サーバ稼働中のみ")
-                Button("コピー") {
+                Button("トークンコピー") {
                     // #14: 共有トークンは秘匿情報のため、平文コピーに加えて
                     // org.nspasteboard.ConcealedType マーカーを同一 pasteboard item に載せる。
                     // クリップボード履歴アプリ（Maccy 等）はこの慣習（nspasteboard.org）を尊重し、
