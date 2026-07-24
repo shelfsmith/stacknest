@@ -218,6 +218,14 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
             guard name == targetName else { archive_read_data_skip(archive); continue }
             let size = Int(archive_entry_size(entry))
             if size <= 0 { archive_read_data_skip(archive); continue }
+            // セキュリティ: archive_entry_size はアーカイブ自身の自己申告値（偽装可能）。
+            // 上限超過分をそのまま Data(count:) で先行確保すると、実データが小さくても
+            // 宣言サイズだけメモリを食い潰す decompression-bomb / OOM を許してしまう。
+            // 確保前に skip して次のエントリへ（対象名と一致した唯一のエントリなので noImageEntry で返る）。
+            if ArchiveEntrySizeLimit.shouldReject(size: size) {
+                archive_read_data_skip(archive)
+                continue
+            }
             var buffer = Data(count: size)
             let bytesRead: Int = buffer.withUnsafeMutableBytes { rawBuf in
                 guard let baseAddr = rawBuf.baseAddress else { return 0 }

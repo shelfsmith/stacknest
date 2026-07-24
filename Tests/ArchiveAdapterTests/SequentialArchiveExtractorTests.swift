@@ -66,4 +66,23 @@ struct SequentialArchiveExtractorTests {
             _ = try await ext.data(forName: "nonexistent.png")
         }
     }
+
+    /// セキュリティ: 逐次読み取りの累積サイズが上限を超えたら OOM を招く前に throw する
+    /// （decompression-bomb 対策）。実物の巨大アーカイブは作らず、注入した小さい上限で検証する。
+    @Test func entryExceedingCapThrowsInsteadOfUnboundedGrowth() async throws {
+        let names = try await imageNames()
+        // p1.png は数十バイトの 1x1 PNG なので、上限 1 byte なら必ず超過する。
+        let ext = SequentialArchiveExtractor(url: fixture("three_pages.zip"), imageNames: Set(names), maxEntryBytes: 1)
+        await #expect(throws: ArchiveAdapterError.self) {
+            _ = try await ext.data(forName: "p1.png")
+        }
+    }
+
+    /// 上限を十分大きく取れば、通常サイズのページはこれまで通り抽出できる（回帰なし）。
+    @Test func entryWithinCapStillExtractsNormally() async throws {
+        let names = try await imageNames()
+        let ext = SequentialArchiveExtractor(url: fixture("three_pages.zip"), imageNames: Set(names), maxEntryBytes: ArchiveEntrySizeLimit.maxEntryBytes)
+        let data = try await ext.data(forName: "p1.png")
+        #expect(data.count > 0)
+    }
 }
