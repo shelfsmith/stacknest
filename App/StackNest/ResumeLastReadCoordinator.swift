@@ -23,7 +23,13 @@ enum ResumeLastReadCoordinator {
             // try? + optional-chaining は二重 Optional を平坦化し BookRow? を返すため単一バインドで足りる。
             if let st = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundlePath }),
                let book = try? st.database?.fetchBook(id: bookID) {
-                st.openBooks([book], resumeDirect: true)
+                // #7: 施錠ライブラリは resumeDirect でロックを迂回しない（.remote 経路と同じ扱い）。
+                // ウィンドウを前面化して通常の解錠ゲート（LibraryUnlockSheet）に委ね、解錠まで本を開かない。
+                if st.librarySettings?.lockPasswordHash != nil {
+                    openWindow(value: URL(fileURLWithPath: bundlePath))   // フォーカスのみ（解錠ゲートが出る）
+                } else {
+                    st.openBooks([book], resumeDirect: true)
+                }
             } else {
                 LocalResumeIntent.shared.pending = (bundlePath, bookID)
                 openWindow(value: URL(fileURLWithPath: bundlePath))
