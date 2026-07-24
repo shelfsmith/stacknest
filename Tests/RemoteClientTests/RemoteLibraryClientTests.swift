@@ -690,4 +690,20 @@ struct RemoteLibraryClientDownloadGuardTests {
     @Test func exceedsMaxDownloadBytesTrueJustAboveLimit() {
         #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: RemoteLibraryClient.maxDownloadBytes + 1) == true)
     }
+
+    /// #13: リダイレクト拒否デリゲートは 3xx に一切従わない（completionHandler(nil)）。
+    @Test func noRedirectDelegateDeniesRedirect() async {
+        let delegate = RemoteLibraryClient.NoRedirectSessionDelegate()
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.dataTask(with: URL(string: "http://h:8080/api/v1/libraries")!)
+        let redirect = HTTPURLResponse(url: URL(string: "http://evil.example/steal")!,
+                                       statusCode: 302, httpVersion: nil, headerFields: nil)!
+        let hop = URLRequest(url: URL(string: "http://evil.example/steal")!)
+        let captured: URLRequest? = await withCheckedContinuation { cont in
+            delegate.urlSession(session, task: task, willPerformHTTPRedirection: redirect,
+                                newRequest: hop) { cont.resume(returning: $0) }
+        }
+        #expect(captured == nil)   // リダイレクトに従わない＝資格情報が別ホストへ送られない
+        task.cancel(); session.invalidateAndCancel()
+    }
 }
