@@ -46,4 +46,23 @@ struct SSEParserTests {
         }
         #expect(events.isEmpty)
     }
+
+    /// #12: 悪意あるサーバが改行を一切送らずバイトを送り続けると `lineBuf`（forEachEvent 内の
+    /// 生バイトバッファ）が無限成長し得る（クライアント DoS）。上限を超えたら打ち切ることを保証する。
+    @Test func forEachEventThrowsWhenLineExceedsMaxLength() async throws {
+        let overLong = [UInt8](repeating: 0x41, count: SSEParser.maxLineBytes + 1)   // 改行なし
+        let bytes = AsyncStream<UInt8> { c in for b in overLong { c.yield(b) }; c.finish() }
+        await #expect(throws: SSEParserError.lineTooLong) {
+            try await SSEParser.forEachEvent(inRawBytes: bytes) { _ in }
+        }
+    }
+
+    /// 通常長の行（改行あり）は上限に関係なく正しく処理される（正のケース）。
+    @Test func forEachEventProcessesNormalLengthLines() async throws {
+        let raw = "event: bookChanged\ndata: {\"library\":\"u1\",\"bookId\":5}\n\n"
+        let bytes = AsyncStream<UInt8> { c in for b in raw.utf8 { c.yield(b) }; c.finish() }
+        var events: [LiveEvent] = []
+        try await SSEParser.forEachEvent(inRawBytes: bytes) { events.append($0) }
+        #expect(events == [.bookChanged(library: "u1", bookID: 5)])
+    }
 }

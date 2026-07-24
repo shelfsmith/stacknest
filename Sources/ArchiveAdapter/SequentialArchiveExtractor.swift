@@ -25,6 +25,9 @@ public actor SequentialArchiveExtractor {
     /// 非画像エントリはストリーム上でスキップし temp に残さない。
     private let imageNames: Set<String>
     private let tempDir: URL
+    /// セキュリティ: 1 エントリあたりの読み取り累積サイズ上限（decompression-bomb / OOM 対策）。
+    /// 既定は `ArchiveEntrySizeLimit.maxEntryBytes`。テストで小さい値を注入できるよう引数化している。
+    private let maxEntryBytes: Int
 
     /// libarchive ハンドル。アクセスは actor が直列化する（deinit の解放のためだけ
     /// nonisolated(unsafe)＝実アクセスは全て actor 上なので安全）。
@@ -36,9 +39,10 @@ public actor SequentialArchiveExtractor {
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "SequentialArchiveExtractor")
 
-    public init(url: URL, imageNames: Set<String>) {
+    public init(url: URL, imageNames: Set<String>, maxEntryBytes: Int = ArchiveEntrySizeLimit.maxEntryBytes) {
         self.url = url
         self.imageNames = imageNames
+        self.maxEntryBytes = maxEntryBytes
         self.tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("stacknest-arc-\(UUID().uuidString)", isDirectory: true)
     }
@@ -157,6 +161,10 @@ public actor SequentialArchiveExtractor {
     }
 
     /// 現在のエントリの全データを読み切る（サイズ未知の format にも対応するため 0 が返るまでループ）。
+    ///
+    /// セキュリティ: `archive_entry_size` は自己申告値で信頼できないため事前チェックせず、
+    /// 実際に読み取った累積バイト数を毎チャンク後にチェックする（decompression-bomb / OOM 対策）。
+    /// 上限超過時は `out` を捨てて即 throw — それ以上の蓄積・確保を行わない。
     private func readCurrentEntryData() throws -> Data {
         var out = Data()
         let bufSize = 256 * 1024
@@ -169,6 +177,12 @@ public actor SequentialArchiveExtractor {
                 throw ArchiveAdapterError.archiveUnreadable(url, reason: errorMessage())
             }
             if n == 0 { break }
+            if ArchiveEntrySizeLimit.shouldReject(size: out.count + n, limit: maxEntryBytes) {
+                throw ArchiveAdapterError.archiveUnreadable(
+                    url,
+                    reason: "entry exceeds \(maxEntryBytes) byte cap (decompression-bomb guard)"
+                )
+            }
             buf.withUnsafeBytes { raw in
                 out.append(raw.baseAddress!.assumingMemoryBound(to: UInt8.self), count: n)
             }

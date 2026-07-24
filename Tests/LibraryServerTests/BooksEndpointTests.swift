@@ -205,6 +205,42 @@ struct BooksEndpointTests {
         }
     }
 
+    /// #5: page に極端な値（Int.max）を与えても (page-1)*per がオーバーフローしてクラッシュせず、
+    /// 空ページを返す（既存の start >= total → [] パスに正しく乗る）。
+    @Test func hugePageDoesNotCrashAndReturnsEmptyPage() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 3)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?page=\(Int.max)&per=100", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(BookPageDTO.self, from: Data(buffer: response.body))
+                #expect(page.items.isEmpty)
+                #expect(page.total == 3)
+            }
+        }
+    }
+
+    /// 通常ページは従来どおり期待したスライスを返す（回帰なし）。
+    @Test func normalPageStillReturnsExpectedSlice() async throws {
+        let (fixture, app, uuid) = try makeApp(bookCount: 25)
+        defer { fixture.cleanup() }
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(uuid)/books?page=3&per=10", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let page = try Self.makeDecoder().decode(Page.self, from: Data(buffer: response.body))
+                #expect(page.total == 25)
+                #expect(page.items.count == 5)   // 3ページ目 = 21..25 の 5 件
+                #expect(page.page == 3)
+            }
+        }
+    }
+
     /// q 検索はキーワード列にもヒットする（FTS=searchBooks 経由・旧 contains は title/series/author のみ）。
     @Test func searchMatchesKeywordViaFTS() async throws {
         let fixture = try TestLibraryFixture(name: "FTS", bookCount: 2)

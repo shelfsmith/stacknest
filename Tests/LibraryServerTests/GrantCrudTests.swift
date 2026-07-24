@@ -14,6 +14,10 @@ struct GrantCrudTests {
         LibraryServerCore(config: .init(port: 0, token: "u", editToken: nil, grantsProvider: { grants }),
                           dataSource: StaticLibraryDataSource(libraries: [lib])).buildApplication()
     }
+    private func makeApp(_ grants: [Grant], _ libs: [ServedLibrary]) -> some ApplicationProtocol {
+        LibraryServerCore(config: .init(port: 0, token: "u", editToken: nil, grantsProvider: { grants }),
+                          dataSource: StaticLibraryDataSource(libraries: libs)).buildApplication()
+    }
     private func admin() -> Grant { Grant(id: "adm", label: "admin", token: "ADM", tier: .admin, scope: .all, createdAt: Date(timeIntervalSince1970: 0)) }
 
     @Test func adminCreatesGrant() async throws {
@@ -46,6 +50,78 @@ struct GrantCrudTests {
             try await client.execute(uri: "/api/v1/me", method: .get, headers: [.authorization: "Bearer SC"]) { r in
                 let me = try JSONDecoder().decode(MeReply.self, from: r.body)
                 #expect(me.scope == .libraries([lib.uuid])); #expect(me.tier == .read)
+            }
+        }
+    }
+
+    // MARK: - #3: grants 一覧/PATCH/DELETE の scope フィルタ
+
+    @Test func scopedAdminListsOnlyGrantsWithinItsScope() async throws {
+        let fa = try TestLibraryFixture(name: "GA", bookCount: 1); defer { fa.cleanup() }
+        let fb = try TestLibraryFixture(name: "GB", bookCount: 1); defer { fb.cleanup() }
+        let a = fa.servedLibrary(); let b = fb.servedLibrary()
+        let adminA = Grant(id: "admA", label: "adminA", token: "ADMA", tier: .admin,
+                           scope: .libraries([a.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        let grantB = Grant(id: "gB", label: "b-token", token: "TOKB", tier: .read,
+                           scope: .libraries([b.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([adminA, grantB], [a, b]).test(.router) { client in
+            try await client.execute(uri: "/api/v1/grants", method: .get, headers: [.authorization: "Bearer ADMA"]) { r in
+                #expect(r.status == .ok)
+                let dtos = try JSONDecoder().decode([GrantDTO].self, from: r.body)
+                #expect(dtos.map(\.id) == ["admA"])
+                #expect(!dtos.contains { $0.token == "TOKB" })   // 他ライブラリの token を漏らさない
+            }
+        }
+    }
+
+    @Test func globalAdminListsAllGrants() async throws {
+        let fa = try TestLibraryFixture(name: "GA2", bookCount: 1); defer { fa.cleanup() }
+        let fb = try TestLibraryFixture(name: "GB2", bookCount: 1); defer { fb.cleanup() }
+        let a = fa.servedLibrary(); let b = fb.servedLibrary()
+        let grantB = Grant(id: "gB2", label: "b-token", token: "TOKB2", tier: .read,
+                           scope: .libraries([b.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([admin(), grantB], [a, b]).test(.router) { client in
+            try await client.execute(uri: "/api/v1/grants", method: .get, headers: [.authorization: "Bearer ADM"]) { r in
+                #expect(r.status == .ok)
+                let dtos = try JSONDecoder().decode([GrantDTO].self, from: r.body)
+                #expect(Set(dtos.map(\.id)) == ["adm", "gB2"])
+            }
+        }
+    }
+
+    @Test func scopedAdminPatchDeleteOutOfScopeGrantIs404() async throws {
+        let fa = try TestLibraryFixture(name: "GA3", bookCount: 1); defer { fa.cleanup() }
+        let fb = try TestLibraryFixture(name: "GB3", bookCount: 1); defer { fb.cleanup() }
+        let a = fa.servedLibrary(); let b = fb.servedLibrary()
+        let adminA = Grant(id: "admA3", label: "adminA", token: "ADMA3", tier: .admin,
+                           scope: .libraries([a.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        let grantB = Grant(id: "gB3", label: "b-token", token: "TOKB3", tier: .read,
+                           scope: .libraries([b.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([adminA, grantB], [a, b]).test(.router) { client in
+            try await client.execute(uri: "/api/v1/grants/gB3", method: .patch,
+                headers: [.authorization: "Bearer ADMA3", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"label":"pwned"}"#)) { r in
+                #expect(r.status == .notFound)
+            }
+            try await client.execute(uri: "/api/v1/grants/gB3", method: .delete,
+                headers: [.authorization: "Bearer ADMA3"]) { r in
+                #expect(r.status == .notFound)
+            }
+        }
+    }
+
+    @Test func scopedAdminPatchInScopeGrantStillSucceeds() async throws {
+        let fa = try TestLibraryFixture(name: "GA4", bookCount: 1); defer { fa.cleanup() }
+        let a = fa.servedLibrary()
+        let adminA = Grant(id: "admA4", label: "adminA", token: "ADMA4", tier: .admin,
+                           scope: .libraries([a.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([adminA], [a]).test(.router) { client in
+            try await client.execute(uri: "/api/v1/grants/admA4", method: .patch,
+                headers: [.authorization: "Bearer ADMA4", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"label":"renamed"}"#)) { r in
+                #expect(r.status == .ok)
+                let dto = try JSONDecoder().decode(GrantDTO.self, from: r.body)
+                #expect(dto.label == "renamed")
             }
         }
     }

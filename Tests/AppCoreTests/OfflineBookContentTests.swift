@@ -34,7 +34,7 @@ struct OfflineBookContentTests {
             dateAdded: Date(timeIntervalSince1970: 0), playDate: nil, bookType: 0, fileType: 2, pages: nil,
             rating: 0, unseen: true, keywordA: nil, keywordB: nil, keywordC: nil, neta: nil, memo: nil,
             series: nil, volume: nil, coverImageName: nil, coverCropRectJSON: nil, pageDirection: "rtl")
-        try store.save(detail, serverID: sid, libraryUUID: "u", libraryName: "L",
+        try store.save(detail, serverID: sid, libraryUUID: UUID().uuidString, libraryName: "L",
                        fileExtension: "zip", fileData: try Data(contentsOf: src), coverData: nil)
         let book = store.all().first!
         let fileURL = store.fileURL(for: book)
