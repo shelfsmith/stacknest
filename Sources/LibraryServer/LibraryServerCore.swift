@@ -1304,6 +1304,14 @@ public struct LibraryServerCore: Sendable {
             guard ((try? lib.db.fetchBook(id: bookID)) ?? nil) != nil else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: RelinkRequest.self, context: context)
             guard !body.newPath.isEmpty else { throw HTTPError(.badRequest) }
+            // セキュリティ修正: newPath を許可ルート（バンドル配下／監視フォルダ／現存する他本の
+            // ディレクトリ）で検証する。無検証だと edit tier のクライアントが任意のホストパスへ
+            // relink し、続けて GET .../file（read tier）で中身を読み出せてしまう
+            // （Arbitrary File Read via relink→file）。restore ハンドラと同じ検証ヘルパを使う。
+            let roots = allowedRestoreRoots(lib: lib)
+            guard isPathWithinAllowedRoots(body.newPath, roots: roots) else {
+                throw HTTPError(.forbidden)
+            }
             try lib.db.relinkBook(id: bookID, newPath: body.newPath)
             // G21 #5: relink はファイルが別物になったということなので、自動表紙は作り直し、
             // ページ数も新しいファイルの実数に更新する（smoke A10: 表紙とページ数だけ旧のまま問題）。
