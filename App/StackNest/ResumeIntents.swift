@@ -47,5 +47,10 @@ final class RemoteLibraryRegistry {
     static let shared = RemoteLibraryRegistry()
     private let table = NSHashTable<RemoteLibraryState>.weakObjects()
     func add(_ s: RemoteLibraryState) { table.add(s) }
+    /// #7: ウィンドウ閉鎖時に明示的に外す。weak table は dealloc 時に自動で外れるが、
+    /// SwiftUI の @State/Task 保持で state が閉鎖後も生き残ると、resume の already-open 枝が
+    /// 「開いている」と誤認してしまう。閉鎖を検知したら即座に外し、閉じた庫は cold path
+    /// （NSAlert 解錠→新ウィンドウで続きを開く）へ落とす。
+    func remove(_ s: RemoteLibraryState) { table.remove(s) }
     var allObjects: [RemoteLibraryState] { table.allObjects }
 }
