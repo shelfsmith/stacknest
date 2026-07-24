@@ -9,7 +9,23 @@ public struct RemoteLibraryClient: Sendable {
     public let deviceToken: String
     private let session: URLSession
 
-    public init(baseURL: URL, deviceToken: String, session: URLSession = .shared) {
+    /// #13: 本クライアントは固定 base URL としか通信しないため HTTP リダイレクトは想定されない。
+    /// 悪意あるサーバが 3xx で資格情報（Bearer/X-Library-Token）付きリクエストを別ホストへ
+    /// 誘導する（SSRF / トークン転送）のを防ぐため、リダイレクトに一切従わないデリゲート。
+    final class NoRedirectSessionDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(nil)   // リダイレクトを拒否（元応答をそのまま呼び出し元へ返す）
+        }
+    }
+
+    /// リダイレクト拒否デリゲート付きの既定セッション（#13）。テストは独自 session を注入するため影響なし。
+    public static let noRedirectSession: URLSession =
+        URLSession(configuration: .default, delegate: NoRedirectSessionDelegate(), delegateQueue: nil)
+
+    public init(baseURL: URL, deviceToken: String, session: URLSession = RemoteLibraryClient.noRedirectSession) {
         self.baseURL = baseURL
         self.deviceToken = deviceToken
         self.session = session
