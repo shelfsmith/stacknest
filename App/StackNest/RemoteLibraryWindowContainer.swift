@@ -87,12 +87,17 @@ struct RemoteLibraryWindowContainer: View {
         }
         .task { await resolve() }
         .onDisappear {
-            // #7: ウィンドウを閉じたら認証（library token）を無効化する。RemoteLibraryState は
-            // weak registry に残ることがあり、token を保持したままだと ⌘⇧O（resume）の
-            // already-open 枝が「認証済み」と誤判定して施錠庫の本を解錠なしで開いてしまう（B1 バイパス）。
-            // token を落とせば、閉じた施錠庫の resume は解錠ゲートに委ねられる（開いたままなら
-            // onDisappear は発火せず認証は維持＝認証済みウィンドウでの復帰は妨げない）。
-            if state?.locked == true { state?.libraryToken = nil }
+            // #7: ウィンドウを閉じたら registry から外し、認証（library token）も無効化する。
+            // RemoteLibraryState は SwiftUI の @State/Task 保持で閉鎖後も生き残ることがあり、
+            // registry に残ると ⌘⇧O（resume）の already-open 枝がそれを「開いている」と誤認する。
+            // すると reopen が作る新 state と食い違い、(a) 施錠庫の本を解錠なしで開く（バイパス）、
+            // (b) 解錠しても本が開かない（pending を古い state に積む）等の不整合が出ていた。
+            // 外せば閉じた庫は cold path（NSAlert 解錠→新ウィンドウで続きを開く＝アプリ再起動時と
+            // 同じ挙動）に落ちる。開いたままなら onDisappear は発火せず認証を維持する。
+            if let s = state {
+                RemoteLibraryRegistry.shared.remove(s)
+                s.libraryToken = nil
+            }
         }
     }
 
