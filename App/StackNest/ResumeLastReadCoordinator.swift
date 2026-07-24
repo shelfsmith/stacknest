@@ -43,9 +43,13 @@ enum ResumeLastReadCoordinator {
                 openWindow(value: RemoteLibraryRef(serverID: serverID, libraryUUID: libraryUUID)) // フォーカス
                 // #7: 既に開いているウィンドウが認証済み（非施錠 or library token 取得済み）なら、
                 // ユーザーは既にそのライブラリを解錠して閲覧中なので resume を再認証なしで受け入れる。
-                // 施錠かつ未認証（解錠シート表示中など）の場合は本を開かず、フォーカスのみに留めて解錠に委ねる。
                 if !st.locked || st.libraryToken != nil {
                     await st.openBookByID(bookID, resumeDirect: true)
+                } else {
+                    // 施錠かつ未認証（ウィンドウを閉じて token 無効化済み）: 本は直接開かず解錠を促す。
+                    // 解錠後（unlock → reload）に対象本が開くよう pending を積む
+                    // （バイパスは防ぎつつ、解錠さえすれば従来どおり続きから開く）。
+                    st.pendingOpenBookID = (bookID, true)
                 }
                 return
             }
