@@ -287,7 +287,11 @@ final class AppState {
         if let p = LocalResumeIntent.shared.pending, bundleURL.path == p.bundlePath,
            let row = try? database?.fetchBook(id: p.bookID) {
             LocalResumeIntent.shared.pending = nil
-            openBooks([row], resumeDirect: true)
+            // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。解錠は通常ゲート（unlock sheet）に委ね、
+            // 解錠までビューアを自動で開かない（intent は消費済み＝解錠後は手動で開く）。
+            if librarySettings?.lockPasswordHash == nil {
+                openBooks([row], resumeDirect: true)
+            }
         }
     }
 

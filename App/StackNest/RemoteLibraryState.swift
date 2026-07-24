@@ -2232,6 +2232,8 @@ final class RemoteLibraryState {
         // G21 #4: 実際にはキャンセル追い越しを握り潰す呼び出し元（liveReload）では表示されないが、
         // message(for:) は switch の網羅性のため文言を用意しておく。
         case .cancelled: return "操作が中断されました"
+        // #12: サーバ応答が上限を超え中断（クライアント側 DoS 対策）。
+        case .responseTooLarge: return "サーバの応答が大きすぎるため中断しました"
         }
     }
 }
