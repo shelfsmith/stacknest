@@ -271,7 +271,9 @@ public struct LibraryServerCore: Sendable {
             try context.requireAdmin()
             // #3: scope 限定 admin には自分の scope に含まれる（⊆）grant のみを返す。
             // グローバル admin（scope == .all）は従来どおり全 grant を見る。
-            return GrantStore.list()
+            // grant のソースは認証と同じ config.grantsProvider（本番は { GrantStore.list() }＝挙動同一）
+            // を用い、CRUD と認証で参照元を一致させる（provider 未設定時のみ GrantStore へフォールバック）。
+            return (config.grantsProvider?() ?? GrantStore.list())
                 .filter { grantScopeIsContained($0.scope, within: context.scope) }
                 .map {
                     GrantDTO(id: $0.id, label: $0.label, token: $0.token, tier: $0.tier, scope: $0.scope)
@@ -289,7 +291,7 @@ public struct LibraryServerCore: Sendable {
         api.patch("grants/:id") { request, context in
             try context.requireAdmin()
             let id = try context.parameters.require("id")
-            guard var g = GrantStore.list().first(where: { $0.id == id }) else {
+            guard var g = (config.grantsProvider?() ?? GrantStore.list()).first(where: { $0.id == id }) else {
                 throw HTTPError(.notFound)
             }
             // #3: scope 外の grant は 404（存在の有無を漏らさない・GET 一覧と同じ containment）。
@@ -306,7 +308,7 @@ public struct LibraryServerCore: Sendable {
         api.delete("grants/:id") { _, context in
             try context.requireAdmin()
             let id = try context.parameters.require("id")
-            guard let g = GrantStore.list().first(where: { $0.id == id }) else {
+            guard let g = (config.grantsProvider?() ?? GrantStore.list()).first(where: { $0.id == id }) else {
                 throw HTTPError(.notFound)
             }
             // #3: scope 外の grant は 404（GET/PATCH と同じ containment。存在の有無を漏らさない）。
