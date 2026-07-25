@@ -144,6 +144,72 @@ struct RelinkEndpointTests {
         }
     }
 
+    /// Codex High: 許可ルート内の symlink を経由して外部を指すパスは拒否されること。
+    /// `standardizedFileURL` は `..` を字句的に畳むだけで symlink を解決しないため、
+    /// 許可ルート配下に外部を指す symlink があると、component 比較は「ルート内」と誤判定し、
+    /// 続く GET .../file が symlink 先の実体（例: ~/.ssh/id_rsa）を返してしまう。
+    @Test func relinkThroughSymlinkEscapingAllowedRootsIsForbidden() async throws {
+        let fixture = try TestLibraryFixture(name: "RelinkSymlink", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.db.insertBookReturningID(BookRecord(
+            id: 0, title: "Relinkable",
+            path: fixture.bundleURL.appendingPathComponent("old/path.zip").path,
+            dateAdded: Date()
+        ))
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+
+        // 許可ルート（バンドル）の外に「秘密」を置く。
+        let secretDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("relink-secret-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: secretDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: secretDir) }
+        let secretFile = secretDir.appendingPathComponent("id_rsa")
+        try Data("PRIVATE KEY".utf8).write(to: secretFile)
+
+        // 許可ルート（バンドル）内に、その外部ディレクトリを指す symlink を置く。
+        let linkInsideBundle = fixture.bundleURL.appendingPathComponent("escape")
+        try? FileManager.default.removeItem(at: linkInsideBundle)
+        try FileManager.default.createSymbolicLink(at: linkInsideBundle, withDestinationURL: secretDir)
+
+        // symlink 経由なので字句上はバンドル配下に見えるが、実体は許可ルート外。
+        let escapingPath = linkInsideBundle.appendingPathComponent("id_rsa").path
+        let body = try JSONEncoder().encode(RelinkRequest(newPath: escapingPath))
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/relink",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+        // DB の path は変更されていない（＝ GET .../file で秘密が読めない）。
+        let after = try fixture.db.fetchBook(id: bookID)
+        #expect(after?.path?.contains("id_rsa") == false)
+    }
+
+    /// 相対パスは許可ルート判定が曖昧になるため拒否する（絶対パスのみ受け付ける）。
+    @Test func relinkWithRelativePathIsForbidden() async throws {
+        let fixture = try TestLibraryFixture(name: "RelinkRelative", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.db.insertBookReturningID(BookRecord(
+            id: 0, title: "Relinkable",
+            path: fixture.bundleURL.appendingPathComponent("old/path.zip").path,
+            dateAdded: Date()
+        ))
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+        let body = try JSONEncoder().encode(RelinkRequest(newPath: "relative/sneaky.zip"))
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/relink",
+                method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in #expect(resp.status == .forbidden) }
+        }
+    }
+
     /// R トークン → 403。
     @Test func relinkWithReadTokenForbidden() async throws {
         let fixture = try TestLibraryFixture(name: "RelinkForbidden", bookCount: 1)

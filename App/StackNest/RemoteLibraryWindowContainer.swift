@@ -71,6 +71,9 @@ struct RemoteLibraryWindowContainer: View {
 
     @State private var state: RemoteLibraryState?
     @State private var notFound = false
+    /// #7 (Codex High): この窓の NSWindow。state は非同期 resolve 後に確定するため、
+    /// 窓の捕捉と state 確定のどちらが先でも関連付けが漏れないよう保持しておく。
+    @State private var hostWindow: NSWindow?
     /// 4.2c-8: per-window LibrarySettings（ラベルはこのウィンドウのサーバ庫由来で上書きする）。
     @State private var settings = RemoteLibrarySettingsProvider.make()
 
@@ -85,16 +88,28 @@ struct RemoteLibraryWindowContainer: View {
                     .frame(minWidth: 400, minHeight: 300)
             }
         }
+        .background(
+            // #7 (Codex High): この窓に state を関連付け、NSWindow.willCloseNotification の
+            // グローバル観測（AppDelegate）で確実に registry 除去＋token 破棄できるようにする。
+            // SwiftUI の onDisappear は WindowGroup では不確実なため、そちらは補助に留める。
+            WindowAccessor { window in
+                hostWindow = window
+                if let s = state { window.stacknestRemoteState = s }
+            }
+        )
         .task { await resolve() }
+        .onChange(of: state == nil) { _, _ in
+            // resolve() が state を確定させた後にも関連付ける（窓捕捉が先だった場合の補完）。
+            if let w = hostWindow, let s = state { w.stacknestRemoteState = s }
+        }
         .onDisappear {
-            // #7: ウィンドウを閉じたら registry から外し、認証（library token）も無効化する。
-            // RemoteLibraryState は SwiftUI の @State/Task 保持で閉鎖後も生き残ることがあり、
-            // registry に残ると ⌘⇧O（resume）の already-open 枝がそれを「開いている」と誤認する。
-            // すると reopen が作る新 state と食い違い、(a) 施錠庫の本を解錠なしで開く（バイパス）、
-            // (b) 解錠しても本が開かない（pending を古い state に積む）等の不整合が出ていた。
-            // 外せば閉じた庫は cold path（NSAlert 解錠→新ウィンドウで続きを開く＝アプリ再起動時と
-            // 同じ挙動）に落ちる。開いたままなら onDisappear は発火せず認証を維持する。
-            if let s = state {
+            // #7: 主経路は NSWindow.willCloseNotification（AppDelegate）。ここは補助で、
+            // 窓が実際に閉じている（`isVisible == false`）ときだけ registry 除去＋token 破棄を行う。
+            // Codex High の逆方向回帰（窓以外の view teardown で発火し、開いたままの窓の
+            // 認証を消して以後の API 操作が失敗する）を避けるための条件付き。
+            guard let s = state else { return }
+            let windowClosed = hostWindow.map { !$0.isVisible } ?? true
+            if windowClosed {
                 RemoteLibraryRegistry.shared.remove(s)
                 s.libraryToken = nil
             }

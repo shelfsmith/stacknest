@@ -110,6 +110,81 @@ struct GrantCrudTests {
         }
     }
 
+    // MARK: - Codex Critical: scope 限定 admin による scope 昇格の禁止
+    // 対象 grant の containment（既存テスト）に加え、**作成/更新後の scope** も呼出者の scope に
+    // 含まれることを要求する。これが無いと A 限定 admin が `.all` grant を発行して全庫を掌握できる。
+
+    @Test func scopedAdminCannotCreateGlobalScopeGrant() async throws {
+        let fa = try TestLibraryFixture(name: "GA5", bookCount: 1); defer { fa.cleanup() }
+        let a = fa.servedLibrary()
+        let adminA = Grant(id: "admA5", label: "adminA", token: "ADMA5", tier: .admin,
+                           scope: .libraries([a.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([adminA], [a]).test(.router) { client in
+            // `.all`（無制限）grant の作成は拒否
+            try await client.execute(uri: "/api/v1/grants", method: .post,
+                headers: [.authorization: "Bearer ADMA5", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"label":"pwn","tier":"admin","scope":{"all":{}}}"#)) { r in
+                #expect(r.status == .forbidden)
+            }
+            // 自分の scope 内（A）への作成は従来どおり成功
+            try await client.execute(uri: "/api/v1/grants", method: .post,
+                headers: [.authorization: "Bearer ADMA5", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"label":"ok","tier":"read","scope":{"libraries":["\#(a.uuid)"]}}"#)) { r in
+                #expect(r.status == .ok)
+            }
+        }
+    }
+
+    @Test func scopedAdminCannotCreateGrantForOtherLibrary() async throws {
+        let fa = try TestLibraryFixture(name: "GA6", bookCount: 1); defer { fa.cleanup() }
+        let fb = try TestLibraryFixture(name: "GB6", bookCount: 1); defer { fb.cleanup() }
+        let a = fa.servedLibrary(); let b = fb.servedLibrary()
+        let adminA = Grant(id: "admA6", label: "adminA", token: "ADMA6", tier: .admin,
+                           scope: .libraries([a.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([adminA], [a, b]).test(.router) { client in
+            try await client.execute(uri: "/api/v1/grants", method: .post,
+                headers: [.authorization: "Bearer ADMA6", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"label":"pwn","tier":"admin","scope":{"libraries":["\#(b.uuid)"]}}"#)) { r in
+                #expect(r.status == .forbidden)
+            }
+        }
+    }
+
+    @Test func scopedAdminCannotEscalateOwnGrantScopeViaPatch() async throws {
+        let fa = try TestLibraryFixture(name: "GA7", bookCount: 1); defer { fa.cleanup() }
+        let fb = try TestLibraryFixture(name: "GB7", bookCount: 1); defer { fb.cleanup() }
+        let a = fa.servedLibrary(); let b = fb.servedLibrary()
+        let adminA = Grant(id: "admA7", label: "adminA", token: "ADMA7", tier: .admin,
+                           scope: .libraries([a.uuid]), createdAt: Date(timeIntervalSince1970: 0))
+        try await makeApp([adminA], [a, b]).test(.router) { client in
+            // 自分の grant を `.all` へ昇格させる PATCH は拒否
+            try await client.execute(uri: "/api/v1/grants/admA7", method: .patch,
+                headers: [.authorization: "Bearer ADMA7", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"scope":{"all":{}}}"#)) { r in
+                #expect(r.status == .forbidden)
+            }
+            // 他ライブラリ B へ広げる PATCH も拒否
+            try await client.execute(uri: "/api/v1/grants/admA7", method: .patch,
+                headers: [.authorization: "Bearer ADMA7", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"scope":{"libraries":["\#(b.uuid)"]}}"#)) { r in
+                #expect(r.status == .forbidden)
+            }
+        }
+    }
+
+    @Test func globalAdminCanStillCreateAnyScopeGrant() async throws {
+        let fa = try TestLibraryFixture(name: "GA8", bookCount: 1); defer { fa.cleanup() }
+        let a = fa.servedLibrary()
+        try await makeApp([admin()], [a]).test(.router) { client in
+            // グローバル admin（scope .all）は従来どおり `.all` grant を作成できる（回帰なし）
+            try await client.execute(uri: "/api/v1/grants", method: .post,
+                headers: [.authorization: "Bearer ADM", .contentType: "application/json"],
+                body: ByteBuffer(string: #"{"label":"global","tier":"read","scope":{"all":{}}}"#)) { r in
+                #expect(r.status == .ok)
+            }
+        }
+    }
+
     @Test func scopedAdminPatchInScopeGrantStillSucceeds() async throws {
         let fa = try TestLibraryFixture(name: "GA4", bookCount: 1); defer { fa.cleanup() }
         let a = fa.servedLibrary()
