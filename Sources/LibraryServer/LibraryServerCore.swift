@@ -179,7 +179,8 @@ public struct LibraryServerCore: Sendable {
     /// 本ごとの BookContent ハンドルキャッシュ（アーカイブ再オープン排除・spec §3.3）。
     let contentCache = BookContentCache(ttlSeconds: 300)
     /// G8a: ライブ同期の配信ハブ。/events が subscribe し、mutation が publish する。
-    public let eventHub = EventHub()
+    /// G23 (#15): 施錠庫のイベント粒度を落とすため、init で施錠判定クロージャを注入する。
+    public let eventHub: EventHub
     /// G12b-3b: メンテナンスジョブ（メタ補完/表紙圧縮）の per-library レジストリ。
     /// SSE への配線は construction 時に同期的に行う（Codex review Important #1・詳細は
     /// MaintenanceJobRegistry.init のコメント参照）。
@@ -197,6 +198,10 @@ public struct LibraryServerCore: Sendable {
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
         self.config = config
         self.dataSource = dataSource
+        // G23 (#15): 施錠庫の bookChanged は bookID を落として配信する（蔵書数の概算が漏れるため）。
+        self.eventHub = EventHub(isLibraryLocked: { [dataSource] uuid in
+            await dataSource.servedLibraries().first(where: { $0.uuid == uuid })?.isLocked ?? false
+        })
         let eventHub = self.eventHub
         self.maintenanceRegistry = MaintenanceJobRegistry(
             onProgress: { lib, job, done, total in
