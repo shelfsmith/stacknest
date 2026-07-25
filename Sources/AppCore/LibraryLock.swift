@@ -48,7 +48,22 @@ public enum LibraryLock {
 
     public static func verify(password: String, saltHex: String, against expectedHash: String) -> Bool {
         let computed = computeHash(password: password, saltHex: saltHex)
-        return computed == expectedHash
+        return constantTimeEquals(computed, expectedHash)
+    }
+
+    /// G23: 長さが異なっても全バイト走査する定数時間比較（タイミング攻撃対策）。
+    /// LibraryServer 側の `constantTimeEquals`（AuthMiddleware.swift）と同じ実装だが、
+    /// あちらは LibraryServer モジュール内のファイルスコープ関数で AppCore からは見えないため
+    /// ここにも持つ。ハッシュ比較の早期 return をなくすのが目的。
+    public static func constantTimeEquals(_ a: String, _ b: String) -> Bool {
+        let aBytes = Array(a.utf8), bBytes = Array(b.utf8)
+        var diff = aBytes.count ^ bBytes.count
+        for i in 0..<max(aBytes.count, bBytes.count) {
+            let x = i < aBytes.count ? aBytes[i] : 0
+            let y = i < bBytes.count ? bBytes[i] : 0
+            diff |= Int(x ^ y)
+        }
+        return diff == 0
     }
 
     private static func bytes(fromHex hex: String) -> [UInt8]? {
