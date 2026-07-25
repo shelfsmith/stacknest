@@ -79,6 +79,33 @@ public struct OfflineStore: @unchecked Sendable {
 
     public func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
                      fileExtension: String, fileData: Data, coverData: Data?) throws {
+        try save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
+                 fileExtension: fileExtension, coverData: coverData) { dest in
+            try fileData.write(to: dest)
+        }
+    }
+
+    /// G23 (M2): ダウンロード済みの一時ファイルを**移動して**取り込む（メモリに全量を載せない）。
+    /// 取り込みに成功した場合、`fileURL` の実体は移動または削除され残らない。
+    public func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
+                     fileExtension: String, fileURL: URL, coverData: Data?) throws {
+        try save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
+                 fileExtension: fileExtension, coverData: coverData) { dest in
+            // 同じボリュームなら move で済む。跨ボリューム等で失敗したら copy にフォールバックし、
+            // 元ファイルを削除して残骸を作らない。
+            do {
+                try fm.moveItem(at: fileURL, to: dest)
+            } catch {
+                try fm.copyItem(at: fileURL, to: dest)
+                try? fm.removeItem(at: fileURL)
+            }
+        }
+    }
+
+    /// 保存先の検証・ディレクトリ作成・目録更新を共通化し、本体の配置方法だけを差し替える。
+    private func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
+                      fileExtension: String, coverData: Data?,
+                      placeFile: (URL) throws -> Void) throws {
         // #6: 悪意あるサーバが `libraryUUID`/`fileExtension` に `../` 等を混入させて
         // Offline ディレクトリ外へ書き込むのを防ぐ（下の appendingPathComponent に渡す前に検証する）。
         guard UUID(uuidString: libraryUUID) != nil else { throw OfflineStoreError.invalidLibraryUUID }
@@ -86,7 +113,10 @@ public struct OfflineStore: @unchecked Sendable {
         let dir = baseDirectory.appendingPathComponent("\(serverID.uuidString)/\(libraryUUID)", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let rel = "\(serverID.uuidString)/\(libraryUUID)/\(detail.id).\(fileExtension)"
-        try fileData.write(to: baseDirectory.appendingPathComponent(rel))
+        let dest = baseDirectory.appendingPathComponent(rel)
+        // 再ダウンロードの上書き時、moveItem は既存ファイルがあると失敗するため先に退ける。
+        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+        try placeFile(dest)
         var hasCover = false
         if let coverData {
             try coverData.write(to: dir.appendingPathComponent("\(detail.id).cover"))

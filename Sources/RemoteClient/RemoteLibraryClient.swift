@@ -247,12 +247,10 @@ public struct RemoteLibraryClient: Sendable {
         return (data, noStore)
     }
 
-    public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> Data {
-        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
-        // サーバは全ファイルをメモリに読んでから応答するため、大容量アーカイブ×低速ストレージでは
-        // 最初のバイトまで 10s を超え得る。既定の短いタイムアウトではなく長め（120s）を渡す。
-        return try await send(request(url, libraryToken: libraryToken, timeout: 120))
-    }
+    // G23 (M2): 非進捗版 `bookFile(libraryUUID:bookID:libraryToken:) -> Data` は削除した。
+    // 本番から使われずテスト専用になっていたうえ、`send(_:)` 経由＝汎用取得経路の受信上限
+    // （M1 の 64MiB）が本ファイルにも掛かってしまい、大きな本を取得できなくなるため。
+    // 取得は下の進捗つき版（一時ファイルへストリーミング）に一本化する。
 
     /// 受信/総バイトから進捗を算出。総量不明(<=0)は nil。
     static func downloadFraction(received: Int64, total: Int64) -> Double? {
@@ -277,7 +275,9 @@ public struct RemoteLibraryClient: Sendable {
     /// 実際に無限に近いバイト列を送り続けるサーバに対する保険（reserveCapacity のクランプだけでは
     /// 実受信ループそのものは止まらない）。既存の正規書庫（zip/cbz/pdf）はこの上限を大きく
     /// 下回るため、通常利用への影響はない。
-    static let maxDownloadBytes: Int64 = 4 * 1024 * 1024 * 1024   // 4GiB
+    /// G23 (M2): 4GiB から引き下げた。一時ファイルへ流すようになりメモリ枯渇の即死性は下がったが、
+    /// 上限としては実態（正規の書庫は数百 MB 以下）から乖離しすぎており、ディスクを埋める余地が残るため。
+    static let maxDownloadBytes: Int64 = 2 * 1024 * 1024 * 1024   // 2GiB
 
     /// 受信済みバイト数が総受信量上限を超えたか（純粋な比較のみ。GiB 単位のダミーデータを
     /// 実際に流さずとも境界値をユニットテストできるよう切り出す）。
@@ -297,13 +297,20 @@ public struct RemoteLibraryClient: Sendable {
         return receivedCount > maxGeneralResponseBytes
     }
 
-    /// 進捗通知つき本ファイル取得。onProgress は 0...1（総量不明時は最後に 1.0 のみ）。
+    /// 進捗通知つき本ファイル取得。**一時ファイルへ書き出し、その URL を返す**。
+    ///
+    /// G23 (M2): 以前は `Data` に全量を蓄積していたため、大きな本ほどメモリを圧迫した
+    /// （攻撃と無関係に通常利用で顕在化する）。呼び出し側は返された一時ファイルを
+    /// 移動するか削除する責任を持つ。
+    ///
+    /// onProgress は 0...1（総量不明時は最後に 1.0 のみ）。
     /// shouldCancel: 非 nil の場合、受信中に true を返すと即座に CancellationError で中断する
     /// （ダウンロードの即時キャンセル用。バイトストリームは MainActor 外で回るため、呼び出し側は
     /// スレッド安全なトークンを渡すこと。Task.isCancelled には依存しない）。
+    /// 中断・失敗のどの経路でも一時ファイルは残さない。
     public func bookFile(libraryUUID: String, bookID: Int, libraryToken: String?,
                          onProgress: (@Sendable (Double) -> Void)?,
-                         shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> Data {
+                         shouldCancel: (@Sendable () -> Bool)? = nil) async throws -> URL {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/file")
         // サーバは全ファイルをメモリに読んでから応答するため最初のバイトまで 10s を超え得る（上の非進捗版と同様）。
         let req = request(url, libraryToken: libraryToken, timeout: 120)
@@ -322,15 +329,30 @@ public struct RemoteLibraryClient: Sendable {
             throw RemoteClientError.badResponse
         }
         let total = response.expectedContentLength   // 不明は -1
-        var data = Data()
-        data.reserveCapacity(Self.clampedReserveCapacity(declaredLength: total))
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stacknest-dl-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: tmp.path, contents: nil) else {
+            throw RemoteClientError.badResponse
+        }
+        let handle = try FileHandle(forWritingTo: tmp)
+        // 成功時のみ呼び出し側へ所有権を渡す。中断・失敗のどの経路でも残骸を作らない。
+        var completed = false
+        defer {
+            try? handle.close()
+            if !completed { try? FileManager.default.removeItem(at: tmp) }
+        }
+        // 1 バイトずつ書くと syscall が支配的になるため 64KiB 単位でまとめて flush する。
+        var buffer = Data()
+        buffer.reserveCapacity(Self.flushChunkBytes)
         var received: Int64 = 0
         for try await byte in bytes {
-            data.append(byte)
+            buffer.append(byte)
             received += 1
             // #12: 宣言 Content-Length の真偽に関わらず、実受信量そのものに上限を課す。
             if Self.exceedsMaxDownloadBytes(received: received) { throw RemoteClientError.responseTooLarge }
-            if received % 65536 == 0 {
+            if buffer.count >= Self.flushChunkBytes {
+                try handle.write(contentsOf: buffer)
+                buffer.removeAll(keepingCapacity: true)
                 // 即時キャンセル: トークンが立っていれば受信を打ち切る（in-flight 中断）。
                 if shouldCancel?() == true { throw CancellationError() }
                 if let f = Self.downloadFraction(received: received, total: total) {
@@ -338,9 +360,16 @@ public struct RemoteLibraryClient: Sendable {
                 }
             }
         }
+        if !buffer.isEmpty { try handle.write(contentsOf: buffer) }
+        // 受信ループに一度も入らない（0 バイト）場合もキャンセルを尊重する。
+        if shouldCancel?() == true { throw CancellationError() }
         onProgress?(1.0)
-        return data
+        completed = true
+        return tmp
     }
+
+    /// G23 (M2): ディスクへ流す際のバッファサイズ。進捗通知とキャンセル判定もこの粒度で行う。
+    static let flushChunkBytes = 65536
 
     /// review follow-up Finding 1（cover 経路の確認）: この呼び出しは `?v=` を一切送らない
     /// （引数にも version が無い）ため、サーバの `cacheableImageResponse` は常に

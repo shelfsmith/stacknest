@@ -351,11 +351,16 @@ struct StubBackedRemoteClientTests {
             #expect(d.genre == "G")
             #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/books/9/detail")
         }
-        @Test func bookFileReturnsBytes() async throws {
+        /// G23 (M2): bookFile は一時ファイルへ書き出しその URL を返す（メモリに全量を載せない）。
+        /// 旧・非進捗版（`-> Data`）は本番から使われていないため削除した。
+        @Test func bookFileWritesTemporaryFileAndSendsLibraryToken() async throws {
             let bytes = Data([0x50, 0x4B, 0x03, 0x04])
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
-            let data = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: "LT")
-            #expect(data == bytes)
+            let url = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: "LT",
+                                                      onProgress: nil, shouldCancel: nil)
+            defer { try? FileManager.default.removeItem(at: url) }
+            #expect(FileManager.default.fileExists(atPath: url.path))
+            #expect(try Data(contentsOf: url) == bytes)
             #expect(StubURLProtocol.lastRequest?.url?.path == "/api/v1/libraries/u/books/9/file")
             #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "X-Library-Token") == "LT")
         }
@@ -655,13 +660,54 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.timeoutInterval != .infinity)
         }
 
-        /// #12: 進捗つきダウンロードは通常サイズの本文なら従来どおり全バイトを返す（回帰なし）。
+        /// #12: 進捗つきダウンロードは通常サイズの本文なら従来どおり全バイトを取得できる（回帰なし）。
         @Test func bookFileWithProgressReturnsNormalSizedBytes() async throws {
             let bytes = Data(repeating: 0xAB, count: 4096)
             StubURLProtocol.stub = .init(status: 200, headers: ["Content-Length": "4096"], body: bytes)
-            let data = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: nil,
-                                                        onProgress: nil, shouldCancel: nil)
-            #expect(data == bytes)
+            let url = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: nil,
+                                                      onProgress: nil, shouldCancel: nil)
+            defer { try? FileManager.default.removeItem(at: url) }
+            #expect(try Data(contentsOf: url) == bytes)
+        }
+
+        /// G23 (M2): 64KiB のバッファ境界をまたぐサイズでも欠落なく書き出す。
+        @Test func bookFileWritesAcrossBufferBoundary() async throws {
+            let bytes = Data((0..<200_000).map { UInt8($0 % 251) })
+            StubURLProtocol.stub = .init(status: 200, headers: ["Content-Length": "200000"], body: bytes)
+            let url = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: nil,
+                                                      onProgress: nil, shouldCancel: nil)
+            defer { try? FileManager.default.removeItem(at: url) }
+            #expect(try Data(contentsOf: url) == bytes)
+        }
+
+        /// G23 (M2): キャンセルされた場合、一時ファイルを残さない。
+        @Test func cancelledDownloadLeavesNoTemporaryFile() async throws {
+            let before = try temporaryDownloadFileCount()
+            StubURLProtocol.stub = .init(status: 200, headers: ["Content-Length": "200000"],
+                                         body: Data(repeating: 0xCD, count: 200_000))
+            await #expect(throws: CancellationError.self) {
+                _ = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: nil,
+                                                    onProgress: nil, shouldCancel: { true })
+            }
+            #expect(try temporaryDownloadFileCount() == before)
+        }
+
+        /// エラー応答でも一時ファイルを残さない。
+        @Test func failedDownloadLeavesNoTemporaryFile() async throws {
+            let before = try temporaryDownloadFileCount()
+            StubURLProtocol.stub = .init(status: 404, headers: [:], body: Data())
+            await #expect(throws: RemoteClientError.self) {
+                _ = try await makeClient().bookFile(libraryUUID: "u", bookID: 9, libraryToken: nil,
+                                                    onProgress: nil, shouldCancel: nil)
+            }
+            #expect(try temporaryDownloadFileCount() == before)
+        }
+
+        /// `stacknest-dl-*` の残骸数を数える（テスト間で他の一時ファイルに影響されないよう接頭辞で絞る）。
+        private func temporaryDownloadFileCount() throws -> Int {
+            let dir = FileManager.default.temporaryDirectory
+            let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            return names.filter { $0.hasPrefix("stacknest-dl-") }.count
         }
     }
 }

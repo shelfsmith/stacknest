@@ -3,6 +3,16 @@ import Foundation
 import LibraryStore
 import LibraryServerAPI
 
+/// G23 (M2): DL 済みファイルの**先頭数バイトだけ**読んで拡張子を判定する。
+/// ストリーミング化で本文が `Data` として手元に無くなったため、全量を読み直さずに済ませる。
+/// 読めない場合は既定（zip）にフォールバックする（従来の magic 不一致時と同じ扱い）。
+public func offlineFileExtension(forFileAt url: URL) -> String {
+    guard let handle = try? FileHandle(forReadingFrom: url) else { return "zip" }
+    defer { try? handle.close() }
+    let head = (try? handle.read(upToCount: 4)) ?? Data()
+    return offlineFileExtension(for: head)
+}
+
 /// DL したファイルバイトから拡張子を magic で判定（detail.path はサーバが nil 化しているため）。
 public func offlineFileExtension(for data: Data) -> String {
     let p = data.prefix(4)
