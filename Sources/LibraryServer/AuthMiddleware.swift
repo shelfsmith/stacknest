@@ -45,6 +45,9 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
             ctx.tier = g.tier
             ctx.scope = g.scope
             ctx.role = (g.tier == .read) ? .read : .write
+            // G23 (M3): unlock のレート制限を principal 単位にするための識別子。
+            // トークンの生値ではなく grant の id を使う（ログや状態に秘密を残さない）。
+            ctx.grantID = g.id
         } else if adminTier {
             // adminTier モード: R/W いずれかのトークンが一致すれば admin 昇格。
             if constantTimeEquals(presented, token) || (editToken.map { constantTimeEquals(presented, $0) } ?? false) {

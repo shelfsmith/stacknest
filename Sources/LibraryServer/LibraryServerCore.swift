@@ -98,6 +98,9 @@ public struct LibraryRequestContext: RequestContext {
     public var tier: AccessTier = .read
     /// グラントで許可されたライブラリスコープ。BearerAuthMiddleware が認証成功時に刻む（既定 .all）。
     public var scope: GrantScope = .all
+    /// G23 (M3): 認証された主体の識別子（grant の id）。unlock のレート制限を principal 単位に
+    /// するために使う。**トークンの生値は入れない**。固定トークン経路では `"legacy"` のまま。
+    public var grantID: String = "legacy"
 
     public init(source: Source) {
         self.coreContext = .init(source: source)
@@ -122,6 +125,8 @@ public protocol RoleHoldingContext {
     var role: TokenRole { get set }
     var tier: AccessTier { get set }
     var scope: GrantScope { get set }
+    /// G23 (M3): 認証された主体の識別子（grant の id・固定トークン経路は "legacy"）。
+    var grantID: String { get set }
 }
 extension LibraryRequestContext: RoleHoldingContext {}
 
@@ -360,14 +365,21 @@ public struct LibraryServerCore: Sendable {
             guard let lib = await dataSource.servedLibraries().first(where: { $0.uuid == uuid }) else {
                 throw HTTPError(.notFound)
             }
-            // #2: ブルートフォース抑止。連続失敗が閾値超のライブラリは一定時間 429 で拒否する。
-            if await unlockRateLimiter.isLockedOut(uuid) { throw HTTPError(.tooManyRequests) }
+            // #2: ブルートフォース抑止。連続失敗が閾値超なら一定時間 429 で拒否する。
+            // G23 (M3): 数える単位は library＋principal。library 単体だと、閲覧トークンを渡した
+            // 相手が失敗を繰り返すだけで正当な所有者を締め出せてしまう。
+            let principal = context.grantID
+            if await unlockRateLimiter.isLockedOut(uuid, principal: principal) {
+                let retry = await unlockRateLimiter.retryAfterSeconds(uuid, principal: principal)
+                    ?? Int(unlockRateLimiter.lockoutSeconds)
+                throw HTTPError(.tooManyRequests, headers: [.retryAfter: String(retry)])
+            }
             let body = try await request.decode(as: UnlockRequestBody.self, context: context)
             guard lib.verifyPassword(body.password) else {
-                await unlockRateLimiter.recordFailure(uuid)
+                await unlockRateLimiter.recordFailure(uuid, principal: principal)
                 throw HTTPError(.forbidden)
             }
-            await unlockRateLimiter.recordSuccess(uuid)
+            await unlockRateLimiter.recordSuccess(uuid, principal: principal)
             return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
         }
         // books 一覧（ページング・検索・ソート・進行状況・scope/filter/browse）。ロック庫は X-Library-Token 必須。
