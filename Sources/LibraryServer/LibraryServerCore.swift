@@ -285,6 +285,13 @@ public struct LibraryServerCore: Sendable {
         api.post("grants") { request, context in
             try context.requireAdmin()
             let req = try await request.decode(as: GrantCreateRequest.self, context: context)
+            // Codex Critical: 作成する grant の scope/tier が呼出者の権限を超えてはならない。
+            // これが無いと、庫限定 admin が `tier: admin, scope: all` の grant を発行して
+            // 全ライブラリを掌握できる（#3 の一覧フィルタを迂回する権限昇格）。
+            guard grantScopeIsContained(req.scope, within: context.scope) else {
+                throw HTTPError(.forbidden)
+            }
+            guard req.tier <= context.tier else { throw HTTPError(.forbidden) }
             let g = Grant(id: UUID().uuidString, label: req.label,
                           token: ServerPreferences.generateToken(),
                           tier: req.tier, scope: req.scope, createdAt: Date())
@@ -302,6 +309,14 @@ public struct LibraryServerCore: Sendable {
                 throw HTTPError(.notFound)
             }
             let req = try await request.decode(as: GrantUpdateRequest.self, context: context)
+            // Codex Critical: 更新「後」の scope/tier も呼出者の権限内でなければならない
+            // （対象 grant が scope 内でも、`.all` や別ライブラリへ広げれば昇格になるため）。
+            if let s = req.scope {
+                guard grantScopeIsContained(s, within: context.scope) else { throw HTTPError(.forbidden) }
+            }
+            if let t = req.tier {
+                guard t <= context.tier else { throw HTTPError(.forbidden) }
+            }
             if let l = req.label { g.label = l }
             if let t = req.tier  { g.tier  = t }
             if let s = req.scope { g.scope = s }
@@ -632,9 +647,17 @@ public struct LibraryServerCore: Sendable {
         // path が roots のいずれかの内側（ルート自身 or その配下）かどうかを、パス構成要素の境界で
         // 比較する（"/foo/bar" が "/foo/barbaz" を誤って許可しないように文字列 hasPrefix は使わない）。
         @Sendable func isPathWithinAllowedRoots(_ path: String, roots: [String]) -> Bool {
-            let comps = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+            // 相対パスは許可ルート判定が曖昧（プロセスの cwd 依存）になるため受け付けない。
+            guard path.hasPrefix("/") else { return false }
+            // Codex High: `standardizedFileURL` は `.`/`..` を字句的に畳むだけで symlink を解決しない。
+            // 許可ルート配下に外部を指す symlink があると、字句比較では「ルート内」と誤判定し、
+            // 続く GET .../file が symlink 先の実体（例: ~/.ssh/id_rsa）を返してしまう。
+            // target・root の双方を実体（canonical path）へ解決してから比較する。
+            let comps = URL(fileURLWithPath: path).standardizedFileURL
+                .resolvingSymlinksInPath().pathComponents
             for root in roots {
-                let rootComps = URL(fileURLWithPath: root).standardizedFileURL.pathComponents
+                let rootComps = URL(fileURLWithPath: root).standardizedFileURL
+                    .resolvingSymlinksInPath().pathComponents
                 guard rootComps.count <= comps.count else { continue }
                 if Array(comps.prefix(rootComps.count)) == rootComps { return true }
             }

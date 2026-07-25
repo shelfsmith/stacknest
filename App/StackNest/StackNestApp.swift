@@ -19,6 +19,18 @@ extension NSWindow {
     }
 }
 
+// #7 (Codex High): リモート庫ウィンドウにも state を関連付ける。resume（⌘⇧O）の
+// already-open 判定は「その庫の窓が実際に開いているか」に依存するため、閉鎖検知は
+// SwiftUI の onDisappear（WindowGroup では不確実）ではなく、庫ウィンドウと同じ
+// NSWindow.willCloseNotification のグローバル観測を主経路にする。
+private nonisolated(unsafe) var stacknestRemoteStateKey: UInt8 = 0
+extension NSWindow {
+    var stacknestRemoteState: RemoteLibraryState? {
+        get { objc_getAssociatedObject(self, &stacknestRemoteStateKey) as? RemoteLibraryState }
+        set { objc_setAssociatedObject(self, &stacknestRemoteStateKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+}
+
 // MARK: - WindowBridge
 /// Singleton that bridges AppDelegate's `application(_:open:)` call (which fires before
 /// SwiftUI scenes mount) with SwiftUI's `OpenWindowAction` environment (which is available
@@ -1120,9 +1132,18 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     /// willCloseNotification は main で post されるため @MainActor セレクタで安全に受けられる。
     /// 終了に伴うクローズは `isTerminating` で除外し、開いていた庫を復元対象に残す。
     @objc private func handleWindowWillClose(_ note: Notification) {
-        guard !Self.isTerminating,
-              let w = note.object as? NSWindow,
-              let url = w.stacknestBundleURL else { return }
+        guard let w = note.object as? NSWindow else { return }
+        // #7 (Codex High): リモート庫ウィンドウの閉鎖は、終了中かどうかに関わらず必ず
+        // registry から外して library token を破棄する（閉じた庫の resume が「認証済みの窓が
+        // 開いている」と誤判定して施錠庫の本を解錠なしで開くのを防ぐ）。onDisappear は
+        // 補助経路として残すが、確実なのはこちら。
+        if let st = w.stacknestRemoteState {
+            RemoteLibraryRegistry.shared.remove(st)
+            st.libraryToken = nil
+            w.stacknestRemoteState = nil
+        }
+        // C-④a: 庫ウィンドウの open-set 削除は「手動クローズのみ」（終了時は復元対象に残す）。
+        guard !Self.isTerminating, let url = w.stacknestBundleURL else { return }
         UserDefaultsKeys.removeOpenLibrary(url)
     }
 
