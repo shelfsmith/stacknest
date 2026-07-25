@@ -91,6 +91,10 @@ public struct OfflineStore: @unchecked Sendable {
                      fileExtension: String, fileURL: URL, coverData: Data?) throws {
         try save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
                  fileExtension: fileExtension, coverData: coverData) { dest in
+            // moveItem / copyItem は既存ファイルがあると失敗するため、再ダウンロード時は先に退ける。
+            // ここで消すのは `fileURL` 版だけ。`fileData` 版の `Data.write(to:)` は上書きできるので、
+            // 共通化して消してしまうと「配置に失敗したとき既存ファイルだけ失われる」窓を作ってしまう。
+            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
             // 同じボリュームなら move で済む。跨ボリューム等で失敗したら copy にフォールバックし、
             // 元ファイルを削除して残骸を作らない。
             do {
@@ -114,8 +118,6 @@ public struct OfflineStore: @unchecked Sendable {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let rel = "\(serverID.uuidString)/\(libraryUUID)/\(detail.id).\(fileExtension)"
         let dest = baseDirectory.appendingPathComponent(rel)
-        // 再ダウンロードの上書き時、moveItem は既存ファイルがあると失敗するため先に退ける。
-        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
         try placeFile(dest)
         var hasCover = false
         if let coverData {

@@ -79,12 +79,19 @@ public struct RemoteLibraryClient: Sendable {
             // G23 (M1): 宣言サイズが上限を超えるなら本文を扱わずに弾く。
             // ここは JSON / 表紙 / ページ画像がすべて通る単一の集約点なので、
             // 1 箇所の判定で汎用経路全体をカバーできる。
+            //
+            // 限界を明記しておく: `session.data(for:)` は応答を全部読んでから返すため、
+            // **Content-Length を詐称された場合の受信そのものは止められない**（その時点で
+            // メモリには載っている）。下の受信後チェックは上限超のデータを呼び出し側へ渡さない
+            // ためのもので、メモリ枯渇を防ぐのは上の宣言サイズによる足切りの方。
+            // 完全に止めるには `session.bytes(for:)` での逐次受信が要るが、1 バイトずつの
+            // `append` になり通常経路（ページ送りのたびに走る）の性能を落とすため採らない。
             if Self.exceedsGeneralLimit(declaredLength: http.expectedContentLength, receivedCount: 0) {
                 throw RemoteClientError.responseTooLarge
             }
             switch http.statusCode {
             case 200...299:
-                // Content-Length を詐称された場合の保険（実受信量で再判定）。
+                // 上限超のデータは呼び出し側へ渡さない（詐称された Content-Length への後追い判定）。
                 if Self.exceedsGeneralLimit(declaredLength: -1, receivedCount: data.count) {
                     throw RemoteClientError.responseTooLarge
                 }
@@ -258,18 +265,11 @@ public struct RemoteLibraryClient: Sendable {
         return min(1.0, max(0.0, Double(received) / Double(total)))
     }
 
-    /// #12: `reserveCapacity` に渡す確保量の上限。悪意あるサーバが `Content-Length` に巨大な値
-    /// （例: Int64.max 近辺）を詐称するだけで、実データが来る前に即座に巨大メモリ確保が起きる
-    /// （クライアント DoS）。正規の書籍ファイルはこの上限を大きく下回るため、クランプしても
-    /// 実害はない（`Data.append` は reserveCapacity を超えても正しく伸長する＝実データ受信自体は
-    /// 別の上限 `maxDownloadBytes` で扱う）。
-    static let maxReserveCapacityBytes = 512 * 1024 * 1024   // 512MiB
-
-    /// 宣言された Content-Length から、安全な reserveCapacity 引数を算出する。
-    static func clampedReserveCapacity(declaredLength total: Int64) -> Int {
-        guard total > 0 else { return 0 }
-        return Int(min(total, Int64(maxReserveCapacityBytes)))
-    }
+    // G23 (M2): `maxReserveCapacityBytes` と `clampedReserveCapacity` は削除した。
+    // #12 で導入した「詐称された Content-Length による巨大メモリ確保を防ぐ」対策だが、
+    // 唯一の利用箇所だった `bookFile` の `Data.reserveCapacity` がストリーミング化で無くなり、
+    // テストからしか参照されないデッドコードになったため。宣言サイズに基づく事前確保を
+    // 一切行わなくなったので、この対策自体が不要になっている。
 
     /// #12: 1 ファイルダウンロードの総受信量上限。`Content-Length` を詐称/省略された上で
     /// 実際に無限に近いバイト列を送り続けるサーバに対する保険（reserveCapacity のクランプだけでは
