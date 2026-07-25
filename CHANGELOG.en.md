@@ -62,7 +62,7 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 - **Translucent materials and press feedback**: applied to the top bar and similar chrome, honoring the Reduce Motion, Reduce Transparency, and Increase Contrast accessibility settings.
 
 **Import (G9b)**
-- **Three subfolder import modes**: choose per watch folder whether to ignore subfolders, import archives only, or recurse into them.
+- **Three subfolder import modes**: choose per watch folder whether to ignore subfolders, treat each subfolder as a single book, or descend into them and import the files inside individually.
 
 **Covers (G21)**
 - **Per-book cover regeneration**: rebuilding covers was previously a whole-library job only; you can now do it one book at a time. **Relinking also refreshes the cover and page count automatically.**
