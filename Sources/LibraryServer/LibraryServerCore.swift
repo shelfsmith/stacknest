@@ -185,6 +185,8 @@ public struct LibraryServerCore: Sendable {
     let dataSource: any LibraryServerDataSource
     /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
     let tokenStore = LibraryTokenStore()
+    /// G23 (#9/#10): URL クエリ用の短命セッショントークン（EventSource / `<img>` 向け）。
+    let sessionTokenStore = SessionTokenStore()
     /// #2: ロック庫 unlock のブルートフォース抑止（ライブラリ単位の失敗回数＋ロックアウト）。
     public let unlockRateLimiter = UnlockRateLimiter()
     /// 本ごとの BookContent ハンドルキャッシュ（アーカイブ再オープン排除・spec §3.3）。
@@ -284,8 +286,20 @@ public struct LibraryServerCore: Sendable {
             return { grantRepo.all() }
         }()
         // それ以外の API は Bearer トークン認証配下。
+        let sessionTokenStore = self.sessionTokenStore
         let api = router.group("api/v1")
-            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: effectiveGrantsProvider))
+            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: effectiveGrantsProvider, sessionTokenStore: sessionTokenStore))
+
+        // G23 (#9/#10): 永続 grant token を URL に載せないため、短命セッショントークンへ交換する。
+        // 発行は Authorization ヘッダでの認証を要求する（クエリ経由の発行は受け付けない）。
+        api.post("session") { request, _ in
+            guard let header = request.headers[.authorization], header.hasPrefix("Bearer ") else {
+                throw HTTPError(.unauthorized)
+            }
+            let grantToken = String(header.dropFirst("Bearer ".count))
+            return SessionReply(sessionToken: await sessionTokenStore.issue(grantToken: grantToken),
+                                expiresIn: SessionTokenStore.defaultTTLSeconds)
+        }
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let unlockRateLimiter = self.unlockRateLimiter

@@ -2,7 +2,7 @@
 // G8b: リモート即時同期（Web）。EventSource で /api/v1/events を購読し、現在開いている
 // ライブラリの変更を検知したら onReload（内部で ~250ms デバウンス）を呼ぶ。
 // EventSource は Authorization ヘッダを付けられないため ?token= クエリで認証する。
-import { deviceToken } from "./api.js";
+import { deviceToken, ensureSessionToken, invalidateSessionToken } from "./api.js";
 
 const EVENT_NAMES = ["bookChanged", "structureChanged", "settingsChanged"];
 const DEBOUNCE_MS = 250;
@@ -20,13 +20,19 @@ function scheduleReload() {
 }
 
 /// 指定ライブラリの購読を開始する。既に同一 uuid で接続中なら handlers 更新のみ（張り替えない）。
-export function startLiveSync(uuid, h) {
+///
+/// G23 (#9/#10): クエリに載せるトークンを短命セッショントークンにするため async 化した。
+/// 呼び出し側は await 不要（fire-and-forget で従来どおり使える）。
+export async function startLiveSync(uuid, h) {
     handlers = h;
     if (es && curUuid === uuid) return;
     stopLiveSync();
     curUuid = uuid;
     firstOpen = true;
-    const token = deviceToken() || "";
+    // 交換に失敗した場合だけ従来どおり永続トークンへフォールバックする（同期が止まる方が困るため）。
+    const token = (await ensureSessionToken()) || deviceToken() || "";
+    // await 中に stopLiveSync()／別ライブラリへの切り替えが起きていたら、この接続は張らない。
+    if (curUuid !== uuid) return;
     es = new EventSource(`/api/v1/events?token=${encodeURIComponent(token)}`);
     for (const name of EVENT_NAMES) {
         es.addEventListener(name, (ev) => {
@@ -52,6 +58,9 @@ export function startLiveSync(uuid, h) {
         if (es && es.readyState === EventSource.CLOSED) {
             const cb = handlers.onAuthLost;
             stopLiveSync();
+            // G23 (#9/#10): 恒久 fail の原因が短命トークンの期限切れである可能性があるため捨てる。
+            // 次回の startLiveSync が再交換する。永続トークンが生きていれば復旧経路はそのまま働く。
+            invalidateSessionToken();
             cb();
         }
     };
