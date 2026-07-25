@@ -26,6 +26,13 @@ public actor EventHub {
         return (id, stream)
     }
 
+    /// G23 (#15): 施錠判定のため `async` になった。
+    ///
+    /// この `await` は actor のサスペンドポイントなので、判定を待つ間に別の `publish` が
+    /// 割り込み、**配信順序が publish 順と入れ替わりうる**。クライアントは個々のイベントを
+    /// 差分適用するのではなく「変更があった」ことを合図にデバウンス付きで再取得する設計
+    /// （web は `livesync.js` の `scheduleReload`）なので、順序が入れ替わっても最終状態は
+    /// 同じところへ収束する。順序に意味を持たせるイベントを追加する場合はここを見直すこと。
     public func publish(_ event: LiveEvent) async {
         let delivered = await coarsenIfLocked(event)
         for sub in subscribers.values where sub.scope.allows(delivered.library) {

@@ -716,19 +716,9 @@ struct StubBackedRemoteClientTests {
 /// 実際に GiB 単位のデータを流すのは非現実的なので、境界値の純粋な計算のみをテストする。
 @Suite("RemoteLibraryClient download guards (#12)")
 struct RemoteLibraryClientDownloadGuardTests {
-    @Test func clampedReserveCapacityPassesThroughSmallDeclaredLength() {
-        #expect(RemoteLibraryClient.clampedReserveCapacity(declaredLength: 4096) == 4096)
-    }
-    @Test func clampedReserveCapacityIsZeroForUnknownOrNonPositiveLength() {
-        #expect(RemoteLibraryClient.clampedReserveCapacity(declaredLength: -1) == 0)   // 不明（-1）
-        #expect(RemoteLibraryClient.clampedReserveCapacity(declaredLength: 0) == 0)
-    }
-    @Test func clampedReserveCapacityClampsHugeDeclaredLength() {
-        // 悪意あるサーバが Content-Length に巨大値（Int64.max 近辺）を詐称しても、
-        // reserveCapacity には上限値しか渡らない。
-        let clamped = RemoteLibraryClient.clampedReserveCapacity(declaredLength: Int64.max)
-        #expect(clamped == RemoteLibraryClient.maxReserveCapacityBytes)
-    }
+    // G23 (M2): clampedReserveCapacity 系のテストは削除した。ストリーミング化で
+    // `Data.reserveCapacity` 自体を使わなくなり、対象の関数ごと不要になったため。
+
     @Test func exceedsMaxDownloadBytesFalseAtAndBelowLimit() {
         #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: 0) == false)
         #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: RemoteLibraryClient.maxDownloadBytes) == false)
