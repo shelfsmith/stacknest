@@ -45,6 +45,10 @@ public struct LibraryServerConfig: Sendable {
     /// グラント解決クロージャ（毎リクエスト現在値を返す＝ライブ反映・C-③a）。
     /// nil = 旧来の token/editToken 経路。本番は { GrantStore.list() } を注入する。
     public var grantsProvider: (@Sendable () -> [Grant])?
+    /// G23 (m4): grant の読み書きを集約するリポジトリ。設定すると CRUD の read/write が
+    /// 両方ここを通り、`grantsProvider` 未設定なら認証もここから読む（read と write が同じ源）。
+    /// nil = 従来どおり `GrantStore`（UserDefaults.standard）を直接使う。
+    public var grantRepository: (any GrantRepository)?
     /// G12b-3a: 監視フォルダの「今すぐスキャン」がリクエストされたとき App に通知する（libraryUUID）。
     /// App は該当ライブラリの FolderWatcher の scanNow() を発火する。
     public var onScanNowRequested: (@Sendable (String) -> Void)?
@@ -67,6 +71,7 @@ public struct LibraryServerConfig: Sendable {
                 apiOnly: Bool = false,
                 adminTier: Bool = false,
                 grantsProvider: (@Sendable () -> [Grant])? = nil,
+                grantRepository: (any GrantRepository)? = nil,
                 onScanNowRequested: (@Sendable (String) -> Void)? = nil,
                 sweepRuntimeTempOnStartup: Bool = false) {
         self.host = host
@@ -82,6 +87,7 @@ public struct LibraryServerConfig: Sendable {
         self.apiOnly = apiOnly
         self.adminTier = adminTier
         self.grantsProvider = grantsProvider
+        self.grantRepository = grantRepository
         self.onScanNowRequested = onScanNowRequested
         self.sweepRuntimeTempOnStartup = sweepRuntimeTempOnStartup
     }
@@ -267,9 +273,19 @@ public struct LibraryServerCore: Sendable {
             caps.transcode = transcodes
             return caps
         }
+        // G23 (m4): grant の書き込み先。未指定なら従来どおり UserDefaults.standard を使う。
+        let grantRepo: any GrantRepository = config.grantRepository ?? UserDefaultsGrantRepository()
+        // 認証で使う grant の読み口。明示指定を優先し、無ければリポジトリから読む
+        // （リポジトリ注入時は read と write が同じ源になる）。どちらも無ければ旧来の
+        // token/editToken 直接照合へ落ちる（既存挙動）。
+        let effectiveGrantsProvider: (@Sendable () -> [Grant])? = {
+            if let provider = config.grantsProvider { return provider }
+            guard config.grantRepository != nil else { return nil }
+            return { grantRepo.all() }
+        }()
         // それ以外の API は Bearer トークン認証配下。
         let api = router.group("api/v1")
-            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: config.grantsProvider))
+            .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: effectiveGrantsProvider))
         let dataSource = self.dataSource
         let tokenStore = self.tokenStore
         let unlockRateLimiter = self.unlockRateLimiter
@@ -286,7 +302,7 @@ public struct LibraryServerCore: Sendable {
             // グローバル admin（scope == .all）は従来どおり全 grant を見る。
             // grant のソースは認証と同じ config.grantsProvider（本番は { GrantStore.list() }＝挙動同一）
             // を用い、CRUD と認証で参照元を一致させる（provider 未設定時のみ GrantStore へフォールバック）。
-            return (config.grantsProvider?() ?? GrantStore.list())
+            return (effectiveGrantsProvider?() ?? grantRepo.all())
                 .filter { grantScopeIsContained($0.scope, within: context.scope) }
                 .map {
                     GrantDTO(id: $0.id, label: $0.label, token: $0.token, tier: $0.tier, scope: $0.scope)
@@ -305,13 +321,13 @@ public struct LibraryServerCore: Sendable {
             let g = Grant(id: UUID().uuidString, label: req.label,
                           token: ServerPreferences.generateToken(),
                           tier: req.tier, scope: req.scope, createdAt: Date())
-            GrantStore.add(g)
+            grantRepo.upsert(g)
             return GrantDTO(id: g.id, label: g.label, token: g.token, tier: g.tier, scope: g.scope)
         }
         api.patch("grants/:id") { request, context in
             try context.requireAdmin()
             let id = try context.parameters.require("id")
-            guard var g = (config.grantsProvider?() ?? GrantStore.list()).first(where: { $0.id == id }) else {
+            guard var g = (effectiveGrantsProvider?() ?? grantRepo.all()).first(where: { $0.id == id }) else {
                 throw HTTPError(.notFound)
             }
             // #3: scope 外の grant は 404（存在の有無を漏らさない・GET 一覧と同じ containment）。
@@ -330,20 +346,20 @@ public struct LibraryServerCore: Sendable {
             if let l = req.label { g.label = l }
             if let t = req.tier  { g.tier  = t }
             if let s = req.scope { g.scope = s }
-            GrantStore.update(g)
+            grantRepo.upsert(g)
             return GrantDTO(id: g.id, label: g.label, token: g.token, tier: g.tier, scope: g.scope)
         }
         api.delete("grants/:id") { _, context in
             try context.requireAdmin()
             let id = try context.parameters.require("id")
-            guard let g = (config.grantsProvider?() ?? GrantStore.list()).first(where: { $0.id == id }) else {
+            guard let g = (effectiveGrantsProvider?() ?? grantRepo.all()).first(where: { $0.id == id }) else {
                 throw HTTPError(.notFound)
             }
             // #3: scope 外の grant は 404（GET/PATCH と同じ containment。存在の有無を漏らさない）。
             guard grantScopeIsContained(g.scope, within: context.scope) else {
                 throw HTTPError(.notFound)
             }
-            GrantStore.delete(id: id)
+            grantRepo.delete(id: id)
             return HTTPResponse.Status.noContent
         }
         api.get("libraries") { _, context in
