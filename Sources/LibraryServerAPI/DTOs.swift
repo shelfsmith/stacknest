@@ -283,6 +283,19 @@ public struct UnlockReply: Codable, Sendable {
     }
 }
 
+/// G23 (#9/#10): `POST /session` の応答。URL クエリへ載せるための短命トークン。
+/// 永続の grant token を履歴やログに残さないため、クエリにはこちらだけを使う。
+public struct SessionReply: Codable, Sendable {
+    public let sessionToken: String
+    /// 有効期間（秒）。クライアントはこれを目安に再交換する。
+    public let expiresIn: Int
+
+    public init(sessionToken: String, expiresIn: Int) {
+        self.sessionToken = sessionToken
+        self.expiresIn = expiresIn
+    }
+}
+
 /// 棚（ユーザー定義棚 / スマート棚）の一覧 DTO（spec §3.3 /shelves）。
 public struct ShelfDTO: Codable, Sendable {
     public let id: Int64

@@ -2,7 +2,8 @@
 // StackNest Web — books ブラウズ（list/grid・ページ切替・検索・ソート・表紙・詳細モーダル）。
 // 状態は URL（#/lib/<uuid>?page=&q=&sort=）に反映し、表示モード/per/sort は localStorage に記憶する。
 
-import { api, apiJSON, deviceToken, libToken, browseParam, fetchFacet } from "./api.js";
+import { api, apiJSON, deviceToken, libToken, browseParam, fetchFacet,
+         ensureSessionToken, currentSessionToken } from "./api.js";
 import { startLiveSync } from "./livesync.js";
 
 // ---- localStorage キー（端末ごとの表示設定） --------------------------------
@@ -234,9 +235,12 @@ function columnIconSVG() {
 function coverURL(uuid, book, maxw = 320) {
     if (!book.coverVersion) return null;
     // ?v= が immutable キャッシュのキー。乱数は付けない（同じ v は再取得されない）。
+    // G23 (#9/#10): クエリに載せるのは短命セッショントークン。renderBooks が事前に確保する。
+    // 交換に失敗した場合だけ従来どおり永続トークンへフォールバックする（表紙が出ない方が困るため）。
+    const queryToken = currentSessionToken() || deviceToken() || "";
     let url = `/api/v1/libraries/${encodeURIComponent(uuid)}/books/${book.id}/cover`
         + `?maxw=${maxw}&v=${encodeURIComponent(book.coverVersion)}`
-        + `&token=${encodeURIComponent(deviceToken() || "")}`;
+        + `&token=${encodeURIComponent(queryToken)}`;
     const lt = libToken(uuid);
     if (lt) url += `&lt=${encodeURIComponent(lt)}`;
     return url;
@@ -340,6 +344,10 @@ export function buildBooksSkeleton(deps) {
 /// query: parseRoute() の query（page/q/sort）。
 export async function renderBooks(uuid, query, deps) {
     const { el, render } = deps;
+
+    // G23 (#9/#10): 表紙 URL は <img> 用にクエリ認証が必要。描画前に短命トークンを用意し、
+    // 永続トークンが URL に載らないようにする（coverURL は同期関数なので事前に確保しておく）。
+    await ensureSessionToken();
 
     // URL の query を最優先、無ければ localStorage の記憶を使う。
     const page = Math.max(1, parseInt(query.page || "1", 10) || 1);

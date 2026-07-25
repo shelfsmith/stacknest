@@ -12,6 +12,42 @@ export function hasDeviceToken() {
     return typeof t === "string" && t.length > 0;
 }
 
+// G23 (#9/#10): URL クエリに載せる用の短命セッショントークン。
+// EventSource と <img> はカスタムヘッダを送れないため認証情報を URL に置かざるを得ないが、
+// 永続トークンを載せるとブラウザ履歴やプロキシログに残る。メモリのみで保持し永続化しない。
+let sessionTokenValue = null;
+let sessionTokenPromise = null;
+
+/// 現在保持している短命トークン（未取得なら null）。URL 組み立て前に ensureSessionToken() を待つこと。
+export function currentSessionToken() { return sessionTokenValue; }
+
+/// 短命トークンを取得する。同時呼び出しは 1 本の交換にまとめる。
+export async function ensureSessionToken() {
+    if (sessionTokenValue) return sessionTokenValue;
+    if (!sessionTokenPromise) {
+        sessionTokenPromise = (async () => {
+            try {
+                const res = await fetch("/api/v1/session", {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${deviceToken() || ""}` },
+                });
+                if (!res.ok) return null;
+                const body = await res.json();
+                sessionTokenValue = body.sessionToken || null;
+                return sessionTokenValue;
+            } catch {
+                return null;   // 取得失敗時は呼び出し側が従来どおり動けるよう null を返す
+            } finally {
+                sessionTokenPromise = null;
+            }
+        })();
+    }
+    return sessionTokenPromise;
+}
+
+/// 期限切れ（401）を検出したら捨てて次回再取得させる。
+export function invalidateSessionToken() { sessionTokenValue = null; }
+
 export function libToken(uuid) { return sessionStorage.getItem(`stacknest.libtoken.${uuid}`); }
 export function saveLibToken(uuid, t) { sessionStorage.setItem(`stacknest.libtoken.${uuid}`, t); }
 export function clearLibToken(uuid) { sessionStorage.removeItem(`stacknest.libtoken.${uuid}`); }

@@ -22,6 +22,8 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
     /// グラント解決クロージャ（毎リクエスト現在値を返す＝ライブ反映・C-③a）。
     /// nil = 旧来の token/editToken 直接照合パス（テスト/ローカルコントロール adminTier 用）。
     let grantsProvider: (@Sendable () -> [Grant])?
+    /// G23 (#9/#10): クエリに載る短命セッショントークンの解決先。
+    let sessionTokenStore: SessionTokenStore
 
     func handle(
         _ request: Request, context: Context,
@@ -30,8 +32,13 @@ struct BearerAuthMiddleware<Context: RequestContext & RoleHoldingContext>: Route
         let presented: String?
         if let header = request.headers[.authorization], header.hasPrefix("Bearer ") {
             presented = String(header.dropFirst("Bearer ".count))   // ヘッダ優先
+        } else if let rawQueryToken = request.uri.queryParameters.get("token") {
+            let queryToken = String(rawQueryToken)
+            // G23 (#9/#10): クエリに載るのは短命セッショントークン。
+            // 解決できなければ、従来どおり grant token 直挿しとして扱う（既存クライアント互換）。
+            presented = await sessionTokenStore.resolve(queryToken) ?? queryToken
         } else {
-            presented = request.uri.queryParameters.get("token")    // fallback（<img> 用）
+            presented = nil
         }
         guard let presented else { throw HTTPError(.unauthorized) }
         var ctx = context
