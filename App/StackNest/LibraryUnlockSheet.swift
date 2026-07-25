@@ -16,6 +16,9 @@ struct LibraryUnlockSheet: View {
     let armThisMachine: () -> Void
     let onUnlock: () -> Void
     let onCancel: () -> Void
+    /// G23 (#8): 保存値が旧形式だったとき、新形式（PBKDF2）のハッシュを親へ渡す。
+    /// このシートは LibrarySettings を持たないため、保存は親の責務。
+    var onUpgradeHash: ((String) -> Void)? = nil
 
     @State private var password = ""
     @State private var failureCount = 0
@@ -89,13 +92,16 @@ struct LibraryUnlockSheet: View {
 
     private func tryPassword() {
         guard !password.isEmpty else { return }
-        if LibraryLock.verify(password: password, saltHex: salt, against: hash) {
+        switch LibraryLock.verifyAndUpgrade(password: password, saltHex: salt, against: hash) {
+        case .ok(let upgraded):
+            // G23 (#8): 旧形式だった場合はここで新形式へ移行する（平文が手に入るのはこの瞬間だけ）。
+            if let upgraded { onUpgradeHash?(upgraded) }
             // パスワード証明成功: 生体認証有効ならこの Mac を自動アーム（平文は保存されない）。
             if useBiometric {
                 armThisMachine()
             }
             onUnlock()
-        } else {
+        case .failed:
             failureCount += 1
             password = ""
         }

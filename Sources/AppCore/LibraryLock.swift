@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import CryptoKit
+import CommonCrypto
 import Security
 import LocalAuthentication
 import OSLog
@@ -38,17 +39,82 @@ public enum LibraryLock {
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 
+    /// G23 (#8): PBKDF2-HMAC-SHA256 の反復回数（OWASP 推奨値）。
+    public static let pbkdf2Iterations = 210_000
+
+    private static let pbkdf2Prefix = "pbkdf2$"
+
+    /// 検証結果。`.ok(upgradedHash:)` の値が非 nil なら、呼び出し側はそれを保存して
+    /// 旧形式から移行する。**解錠成功時にしか平文パスワードは手に入らない**ため、
+    /// 移行を行えるのはこの瞬間だけ。
+    public enum VerificationOutcome: Equatable, Sendable {
+        case failed
+        case ok(upgradedHash: String?)
+    }
+
+    /// 現行形式のハッシュ（`pbkdf2$<iterations>$<hex>`）を返す。
     public static func computeHash(password: String, saltHex: String) -> String {
+        pbkdf2Hash(password: password, saltHex: saltHex, iterations: pbkdf2Iterations)
+    }
+
+    /// 指定反復回数の PBKDF2 ハッシュを形式付きで返す（テストと移行判定から使う）。
+    public static func pbkdf2Hash(password: String, saltHex: String, iterations: Int) -> String {
+        "\(pbkdf2Prefix)\(iterations)$\(pbkdf2Hex(password: password, saltHex: saltHex, iterations: iterations))"
+    }
+
+    /// 旧形式（ソルト付き SHA-256 の生 hex）。**新規生成には使わない**。
+    /// 既存ライブラリの検証と移行判定のためだけに残す。
+    public static func legacySHA256Hash(password: String, saltHex: String) -> String {
         let saltBytes = bytes(fromHex: saltHex) ?? []
         var combined = Data(saltBytes)
         combined.append(Data(password.utf8))
-        let digest = SHA256.hash(data: combined)
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return SHA256.hash(data: combined).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// 検証し、保存値が旧形式（または古い反復回数）だった場合は移行後の値を併せて返す。
+    public static func verifyAndUpgrade(password: String, saltHex: String,
+                                        against expectedHash: String) -> VerificationOutcome {
+        if expectedHash.hasPrefix(pbkdf2Prefix) {
+            // "pbkdf2$<iterations>$<hex>"
+            let parts = expectedHash.split(separator: "$", maxSplits: 2, omittingEmptySubsequences: false)
+            guard parts.count == 3, let iterations = Int(parts[1]), iterations > 0 else { return .failed }
+            let computed = pbkdf2Hex(password: password, saltHex: saltHex, iterations: iterations)
+            guard constantTimeEquals(computed, String(parts[2])) else { return .failed }
+            // 反復回数が現行値より古ければ作り直す。
+            return .ok(upgradedHash: iterations == pbkdf2Iterations
+                       ? nil
+                       : computeHash(password: password, saltHex: saltHex))
+        }
+        // 旧形式: SHA-256 で検証し、成功したらこの場で PBKDF2 へ移行する。
+        guard !expectedHash.isEmpty,
+              constantTimeEquals(legacySHA256Hash(password: password, saltHex: saltHex), expectedHash) else {
+            return .failed
+        }
+        return .ok(upgradedHash: computeHash(password: password, saltHex: saltHex))
     }
 
     public static func verify(password: String, saltHex: String, against expectedHash: String) -> Bool {
-        let computed = computeHash(password: password, saltHex: saltHex)
-        return constantTimeEquals(computed, expectedHash)
+        verifyAndUpgrade(password: password, saltHex: saltHex, against: expectedHash) != .failed
+    }
+
+    /// PBKDF2-HMAC-SHA256（32 バイト）を hex で返す。
+    private static func pbkdf2Hex(password: String, saltHex: String, iterations: Int) -> String {
+        let saltBytes = bytes(fromHex: saltHex) ?? []
+        var derived = [UInt8](repeating: 0, count: 32)
+        let pw = Array(password.utf8)
+        let status = pw.withUnsafeBufferPointer { pwBuf in
+            saltBytes.withUnsafeBufferPointer { saltBuf in
+                CCKeyDerivationPBKDF(
+                    CCPBKDFAlgorithm(kCCPBKDF2),
+                    pwBuf.baseAddress.map { UnsafeRawPointer($0).assumingMemoryBound(to: CChar.self) },
+                    pw.count,
+                    saltBuf.baseAddress, saltBytes.count,
+                    CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256), UInt32(iterations),
+                    &derived, derived.count)
+            }
+        }
+        precondition(status == kCCSuccess, "CCKeyDerivationPBKDF failed: \(status)")
+        return derived.map { String(format: "%02x", $0) }.joined()
     }
 
     /// G23: 長さが異なっても全バイト走査する定数時間比較（タイミング攻撃対策）。

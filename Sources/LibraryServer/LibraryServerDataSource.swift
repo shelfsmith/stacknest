@@ -21,10 +21,21 @@ public struct ServedLibrary: Sendable {
     }
 
     /// ロック庫のパスワード照合（headless 可・LibraryLock 再利用）。
+    /// G23 (#8): 保存値が旧形式（生 SHA-256）だった場合は、この場で PBKDF2 形式へ書き戻す。
+    /// 平文パスワードが手に入るのは解錠の瞬間だけなので、移行できるのはここしかない。
     public func verifyPassword(_ password: String) -> Bool {
         guard let hash = try? db.getLibrarySetting(key: "lock_password_hash"),
               let salt = try? db.getLibrarySetting(key: "lock_password_salt") else { return false }
-        return LibraryLock.verify(password: password, saltHex: salt, against: hash)
+        switch LibraryLock.verifyAndUpgrade(password: password, saltHex: salt, against: hash) {
+        case .failed:
+            return false
+        case .ok(let upgraded):
+            if let upgraded {
+                // 移行の失敗は解錠を妨げない（次回の解錠でまた試みる）。
+                try? db.setLibrarySetting(key: "lock_password_hash", value: upgraded)
+            }
+            return true
+        }
     }
 }
 
