@@ -40,6 +40,32 @@ struct LibraryLockTests {
         #expect(LibraryLock.verify(password: "xyz", saltHex: salt, against: hash) == false)
     }
 
+    // MARK: - G23: 定数時間比較
+
+    /// G23: 長さが違っても早期 return せず全バイト走査する。
+    @Test
+    func constantTimeEqualsLengthMismatch() {
+        #expect(LibraryLock.constantTimeEquals("abc", "abcd") == false)
+        #expect(LibraryLock.constantTimeEquals("", "a") == false)
+        #expect(LibraryLock.constantTimeEquals("a", "") == false)
+    }
+
+    @Test
+    func constantTimeEqualsValues() {
+        #expect(LibraryLock.constantTimeEquals("deadbeef", "deadbeef") == true)
+        #expect(LibraryLock.constantTimeEquals("deadbeef", "deadbeee") == false)
+        #expect(LibraryLock.constantTimeEquals("", "") == true)
+    }
+
+    /// G23: verify が定数時間比較を経由しても判定結果は変わらない。
+    @Test
+    func verifyUsesConstantTimeComparison() {
+        let salt = LibraryLock.generateSalt()
+        let hash = LibraryLock.computeHash(password: "correct horse", saltHex: salt)
+        #expect(LibraryLock.verify(password: "correct horse", saltHex: salt, against: hash) == true)
+        #expect(LibraryLock.verify(password: "wrong horse", saltHex: salt, against: hash) == false)
+    }
+
     /// 2.6g: 旧 Keychain item の purge。存在しない item でも throw / crash しない（best-effort）。
     @Test
     func purgeLegacyKeychainItemIsSafeWhenAbsent() {
