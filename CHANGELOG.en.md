@@ -7,9 +7,11 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
-## [0.12.0] - Unreleased — Share-token permissions, CLI / MCP automation, and remote-operation wrap-up (Phases 4.2d–4.2f, C, G3, G4, G12b, G15, G16)
+## [0.12.0] - Unreleased — Share-token permissions, CLI / MCP automation, remote-operation wrap-up, rendering performance, and security (Phases 4.2d–4.2f, C, G3, G4, G12b, G15–G22)
 
-> Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07) / `v0.12.0-rc.2` (2026-07-18). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, setting an external image as a book's cover, plus a remote-parity wrap-up (watch-folder tab, admin maintenance, undo/redo) and built-in viewer stabilization.
+> Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07) / `v0.12.0-rc.2` (2026-07-18) / `v0.12.0-rc.3` (2026-07-25). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, setting an external image as a book's cover, plus a remote-parity wrap-up (watch-folder tab, admin maintenance, undo/redo) and built-in viewer stabilization.
+>
+> **New in rc.3 (2026-07-25):** page turning in the built-in viewer is now tuned per CPU architecture (fixing pages that would not advance at all on Intel, and stalls a few pages in on Apple Silicon), web reader feel (drag-to-turn, spatial navigation), a subfolder import mode for watch folders, per-book cover regeneration, progress and cancellation for remote deletes, and **security hardening for the server and remote connections**. If you share libraries with anyone, updating from rc.2 or earlier is recommended (see "Security" below).
 
 ### Added
 
@@ -54,6 +56,20 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 - **Remote grid cover placeholder**: books without a cover no longer spin indefinitely in the grid — they now show the no-cover icon immediately.
 - **Category-specific messages for unsupported formats**: opening a video / document the built-in viewer doesn't support now shows a category-specific message instead of a generic error.
 
+**Web reader feel (G17 / G20)**
+- **Drag to turn pages**: the page tracks your finger or trackpad 1:1, and the target page is settled by momentum when you let go. Rubber-band resistance at the ends, with haptic feedback on commit.
+- **Spatial navigation**: list → book → reader transitions slide, and going back returns you to the list **with your scroll position and filters intact**.
+- **Translucent materials and press feedback**: applied to the top bar and similar chrome, honoring the Reduce Motion, Reduce Transparency, and Increase Contrast accessibility settings.
+
+**Import (G9b)**
+- **Three subfolder import modes**: choose per watch folder whether to ignore subfolders, import archives only, or recurse into them.
+
+**Covers (G21)**
+- **Per-book cover regeneration**: rebuilding covers was previously a whole-library job only; you can now do it one book at a time. **Relinking also refreshes the cover and page count automatically.**
+
+**Remote operation (G22)**
+- **Progress and cancellation for remote deletes**: deleting several books remotely now shows a progress bar and can be stopped partway (cancelling stops the remaining unprocessed items).
+
 ### Changed
 - **Unified to share tokens**: the old "access / edit token" UI is folded into the share-token list; user-facing wording standardized to "share token".
 - **Local-access settings moved to app settings**: the local-control (CLI / MCP) settings moved out of the sharing window into an app-settings tab, renamed "Local access".
@@ -61,6 +77,10 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 - **Copyright warning before sharing**: shown (suppressible) before the server starts.
 - Wording "remote / offline viewer" → "**remote / offline browser**".
 - **Parallelized infinite-scroll live sync**: the remote browser now fetches catch-up pages in parallel, improving perceived responsiveness.
+- **Built-in viewer rendering tuned per CPU architecture (G18 / G19)**: on Apple Silicon, images are kept at full resolution and decoded lazily (the GPU downscales at draw time); on Intel, they are downscaled on a background thread. **No single strategy works for both**, so the build adapts. This fixes both pages that would not advance at all on Intel and the slowdown that appeared a few pages in on Apple Silicon.
+- **Single-pass archive reads (G18 / G19)**: instead of reopening the archive and scanning from the start for every page, the reader now keeps it open and moves forward through it. The benefit grows with page count.
+- **Faster remote page cache (G17)**: reworked how the cache database writes, and access times are now updated in batches.
+- **Unified viewer terminology (G17)**: cleaned up inconsistent wording in 118 places.
 
 ### Fixed
 - **Stale remote covers**: after replacing a cover remotely, the editing detail pane or another viewing client could keep showing the old cover — fixed (bypass the cover fetch's HTTP cache [`immutable`] on replace / version-key the cover cache by server token / host reflects per-book).
@@ -76,6 +96,45 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 - **Security**: closed a path where the remote restore operation could be abused to move arbitrary files.
 - Aligned the delete-confirmation dialog wording to reflect that the action can be undone with ⌘Z (including remote deletes).
 - Fixed empty (unset) tag fields not clearing back to empty on undo (⌘Z) after typing a value.
+
+**Relinking & covers (G4d / G21 / G22)**
+- **Fixed pages becoming unopenable after a relink**: for books backed by a folder, stale file information kept being used, so **the table of contents would report "6 pages" while the later pages returned 404**.
+- **Fixed covers and page counts staying stale after a relink** — regeneration now runs automatically.
+- **Fixed the list keeping the old cover after a cover swap** (both external-to-external replacement and reverting to the automatic cover).
+- **Fixed inconsistent state when an external cover went missing**: after falling back to the automatic cover, the book was still flagged internally as externally covered, which left "Regenerate cover" unavailable.
+- **Fixed the cover-compression job skipping single-image books.**
+
+**Remote & web (G20 / G21)**
+- **Fixed the web top bar scrolling away** instead of staying pinned.
+- **Fixed the list jumping back to the top** when returning from the reader on the web (position is kept for 10 minutes, and it follows deep positions in an infinite-scrolling list).
+- **Fixed a horizontal scrollbar appearing with classic (always-visible) scrollbars** — the scrollbar width is now measured and subtracted.
+- **Fixed the first page being paired in web spread mode**; the cover is now shown alone, matching the app.
+- **Fixed a red error appearing every time a read-only token toggled single / spread view** — a permission failure to persist the preference is no longer surfaced (the view still toggles as before).
+- **Fixed "server error -1" when deleting several books remotely** (the deletes were actually succeeding).
+- **Fixed local-only menu items appearing enabled** while connected remotely with an admin token.
+
+**Server (G4d / G21)**
+- **Fixed browsers serving stale pages from cache**: the server now validates the page version and refuses to let a mismatched response be stored.
+- **Fixed a transient network-storage hiccup forcing a whole-library re-download** — stored file information is used as a fallback when a stat fails.
+- **Leftover server temp files from a forced quit** are now swept at startup once they are older than 24 hours.
+- **Fixed empty or still-copying folders being imported as zero-page books.**
+
+### Security
+
+Fixed vulnerabilities in the server and remote connections. All of them **matter if you have handed a share token to someone else**. Exploitation details are deliberately omitted.
+
+- **Fixed a read-only token being able to read arbitrary files outside the shared folders** (the relink target path was not validated). Paths are now resolved to their real location before the check, so a symlink inside an allowed folder pointing outside it cannot slip through either.
+- **Fixed being able to grant permissions or a library scope broader than your own** when creating or updating a share token (escalation is now rejected).
+- **Fixed a scope-limited token being able to list the share tokens of other libraries.**
+- **Fixed "resume reading" bypassing the lock on a locked library** (both local and remote; unlocking is required again after the window is closed).
+- **Fixed unlimited unlock password attempts** (excessive attempts now trigger a lockout). Unlock attempts against libraries outside the token's scope are also rejected.
+- **Fixed a crafted archive being able to exhaust memory** (extraction size is now capped).
+- **Fixed a page-number value being able to crash the server.**
+- **Fixed offline downloads trusting the server-supplied destination path** — it is now validated.
+- **Stopped following HTTP redirects on remote connections**, preventing credentials from being forwarded.
+- **Reduced unnecessary exposure of the share token** when copying it.
+- **Added a response-size cap** on the client so an oversized response cannot exhaust memory.
+- Sort column names are now validated against an internal allowlist.
 
 ## [0.11.0] - Unreleased — Remote sharing / native client / offline / remote editing (Phase 4.2)
 
