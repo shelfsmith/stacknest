@@ -36,6 +36,74 @@ struct OfflineStoreTests {
         #expect(store.all().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
+    // MARK: - G23 (M2): 一時ファイルからの取り込み
+
+    /// DL 済みの一時ファイルを move で取り込み、**元の一時ファイルは残さない**。
+    @Test func saveFromTemporaryFileMovesIt() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        let lib = UUID().uuidString
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stacknest-dl-test-\(UUID().uuidString)")
+        try Data([0x50, 0x4B, 0x03, 0x04]).write(to: tmp)
+        try store.save(detail(7, "Book"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
+                       fileExtension: "zip", fileURL: tmp, coverData: nil)
+        let saved = try #require(store.all().first)
+        let url = store.fileURL(for: saved)
+        #expect(try Data(contentsOf: url) == Data([0x50, 0x4B, 0x03, 0x04]))
+        #expect(FileManager.default.fileExists(atPath: tmp.path) == false)   // move 済み
+    }
+
+    /// 同じ本を再ダウンロードしたとき、既存ファイルがあっても move が失敗せず上書きされる。
+    @Test func saveFromTemporaryFileOverwritesExisting() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        let lib = UUID().uuidString
+        try store.save(detail(7, "Book"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
+                       fileExtension: "zip", fileData: Data([0xAA]), coverData: nil)
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stacknest-dl-test-\(UUID().uuidString)")
+        try Data([0xBB, 0xCC]).write(to: tmp)
+        try store.save(detail(7, "Book"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
+                       fileExtension: "zip", fileURL: tmp, coverData: nil)
+        let saved = try #require(store.all().first)
+        #expect(store.all().count == 1)
+        #expect(try Data(contentsOf: store.fileURL(for: saved)) == Data([0xBB, 0xCC]))
+        #expect(FileManager.default.fileExists(atPath: tmp.path) == false)
+    }
+
+    /// 不正な libraryUUID は URL 版でも拒否する（#6 のパス検証を素通りさせない）。
+    @Test func saveFromTemporaryFileStillValidatesPaths() throws {
+        let store = tmpStore()
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stacknest-dl-test-\(UUID().uuidString)")
+        try Data([0x50]).write(to: tmp)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        #expect(throws: OfflineStoreError.self) {
+            try store.save(detail(1, "B"), serverID: UUID(), libraryUUID: "../escape", libraryName: "L",
+                           fileExtension: "zip", fileURL: tmp, coverData: nil)
+        }
+    }
+
+    /// 先頭バイトだけで拡張子を判定する（全量を読み直さない）。
+    @Test func fileExtensionIsDetectedFromFileHead() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ext-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        func write(_ bytes: [UInt8], _ name: String) throws -> URL {
+            let u = dir.appendingPathComponent(name)
+            try Data(bytes + [UInt8](repeating: 0, count: 100)).write(to: u)
+            return u
+        }
+        #expect(offlineFileExtension(forFileAt: try write([0x50, 0x4B, 0x03, 0x04], "a")) == "zip")
+        #expect(offlineFileExtension(forFileAt: try write([0x25, 0x50, 0x44, 0x46], "b")) == "pdf")
+        #expect(offlineFileExtension(forFileAt: try write([0xFF, 0xD8, 0x00, 0x00], "c")) == "jpg")
+        #expect(offlineFileExtension(forFileAt: try write([0x89, 0x50, 0x4E, 0x47], "d")) == "png")
+        // 存在しないファイルは既定へフォールバック
+        #expect(offlineFileExtension(forFileAt: dir.appendingPathComponent("missing")) == "zip")
+    }
+
     @Test func updateLastPagePersists() throws {
         let store = tmpStore()
         let sid = UUID()
