@@ -505,7 +505,11 @@ struct LibraryWindowContainer: View {
                                 DispatchQueue.main.async {
                                     (hostWindow ?? NSApp.keyWindow)?.close()
                                 }
-                            }
+                            },
+                            // G23 (#8): 旧形式（生 SHA-256）のハッシュを PBKDF2 形式へ移行する。
+                            // lockPasswordHash は didSet で DB へ永続化される。この代入は
+                            // armThisMachine より前に走るため、再アーム時の armedHash も新形式になる。
+                            onUpgradeHash: { newHash in settings?.lockPasswordHash = newHash }
                         )
                     }
             } else {
