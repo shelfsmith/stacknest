@@ -691,6 +691,34 @@ struct RemoteLibraryClientDownloadGuardTests {
         #expect(RemoteLibraryClient.exceedsMaxDownloadBytes(received: RemoteLibraryClient.maxDownloadBytes + 1) == true)
     }
 
+    // MARK: - G23 (M1): 汎用取得経路の受信上限
+
+    /// 宣言 Content-Length が上限超なら、本文を扱う前に拒否する。
+    @Test func generalLimitRejectsOversizedDeclaredLength() {
+        let over = Int64(RemoteLibraryClient.maxGeneralResponseBytes) + 1
+        #expect(RemoteLibraryClient.exceedsGeneralLimit(declaredLength: over, receivedCount: 0) == true)
+    }
+
+    /// Content-Length を詐称（または省略）されても、実受信量で再判定して拒否する。
+    @Test func generalLimitRejectsOversizedReceivedCount() {
+        let over = RemoteLibraryClient.maxGeneralResponseBytes + 1
+        #expect(RemoteLibraryClient.exceedsGeneralLimit(declaredLength: -1, receivedCount: over) == true)
+    }
+
+    /// 通常サイズ（JSON・表紙・ページ）は影響を受けない。
+    @Test func generalLimitAcceptsNormalSizes() {
+        #expect(RemoteLibraryClient.exceedsGeneralLimit(declaredLength: 1024, receivedCount: 1024) == false)
+        #expect(RemoteLibraryClient.exceedsGeneralLimit(declaredLength: -1, receivedCount: 4096) == false)
+        #expect(RemoteLibraryClient.exceedsGeneralLimit(
+            declaredLength: Int64(RemoteLibraryClient.maxGeneralResponseBytes),
+            receivedCount: RemoteLibraryClient.maxGeneralResponseBytes) == false)   // 境界（上限ちょうど）は許可
+    }
+
+    /// 本ファイルの上限（maxDownloadBytes）とは別枠で、汎用経路の方が小さい。
+    @Test func generalLimitIsSmallerThanBookFileLimit() {
+        #expect(Int64(RemoteLibraryClient.maxGeneralResponseBytes) < RemoteLibraryClient.maxDownloadBytes)
+    }
+
     /// #13: リダイレクト拒否デリゲートは 3xx に一切従わない（completionHandler(nil)）。
     @Test func noRedirectDelegateDeniesRedirect() async {
         let delegate = RemoteLibraryClient.NoRedirectSessionDelegate()

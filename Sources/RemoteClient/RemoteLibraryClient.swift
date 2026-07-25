@@ -76,8 +76,19 @@ public struct RemoteLibraryClient: Sendable {
         do {
             let (data, resp) = try await session.data(for: req)
             guard let http = resp as? HTTPURLResponse else { throw RemoteClientError.badResponse }
+            // G23 (M1): 宣言サイズが上限を超えるなら本文を扱わずに弾く。
+            // ここは JSON / 表紙 / ページ画像がすべて通る単一の集約点なので、
+            // 1 箇所の判定で汎用経路全体をカバーできる。
+            if Self.exceedsGeneralLimit(declaredLength: http.expectedContentLength, receivedCount: 0) {
+                throw RemoteClientError.responseTooLarge
+            }
             switch http.statusCode {
-            case 200...299: return (data, http)
+            case 200...299:
+                // Content-Length を詐称された場合の保険（実受信量で再判定）。
+                if Self.exceedsGeneralLimit(declaredLength: -1, receivedCount: data.count) {
+                    throw RemoteClientError.responseTooLarge
+                }
+                return (data, http)
             case 400: throw RemoteClientError.badRequest(Self.errorMessage(from: data))
             case 401: throw RemoteClientError.unauthorized
             case 403: throw RemoteClientError.forbidden
@@ -272,6 +283,18 @@ public struct RemoteLibraryClient: Sendable {
     /// 実際に流さずとも境界値をユニットテストできるよう切り出す）。
     static func exceedsMaxDownloadBytes(received: Int64) -> Bool {
         received > maxDownloadBytes
+    }
+
+    /// G23 (M1): JSON / 表紙 / ページ画像など**汎用取得経路**の受信上限。
+    /// `maxDownloadBytes`（本ファイル 1 件）とは別枠で、これらは本来いずれも数 MB 以下に収まる。
+    /// 上限を分けているのは、汎用経路の方をはるかに小さく保てるため。
+    static let maxGeneralResponseBytes = 64 * 1024 * 1024   // 64MiB
+
+    /// 宣言 Content-Length（不明は -1）と実受信量のいずれかが上限を超えたか。
+    /// 宣言値は受信前の足切り、実受信量は Content-Length 詐称への保険として使う。
+    static func exceedsGeneralLimit(declaredLength: Int64, receivedCount: Int) -> Bool {
+        if declaredLength > Int64(maxGeneralResponseBytes) { return true }
+        return receivedCount > maxGeneralResponseBytes
     }
 
     /// 進捗通知つき本ファイル取得。onProgress は 0...1（総量不明時は最後に 1.0 のみ）。
