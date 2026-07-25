@@ -123,18 +123,64 @@ struct UnlockTests {
     }
 
     /// #2: UnlockRateLimiter は閾値到達でロックアウトし、期限切れ／成功でリセットする。
+    /// G23 (M3): キーが library 単体から library＋principal に変わったため principal を明示する。
     @Test func rateLimiterLocksOutAfterThresholdAndResets() async {
         let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
         let t0 = Date(timeIntervalSince1970: 1000)
-        #expect(await rl.isLockedOut("L", now: t0) == false)
-        await rl.recordFailure("L", now: t0)
-        #expect(await rl.isLockedOut("L", now: t0) == false)      // 1 回目 < 閾値
-        await rl.recordFailure("L", now: t0)                       // 2 回目で閾値到達 → ロックアウト
-        #expect(await rl.isLockedOut("L", now: t0) == true)
-        #expect(await rl.isLockedOut("L", now: t0.addingTimeInterval(31)) == false)   // 期限切れで解除
-        await rl.recordFailure("L", now: t0.addingTimeInterval(31))
-        await rl.recordSuccess("L")                                // 成功で完全リセット
-        #expect(await rl.isLockedOut("L", now: t0.addingTimeInterval(31)) == false)
+        #expect(await rl.isLockedOut("L", principal: "p", now: t0) == false)
+        await rl.recordFailure("L", principal: "p", now: t0)
+        #expect(await rl.isLockedOut("L", principal: "p", now: t0) == false)      // 1 回目 < 閾値
+        await rl.recordFailure("L", principal: "p", now: t0)                       // 2 回目で閾値到達 → ロックアウト
+        #expect(await rl.isLockedOut("L", principal: "p", now: t0) == true)
+        #expect(await rl.isLockedOut("L", principal: "p", now: t0.addingTimeInterval(31)) == false)   // 期限切れで解除
+        await rl.recordFailure("L", principal: "p", now: t0.addingTimeInterval(31))
+        await rl.recordSuccess("L", principal: "p")                                // 成功で完全リセット
+        #expect(await rl.isLockedOut("L", principal: "p", now: t0.addingTimeInterval(31)) == false)
+    }
+
+    // MARK: - G23 (M3): principal 単位のロックアウト
+
+    /// M3 の要: ある共有相手の連続失敗が、正当な所有者や他の相手を締め出してはならない。
+    @Test func lockoutIsScopedToPrincipal() async {
+        let rl = UnlockRateLimiter(maxFailures: 3, lockoutSeconds: 30)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        for _ in 0..<3 { await rl.recordFailure("L", principal: "attacker", now: t0) }
+        #expect(await rl.isLockedOut("L", principal: "attacker", now: t0) == true)
+        #expect(await rl.isLockedOut("L", principal: "owner", now: t0) == false)
+    }
+
+    /// 同じ principal でも別ライブラリなら独立して数える。
+    @Test func lockoutIsScopedToLibrary() async {
+        let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        await rl.recordFailure("L1", principal: "p", now: t0)
+        await rl.recordFailure("L1", principal: "p", now: t0)
+        #expect(await rl.isLockedOut("L1", principal: "p", now: t0) == true)
+        #expect(await rl.isLockedOut("L2", principal: "p", now: t0) == false)
+    }
+
+    /// 429 に載せる Retry-After の値（残り秒・切り上げ・最低 1）。
+    @Test func retryAfterReportsRemainingSeconds() async {
+        let rl = UnlockRateLimiter(maxFailures: 1, lockoutSeconds: 30)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0) == nil)   // 未ロックアウト
+        await rl.recordFailure("L", principal: "p", now: t0)
+        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0) == 30)
+        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0.addingTimeInterval(29.5)) == 1)
+        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0.addingTimeInterval(31)) == nil)
+        #expect(await rl.retryAfterSeconds("L", principal: "other", now: t0) == nil)
+    }
+
+    /// 成功はその principal のカウンタだけを消す。
+    @Test func successClearsOnlyThatPrincipal() async {
+        let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        await rl.recordFailure("L", principal: "a", now: t0)
+        await rl.recordFailure("L", principal: "b", now: t0)
+        await rl.recordSuccess("L", principal: "a")
+        await rl.recordFailure("L", principal: "b", now: t0)   // b は 2 回目 → 閾値到達
+        #expect(await rl.isLockedOut("L", principal: "b", now: t0) == true)
+        #expect(await rl.isLockedOut("L", principal: "a", now: t0) == false)
     }
 
     /// #2: 連続失敗が閾値（既定 5）を超えると unlock が 429 で拒否される（正しいパスワードでも拒否）。
