@@ -915,15 +915,6 @@ struct RemoteLibraryView: View {
 private struct RemoteBatchEditButton: View {
     @Bindable var state: RemoteLibraryState
 
-    private static func summaryStyle(_ kind: RemoteLibraryState.BatchSummaryKind) -> (icon: String, color: Color) {
-        switch kind {
-        case .success:   return ("checkmark.circle", .secondary)
-        case .warning:   return ("exclamationmark.triangle", .orange)
-        case .cancelled: return ("xmark.circle", .secondary)
-        case .info:      return ("info.circle", .secondary)
-        }
-    }
-
     var body: some View {
         HStack(spacing: 8) {
             if let p = state.editProgress {
@@ -932,9 +923,22 @@ private struct RemoteBatchEditButton: View {
                 Button { state.cancelActiveBatch() } label: { Image(systemName: "xmark.circle") }
                     .help("中断")
             } else if let summary = state.editSummary {
-                let style = Self.summaryStyle(state.editSummaryKind)
+                let style = state.editSummaryKind.summaryStyle
                 Label(summary, systemImage: style.icon).font(.caption).foregroundStyle(style.color)
             }
+        }
+    }
+}
+
+/// 4.2c-3/4.2c-6a: 要約の種別に応じたアイコン/色。成功のみ=✓ / 失敗あり=⚠(橙) / 中断=✕ / 情報=ⓘ。
+/// RemoteBatchEditButton (編集要約) と RemoteDownloadButton (ダウンロード要約) の共通ロジック。
+private extension RemoteLibraryState.BatchSummaryKind {
+    var summaryStyle: (icon: String, color: Color) {
+        switch self {
+        case .success:   return ("checkmark.circle", .secondary)
+        case .warning:   return ("exclamationmark.triangle", .orange)
+        case .cancelled: return ("xmark.circle", .secondary)
+        case .info:      return ("info.circle", .secondary)
         }
     }
 }
@@ -946,16 +950,6 @@ private struct RemoteBatchEditButton: View {
 /// 再評価＝チラつきを防ぐ。
 private struct RemoteDownloadButton: View {
     @Bindable var state: RemoteLibraryState
-
-    /// 4.2c-3: 要約の種別に応じたアイコン/色。成功のみ=✓ / 失敗あり=⚠(橙) / 中断=✕ / 情報=ⓘ。
-    private static func summaryStyle(_ kind: RemoteLibraryState.BatchSummaryKind) -> (icon: String, color: Color) {
-        switch kind {
-        case .success:   return ("checkmark.circle", .secondary)
-        case .warning:   return ("exclamationmark.triangle", .orange)
-        case .cancelled: return ("xmark.circle", .secondary)
-        case .info:      return ("info.circle", .secondary)
-        }
-    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -973,7 +967,7 @@ private struct RemoteDownloadButton: View {
                 .help("ダウンロードを中断")
             } else {
                 if let summary = state.batchSummary {
-                    let style = Self.summaryStyle(state.batchSummaryKind)
+                    let style = state.batchSummaryKind.summaryStyle
                     Label(summary, systemImage: style.icon).font(.caption).foregroundStyle(style.color)
                 }
                 Button { state.startBatchDownload() } label: {

@@ -1264,34 +1264,30 @@ final class RemoteLibraryState {
     /// 止まって見える事故を防ぐ。@ObservationIgnored で View 再描画のトリガーにはしない（内部制御用）。
     @ObservationIgnored private var maintenanceActive = false
 
-    func runCompleteMetadata() async {
+    /// runCompleteMetadata / runCompressCovers 共通本体。job 名・開始 API 呼び出し・失敗文言のみが異なる。
+    private func runMaintenance(job: String, failureMessage: String, start: () async throws -> Void) async {
         guard canDelete else { errorText = "管理者権限が必要です"; return }
         // M2: finished が 202 応答を追い越しても取りこぼさないよう、await の前に gate を立てる。
         maintenanceActive = true
-        maintenanceJob = MaintenanceUIState(job: "complete-metadata", done: 0, total: 0)
+        maintenanceJob = MaintenanceUIState(job: job, done: 0, total: 0)
         do {
-            try await client.startCompleteMetadata(libraryUUID: libraryUUID, libraryToken: libraryToken)
+            try await start()
         } catch let e as RemoteClientError {
             maintenanceActive = false; maintenanceJob = nil   // 起動失敗 → gate を戻す
             errorText = Self.maintenanceMessage(for: e)
         } catch {
             maintenanceActive = false; maintenanceJob = nil
-            errorText = "メタデータ補完の開始に失敗しました"
+            errorText = failureMessage
+        }
+    }
+    func runCompleteMetadata() async {
+        await runMaintenance(job: "complete-metadata", failureMessage: "メタデータ補完の開始に失敗しました") {
+            try await client.startCompleteMetadata(libraryUUID: libraryUUID, libraryToken: libraryToken)
         }
     }
     func runCompressCovers() async {
-        guard canDelete else { errorText = "管理者権限が必要です"; return }
-        // M2: finished が 202 応答を追い越しても取りこぼさないよう、await の前に gate を立てる。
-        maintenanceActive = true
-        maintenanceJob = MaintenanceUIState(job: "compress-covers", done: 0, total: 0)
-        do {
+        await runMaintenance(job: "compress-covers", failureMessage: "表紙の再生成の開始に失敗しました") {
             try await client.startCompressCovers(libraryUUID: libraryUUID, libraryToken: libraryToken)
-        } catch let e as RemoteClientError {
-            maintenanceActive = false; maintenanceJob = nil   // 起動失敗 → gate を戻す
-            errorText = Self.maintenanceMessage(for: e)
-        } catch {
-            maintenanceActive = false; maintenanceJob = nil
-            errorText = "表紙の再生成の開始に失敗しました"
         }
     }
     func cancelMaintenance() async {

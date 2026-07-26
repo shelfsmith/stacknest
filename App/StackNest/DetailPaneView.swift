@@ -213,7 +213,7 @@ struct DetailPaneView: View {
                         if let onSetUnseen {
                             onSetUnseen(newValue, snapshotIDs)
                         } else {
-                            applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
+                            applyCaptured(newValue, patchKeyPath: \BookPatch.unseen,
                                               isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                         }
                     }
@@ -232,7 +232,7 @@ struct DetailPaneView: View {
                         if let onSetRating {
                             onSetRating(newValue, snapshotIDs)
                         } else {
-                            applyIntCaptured(newValue, patchKeyPath: \BookPatch.rating,
+                            applyCaptured(newValue, patchKeyPath: \BookPatch.rating,
                                              isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                         }
                     }
@@ -245,7 +245,7 @@ struct DetailPaneView: View {
                             if let onSetUnseen {
                                 onSetUnseen(newValue, snapshotIDs)
                             } else {
-                                applyBoolCaptured(newValue, patchKeyPath: \BookPatch.unseen,
+                                applyCaptured(newValue, patchKeyPath: \BookPatch.unseen,
                                                   isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                             }
                         }
@@ -259,7 +259,7 @@ struct DetailPaneView: View {
                         state: intState(\BookRow.bookType),
                         settings: librarySettings
                     ) { newValue in
-                        applyIntCaptured(newValue, patchKeyPath: \BookPatch.bookType,
+                        applyCaptured(newValue, patchKeyPath: \BookPatch.bookType,
                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                     }
                     .disabled(!canEdit)
@@ -484,29 +484,14 @@ struct DetailPaneView: View {
         }
     }
 
-    /// Apply an Int patch using captured selection ids.
+    /// Apply a patch using captured selection ids (Int/Bool fields; Text/Double have their
+    /// own explicit-NULL clear-flag handling and stay separate).
     /// Routes through PatchBooksCommand for Undo support (Task 15).
-    private func applyIntCaptured(_ value: Int,
-                                   patchKeyPath: WritableKeyPath<BookPatch, Int?>,
+    private func applyCaptured<T>(_ value: T,
+                                   patchKeyPath: WritableKeyPath<BookPatch, T?>,
                                    isMulti: Bool,
                                    singleID: Int?,
                                    ids: [Int]) {
-        var patch = BookPatch()
-        patch[keyPath: patchKeyPath] = value
-        if isMulti {
-            onApplyPatchMulti(ids, patch)
-        } else if let id = singleID {
-            onApplyPatch(id, patch)
-        }
-    }
-
-    /// Apply a Bool patch using captured selection ids.
-    /// Routes through PatchBooksCommand for Undo support (Task 15).
-    private func applyBoolCaptured(_ value: Bool,
-                                    patchKeyPath: WritableKeyPath<BookPatch, Bool?>,
-                                    isMulti: Bool,
-                                    singleID: Int?,
-                                    ids: [Int]) {
         var patch = BookPatch()
         patch[keyPath: patchKeyPath] = value
         if isMulti {
@@ -891,7 +876,7 @@ private struct CoverImageView: View {
     var body: some View {
         Group {
             if let image = image {
-                Image(decorative: Self.croppedDetailImage(image, rect: book.coverCropRect), scale: 1.0)
+                Image(decorative: BookCell.croppedImage(image, rect: book.coverCropRect), scale: 1.0)
                     .resizable().aspectRatio(contentMode: .fit)
             } else {
                 Rectangle()
@@ -920,21 +905,5 @@ private struct CoverImageView: View {
                 image = await loader?.thumbnail(for: book.id, maxPixelSize: 600)
             }
         }
-    }
-
-    /// Phase 2.5h A18-ext: 横長カバー対応。BookCell と意図的に重複させ、3 つ目の消費者が現れたら共通 util に抽出する。
-    private static func croppedDetailImage(_ image: CGImage, rect: CGRect?) -> CGImage {
-        guard let rect, rect != CGRect(x: 0, y: 0, width: 1, height: 1) else {
-            return image
-        }
-        let w = CGFloat(image.width)
-        let h = CGFloat(image.height)
-        let pixelRect = CGRect(
-            x: rect.origin.x * w,
-            y: rect.origin.y * h,
-            width: rect.size.width * w,
-            height: rect.size.height * h
-        ).integral
-        return image.cropping(to: pixelRect) ?? image
     }
 }

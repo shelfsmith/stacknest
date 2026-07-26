@@ -843,52 +843,18 @@ struct RemoteLibrarySettingsSheet: View {
     private func updatePresetPreview(_ raw: String) {
         do {
             let format = try FilenameFormat(raw: raw)
-            samplePreview = Self.presetSampleRecords.map { record in
+            samplePreview = LibrarySettingsSheet.sampleRecords.map { record in
                 "  • " + FilenameFormatter.format(record, with: format, bookTypeLabels: settings.bookTypeLabelOverrides)
             }
             formatError = nil
         } catch let error as FilenameFormat.ParseError {
-            formatError = presetDescribe(error)
+            formatError = LibrarySettingsSheet.describe(error)
             samplePreview = []
         } catch {
             formatError = "構文エラー"
             samplePreview = []
         }
     }
-
-    private func presetDescribe(_ e: FilenameFormat.ParseError) -> String {
-        switch e {
-        case .unknownToken(let raw): return "未知のトークン: \(raw)"
-        case .unclosedBracket(let c): return "閉じていない括弧: \(c)"
-        case .nestedBracket: return "括弧のネストはサポートされません"
-        }
-    }
-
-    /// 3 件のダミーレコードでプレビュー（ローカル LibrarySettingsSheet.sampleRecords と同一内容）。
-    private static let presetSampleRecords: [BookRecord] = [
-        BookRecord(
-            id: 0,
-            title: "ブラックジャックによろしく 第01巻",
-            author: "佐藤秀峰",
-            genre: "一般コミック",
-            dateAdded: Date(),
-            keywordA: "医療",
-            keywordB: "名作"
-        ),
-        BookRecord(
-            id: 0,
-            title: "ブラックジャックによろしく 第02巻",
-            author: "佐藤秀峰",
-            genre: "一般コミック",
-            dateAdded: Date(),
-            keywordA: "医療"
-        ),
-        BookRecord(
-            id: 0,
-            title: "ブラックジャックによろしく 第03巻",
-            dateAdded: Date()
-        )
-    ]
 
     /// 専用「プリセットを保存」ボタン: import/watch の保存フローとは独立して即座に PUT する。
     /// 成功で適用後 DTO をステージへ反映（サーバの正規化・既定 id 検証を反映するため）。
