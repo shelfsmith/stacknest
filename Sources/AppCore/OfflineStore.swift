@@ -80,8 +80,8 @@ public struct OfflineStore: @unchecked Sendable {
     public func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
                      fileExtension: String, fileData: Data, coverData: Data?) throws {
         try save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
-                 fileExtension: fileExtension, coverData: coverData) { dest in
-            try fileData.write(to: dest)
+                 fileExtension: fileExtension, coverData: coverData) { staging in
+            try fileData.write(to: staging)
         }
     }
 
@@ -90,23 +90,24 @@ public struct OfflineStore: @unchecked Sendable {
     public func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
                      fileExtension: String, fileURL: URL, coverData: Data?) throws {
         try save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
-                 fileExtension: fileExtension, coverData: coverData) { dest in
-            // moveItem / copyItem は既存ファイルがあると失敗するため、再ダウンロード時は先に退ける。
-            // ここで消すのは `fileURL` 版だけ。`fileData` 版の `Data.write(to:)` は上書きできるので、
-            // 共通化して消してしまうと「配置に失敗したとき既存ファイルだけ失われる」窓を作ってしまう。
-            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+                 fileExtension: fileExtension, coverData: coverData) { staging in
             // 同じボリュームなら move で済む。跨ボリューム等で失敗したら copy にフォールバックし、
             // 元ファイルを削除して残骸を作らない。
             do {
-                try fm.moveItem(at: fileURL, to: dest)
+                try fm.moveItem(at: fileURL, to: staging)
             } catch {
-                try fm.copyItem(at: fileURL, to: dest)
+                try fm.copyItem(at: fileURL, to: staging)
                 try? fm.removeItem(at: fileURL)
             }
         }
     }
 
     /// 保存先の検証・ディレクトリ作成・目録更新を共通化し、本体の配置方法だけを差し替える。
+    ///
+    /// G23 Codex Medium #4: **本体を一時名へ用意し、cover と index が揃ってから最後に差し替える**。
+    /// 以前は保存先を先に消してから配置していたため、配置失敗・cover 書き込み失敗・index 永続化失敗の
+    /// いずれでも「index は旧エントリを指しているのに本体だけ消えている」不整合が起きえた。
+    /// `placeFile` には最終保存先ではなく **staging URL** が渡る。
     private func save(_ detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
                       fileExtension: String, coverData: Data?,
                       placeFile: (URL) throws -> Void) throws {
@@ -118,12 +119,31 @@ public struct OfflineStore: @unchecked Sendable {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         let rel = "\(serverID.uuidString)/\(libraryUUID)/\(detail.id).\(fileExtension)"
         let dest = baseDirectory.appendingPathComponent(rel)
-        try placeFile(dest)
+        // 同じディレクトリ内の一時名（同一ボリュームなので後段の差し替えが rename で済む）。
+        let staging = dir.appendingPathComponent(".staging-\(detail.id)-\(UUID().uuidString).\(fileExtension)")
+        let coverDest = dir.appendingPathComponent("\(detail.id).cover")
+        let coverStaging = coverData == nil ? nil
+            : dir.appendingPathComponent(".staging-\(detail.id)-\(UUID().uuidString).cover")
+        // 途中で throw したら staging を残さない。差し替え成立後は committed=true で保持する。
+        var committed = false
+        defer {
+            if !committed {
+                try? fm.removeItem(at: staging)
+                if let coverStaging { try? fm.removeItem(at: coverStaging) }
+            }
+        }
+        try placeFile(staging)
         var hasCover = false
-        if let coverData {
-            try coverData.write(to: dir.appendingPathComponent("\(detail.id).cover"))
+        if let coverData, let coverStaging {
+            try coverData.write(to: coverStaging)
             hasCover = true
         }
+        // ここまで全て成功した。最後に差し替える（失敗しても旧ファイルは残る）。
+        _ = try fm.replaceItemAt(dest, withItemAt: staging)
+        if let coverStaging {
+            _ = try fm.replaceItemAt(coverDest, withItemAt: coverStaging)
+        }
+        committed = true
         let book = DownloadedBook(detail: detail, serverID: serverID, libraryUUID: libraryUUID,
                                   libraryName: libraryName, relativeFilePath: rel, hasCachedCover: hasCover,
                                   downloadedAt: Date(), lastPage: nil)

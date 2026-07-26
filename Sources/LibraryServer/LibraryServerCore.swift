@@ -181,6 +181,8 @@ func grantScopeIsContained(_ inner: GrantScope, within outer: GrantScope) -> Boo
 /// AppKit / ImageIO / PDFKit を import しないこと（Linux 移植規律・spec §3.2）。
 public struct LibraryServerCore: Sendable {
     private static let backupLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Backup")
+    /// G23 (m4): サーバ構成の警告用（grant の読み書き経路の競合など）。
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibraryServerCore")
     public let config: LibraryServerConfig
     let dataSource: any LibraryServerDataSource
     /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
@@ -277,13 +279,22 @@ public struct LibraryServerCore: Sendable {
         }
         // G23 (m4): grant の書き込み先。未指定なら従来どおり UserDefaults.standard を使う。
         let grantRepo: any GrantRepository = config.grantRepository ?? UserDefaultsGrantRepository()
-        // 認証で使う grant の読み口。明示指定を優先し、無ければリポジトリから読む
-        // （リポジトリ注入時は read と write が同じ源になる）。どちらも無ければ旧来の
-        // token/editToken 直接照合へ落ちる（既存挙動）。
+        // 認証で使う grant の読み口。
+        //
+        // G23 Codex Medium #5: **repository が指定されていれば、read も write もそれ 1 本に統一する**。
+        // 以前は `grantsProvider` を優先していたため、両方指定すると read は provider・write は
+        // repository という split-brain 構成が作れた（CRUD が 200 を返しても認証や GET に反映されない）。
+        // 両方指定は設定ミスなので、黙って一方を選ばず警告を出したうえで repository を採る。
+        // どちらも無ければ旧来の token/editToken 直接照合へ落ちる（既存挙動）。
+        if config.grantsProvider != nil && config.grantRepository != nil {
+            Self.logger.warning("""
+                grantsProvider と grantRepository の両方が指定されています。read/write が別経路になるのを\
+                避けるため grantRepository を優先し、grantsProvider は無視します。
+                """)
+        }
         let effectiveGrantsProvider: (@Sendable () -> [Grant])? = {
-            if let provider = config.grantsProvider { return provider }
-            guard config.grantRepository != nil else { return nil }
-            return { grantRepo.all() }
+            if config.grantRepository != nil { return { grantRepo.all() } }
+            return config.grantsProvider
         }()
         // それ以外の API は Bearer トークン認証配下。
         let sessionTokenStore = self.sessionTokenStore

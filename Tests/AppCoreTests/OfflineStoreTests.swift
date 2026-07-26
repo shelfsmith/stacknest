@@ -72,6 +72,48 @@ struct OfflineStoreTests {
         #expect(FileManager.default.fileExists(atPath: tmp.path) == false)
     }
 
+    /// G23 Codex Medium #4 の回帰: 配置に失敗しても**既存の本体を失わない**。
+    /// 存在しない一時ファイルを渡して move/copy を確実に失敗させ、旧ファイルが残ることを確認する。
+    @Test func failedResaveKeepsPreviousFile() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        let lib = UUID().uuidString
+        try store.save(detail(7, "Book"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
+                       fileExtension: "zip", fileData: Data([0xAA, 0xBB]), coverData: nil)
+        let saved = try #require(store.all().first)
+        let url = store.fileURL(for: saved)
+        // 存在しないファイルを指定 → placeFile が throw する。
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stacknest-dl-missing-\(UUID().uuidString)")
+        #expect(throws: (any Error).self) {
+            try store.save(detail(7, "Book"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
+                           fileExtension: "zip", fileURL: missing, coverData: nil)
+        }
+        // 旧ファイルは無傷、index も 1 件のまま。
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(try Data(contentsOf: url) == Data([0xAA, 0xBB]))
+        #expect(store.all().count == 1)
+    }
+
+    /// 失敗時に staging ファイルを残さない（残骸が溜まらない）。
+    @Test func failedResaveLeavesNoStagingFile() throws {
+        let store = tmpStore()
+        let sid = UUID()
+        let lib = UUID().uuidString
+        try store.save(detail(7, "B"), serverID: sid, libraryUUID: lib, libraryName: "L",
+                       fileExtension: "zip", fileData: Data([1]), coverData: nil)
+        let dir = store.fileURL(for: try #require(store.all().first)).deletingLastPathComponent()
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stacknest-dl-missing-\(UUID().uuidString)")
+        #expect(throws: (any Error).self) {
+            try store.save(detail(7, "B"), serverID: sid, libraryUUID: lib, libraryName: "L",
+                           fileExtension: "zip", fileURL: missing, coverData: nil)
+        }
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: dir.path))?
+            .filter { $0.hasPrefix(".staging-") } ?? []
+        #expect(leftovers.isEmpty)
+    }
+
     /// 不正な libraryUUID は URL 版でも拒否する（#6 のパス検証を素通りさせない）。
     @Test func saveFromTemporaryFileStillValidatesPaths() throws {
         let store = tmpStore()
