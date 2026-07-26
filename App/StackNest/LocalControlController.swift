@@ -40,8 +40,16 @@ final class LocalControlController {
                 Task { @MainActor in
                     for state in AppState.activeInstances.allObjects
                     where state.librarySettings?.libraryUUID == uuid {
+                        // G24: ここは CLI / MCP（ローカルコントロール）経由の設定変更を受ける。
+                        // 反映する設定が ServerController 側より少なく漏れていたため揃えた。
+                        // ロックの漏れは実害があり、施錠しても servedLibraries() が
+                        // isLocked: false を返し続けていた（＝配信上は無施錠のまま）。
                         state.librarySettings?.reloadStampDefinitions()
                         state.librarySettings?.reloadCustomLabels()
+                        state.librarySettings?.reloadWatchedFolders()
+                        state.reloadFolderWatcher()
+                        state.librarySettings?.reloadGeneralSettings()
+                        state.librarySettings?.reloadLockSettings()
                     }
                     ServerController.shared.publishLiveEvent(.settingsChanged(library: uuid))
                 }

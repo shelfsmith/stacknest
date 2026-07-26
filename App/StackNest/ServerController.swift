@@ -76,6 +76,10 @@ final class ServerController {
                         // G12b-3a: リモートの general-settings PUT（displayName/backup_*）を
                         // DB から再読込してホストのローカル UI・配信名へライブ反映する。
                         state.librarySettings?.reloadGeneralSettings()
+                        // G24: ロック設定（POST/DELETE /libraries/:lib/lock）も反映する。
+                        // これが無いと施錠しても servedLibraries() が isLocked: false を返し続け、
+                        // 施錠したつもりの庫が配信上は無施錠のままになる。
+                        state.librarySettings?.reloadLockSettings()
                     }
                 }
             },
