@@ -20,7 +20,6 @@ struct MaintenanceUIState: Equatable {
 @Observable
 @MainActor
 final class RemoteLibraryState {
-    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrary")
     /// G12b-3b Task 1: reload() 失敗時の切り分け用ログ（activeBatchCount の文脈を残す）。
     private static let reloadLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteReload")
 

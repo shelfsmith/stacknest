@@ -30,7 +30,6 @@ final class CoverRegenerationTask {
     private(set) var processedCount: Int = 0
     private(set) var bytesSavedEstimate: Int64 = 0
     private let cancelFlag = CoverRegenerationCancelFlag()
-    var cancelled: Bool { cancelFlag.isCancelled }
 
     private let bundleURL: URL
     private let database: Database

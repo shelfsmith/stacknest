@@ -3,8 +3,6 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import AppCore
-import LibraryStore
-import LibraryServer
 import RemoteClient
 
 struct SettingsView: View {

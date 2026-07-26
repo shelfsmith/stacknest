@@ -73,8 +73,6 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var formatError: String? = nil
     @State private var samplePreview: [String] = []
     @State private var presetsLoaded = false
-    @State private var presetSaving = false
-    @State private var presetSaveMessage: String? = nil
 
     // MARK: 一般タブ（canDelete 以上）— G12b-3a: ライブラリ名・バックアップ・整合性チェック・scan-now。
 
@@ -895,18 +893,12 @@ struct RemoteLibrarySettingsSheet: View {
     /// 専用「プリセットを保存」ボタン: import/watch の保存フローとは独立して即座に PUT する。
     /// 成功で適用後 DTO をステージへ反映（サーバの正規化・既定 id 検証を反映するため）。
     private func savePresetsNow() async {
-        presetSaving = true
-        presetSaveMessage = nil
-        defer { presetSaving = false }
         let dto = PresetSetDTO(presets: stagedPresets, defaultID: stagedDefaultID)
         if let saved = await state.savePresets(dto) {
             stagedPresets = saved.presets
             stagedDefaultID = saved.defaultID
             selectedPresetID = stagedDefaultID.isEmpty ? (stagedPresets.first?.id ?? "") : stagedDefaultID
             loadSelectedStagedPreset()
-            presetSaveMessage = "保存しました"
-        } else {
-            presetSaveMessage = state.errorText
         }
     }
 

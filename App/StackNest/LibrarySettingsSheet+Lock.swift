@@ -2,9 +2,6 @@
 import SwiftUI
 import AppKit
 import AppCore
-import OSLog
-
-private let lockSectionLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettingsSheet+Lock")
 
 extension LibrarySettingsSheet {
     @ViewBuilder

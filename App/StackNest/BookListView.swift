@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppCore
-import LibraryStore
 
 /// SwiftUI entry point for the list view. Delegates to BookTableViewRepresentable
 /// (NSTableView wrapper) to avoid the macOS Tahoe SwiftUI Table reentrancy bug.

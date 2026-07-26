@@ -647,7 +647,7 @@ struct DetailPaneView: View {
                                 loadEntryImage: { await img(book.id, $0) },
                                 onSelect: onPicked)
                         } else {
-                            CoverPickerSheet(book: book, bundleURL: bundleURL, onSelect: onPicked)
+                            CoverPickerSheet(book: book, onSelect: onPicked)
                         }
                     }
                     // G4a: 外部画像ファイルの D&D（ローカル・単一選択・編集可のみ）。

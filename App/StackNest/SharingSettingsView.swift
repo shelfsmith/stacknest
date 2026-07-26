@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppCore
-import LibraryServer
 
 /// 設定「共有」タブ。アプリ内蔵 LibraryServer の起動/停止・ポート・トークン+QR・
 /// per-library オプトイン（remoteSharingEnabled）を操作する。

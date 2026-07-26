@@ -73,11 +73,6 @@ final class URLOpener {
         }
     }
 
-    /// Unregister a title window.
-    func unregisterTitleWindow(_ window: NSWindow) {
-        titleWindows.remove(window)
-    }
-
     /// Hide all registered title windows (set alpha to 0 and orderOut).
     private func hideAllTitleWindows() {
         for window in titleWindows {

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
-import LibraryStore
 import AppCore
 
 /// Filter popover の bookType 行。0..5 の 6 種を 2 列の chip で表示し、

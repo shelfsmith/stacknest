@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppCore
-import LibraryStore
 
 /// Grid view 背景の右クリックで表示する sort menu。
 /// 全 BookColumn を表示し、active field には方向 indicator (↑/↓) を付ける。

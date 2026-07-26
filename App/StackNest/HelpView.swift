@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
-import AppCore
 
 /// アプリ内ヘルプページ。メニューバー「ヘルプ ▸ StackNest ヘルプ」(⌘?) から
 /// `openWindow(id: "help")` で表示する独立ウィンドウ。

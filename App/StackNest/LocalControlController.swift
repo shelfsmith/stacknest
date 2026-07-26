@@ -2,7 +2,6 @@
 import Foundation
 import SwiftUI
 import LibraryServer
-import LibraryServerAPI
 import AppCore
 
 /// 127.0.0.1 専用のローカル制御エンドポイント（CLI/MCP 用）。ネットワーク共有とは独立。

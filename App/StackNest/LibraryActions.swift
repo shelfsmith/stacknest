@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
-import LibraryStore
-import StackroomFormat
 import UniformTypeIdentifiers
 
 /// Phase 2.6c: ライブラリの 新規作成 / 開く / 取り込み アクション。

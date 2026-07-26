@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppCore
-import LibraryStore
 
 /// Stamp pane: 5 列横並び (ジャンル / 関連 / キーワードA / B / C)。
 /// 各列は汎用 StampColumnView。AppState 由来のクロージャを注入する（4.2c-6a）。
@@ -12,7 +11,6 @@ struct StampPaneView: View {
         HStack(spacing: 0) {
             ForEach(Array(StampField.allCases.enumerated()), id: \.element) { index, field in
                 StampColumnView(
-                    field: field,
                     label: appState.librarySettings?.stampLabel(for: field) ?? field.localizedTitle,
                     definitions: (appState.librarySettings?.stampDefinitions[field.dbColumn] ?? []).sorted(),
                     applyEnabled: !appState.selectedBookIDs.isEmpty,

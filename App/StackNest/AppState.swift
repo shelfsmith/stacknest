@@ -6,7 +6,6 @@ import StackroomFormat
 import ImageCache
 import AppCore
 import ArchiveAdapter
-import LibraryServerAPI
 import OSLog
 
 @Observable
@@ -22,9 +21,6 @@ final class AppState {
     /// ローカル表紙ビュー（BookCell/DetailPaneView）を再取得させる。グローバル bump は高頻度イベント
     /// （progress/rating 等）で可視グリッド全体をフリッカさせるため per-book にする。
     var coverVersionByBook: [Int: Int] = [:]
-    var isImporting: Bool = false
-    var importProgress: (processed: Int, total: Int)?
-    var importSummary: ImportSummary?
     var error: AppError?
     let viewerSettings: ViewerSettings = .shared
     /// G10: 詳細ペインの表紙表示トグル（per-browser・このウィンドウ専用・既定 true）。
@@ -1076,12 +1072,6 @@ final class AppState {
 
     // MARK: - v0.5a — Detail pane editing
 
-    /// Returns the common value of a field across `displayedSelectedBooks`.
-    /// `.unanimous(value)` if all match, `.mixed` if values differ or selection is empty.
-    func mixedValue<T: Equatable & Sendable>(_ keyPath: KeyPath<BookRow, T>) -> MixedValueState<T> {
-        MixedValueState.from(displayedSelectedBooks.map { $0[keyPath: keyPath] })
-    }
-
     /// Apply patch to a single book via UndoableCommand (Undo supported).
     /// Title empty validation is enforced by Database.updateBook inside the command.
     func applyPatch(bookID: Int, patch: BookPatch, undoManager: UndoManager? = nil) {
@@ -1095,22 +1085,6 @@ final class AppState {
             }
         } catch BookPatchError.emptyTitle {
             self.error = .titleRequired
-        } catch {
-            self.error = .unexpected(error)
-        }
-    }
-
-    /// Apply patch to all selected books via UndoableCommand (Undo supported).
-    /// Title in patch is ignored (multi-select doesn't edit title).
-    func applyPatchToSelected(_ patch: BookPatch, undoManager: UndoManager? = nil) {
-        var p = patch
-        p.title = nil  // safety: never multi-edit title
-        guard !p.isEmpty else { return }
-        let ids = Array(selectedBookIDs)
-        guard !ids.isEmpty else { return }
-        do {
-            try applyPatch(bookIDs: ids, patch: p, undoManager: undoManager)
-            refreshSelectedBook()
         } catch {
             self.error = .unexpected(error)
         }
@@ -1807,10 +1781,4 @@ extension AppState {
             searchQuery = value
         }
     }
-}
-
-private final class AppStateProgressReporter: ProgressReporter, @unchecked Sendable {
-    let onProgress: (Int, Int) -> Void
-    init(onProgress: @escaping (Int, Int) -> Void) { self.onProgress = onProgress }
-    func reportProgress(processed: Int, total: Int) { onProgress(processed, total) }
 }
