@@ -737,6 +737,21 @@ public final class LibrarySettings {
         }
     }
 
+    /// G24: 外部（CLI / MCP / リモートの `POST|DELETE /libraries/:lib/lock`）が DB のロック設定を
+    /// 直接書き換えたとき、DB から再読込してメモリへ反映する。
+    ///
+    /// これが無かったため、`stacknest-cli lock set` で施錠しても稼働中の App は
+    /// `lockPasswordHash` を古いまま保持し、`AppStateLibraryDataSource.servedLibraries()` が
+    /// `isLocked: false` を返し続けていた（＝**施錠したつもりの庫が配信上は無施錠**）。
+    ///
+    /// 他の reload と違い、**キーの削除（解除）も反映する**必要がある点に注意。
+    /// 「値があれば代入」だけにするとロック解除がメモリへ伝わらない。
+    public func reloadLockSettings() {
+        // 代入は didSet で DB へ書き戻るが、書き戻す値は今 DB から読んだものと同じなので実害はない。
+        lockPasswordHash = (try? database.getLibrarySetting(key: Self.lockHashKey)) ?? nil
+        lockPasswordSalt = (try? database.getLibrarySetting(key: Self.lockSaltKey)) ?? nil
+    }
+
     private func persistIgnoredDuplicateKeys() {
         do {
             let data = try JSONEncoder().encode(ignoredDuplicateKeys)
