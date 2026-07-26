@@ -92,38 +92,4 @@ public actor UnlockRateLimiter {
         if st.count >= maxFailures { st.lockedUntil = now.addingTimeInterval(lockoutSeconds) }
         states[key] = st
     }
-
-    /// 現在ロックアウト中か（true = unlock を拒否すべき）。期限切れロックは掃除する。
-    public func isLockedOut(_ uuid: String, principal: String, now: Date = Date()) -> Bool {
-        let key = Key(library: uuid, principal: principal)
-        guard let st = states[key], let until = st.lockedUntil else { return false }
-        if now < until { return true }
-        // 期限切れ: カウンタをリセットして再挑戦を許す。
-        states[key] = nil
-        return false
-    }
-
-    /// ロックアウト中なら残り秒（切り上げ・最低 1）を返す。非ロックアウトは nil。
-    /// 429 応答の `Retry-After` に載せる。
-    public func retryAfterSeconds(_ uuid: String, principal: String, now: Date = Date()) -> Int? {
-        let key = Key(library: uuid, principal: principal)
-        guard let st = states[key], let until = st.lockedUntil, now < until else { return nil }
-        return max(1, Int(until.timeIntervalSince(now).rounded(.up)))
-    }
-
-    /// パスワード不一致を記録する。閾値に達したらロックアウト期限を設定する。
-    public func recordFailure(_ uuid: String, principal: String, now: Date = Date()) {
-        let key = Key(library: uuid, principal: principal)
-        var st = states[key] ?? State(count: 0, lockedUntil: nil)
-        // 期限切れロックが残っていれば作り直す。
-        if let until = st.lockedUntil, now >= until { st = State(count: 0, lockedUntil: nil) }
-        st.count += 1
-        if st.count >= maxFailures { st.lockedUntil = now.addingTimeInterval(lockoutSeconds) }
-        states[key] = st
-    }
-
-    /// unlock 成功: その principal のカウンタ／ロックを解除する（他の principal には触らない）。
-    public func recordSuccess(_ uuid: String, principal: String) {
-        states[Key(library: uuid, principal: principal)] = nil
-    }
 }
