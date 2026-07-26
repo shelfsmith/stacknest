@@ -45,12 +45,8 @@ public extension CoverImageExtractor {
 }
 
 public enum ArchiveAdapterError: Error, Equatable, Sendable {
-    /// Phase 2.5a stubs throw this; Phase 2.5b will provide real implementations.
-    case notImplemented
     /// Archive could not be opened (corrupt, unsupported format, permissions).
     case archiveUnreadable(URL, reason: String)
     /// Archive opened but no image entries found.
     case noImageEntry(URL)
-    /// Archive format is recognized but not supported in this build.
-    case unsupportedFormat(URL, formatHint: String)
 }

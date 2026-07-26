@@ -30,26 +30,6 @@ public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
         }
     }
 
-    public var localizedTitle: LocalizedStringKey {
-        switch self {
-        case .title:     return "タイトル"
-        case .rating:    return "レート"
-        case .author:    return "作者"
-        case .genre:     return "ジャンル"
-        case .dateAdded: return "登録日"
-        case .playDate:  return "読んだ日"
-        case .unseen:    return "未読"
-        case .bookType:  return "種類"
-        case .neta:      return "関連"
-        case .keywordA:  return "キーワード A"
-        case .keywordB:  return "キーワード B"
-        case .keywordC:  return "キーワード C"
-        case .memo:      return "メモ"
-        case .series:    return "シリーズ"
-        case .volume:    return "巻数"
-        }
-    }
-
     /// Plain string version of the column title (for AppKit NSTableColumn.title).
     /// Uses String(localized:) for runtime localization.
     public var localizedTitleString: String {

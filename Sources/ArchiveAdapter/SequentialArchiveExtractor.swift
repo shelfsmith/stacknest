@@ -37,8 +37,6 @@ public actor SequentialArchiveExtractor {
     /// 抽出済みエントリ名 → temp ファイル URL。
     private var extracted: [String: URL] = [:]
 
-    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "SequentialArchiveExtractor")
-
     public init(url: URL, imageNames: Set<String>, maxEntryBytes: Int = ArchiveEntrySizeLimit.maxEntryBytes) {
         self.url = url
         self.imageNames = imageNames

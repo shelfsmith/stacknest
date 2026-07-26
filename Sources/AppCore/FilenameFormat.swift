@@ -67,10 +67,6 @@ public enum BookTypeLabel {
     public static func label(for type: Int) -> String? {
         labels[type]
     }
-
-    public static func type(for label: String) -> Int? {
-        labels.first(where: { $0.value == label })?.key
-    }
 }
 
 public enum FormatSegment: Equatable, Sendable {
@@ -80,7 +76,6 @@ public enum FormatSegment: Equatable, Sendable {
 }
 
 public struct FilenameFormat: Equatable, Sendable {
-    public let raw: String
     public let segments: [FormatSegment]
 
     public enum ParseError: Error, Equatable {
@@ -90,7 +85,6 @@ public struct FilenameFormat: Equatable, Sendable {
     }
 
     public init(raw: String) throws {
-        self.raw = raw
         var index = raw.startIndex
         self.segments = try Self.parseSegments(raw, &index, terminator: nil)
     }
