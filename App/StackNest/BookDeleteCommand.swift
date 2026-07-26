@@ -90,30 +90,30 @@ public enum BookDeleteCommand {
                 await appState.thumbnailLoader?.purge()
             }
             for id in bookIDs {
-                let bookDir = thumbnailsDir.appendingPathComponent(String(id))
-                do {
-                    try FileManager.default.removeItem(at: bookDir)
-                    logger.info("Thumbnails dir removed: \(bookDir.path)")
-                } catch {
-                    logger.warning("Thumbnails dir removal failed for book \(id): \(error.localizedDescription)")
-                }
+                removeThumbnailDir(id: id, thumbnailsDir: thumbnailsDir)
             }
         } else {
             // Legacy path: direct DB mutation (no Undo support)
             for id in bookIDs {
                 do {
                     try database.deleteBook(id: id)
-                    let bookDir = thumbnailsDir.appendingPathComponent(String(id))
-                    do {
-                        try FileManager.default.removeItem(at: bookDir)
-                        logger.info("Thumbnails dir removed: \(bookDir.path)")
-                    } catch {
-                        logger.warning("Thumbnails dir removal failed for book \(id): \(error.localizedDescription)")
-                    }
+                    removeThumbnailDir(id: id, thumbnailsDir: thumbnailsDir)
                 } catch {
                     logger.warning("Failed to delete book \(id): \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    /// bundle/Thumbnails/<bookID>/ を削除する（存在しない/失敗時はログのみ、呼び出し元は継続）。
+    /// performDeleteFromLibrary の appState 有無どちらの分岐からも同一の後始末として呼ばれる。
+    private static func removeThumbnailDir(id: Int, thumbnailsDir: URL) {
+        let bookDir = thumbnailsDir.appendingPathComponent(String(id))
+        do {
+            try FileManager.default.removeItem(at: bookDir)
+            logger.info("Thumbnails dir removed: \(bookDir.path)")
+        } catch {
+            logger.warning("Thumbnails dir removal failed for book \(id): \(error.localizedDescription)")
         }
     }
 
@@ -199,16 +199,7 @@ public enum BookDeleteCommand {
                     undoManager: undoManager
                 )
             case .trash:
-                let books = appState.displayedSelectedBooks.compactMap { b -> (id: Int, url: URL)? in
-                    guard let path = b.path, !path.isEmpty else { return nil }
-                    return (id: b.id, url: URL(fileURLWithPath: path))
-                }
-                guard !books.isEmpty else { return }
-                let removed = moveToTrash(books: books, database: database, bundleURL: bundleURL)
-                if !removed.isEmpty {
-                    do { try appState.refreshDisplayedBooks() }
-                    catch { appState.error = .unexpected(error) }
-                }
+                collectAndTrash(appState: appState, database: database, bundleURL: bundleURL, confirm: true)
             }
             return
         }
@@ -249,19 +240,34 @@ public enum BookDeleteCommand {
                     undoManager: undoManager
                 )
             case .trash:
-                let books = appState.displayedSelectedBooks.compactMap { b -> (id: Int, url: URL)? in
-                    guard let path = b.path, !path.isEmpty else { return nil }
-                    return (id: b.id, url: URL(fileURLWithPath: path))
-                }
-                guard !books.isEmpty else { return }
-                let removed = performMoveToTrash(books: books, database: database, bundleURL: bundleURL)
-                if !removed.isEmpty {
-                    do { try appState.refreshDisplayedBooks() }
-                    catch { appState.error = .unexpected(error) }
-                }
+                collectAndTrash(appState: appState, database: database, bundleURL: bundleURL, confirm: false)
             }
         default:
             break  // キャンセル / Esc → no-op
+        }
+    }
+
+    /// 選択中の本を displayedSelectedBooks から (id, url) に整形し、ゴミ箱移動 + refresh を行う。
+    /// runScopeAwareDelete の 2 つの trash 分岐（2択パス委譲 / 3択の破壊的ボタン）で共通の後始末。
+    /// confirm=true は未確認のためダイアログを出す moveToTrash、confirm=false は 3択で確認済みのため
+    /// performMoveToTrash（確認なしの実体）を直接呼ぶ — 呼び出し元での二重確認を避けるための分岐。
+    private static func collectAndTrash(
+        appState: AppState,
+        database: Database,
+        bundleURL: URL,
+        confirm: Bool
+    ) {
+        let books = appState.displayedSelectedBooks.compactMap { b -> (id: Int, url: URL)? in
+            guard let path = b.path, !path.isEmpty else { return nil }
+            return (id: b.id, url: URL(fileURLWithPath: path))
+        }
+        guard !books.isEmpty else { return }
+        let removed = confirm
+            ? moveToTrash(books: books, database: database, bundleURL: bundleURL)
+            : performMoveToTrash(books: books, database: database, bundleURL: bundleURL)
+        if !removed.isEmpty {
+            do { try appState.refreshDisplayedBooks() }
+            catch { appState.error = .unexpected(error) }
         }
     }
 }

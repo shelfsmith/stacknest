@@ -206,39 +206,6 @@ struct LibraryBrowserView: View {
         VStack(spacing: 0) {
             if let settings = appState.librarySettings {
                 switch settings.topPaneMode {
-                case "browse":
-                    BrowserPaneView(
-                        browserPaneState: Bindable(settings).browserPaneState,
-                        labelFor: { settings.browseLabel(for: $0) },
-                        refreshKey: {
-                            let s = settings.browserPaneState
-                            let filterEncoded = (try? JSONEncoder().encode(settings.filterState))
-                                .flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                            return "\(s.fields.map { $0?.sqlColumn ?? "" }.joined(separator: ","))|\(s.selections.map { $0 ?? "" }.joined(separator: ","))|\(appState.searchQuery)|\(filterEncoded)|\(String(describing: appState.selectedSidebarItem))|\(appState.booksDataVersion)"
-                        }(),
-                        facetValues: { columnSQL, upperConstraints in
-                            guard let db = appState.database, let item = appState.selectedSidebarItem else { return [] }
-                            let scope: SidebarScope
-                            switch item {
-                            case .library: scope = .library
-                            case .favorites:
-                                guard let f = appState.favoritesShelfID else { return [] }
-                                scope = .favorites(playlistID: f)
-                            case .recent: scope = .recent(days: settings.recentDays)
-                            case .shelf(let id, _, _): scope = .shelf(playlistID: id)
-                            case .smartShelf(let id, _): scope = .smartShelf(playlistID: id)
-                            }
-                            do {
-                                return try db.distinctValues(
-                                    forColumn: columnSQL, query: appState.searchQuery, sidebarScope: scope,
-                                    filter: settings.filterState, browserConstraints: upperConstraints)
-                            } catch {
-                                appState.error = .unexpected(error)
-                                return []
-                            }
-                        }
-                    )
-                    Divider()
                 case "stamp":
                     StampPaneView(appState: appState)
                     Divider()
@@ -718,7 +685,7 @@ struct LibraryBrowserView: View {
             if case .shelf = appState.selectedSidebarItem {
                 Button("シェルフから外す") {
                     ensureSelected(book)
-                    appState.removeSelectedBooksFromCurrentShelf()
+                    appState.removeSelectedBooksFromRemovableShelf()
                 }
             }
         }

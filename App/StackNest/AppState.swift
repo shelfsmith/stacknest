@@ -556,19 +556,7 @@ final class AppState {
         guard let db = database else { return }
         do {
             try db.appendBooksToShelf(playlistID: shelfID, bookIDs: books)
-            if shelfID == favoritesShelfID {
-                reloadFavoritesCache()
-            }
-            // If currently viewing this shelf, refresh
-            if case .shelf(let sid, _, _) = selectedSidebarItem, sid == shelfID {
-                try refreshDisplayedBooks()
-            }
-            if case .favorites = selectedSidebarItem, shelfID == favoritesShelfID {
-                try refreshDisplayedBooks()
-            }
-            // Update shelves cache for badge counts
-            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
-            shelvesContentVersion += 1
+            try applyShelfMutationSideEffects(shelfID: shelfID, db: db)
         } catch {
             self.error = .unexpected(error)
         }
@@ -580,21 +568,29 @@ final class AppState {
         guard let db = database, !books.isEmpty else { return }
         do {
             try db.removeBooksFromShelf(playlistID: shelfID, bookIDs: books)
-            if shelfID == favoritesShelfID {
-                reloadFavoritesCache()
-            }
-            // If currently viewing this shelf, refresh
-            if case .shelf(let sid, _, _) = selectedSidebarItem, sid == shelfID {
-                try refreshDisplayedBooks()
-            }
-            if case .favorites = selectedSidebarItem, shelfID == favoritesShelfID {
-                try refreshDisplayedBooks()
-            }
-            self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
-            shelvesContentVersion += 1
+            try applyShelfMutationSideEffects(shelfID: shelfID, db: db)
         } catch {
             self.error = .unexpected(error)
         }
+    }
+
+    /// シェルフ内容変更後の共通後処理（favorites cache 更新・現在表示中シェルフの refresh・
+    /// shelves キャッシュ再取得・shelvesContentVersion bump）。
+    /// addBooksToShelf / removeBooksFromShelf の双方から、DB 変更呼び出し直後に呼ばれる。
+    private func applyShelfMutationSideEffects(shelfID: Int64, db: Database) throws {
+        if shelfID == favoritesShelfID {
+            reloadFavoritesCache()
+        }
+        // If currently viewing this shelf, refresh
+        if case .shelf(let sid, _, _) = selectedSidebarItem, sid == shelfID {
+            try refreshDisplayedBooks()
+        }
+        if case .favorites = selectedSidebarItem, shelfID == favoritesShelfID {
+            try refreshDisplayedBooks()
+        }
+        // Update shelves cache for badge counts
+        self.shelves = try db.fetchAllShelves().filter { $0.kind != "favorites" }
+        shelvesContentVersion += 1
     }
 
     /// 手動シェルフ（user/imported、スマートでない）一覧。「シェルフに追加」メニュー用。
@@ -607,13 +603,6 @@ final class AppState {
         let ids = Array(selectedBookIDs)
         guard !ids.isEmpty else { return }
         addBooksToShelf(shelfID, books: ids)
-    }
-
-    /// 手動シェルフ表示中なら、選択中の本をそのシェルフから外す。
-    /// FX7 cleanup: removeSelectedBooksFromRemovableShelf に委譲（スーパーセット）。
-    /// FX3 のコンテキストメニュー呼び出し元はそのまま使用可能。
-    func removeSelectedBooksFromCurrentShelf() {
-        removeSelectedBooksFromRemovableShelf()
     }
 
     /// 現在表示中の scope が「本を手動で出し入れできるシェルフ」なら、その shelfID。

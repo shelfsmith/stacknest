@@ -581,6 +581,12 @@ extension BookTableCoordinator: NSMenuDelegate {
         menu.addItem(.separator())
 
         // 並び替えサブメニュー (Phase 2.4c R1: Grid との UI 統合)
+        menu.addItem(makeSortSubmenu())
+    }
+
+    /// 「並び替え」サブメニューを構築する（列一覧 + 現在ソート列への chevron 表示）。
+    /// menuNeedsUpdate（行コンテキストメニュー）と makeEmptyAreaMenu（空白部コンテキストメニュー）で共用。
+    private func makeSortSubmenu() -> NSMenuItem {
         let sortItem = NSMenuItem(title: String(localized: "並び替え"), action: nil, keyEquivalent: "")
         let sortSubmenu = NSMenu()
         let currentSort = settings.listViewSort
@@ -605,7 +611,7 @@ extension BookTableCoordinator: NSMenuDelegate {
         // 旧「シリーズ → 巻数」複合ソートは廃止。単一カラム「シリーズ」が
         // リモート同様に同一シリーズ内を巻数順に並べる（sortedByColumn(.series)）。
         sortItem.submenu = sortSubmenu
-        menu.addItem(sortItem)
+        return sortItem
     }
 
     /// Builds the context menu for empty-area right-click (below all rows) in the list view.
@@ -615,80 +621,39 @@ extension BookTableCoordinator: NSMenuDelegate {
         let menu = NSMenu()
 
         // Book action items — all disabled (行外クリックであることを視覚的に示す)
-        let disabledTitles: [String] = [
-            String(localized: "お気に入りに追加"),
-            String(localized: "レート"),
-            String(localized: "種類"),
-            String(localized: "未読チェック"),
+        // グループごとに区切り線 (separator) を挟む。
+        let disabledTitleGroups: [[String]] = [
+            [
+                String(localized: "お気に入りに追加"),
+                String(localized: "レート"),
+                String(localized: "種類"),
+                String(localized: "未読チェック"),
+            ],
+            [
+                String(localized: "Finder で表示"),
+                String(localized: "ビューアで開く"),
+            ],
+            [
+                String(localized: "ファイル名を変更…"),
+                String(localized: "ファイルを移動…"),
+                String(localized: "ファイルを再指定…"),
+            ],
+            [
+                String(localized: "ライブラリから削除"),
+                String(localized: "ファイルをゴミ箱に移動…"),
+            ],
         ]
-        for title in disabledTitles {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
+        for group in disabledTitleGroups {
+            for title in group {
+                let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
         }
-
-        menu.addItem(.separator())
-
-        let disabledTitles2: [String] = [
-            String(localized: "Finder で表示"),
-            String(localized: "ビューアで開く"),
-        ]
-        for title in disabledTitles2 {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
-
-        let disabledTitles3: [String] = [
-            String(localized: "ファイル名を変更…"),
-            String(localized: "ファイルを移動…"),
-            String(localized: "ファイルを再指定…"),
-        ]
-        for title in disabledTitles3 {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
-
-        let disabledTitles4: [String] = [
-            String(localized: "ライブラリから削除"),
-            String(localized: "ファイルをゴミ箱に移動…"),
-        ]
-        for title in disabledTitles4 {
-            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-            item.isEnabled = false
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
 
         // Sort submenu (functional — same as in row context menu)
-        let sortItem = NSMenuItem(title: String(localized: "並び替え"), action: nil, keyEquivalent: "")
-        let sortSubmenu = NSMenu()
-        let currentSort = settings.listViewSort
-        for col in BookColumn.allCases {
-            let it = NSMenuItem(
-                title: settings.label(for: col),
-                action: #selector(setSortAction(_:)),
-                keyEquivalent: ""
-            )
-            it.target = self
-            it.representedObject = col.rawValue
-            if settings.sortMode == .column && currentSort.column == col {
-                it.image = NSImage(
-                    systemSymbolName: currentSort.ascending ? "chevron.up" : "chevron.down",
-                    accessibilityDescription: nil
-                )
-            }
-            sortSubmenu.addItem(it)
-        }
-        // 旧「シリーズ → 巻数」複合ソートは廃止（単一カラム「シリーズ」が巻数順を内包）。
-        sortItem.submenu = sortSubmenu
-        menu.addItem(sortItem)
+        menu.addItem(makeSortSubmenu())
         return menu
     }
 
@@ -805,7 +770,7 @@ extension BookTableCoordinator: NSMenuDelegate {
     }
 
     @objc private func removeFromShelfAction(_ sender: NSMenuItem) {
-        appState.removeSelectedBooksFromCurrentShelf()
+        appState.removeSelectedBooksFromRemovableShelf()
     }
 
     // MARK: - Delete helpers (called from menu actions and GatedTableView.keyDown)
