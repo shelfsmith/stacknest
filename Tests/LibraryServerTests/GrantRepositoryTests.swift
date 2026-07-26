@@ -90,6 +90,43 @@ struct GrantRepositoryTests {
         #expect(repo.all().count == 1)
     }
 
+    /// G23 Codex Medium #5 の回帰: `grantsProvider` と `grantRepository` を**両方**指定しても
+    /// split-brain にならない（repository を唯一の源とし、provider は無視される）。
+    /// 以前は read が provider・write が repository に分かれ、CRUD が 200 を返しても
+    /// 認証や GET に反映されなかった。
+    @Test func repositoryWinsWhenBothProviderAndRepositoryAreSet() async throws {
+        let f = try TestLibraryFixture(name: "GR4", bookCount: 1); defer { f.cleanup() }
+        let repo = InMemoryGrantRepository(initial: [admin()])
+        // provider には repository に無い別トークンだけを載せる（採用されたら認証が食い違う）。
+        let stale = Grant(id: "stale", label: "stale", token: "STALE", tier: .admin, scope: .all,
+                          createdAt: Date(timeIntervalSince1970: 0))
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "u", editToken: nil,
+                          grantsProvider: { [stale] }, grantRepository: repo),
+            dataSource: StaticLibraryDataSource(libraries: [f.servedLibrary()])).buildApplication()
+        try await app.test(.router) { client in
+            // repository 側のトークンで通る。
+            try await client.execute(uri: "/api/v1/grants", method: .get,
+                                     headers: [.authorization: "Bearer ADM"]) { r in
+                #expect(r.status == .ok)
+            }
+            // provider 側にしかないトークンは通らない（provider は無視されている）。
+            try await client.execute(uri: "/api/v1/grants", method: .get,
+                                     headers: [.authorization: "Bearer STALE"]) { r in
+                #expect(r.status == .unauthorized)
+            }
+            // 書き込みも repository へ届く。
+            let body = #"{"label":"新規","tier":"read","scope":{"libraries":["\#(f.servedLibrary().uuid)"]}}"#
+            try await client.execute(uri: "/api/v1/grants", method: .post,
+                                     headers: [.authorization: "Bearer ADM", .contentType: "application/json"],
+                                     body: ByteBuffer(string: body)) { r in
+                #expect(r.status == .ok)
+            }
+        }
+        #expect(repo.all().count == 2)
+        #expect(repo.all().contains { $0.label == "新規" })
+    }
+
     /// repository を注入した場合は認証もそこから読む（read と write が同じ源）。
     @Test func authenticationReadsFromRepository() async throws {
         let f = try TestLibraryFixture(name: "GR3", bookCount: 1); defer { f.cleanup() }

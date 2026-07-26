@@ -103,6 +103,31 @@ struct StubBackedRemoteClientTests {
             #expect(req?.cachePolicy == .reloadIgnoringLocalCacheData)
         }
 
+        // MARK: - G23 Codex High #3: 逐次受信化の回帰
+        //
+        // `StubURLProtocol.stub` は static なグローバル状態なので、これらは
+        // **`.serialized` なこのスイート内**に置く必要がある。別スイートへ出すと
+        // 他テストと stub を奪い合い、他人の応答を読んでしまう（実際に一度そうなった）。
+
+        /// 通常サイズの応答は影響を受けない（逐次受信化で壊れていないことの確認）。
+        @Test func normalSizedResponseStillSucceedsAfterStreamingChange() async throws {
+            let json = #"[{"id":"L1","name":"lib","locked":false,"bookCount":1}]"#
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data(json.utf8))
+            let libs = try await makeClient().listLibraries()
+            #expect(libs.count == 1)
+            #expect(libs.first?.name == "lib")
+        }
+
+        /// チャンク境界（64KiB）をまたぐ応答でも欠落しない。
+        @Test func responseAcrossChunkBoundaryIsIntact() async throws {
+            // 64KiB を超える JSON を作る（name を長くする）。
+            let filler = String(repeating: "あ", count: 30_000)   // UTF-8 で 90KB 相当
+            let json = #"[{"id":"L1","name":"\#(filler)","locked":false,"bookCount":1}]"#
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data(json.utf8))
+            let libs = try await makeClient().listLibraries()
+            #expect(libs.first?.name.count == filler.count)
+        }
+
         /// 逆側の保証: 通常エンドポイントは既定ポリシーのまま（cover 以外に影響させない）。
         @Test func nonCoverRequestUsesDefaultCachePolicy() async throws {
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(BookPageDTO(items: [], total: 0, page: 1, perPage: 100)))
@@ -761,32 +786,6 @@ struct RemoteLibraryClientDownloadGuardTests {
     // 判定ロジックは `generalLimitRejectsOversizedDeclaredLength` ほかの単体テストで担保し、
     // 逐次受信で実際に打ち切る経路は下の境界テストと実機 smoke で確認する。
 
-    /// 通常サイズの応答は影響を受けない（逐次受信化で壊れていないことの確認）。
-    @Test func normalSizedResponseStillSucceedsAfterStreamingChange() async throws {
-        let json = #"[{"id":"L1","name":"lib","locked":false,"bookCount":1}]"#
-        StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data(json.utf8))
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.protocolClasses = [StubURLProtocol.self]
-        let client = RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "dtok",
-                                         session: URLSession(configuration: cfg))
-        let libs = try await client.listLibraries()
-        #expect(libs.count == 1)
-        #expect(libs.first?.name == "lib")
-    }
-
-    /// チャンク境界（64KiB）をまたぐ応答でも欠落しない。
-    @Test func responseAcrossChunkBoundaryIsIntact() async throws {
-        // 64KiB を超える JSON を作る（name を長くする）。
-        let filler = String(repeating: "あ", count: 30_000)   // UTF-8 で 90KB 相当
-        let json = #"[{"id":"L1","name":"\#(filler)","locked":false,"bookCount":1}]"#
-        StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data(json.utf8))
-        let cfg = URLSessionConfiguration.ephemeral
-        cfg.protocolClasses = [StubURLProtocol.self]
-        let client = RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "dtok",
-                                         session: URLSession(configuration: cfg))
-        let libs = try await client.listLibraries()
-        #expect(libs.first?.name.count == filler.count)
-    }
 
     /// #13: リダイレクト拒否デリゲートは 3xx に一切従わない（completionHandler(nil)）。
     @Test func noRedirectDelegateDeniesRedirect() async {
