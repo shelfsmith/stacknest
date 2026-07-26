@@ -74,27 +74,44 @@ public struct RemoteLibraryClient: Sendable {
     /// 使う薄いラッパに変えてあるため、既存の全呼び出し元の挙動は変わらない。
     private func sendWithResponse(_ req: URLRequest) async throws -> (data: Data, response: HTTPURLResponse) {
         do {
-            let (data, resp) = try await session.data(for: req)
-            guard let http = resp as? HTTPURLResponse else { throw RemoteClientError.badResponse }
-            // G23 (M1): 宣言サイズが上限を超えるなら本文を扱わずに弾く。
-            // ここは JSON / 表紙 / ページ画像がすべて通る単一の集約点なので、
-            // 1 箇所の判定で汎用経路全体をカバーできる。
+            // G23 (M1) / Codex High #3: **逐次受信**にして上限到達で実際に受信を打ち切る。
             //
-            // 限界を明記しておく: `session.data(for:)` は応答を全部読んでから返すため、
-            // **Content-Length を詐称された場合の受信そのものは止められない**（その時点で
-            // メモリには載っている）。下の受信後チェックは上限超のデータを呼び出し側へ渡さない
-            // ためのもので、メモリ枯渇を防ぐのは上の宣言サイズによる足切りの方。
-            // 完全に止めるには `session.bytes(for:)` での逐次受信が要るが、1 バイトずつの
-            // `append` になり通常経路（ページ送りのたびに走る）の性能を落とすため採らない。
+            // 当初は `session.data(for:)`（全量読み込み後に検査）だったが、それでは
+            // Content-Length を詐称された場合に**受信そのものを止められず**、巨大応答が
+            // 一度メモリへ載ってしまう。「受信サイズ上限」という要件を満たしていなかった。
+            // ここは JSON / 表紙 / ページ画像がすべて通る単一の集約点なので、この 1 箇所で
+            // 汎用経路全体を守れる。
+            let (bytes, resp) = try await session.bytes(for: req)
+            guard let http = resp as? HTTPURLResponse else { throw RemoteClientError.badResponse }
+            // 宣言サイズが上限を超えるなら本文を読み始める前に弾く。
             if Self.exceedsGeneralLimit(declaredLength: http.expectedContentLength, receivedCount: 0) {
+                throw RemoteClientError.responseTooLarge
+            }
+            // 1 バイトずつ `Data.append` すると遅いので、チャンクに貯めてからまとめて足す。
+            var data = Data()
+            if http.expectedContentLength > 0 {
+                data.reserveCapacity(Int(min(http.expectedContentLength,
+                                             Int64(Self.maxGeneralResponseBytes))))
+            }
+            var chunk = Data()
+            chunk.reserveCapacity(Self.flushChunkBytes)
+            for try await byte in bytes {
+                chunk.append(byte)
+                if chunk.count >= Self.flushChunkBytes {
+                    data.append(chunk)
+                    chunk.removeAll(keepingCapacity: true)
+                    // 詐称された Content-Length はここで止まる（受信を継続しない）。
+                    if Self.exceedsGeneralLimit(declaredLength: -1, receivedCount: data.count) {
+                        throw RemoteClientError.responseTooLarge
+                    }
+                }
+            }
+            if !chunk.isEmpty { data.append(chunk) }
+            if Self.exceedsGeneralLimit(declaredLength: -1, receivedCount: data.count) {
                 throw RemoteClientError.responseTooLarge
             }
             switch http.statusCode {
             case 200...299:
-                // 上限超のデータは呼び出し側へ渡さない（詐称された Content-Length への後追い判定）。
-                if Self.exceedsGeneralLimit(declaredLength: -1, receivedCount: data.count) {
-                    throw RemoteClientError.responseTooLarge
-                }
                 return (data, http)
             case 400: throw RemoteClientError.badRequest(Self.errorMessage(from: data))
             case 401: throw RemoteClientError.unauthorized

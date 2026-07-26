@@ -122,20 +122,30 @@ struct UnlockTests {
         }
     }
 
+    /// 1 回の試行（枠の確保 → 検証 → 後始末）をまとめたヘルパ。
+    /// G23 Codex High #2 で API が begin/finish の 2 段構えになったため、テストからもこの形で呼ぶ。
+    private func attempt(_ rl: UnlockRateLimiter, _ uuid: String, _ principal: String,
+                         success: Bool, now: Date) async -> UnlockRateLimiter.AttemptPermit {
+        let permit = await rl.beginAttempt(uuid, principal: principal, now: now)
+        if permit == .granted {
+            await rl.finishAttempt(uuid, principal: principal, success: success, now: now)
+        }
+        return permit
+    }
+
     /// #2: UnlockRateLimiter は閾値到達でロックアウトし、期限切れ／成功でリセットする。
     /// G23 (M3): キーが library 単体から library＋principal に変わったため principal を明示する。
     @Test func rateLimiterLocksOutAfterThresholdAndResets() async {
         let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
         let t0 = Date(timeIntervalSince1970: 1000)
-        #expect(await rl.isLockedOut("L", principal: "p", now: t0) == false)
-        await rl.recordFailure("L", principal: "p", now: t0)
-        #expect(await rl.isLockedOut("L", principal: "p", now: t0) == false)      // 1 回目 < 閾値
-        await rl.recordFailure("L", principal: "p", now: t0)                       // 2 回目で閾値到達 → ロックアウト
-        #expect(await rl.isLockedOut("L", principal: "p", now: t0) == true)
-        #expect(await rl.isLockedOut("L", principal: "p", now: t0.addingTimeInterval(31)) == false)   // 期限切れで解除
-        await rl.recordFailure("L", principal: "p", now: t0.addingTimeInterval(31))
-        await rl.recordSuccess("L", principal: "p")                                // 成功で完全リセット
-        #expect(await rl.isLockedOut("L", principal: "p", now: t0.addingTimeInterval(31)) == false)
+        #expect(await attempt(rl, "L", "p", success: false, now: t0) == .granted)   // 1 回目 < 閾値
+        #expect(await attempt(rl, "L", "p", success: false, now: t0) == .granted)   // 2 回目で閾値到達
+        #expect(await attempt(rl, "L", "p", success: false, now: t0) == .lockedOut(retryAfter: 30))
+        // 期限切れで解除される。
+        let later = t0.addingTimeInterval(31)
+        #expect(await attempt(rl, "L", "p", success: true, now: later) == .granted)
+        // 成功でリセットされたので、また閾値まで試せる。
+        #expect(await attempt(rl, "L", "p", success: false, now: later) == .granted)
     }
 
     // MARK: - G23 (M3): principal 単位のロックアウト
@@ -144,43 +154,81 @@ struct UnlockTests {
     @Test func lockoutIsScopedToPrincipal() async {
         let rl = UnlockRateLimiter(maxFailures: 3, lockoutSeconds: 30)
         let t0 = Date(timeIntervalSince1970: 1000)
-        for _ in 0..<3 { await rl.recordFailure("L", principal: "attacker", now: t0) }
-        #expect(await rl.isLockedOut("L", principal: "attacker", now: t0) == true)
-        #expect(await rl.isLockedOut("L", principal: "owner", now: t0) == false)
+        for _ in 0..<3 { _ = await attempt(rl, "L", "attacker", success: false, now: t0) }
+        #expect(await rl.beginAttempt("L", principal: "attacker", now: t0) == .lockedOut(retryAfter: 30))
+        #expect(await rl.beginAttempt("L", principal: "owner", now: t0) == .granted)
     }
 
     /// 同じ principal でも別ライブラリなら独立して数える。
     @Test func lockoutIsScopedToLibrary() async {
         let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
         let t0 = Date(timeIntervalSince1970: 1000)
-        await rl.recordFailure("L1", principal: "p", now: t0)
-        await rl.recordFailure("L1", principal: "p", now: t0)
-        #expect(await rl.isLockedOut("L1", principal: "p", now: t0) == true)
-        #expect(await rl.isLockedOut("L2", principal: "p", now: t0) == false)
+        _ = await attempt(rl, "L1", "p", success: false, now: t0)
+        _ = await attempt(rl, "L1", "p", success: false, now: t0)
+        #expect(await rl.beginAttempt("L1", principal: "p", now: t0) == .lockedOut(retryAfter: 30))
+        #expect(await rl.beginAttempt("L2", principal: "p", now: t0) == .granted)
     }
 
     /// 429 に載せる Retry-After の値（残り秒・切り上げ・最低 1）。
     @Test func retryAfterReportsRemainingSeconds() async {
         let rl = UnlockRateLimiter(maxFailures: 1, lockoutSeconds: 30)
         let t0 = Date(timeIntervalSince1970: 1000)
-        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0) == nil)   // 未ロックアウト
-        await rl.recordFailure("L", principal: "p", now: t0)
-        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0) == 30)
-        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0.addingTimeInterval(29.5)) == 1)
-        #expect(await rl.retryAfterSeconds("L", principal: "p", now: t0.addingTimeInterval(31)) == nil)
-        #expect(await rl.retryAfterSeconds("L", principal: "other", now: t0) == nil)
+        _ = await attempt(rl, "L", "p", success: false, now: t0)   // 1 回で閾値到達
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0) == .lockedOut(retryAfter: 30))
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0.addingTimeInterval(29.5))
+                == .lockedOut(retryAfter: 1))
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0.addingTimeInterval(31)) == .granted)
+        #expect(await rl.beginAttempt("L", principal: "other", now: t0) == .granted)
     }
 
     /// 成功はその principal のカウンタだけを消す。
     @Test func successClearsOnlyThatPrincipal() async {
         let rl = UnlockRateLimiter(maxFailures: 2, lockoutSeconds: 30)
         let t0 = Date(timeIntervalSince1970: 1000)
-        await rl.recordFailure("L", principal: "a", now: t0)
-        await rl.recordFailure("L", principal: "b", now: t0)
-        await rl.recordSuccess("L", principal: "a")
-        await rl.recordFailure("L", principal: "b", now: t0)   // b は 2 回目 → 閾値到達
-        #expect(await rl.isLockedOut("L", principal: "b", now: t0) == true)
-        #expect(await rl.isLockedOut("L", principal: "a", now: t0) == false)
+        _ = await attempt(rl, "L", "a", success: false, now: t0)
+        _ = await attempt(rl, "L", "b", success: false, now: t0)
+        _ = await attempt(rl, "L", "a", success: true, now: t0)    // a は成功でリセット
+        _ = await attempt(rl, "L", "b", success: false, now: t0)   // b は 2 回目 → 閾値到達
+        #expect(await rl.beginAttempt("L", principal: "b", now: t0) == .lockedOut(retryAfter: 30))
+        #expect(await rl.beginAttempt("L", principal: "a", now: t0) == .granted)
+    }
+
+    // MARK: - G23 Codex High #2: 並行試行によるレート制限の迂回
+
+    /// **本命の回帰**: 失敗を記録する前に同時要求を投げても、閾値を超えて検証へ入れない。
+    /// 修正前は判定と記録の間に PBKDF2 検証が挟まっており、同時要求がすべてゲートを通過できた。
+    @Test func concurrentAttemptsCannotBypassThreshold() async {
+        let rl = UnlockRateLimiter(maxFailures: 3, lockoutSeconds: 30, maxConcurrentAttempts: 10)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        // 誰も finish しないまま（＝全員が検証中）10 本を同時に投げる。
+        var granted = 0
+        for _ in 0..<10 {
+            if await rl.beginAttempt("L", principal: "p", now: t0) == .granted { granted += 1 }
+        }
+        // 検証へ入れたのは閾値の 3 本まで。残りは弾かれる。
+        #expect(granted == 3)
+    }
+
+    /// 同時実行数の上限そのものも効く（PBKDF2 の CPU 消費を抑えるガード）。
+    @Test func concurrentAttemptsAreCappedIndependently() async {
+        let rl = UnlockRateLimiter(maxFailures: 100, lockoutSeconds: 30, maxConcurrentAttempts: 2)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0) == .granted)
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0) == .granted)
+        // 閾値には余裕があるが、検証中が 2 本なので次は待たされる。
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0) == .tooManyConcurrent(retryAfter: 1))
+        // 1 本終われば枠が空く。
+        await rl.finishAttempt("L", principal: "p", success: false, now: t0)
+        #expect(await rl.beginAttempt("L", principal: "p", now: t0) == .granted)
+    }
+
+    /// 並行上限は principal ごとに独立している（他人の同時試行が所有者を妨げない）。
+    @Test func concurrencyCapIsScopedToPrincipal() async {
+        let rl = UnlockRateLimiter(maxFailures: 100, lockoutSeconds: 30, maxConcurrentAttempts: 1)
+        let t0 = Date(timeIntervalSince1970: 1000)
+        #expect(await rl.beginAttempt("L", principal: "attacker", now: t0) == .granted)
+        #expect(await rl.beginAttempt("L", principal: "attacker", now: t0) == .tooManyConcurrent(retryAfter: 1))
+        #expect(await rl.beginAttempt("L", principal: "owner", now: t0) == .granted)
     }
 
     /// #2: 連続失敗が閾値（既定 5）を超えると unlock が 429 で拒否される（正しいパスワードでも拒否）。
