@@ -214,7 +214,7 @@ struct DetailPaneView: View {
                             onSetUnseen(newValue, snapshotIDs)
                         } else {
                             applyCaptured(newValue, patchKeyPath: \BookPatch.unseen,
-                                              isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                         }
                     }
                 )
@@ -233,7 +233,7 @@ struct DetailPaneView: View {
                             onSetRating(newValue, snapshotIDs)
                         } else {
                             applyCaptured(newValue, patchKeyPath: \BookPatch.rating,
-                                             isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                                          isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                         }
                     }
                     .disabled(!(ratingEditable ?? canEdit))
@@ -246,7 +246,7 @@ struct DetailPaneView: View {
                                 onSetUnseen(newValue, snapshotIDs)
                             } else {
                                 applyCaptured(newValue, patchKeyPath: \BookPatch.unseen,
-                                                  isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                                              isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                             }
                         }
                         .disabled(!(unseenEditable ?? canEdit))
@@ -260,7 +260,7 @@ struct DetailPaneView: View {
                         settings: librarySettings
                     ) { newValue in
                         applyCaptured(newValue, patchKeyPath: \BookPatch.bookType,
-                                         isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
+                                      isMulti: snapshotIsMulti, singleID: snapshotSingleID, ids: snapshotIDs)
                     }
                     .disabled(!canEdit)
                     Spacer()
@@ -488,10 +488,10 @@ struct DetailPaneView: View {
     /// own explicit-NULL clear-flag handling and stay separate).
     /// Routes through PatchBooksCommand for Undo support (Task 15).
     private func applyCaptured<T>(_ value: T,
-                                   patchKeyPath: WritableKeyPath<BookPatch, T?>,
-                                   isMulti: Bool,
-                                   singleID: Int?,
-                                   ids: [Int]) {
+                                  patchKeyPath: WritableKeyPath<BookPatch, T?>,
+                                  isMulti: Bool,
+                                  singleID: Int?,
+                                  ids: [Int]) {
         var patch = BookPatch()
         patch[keyPath: patchKeyPath] = value
         if isMulti {

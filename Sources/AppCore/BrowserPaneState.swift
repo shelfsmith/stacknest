@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import Foundation
-import SwiftUI
 
 public struct BrowserPaneState: Codable, Sendable, Equatable {
     /// 3 列の表示 field。`nil` でその列は機能停止 (将来「列を減らす」UX 用、MVP では default で常に non-nil)。

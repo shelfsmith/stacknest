@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import Foundation
-import OSLog
 import Carchive
 
 /// ステートフルな順方向アーカイブリーダー（本 1 冊につき 1 インスタンス）。

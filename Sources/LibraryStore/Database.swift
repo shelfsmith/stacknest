@@ -1128,7 +1128,8 @@ public final class Database: @unchecked Sendable {
     }
 
     /// LIKE pattern 用の escape helper。`%` `_` `\` をバックスラッシュで escape する。
-    /// SQL 側で `ESCAPE '\'` 句と組み合わせて使う。Phase 2.4e (FTS5 trigram + LIKE fallback)。
+    /// SQL 側で `ESCAPE '\'` 句と組み合わせて使う。Phase 2.4e (FTS5 trigram + LIKE fallback)の
+    /// LIKE fallback に加え、facet filter（テキストフィールドの部分一致）でも使う。
     static func escapeLikePattern(_ s: String) -> String {
         s.replacingOccurrences(of: "\\", with: "\\\\")
          .replacingOccurrences(of: "%",  with: "\\%")

@@ -3,7 +3,6 @@ import SwiftUI
 import AppCore
 import RemoteClient
 import LibraryServerAPI
-import StackroomFormat  // for BookRecord（G12b-3c: プリセット プレビュー用）
 
 /// 4.2c-8 B1(v2): リモートから開く「ライブラリ設定」シート。ツールバーの歯車から開く。
 /// 実体は接続先（ローカル）ライブラリの設定をリモートで変更する UI なので呼称は「ライブラリ設定」。
