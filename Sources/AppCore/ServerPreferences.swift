@@ -8,7 +8,6 @@ public enum ServerPreferences {
     public static let portKey = "server_port"
     public static let tokenKey = "server_token"
     public static let editTokenKey = "server_edit_token"
-    public static let defaultPort = 8723
 
     /// 乱択で避ける「よく使われる」ポート（手動入力には適用しない）。
     public static let blockedPorts: Set<Int> = [
@@ -46,19 +45,6 @@ public enum ServerPreferences {
     public static func editToken(defaults: UserDefaults = .standard) -> String? {
         let v = defaults.string(forKey: editTokenKey)
         return (v?.isEmpty == false) ? v : nil
-    }
-
-    /// 編集（RW）トークンを生成/再生成して保存・返す（R トークンと同じ 256bit base64url）。
-    @discardableResult
-    public static func regenerateEditToken(defaults: UserDefaults = .standard) -> String {
-        let t = generateToken()
-        defaults.set(t, forKey: editTokenKey)
-        return t
-    }
-
-    /// 編集（RW）トークンを削除（nil 化）。以後 RW 認証は不可になる。
-    public static func clearEditToken(defaults: UserDefaults = .standard) {
-        defaults.removeObject(forKey: editTokenKey)
     }
 
     public static let preferredHostIPKey = "server_preferred_host_ip"

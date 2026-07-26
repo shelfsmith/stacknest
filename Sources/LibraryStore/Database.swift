@@ -393,13 +393,6 @@ public final class Database: @unchecked Sendable {
         }
     }
 
-    public func fetchBookTitles() throws -> [String] {
-        guard let q = queue else { return [] }
-        return try q.read { db in
-            try String.fetchAll(db, sql: "SELECT title FROM book ORDER BY id")
-        }
-    }
-
     /// Maps a SQL row to BookRow. Centralized to keep column ordering consistent
     /// across fetchFirstBookRow / fetchAllBooks / fetchBook(id:).
     private static func bookRow(from row: Row) -> BookRow {
@@ -1100,7 +1093,7 @@ public final class Database: @unchecked Sendable {
     /// Builds a LIKE 4-pattern clause for one value against one column.
     /// Returns (clauseSQL, args) where args has 4 entries: [exact, leading, middle, trailing].
     static func multiValueClauseForOneValue(column: String, value: String) -> (String, [String]) {
-        let escaped = escapeLikePatternForFacet(value)
+        let escaped = escapeLikePattern(value)
         let esc = "ESCAPE '\\'"
         let clause = """
             (\(column) = ? \
@@ -1132,14 +1125,6 @@ public final class Database: @unchecked Sendable {
             clauses.append("\(column) < ?")
         }
         args.append(cutoff)
-    }
-
-    /// LIKE pattern 用の escape helper for facet filters (text field partial match).
-    /// `%` `_` `\` をバックスラッシュで escape する。SQL 側で `ESCAPE '\'` 句と組み合わせて使う。
-    private static func escapeLikePatternForFacet(_ s: String) -> String {
-        s.replacingOccurrences(of: "\\", with: "\\\\")
-         .replacingOccurrences(of: "%",  with: "\\%")
-         .replacingOccurrences(of: "_",  with: "\\_")
     }
 
     /// LIKE pattern 用の escape helper。`%` `_` `\` をバックスラッシュで escape する。

@@ -36,18 +36,6 @@ public struct BrowserPaneState: Codable, Sendable, Equatable {
             case .keywordC: return "keyword_c"
             }
         }
-
-        public var localizedTitle: LocalizedStringKey {
-            switch self {
-            case .genre:    return "ジャンル"
-            case .series:   return "シリーズ"
-            case .author:   return "作者"
-            case .neta:     return "関連"
-            case .keywordA: return "キーワード A"
-            case .keywordB: return "キーワード B"
-            case .keywordC: return "キーワード C"
-            }
-        }
     }
 
     public init() {}

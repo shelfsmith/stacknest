@@ -15,7 +15,6 @@ public enum PageLayoutOverride: Int, Codable, Sendable, Equatable {
 public struct Spread: Sendable, Equatable {
     public let pages: [Int]          // 0-based ページ索引
     public init(pages: [Int]) { self.pages = pages }
-    public var isSolo: Bool { pages.count == 1 }
 }
 
 /// 見開き配列を生成する純関数。読む方向には非依存。

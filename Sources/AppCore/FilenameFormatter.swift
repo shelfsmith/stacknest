@@ -224,22 +224,6 @@ public enum FilenameFormatter {
         return true
     }
 
-    /// Returns true if any of segments[from...] (skipping whitespace-only literals) is a bracketGroup.
-    private static func nextSegmentIsBracketGroup(_ segments: [FormatSegment], from startIndex: Int) -> Bool {
-        for i in startIndex..<segments.count {
-            switch segments[i] {
-            case .bracketGroup:
-                return true
-            case .literal(let lit):
-                if lit.trimmingCharacters(in: .whitespaces).isEmpty { continue }
-                return false
-            case .token:
-                return false
-            }
-        }
-        return false
-    }
-
     /// Finds the next literal anchor (literal or bracketGroup-open) starting at segments[startIndex].
     /// Returns the range in `s` where it appears (searching from cursor onward).
     ///
