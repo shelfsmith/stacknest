@@ -1877,9 +1877,12 @@ private func decodeFilterState(from jsonString: String?) -> FilterState {
 }
 
 /// ?browse=<URL-decoded JSON [{"column":…,"value":…}]> から [(String,String)] をデコードする。
-/// クライアントは [BrowseConstraint] (オブジェクト配列) として送信する。不正 JSON / nil は
-/// 空配列にフォールバックする（呼び出し側で 400 にしない）。列名が許可リスト外なら
-/// HTTPError(.badRequest) を投げる（SQL injection 防御・4.2b-1b-2b）。
+/// クライアントは [BrowseConstraint] (オブジェクト配列) として送信する。
+/// - 入力が nil / 空文字列 / JSON として不正（デコード失敗）の場合: 空配列にフォールバックする
+///   （呼び出し側で 400 にしない）。
+/// - 入力が JSON として妥当だが、含まれる列名が許可リスト外の場合: `HTTPError(.badRequest)` を
+///   投げる（SQL injection 防御・4.2b-1b-2b）。この 2 条件は排他的な入力ケースであり、
+///   同じ入力に対して両方が同時に成り立つことはない。
 private func decodeBrowseConstraintsValidated(from jsonString: String?) throws -> [(String, String)] {
     guard let s = jsonString, !s.isEmpty,
           let data = s.data(using: .utf8),

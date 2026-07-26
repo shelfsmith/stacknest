@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import Foundation
-import SwiftUI
 
 public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
     case title
