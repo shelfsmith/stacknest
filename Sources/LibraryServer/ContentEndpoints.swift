@@ -191,4 +191,16 @@ extension LibraryResolver {
         guard let row = try lib.db.fetchBook(id: id) else { throw HTTPError(.notFound) }
         return (lib, row)
     }
+
+    /// :lib を解決してライブラリを返す。
+    /// 不明 uuid / スコープ外 → 404、ロック庫の未解錠 → LibraryAccessError.locked（403）。
+    func resolveLibrary(
+        _ request: Request, _ context: some RequestContext & RoleHoldingContext
+    ) async throws -> ServedLibrary {
+        let uuid = try context.parameters.require("lib")
+        guard let lib = try await resolve(
+            uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
+        ) else { throw HTTPError(.notFound) }
+        return lib
+    }
 }

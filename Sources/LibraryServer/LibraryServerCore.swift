@@ -436,12 +436,7 @@ public struct LibraryServerCore: Sendable {
         }
         // books 一覧（ページング・検索・ソート・進行状況・scope/filter/browse）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
-            ) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let qp = request.uri.queryParameters
             let sortRaw = qp.get("sort") ?? "title"
             guard let sort = BookSortKey(rawValue: sortRaw) else { throw HTTPError(.badRequest) }
@@ -478,12 +473,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 棚一覧（ユーザー棚・スマート棚）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/shelves") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
-            ) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let rows = try lib.db.fetchAllShelves()
             // G13/F1: リモートサイドバー件数。手動棚/お気に入り=playlist 所属数、スマート棚=条件評価数。
             // ローカル AppState:549 (smartShelfBookCount) / SidebarView:129 (fetchPlaylistBookCount) と同型。
@@ -498,8 +488,7 @@ public struct LibraryServerCore: Sendable {
         // A1: 棚の作成（RW・手動 or スマート）。
         api.post("libraries/:lib/shelves") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let body = try await request.decode(as: ShelfCreateRequest.self, context: context)
             let newID: Int64
             if body.isSmart {
@@ -517,9 +506,8 @@ public struct LibraryServerCore: Sendable {
         // A1: 棚の更新（RW・改名＋スマート条件更新）。
         api.patch("libraries/:lib/shelves/:id") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: ShelfUpdateRequest.self, context: context)
             // 先に全ガードを検証（partial-write 防止）。
@@ -542,9 +530,8 @@ public struct LibraryServerCore: Sendable {
         // A1: 棚の削除（RW・お気に入り棚は 409 で保護）。
         api.delete("libraries/:lib/shelves/:id") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             if row.kind == "favorites" { throw HTTPError(.conflict) }
             try lib.db.deleteShelf(id: shelfID)
@@ -553,9 +540,8 @@ public struct LibraryServerCore: Sendable {
         }
         // A1: スマート棚の条件取得（read）。
         api.get("libraries/:lib/shelves/:id/conditions") { request, context in
-            let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard row.isSmart else { throw HTTPError(.conflict) }
             guard let conditions = try lib.db.fetchSmartShelfConditions(id: shelfID) else { throw HTTPError(.notFound) }
@@ -564,9 +550,8 @@ public struct LibraryServerCore: Sendable {
         // A1: スマート棚の条件更新（RW）。
         api.put("libraries/:lib/shelves/:id/conditions") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard row.isSmart else { throw HTTPError(.conflict) }
             let conditions = try await request.decode(as: SmartShelfConditions.self, context: context)
@@ -577,9 +562,8 @@ public struct LibraryServerCore: Sendable {
         // A1: 手動棚への所属追加（RW・スマート棚は 409）。
         api.post("libraries/:lib/shelves/:id/books") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard !row.isSmart else { throw HTTPError(.conflict) }
             let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
@@ -590,9 +574,8 @@ public struct LibraryServerCore: Sendable {
         // A1: 手動棚からの所属除去（RW・スマート棚は 409）。
         api.delete("libraries/:lib/shelves/:id/books") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
             let shelfID = try context.parameters.require("id", as: Int64.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard let row = try lib.db.fetchAllShelves().first(where: { $0.id == shelfID }) else { throw HTTPError(.notFound) }
             guard !row.isSmart else { throw HTTPError(.conflict) }
             let body = try await request.decode(as: ShelfBooksRequest.self, context: context)
@@ -602,12 +585,7 @@ public struct LibraryServerCore: Sendable {
         }
         // ファセット（列の distinct 値リスト）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/facets/:field") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
-            ) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let field = try context.parameters.require("field")
             guard allowedFacetColumns.contains(field) else { throw HTTPError(.badRequest) }
             let qp = request.uri.queryParameters
@@ -820,10 +798,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2c-6a: スタンプ定義の取得（R）。配信バンドル設定DB の stamp_definitions を返す。
         api.get("libraries/:lib/stamp-definitions") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let json = (try? lib.db.getLibrarySetting(key: "stamp_definitions")) ?? nil
             let map: [String: [String]] = json
                 .flatMap { $0.data(using: .utf8) }
@@ -833,10 +808,7 @@ public struct LibraryServerCore: Sendable {
         // 4.2c-6a: スタンプ定義の置換（RW）。許可カラムのみ採用しマップ全体を保存。
         api.put("libraries/:lib/stamp-definitions") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let dto = try await request.decode(as: StampDefinitionsDTO.self, context: context)
             let allowed: Set<String> = ["genre", "neta", "keyword_a", "keyword_b", "keyword_c"]
             let filtered = dto.definitions.filter { allowed.contains($0.key) }
@@ -849,10 +821,7 @@ public struct LibraryServerCore: Sendable {
         // 4.2c-6a: 一括スタンプ適用（RW・append/clear をサーバ側で MultiValueParser/clearBookField）。
         api.post("libraries/:lib/books/stamp") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let body = try await request.decode(as: StampApplyRequest.self, context: context)
             let updated: Int
             do {
@@ -867,10 +836,7 @@ public struct LibraryServerCore: Sendable {
         // 4.2d-2: ローカルパスのファイルをライブラリに追加（in-place・admin）。
         api.post("libraries/:lib/books") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let body = try await request.decode(as: AddBooksRequestDTO.self, context: context)
             let raw = FilenameFormatResolver.resolveRaw(database: lib.db, presetID: body.presetID)
             let format = (try? FilenameFormat(raw: raw)) ?? (try! FilenameFormat(raw: "@title"))
@@ -945,10 +911,7 @@ public struct LibraryServerCore: Sendable {
         // DELETE ?trash=true がその行を任意ファイル移動に使えないようにする）。
         api.post("libraries/:lib/books/restore") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let dtos = try await request.decode(as: [BookRestoreDTO].self, context: context)
             let roots = allowedRestoreRoots(lib: lib)
             var restoredCount = 0
@@ -1145,12 +1108,7 @@ public struct LibraryServerCore: Sendable {
         }
         // 4.2c-8: ラベルカスタマイズ取得（R 可）。未設定キーは空マップ。
         api.get("libraries/:lib/label-settings") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
-            ) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             func decodeMap(_ key: String) -> [String: String] {
                 guard let json = (try? lib.db.getLibrarySetting(key: key)) ?? nil,
                       let data = json.data(using: .utf8),
@@ -1164,12 +1122,7 @@ public struct LibraryServerCore: Sendable {
         // 4.2c-8: ラベルカスタマイズ保存（RW 必須）。キー名・JSON 形式はローカル LibrarySettings と同一。
         api.put("libraries/:lib/label-settings") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(
-                uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope
-            ) else {
-                throw HTTPError(.notFound)
-            }
+            let lib = try await resolver.resolveLibrary(request, context)
             let body = try await request.decode(as: LabelSettingsDTO.self, context: context)
             func encodeMap(_ map: [String: String]) -> String {
                 let cleaned = map.filter { !$0.value.isEmpty }
@@ -1185,16 +1138,14 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: 監視フォルダ設定の取得（R 可）。G12b-2c: subfolderMode ＋ presets を同梱。
         api.get("libraries/:lib/watch-config") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             return try Self.buildWatchConfigDTO(lib: lib)
         }
         // A2: 監視フォルダ設定の更新（RW）。blind-replace ではなく id マージ:
         // 既存 id は baseline をサーバ保持・編集反映／新規 id はパス検証＋baseline スキャン／消えた id は削除。
         api.put("libraries/:lib/watch-config") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let dto = try await request.decode(as: WatchConfigDTO.self, context: context)
 
             // 既存保管フォルダを id でマップ
@@ -1233,17 +1184,15 @@ public struct LibraryServerCore: Sendable {
         // G12b-3a: 監視フォルダの今すぐスキャン（admin）。ホストの FolderWatcher を発火。
         api.post("libraries/:lib/watch/scan-now") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard (try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope)) != nil else { throw HTTPError(.notFound) }
-            config.onScanNowRequested?(uuid)
+            let lib = try await resolver.resolveLibrary(request, context)
+            config.onScanNowRequested?(lib.uuid)
             return HTTPResponse.Status.noContent
         }
         // G12b-3c: 既存フォルダ一括再取込（admin）= 該当 folder の baseline をクリアして scan。
         // dedup が既取込済みファイルの再取込を防ぐため、baseline を空にしても実害はない。
         api.post("libraries/:lib/watch/import-existing") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let req = try await request.decode(as: ImportExistingRequest.self, context: context)
 
             // 既存の watched_folders を読み、該当 id の baseline を [] にして保存（他 folder/フィールドは保持）。
@@ -1261,8 +1210,7 @@ public struct LibraryServerCore: Sendable {
         // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
         api.post("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let body = try await request.decode(as: LockRequest.self, context: context)
             guard !body.password.isEmpty else { throw HTTPError(.badRequest) }
             let salt = LibraryLock.generateSalt()
@@ -1275,8 +1223,7 @@ public struct LibraryServerCore: Sendable {
         // A2: ライブラリロック解除（admin）。hash と salt を削除。
         api.delete("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             try lib.db.deleteLibrarySetting(key: "lock_password_hash")
             try lib.db.deleteLibrarySetting(key: "lock_password_salt")
             self.notifySettingsChanged(lib.uuid)
@@ -1284,8 +1231,7 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: per-library 取り込み設定の取得（R 可）。未設定キーは nil（= グローバル既定に委譲）。
         api.get("libraries/:lib/import-config") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let ac = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libAutoClassifyKey)) ?? nil).map { $0 == "1" || $0 == "true" }
             let th = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libThickThresholdKey)) ?? nil).flatMap { Int($0) }
             return ImportConfigDTO(autoClassifyEnabled: ac, thickBookThreshold: th)
@@ -1293,8 +1239,7 @@ public struct LibraryServerCore: Sendable {
         // A2: per-library 取り込み設定の更新（RW）。nil 指定は override 削除（= グローバル既定へ戻す）。
         api.put("libraries/:lib/import-config") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let dto = try await request.decode(as: ImportConfigDTO.self, context: context)
             if let ac = dto.autoClassifyEnabled { try lib.db.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: ac ? "true" : "false") } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libAutoClassifyKey) }
             if let th = dto.thickBookThreshold { try lib.db.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: String(max(5, min(100, th)))) } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libThickThresholdKey) }
@@ -1303,8 +1248,7 @@ public struct LibraryServerCore: Sendable {
         }
         // G12b-3a: 一般設定の取得（R 可）。
         api.get("libraries/:lib/general-settings") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let nameRaw: String? = (try? lib.db.getLibrarySetting(key: "display_name")) ?? nil
             let name: String = nameRaw ?? ""
             let enabledRaw: String? = (try? lib.db.getLibrarySetting(key: "backup_enabled")) ?? nil
@@ -1319,8 +1263,7 @@ public struct LibraryServerCore: Sendable {
         // G12b-3a: 一般設定の更新（admin）。
         api.put("libraries/:lib/general-settings") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let dto = try await request.decode(as: GeneralSettingsDTO.self, context: context)
             let clampedGens = max(1, min(20, dto.backupGenerations))
             try lib.db.setLibrarySetting(key: "display_name", value: dto.displayName)
@@ -1332,8 +1275,7 @@ public struct LibraryServerCore: Sendable {
         }
         // G12b-3c: 命名プリセット集合の取得（R 可）。
         api.get("libraries/:lib/presets") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let raw: String? = (try? lib.db.getLibrarySetting(key: "filename_format_presets")) ?? nil
             let defID: String = ((try? lib.db.getLibrarySetting(key: "filename_format_default_id")) ?? nil) ?? ""
             var presets: [FilenameFormatPreset] = []
@@ -1350,8 +1292,7 @@ public struct LibraryServerCore: Sendable {
         // G12b-3c: 命名プリセット集合の更新（admin）。空配列は 400。
         api.put("libraries/:lib/presets") { [self] request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let dto = try await request.decode(as: PresetSetDTO.self, context: context)
             // Codex review (G12b-3c): format が nil/空文字（空白のみ含む）のプリセットを許すと、
             // 共有 DB キー filename_format_presets に "" が永続化され、ローカル側の読み取りも壊れる。
@@ -1371,16 +1312,14 @@ public struct LibraryServerCore: Sendable {
         // G12b-3a: 整合性チェック（admin・非破壊）。
         api.get("libraries/:lib/integrity-check") { request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let rows = (try? lib.db.integrityCheck()) ?? ["(エラー)"]
             return IntegrityCheckDTO(healthy: rows == ["ok"], rows: rows)
         }
         // G12b-3a: 今すぐバックアップ（admin）。同一 lib.db から作成し世代 prune。
         api.post("libraries/:lib/backup-now") { request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let gens = ((try? lib.db.getLibrarySetting(key: "backup_generations")) ?? nil).flatMap { Int($0) } ?? 5
             _ = try BackupManager.makeBackup(from: lib.db, bundleURL: lib.bundleURL, timestamp: BackupManager.timestampNow())
             do {
@@ -1393,8 +1332,7 @@ public struct LibraryServerCore: Sendable {
         // G12b-3b: メタ補完（admin・非同期ジョブ）。
         api.post("libraries/:lib/maintenance/complete-metadata") { request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let started = await self.maintenanceRegistry.start(library: lib.uuid, job: "complete-metadata") { progress, isCancelled in
                 try await MetadataCompletion.fillMissingSeriesVolume(
                     in: lib.db,
@@ -1407,8 +1345,7 @@ public struct LibraryServerCore: Sendable {
         // G12b-3b: 表紙圧縮（admin・非同期ジョブ）。
         api.post("libraries/:lib/maintenance/compress-covers") { request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let started = await self.maintenanceRegistry.start(library: lib.uuid, job: "compress-covers") { progress, isCancelled in
                 try await CoverCompression.compressOversizedCovers(
                     db: lib.db, bundleURL: lib.bundleURL,
@@ -1421,15 +1358,13 @@ public struct LibraryServerCore: Sendable {
         // G12b-3b: 実行中メンテナンスの中断（admin・実行中ジョブが無ければ no-op）。
         api.post("libraries/:lib/maintenance/cancel") { request, context in
             try context.requireAdmin()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             await self.maintenanceRegistry.cancel(library: lib.uuid)
             return HTTPResponse.Status.noContent
         }
         // G14: リモートサイドバーの安定件数（ライブラリ総数・最近件数）。scope 非依存。read で可。
         api.get("libraries/:lib/counts") { request, context in
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let recentDays = ((try? lib.db.getLibrarySetting(key: "recent_days")) ?? nil).flatMap { Int($0) } ?? 14
             let libraryTotal = (try? lib.db.fetchBookCount()) ?? 0
             let recentCount = (try? lib.db.fetchRecentBookCount(days: recentDays)) ?? 0
@@ -1450,9 +1385,8 @@ public struct LibraryServerCore: Sendable {
         // A2: 本のパス再リンク（RW）。relinkBook で path 更新＋ハッシュ NULL 化。
         api.post("libraries/:lib/books/:id/relink") { [self] request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
             let bookID = try context.parameters.require("id", as: Int.self)
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             guard ((try? lib.db.fetchBook(id: bookID)) ?? nil) != nil else { throw HTTPError(.notFound) }
             let body = try await request.decode(as: RelinkRequest.self, context: context)
             guard !body.newPath.isEmpty else { throw HTTPError(.badRequest) }
@@ -1485,8 +1419,7 @@ public struct LibraryServerCore: Sendable {
         // A2: 重複スキャン（RW・content_hash を計算/キャッシュしグループ返却）。
         api.post("libraries/:lib/duplicates/scan") { request, context in
             try context.requireEdit()
-            let uuid = try context.parameters.require("lib")
-            guard let lib = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request), scope: context.scope) else { throw HTTPError(.notFound) }
+            let lib = try await resolver.resolveLibrary(request, context)
             let books = (try? lib.db.fetchAllBooks()) ?? []
             let fm = FileManager.default
             var sizes: [(id: Int, size: Int64)] = []
@@ -1944,20 +1877,15 @@ private func decodeFilterState(from jsonString: String?) -> FilterState {
 }
 
 /// ?browse=<URL-decoded JSON [{"column":…,"value":…}]> から [(String,String)] をデコードする。
-/// クライアントは [BrowseConstraint] (オブジェクト配列) として送信する。
-/// 不正 JSON / nil は空配列にフォールバックする（バリデーションなし版・内部利用）。
-private func decodeBrowseConstraints(from jsonString: String?) -> [(String, String)] {
+/// クライアントは [BrowseConstraint] (オブジェクト配列) として送信する。不正 JSON / nil は
+/// 空配列にフォールバックする（呼び出し側で 400 にしない）。列名が許可リスト外なら
+/// HTTPError(.badRequest) を投げる（SQL injection 防御・4.2b-1b-2b）。
+private func decodeBrowseConstraintsValidated(from jsonString: String?) throws -> [(String, String)] {
     guard let s = jsonString, !s.isEmpty,
           let data = s.data(using: .utf8),
           let arr = try? JSONDecoder().decode([BrowseConstraint].self, from: data)
     else { return [] }
-    return arr.map { ($0.column, $0.value) }
-}
-
-/// ?browse=<URL-decoded JSON [{"column":…,"value":…}]> から [(String,String)] をデコードし、
-/// 列名が許可リスト外なら HTTPError(.badRequest) を投げる（SQL injection 防御・4.2b-1b-2b）。
-private func decodeBrowseConstraintsValidated(from jsonString: String?) throws -> [(String, String)] {
-    let pairs = decodeBrowseConstraints(from: jsonString)
+    let pairs = arr.map { ($0.column, $0.value) }
     for (column, _) in pairs {
         guard allowedFacetColumns.contains(column) else { throw HTTPError(.badRequest) }
     }
