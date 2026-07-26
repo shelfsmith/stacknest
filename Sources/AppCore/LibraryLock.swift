@@ -42,6 +42,10 @@ public enum LibraryLock {
     /// G23 (#8): PBKDF2-HMAC-SHA256 の反復回数（OWASP 推奨値）。
     public static let pbkdf2Iterations = 210_000
 
+    /// 保存値から読み取る反復回数の上限。DB 破損や改竄で極端な値が入っていた場合に、
+    /// `UInt32` 変換の trap や解錠時の過大な CPU 消費を防ぐ（現行値の 10 倍まで許容）。
+    public static let maxAcceptedIterations = 2_100_000
+
     private static let pbkdf2Prefix = "pbkdf2$"
 
     /// 検証結果。`.ok(upgradedHash:)` の値が非 nil なら、呼び出し側はそれを保存して
@@ -77,7 +81,15 @@ public enum LibraryLock {
         if expectedHash.hasPrefix(pbkdf2Prefix) {
             // "pbkdf2$<iterations>$<hex>"
             let parts = expectedHash.split(separator: "$", maxSplits: 2, omittingEmptySubsequences: false)
-            guard parts.count == 3, let iterations = Int(parts[1]), iterations > 0 else { return .failed }
+            // G23 Codex その他: 保存値が壊れている場合の防御。反復回数に上限を設けないと、
+            // 巨大な値で `UInt32` 変換が trap したり、解錠のたびに極端な CPU を消費させられる。
+            // ダイジェスト長（SHA-256 = 64 桁 hex）も形式として検証する。
+            guard parts.count == 3,
+                  let iterations = Int(parts[1]),
+                  (1...maxAcceptedIterations).contains(iterations),
+                  parts[2].count == 64,
+                  parts[2].allSatisfy({ $0.isHexDigit })
+            else { return .failed }
             let computed = pbkdf2Hex(password: password, saltHex: saltHex, iterations: iterations)
             guard constantTimeEquals(computed, String(parts[2])) else { return .failed }
             // 反復回数が現行値より古ければ作り直す。

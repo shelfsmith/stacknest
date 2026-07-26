@@ -135,6 +135,31 @@ struct LibraryLockTests {
         #expect(LibraryLock.verifyAndUpgrade(password: "pw", saltHex: salt, against: "") == .failed)
     }
 
+    /// G23 Codex その他: 保存値が壊れていても安全に失敗する（trap も過大な CPU 消費もしない）。
+    @Test
+    func corruptedStoredHashIsRejectedSafely() {
+        let salt = LibraryLock.generateSalt()
+        let digest = String(repeating: "a", count: 64)
+        // 反復回数が上限超（そのまま渡すと UInt32 変換 trap や極端な CPU 消費になりうる）。
+        #expect(LibraryLock.verifyAndUpgrade(
+            password: "pw", saltHex: salt,
+            against: "pbkdf2$\(LibraryLock.maxAcceptedIterations + 1)$\(digest)") == .failed)
+        #expect(LibraryLock.verifyAndUpgrade(
+            password: "pw", saltHex: salt, against: "pbkdf2$99999999999999$\(digest)") == .failed)
+        #expect(LibraryLock.verifyAndUpgrade(
+            password: "pw", saltHex: salt, against: "pbkdf2$-5$\(digest)") == .failed)
+        // ダイジェスト長・文字種が不正。
+        #expect(LibraryLock.verifyAndUpgrade(
+            password: "pw", saltHex: salt, against: "pbkdf2$210000$tooshort") == .failed)
+        #expect(LibraryLock.verifyAndUpgrade(
+            password: "pw", saltHex: salt,
+            against: "pbkdf2$210000$\(String(repeating: "z", count: 64))") == .failed)
+        // 上限ちょうどは受け付ける（境界）。
+        let atLimit = LibraryLock.pbkdf2Hash(password: "pw", saltHex: salt,
+                                             iterations: LibraryLock.maxAcceptedIterations)
+        #expect(LibraryLock.verifyAndUpgrade(password: "pw", saltHex: salt, against: atLimit) != .failed)
+    }
+
     /// 2.6g: 旧 Keychain item の purge。存在しない item でも throw / crash しない（best-effort）。
     @Test
     func purgeLegacyKeychainItemIsSafeWhenAbsent() {
