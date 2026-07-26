@@ -442,6 +442,17 @@ export async function renderReader(uuid, bookId, query, deps) {
     // 11. 描画トークン（非同期描画の連打ガード）
     let renderToken = 0;
 
+    // show()/promoteView() で共通の UI 同期（スライダー・カウンタ・タイトル・T6b ラベル）。
+    // cur が更新済みであることを前提に呼ぶ。
+    function syncPageUI() {
+        const uiPage = cur + 1;
+        sliderEl.value = String(uiPage);
+        sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
+        counterEl.textContent = `${uiPage} / ${pageCount}`;
+        titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
+        updatePageLayoutLabel();   // G17 T6b: トグルボタンの表示を cur の実効表示に同期
+    }
+
     async function show(apiIndex) {
         const my = ++renderToken;
         cur = Math.max(0, Math.min(pageCount - 1, apiIndex));
@@ -453,12 +464,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         cancelActiveDrag();
 
         // UI 即時更新（スライダー・カウンタ）
-        const uiPage = cur + 1;
-        sliderEl.value = String(uiPage);
-        sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
-        counterEl.textContent = `${uiPage} / ${pageCount}`;
-        titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
-        updatePageLayoutLabel();   // G17 T6b: トグルボタンの表示を cur の実効表示に同期
+        syncPageUI();
 
         // 描画する apiIndex 配列
         const indices = pagesForView(cur, spread, pageCount, overrides);
@@ -690,12 +696,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         view.style.willChange = "";
         curView = view;
         curViewURLs = urls;
-        const uiPage = cur + 1;
-        sliderEl.value = String(uiPage);
-        sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
-        counterEl.textContent = `${uiPage} / ${pageCount}`;
-        titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
-        updatePageLayoutLabel();
+        syncPageUI();
         engine.setCurrentPage(cur);
         scheduleProgress(cur);
     }
@@ -726,26 +727,18 @@ export async function renderReader(uuid, bookId, query, deps) {
         const velocity = forceCancel ? 0 : computeDragVelocity(ds);
         const d = decideDragSettle({ trackX: ds.trackX, velocity, width: ds.width, forceCancel });
 
-        if (d.action === "right") {
-            if (ds.atRightEdge) {
+        if (d.action === "right" || d.action === "left") {
+            const side = d.action;
+            const atEdge = side === "right" ? ds.atRightEdge : ds.atLeftEdge;
+            const dir = side === "right" ? ds.rightDir : ds.leftDir;
+            if (atEdge) {
                 navigator.vibrate?.(10);
-                const toEnd = ds.rightDir > 0;
+                const toEnd = dir > 0;
                 animateTrack(ds, 0, 0, false, () => { destroyDrag(ds); if (toEnd) showEndOfBookDialog(); });
                 return;
             }
             navigator.vibrate?.(10);
-            commitDrag(ds, "right", velocity, d.flick);
-            return;
-        }
-        if (d.action === "left") {
-            if (ds.atLeftEdge) {
-                navigator.vibrate?.(10);
-                const toEnd = ds.leftDir > 0;
-                animateTrack(ds, 0, 0, false, () => { destroyDrag(ds); if (toEnd) showEndOfBookDialog(); });
-                return;
-            }
-            navigator.vibrate?.(10);
-            commitDrag(ds, "left", velocity, d.flick);
+            commitDrag(ds, side, velocity, d.flick);
             return;
         }
         // cancel → 元の位置へ戻す。端に突き当たっていた場合のみ触覚を鳴らす。

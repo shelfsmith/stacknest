@@ -344,22 +344,6 @@ body {
   color: var(--text);
 }
 
-.books-viewtoggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--tap);
-  min-height: var(--tap);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.books-viewtoggle:active { background: var(--surface-2); }
-
 /* ツールバーのインライン SVG アイコン（grid/list 切替）。色は currentColor で追従。 */
 .tb-icon {
   width: 22px;
@@ -671,13 +655,6 @@ body {
 }
 
 .detail-value { flex: 1; }
-
-.detail-note {
-  font-size: 13px;
-  color: var(--text-dim);
-  margin: 0;
-  padding-top: 4px;
-}
 
 /* ============================================================
    リーダー画面（フルスクリーン没入表示）

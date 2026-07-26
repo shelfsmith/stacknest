@@ -50,7 +50,6 @@ export function invalidateSessionToken() { sessionTokenValue = null; }
 
 export function libToken(uuid) { return sessionStorage.getItem(`stacknest.libtoken.${uuid}`); }
 export function saveLibToken(uuid, t) { sessionStorage.setItem(`stacknest.libtoken.${uuid}`, t); }
-export function clearLibToken(uuid) { sessionStorage.removeItem(`stacknest.libtoken.${uuid}`); }
 
 /// 401 はトークン破棄してペアリング画面へ飛ばす際に投げる番兵エラー。
 export class UnauthorizedError extends Error {
@@ -89,18 +88,6 @@ export async function apiJSON(path, opts = {}) {
         err.status = res.status;
         throw err;
     }
-    return res.json();
-}
-
-/// サーバ capability（認証不要・到達性確認にも使う）。
-export async function serverInfo() {
-    let res;
-    try {
-        res = await fetch("/api/v1/server/info");
-    } catch (e) {
-        throw new NetworkError(e);
-    }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
 }
 
@@ -154,13 +141,7 @@ export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, versio
     const q = pageQuery(maxw, version);
     const opts = { libraryUUID: uuid, signal };
     if (!version) opts.cache = "reload";   // 版不明フォールバック: 今日の URL 形のまま HTTP キャッシュだけ避ける
-    let res;
-    try {
-        res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/pages/${apiIndex}${q}`, opts);
-    } catch (e) {
-        if (e && e.name === "AbortError") throw e;   // 中断は素通し
-        throw e;
-    }
+    const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/pages/${apiIndex}${q}`, opts);
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
     const noStore = (res.headers.get("cache-control") || "").toLowerCase().includes("no-store");
     return { blob: await res.blob(), noStore };
