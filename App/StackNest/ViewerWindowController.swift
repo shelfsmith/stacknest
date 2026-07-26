@@ -884,14 +884,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private func hudNote(_ text: String) {
         hudNoteText = text
         hudVisible = true
-        hudHosting?.rootView = ViewerHUDView(
-            progressText: model.progressText,
-            progressFraction: model.progressFraction,
-            isVisible: true,
-            pageDirection: model.options.pageDirection,
-            noteText: hudNoteText,
-            cachedSegments: cachedSegments
-        )
+        updateHUD()
         // ノート専用タイマー（~3.0s）。idleTimer（マウス操作による HUD 表示制御）とは別に管理する。
         hudNoteTimer?.invalidate()
         hudNoteTimer = Timer.scheduledTimer(withTimeInterval: hudNoteDuration, repeats: false) { [weak self] _ in

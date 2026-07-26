@@ -515,7 +515,7 @@ struct LibrarySettingsSheet: View {
             }
             formatError = nil
         } catch let error as FilenameFormat.ParseError {
-            formatError = describe(error)
+            formatError = Self.describe(error)
             samplePreview = []
         } catch {
             formatError = "構文エラー"
@@ -523,7 +523,7 @@ struct LibrarySettingsSheet: View {
         }
     }
 
-    private func describe(_ e: FilenameFormat.ParseError) -> String {
+    static func describe(_ e: FilenameFormat.ParseError) -> String {
         switch e {
         case .unknownToken(let raw): return "未知のトークン: \(raw)"
         case .unclosedBracket(let c): return "閉じていない括弧: \(c)"
@@ -605,7 +605,7 @@ struct LibrarySettingsSheet: View {
     /// Row 1: 全フィールド埋め → format の全トークンが出力される
     /// Row 2: keywordB 欠落 → [@keywordB] ブロックが省略される効果を確認
     /// Row 3: title のみ  → 全ブラケットブロックが省略される効果を確認
-    private static let sampleRecords: [BookRecord] = [
+    static let sampleRecords: [BookRecord] = [
         BookRecord(
             id: 0,
             title: "ブラックジャックによろしく 第01巻",
