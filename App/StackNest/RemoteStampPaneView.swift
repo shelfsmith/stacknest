@@ -13,7 +13,6 @@ struct RemoteStampPaneView: View {
         HStack(spacing: 0) {
             ForEach(Array(StampField.allCases.enumerated()), id: \.element) { index, field in
                 StampColumnView(
-                    field: field,
                     label: settings.stampLabel(for: field),
                     definitions: (state.stampDefinitions[field.dbColumn] ?? []).sorted(),
                     applyEnabled: state.canEdit && !state.multiSelection.isEmpty,

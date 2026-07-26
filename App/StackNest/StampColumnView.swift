@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
-import AppCore
-import LibraryStore
 
 /// Stamp pane の 1 列（1 StampField 分）。
 /// ヘッダ + [消去] chip + 値 chip 群 + [+ 新規追加] chip。
 /// 4.2c-6a: value＋closure 注入の presentation-only に汎用化（ローカル=AppState / リモート=RemoteLibraryState 由来で配線）。
 /// 値 chip の右クリックで定義削除（管理）。
 struct StampColumnView: View {
-    let field: StampField
     let label: String
     /// ソート済み表示リスト（チップ候補値）。
     let definitions: [String]

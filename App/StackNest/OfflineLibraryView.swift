@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
-import LibraryServerAPI
 import LibraryStore
 import RemoteClient
 import SwiftUI

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
 import AppKit
-import AppCore
 import LibraryStore
 import ArchiveAdapter
 import CoreGraphics
@@ -13,7 +12,6 @@ import ImageIO
 /// crop が全体 (full rect) のままなら NULL を渡し、現行挙動を維持する。
 struct CoverPickerSheet: View {
     let book: BookRow
-    let bundleURL: URL
     /// 選択されたエントリ名 + crop 矩形 (nil = 全体) を受け取るコールバック (sheet は自動 dismiss)
     let onSelect: (String, CGRect?) -> Void
 

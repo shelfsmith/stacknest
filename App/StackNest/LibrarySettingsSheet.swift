@@ -4,7 +4,6 @@ import AppKit  // for NSAlert / NSWorkspace (backup section)
 import AppCore
 import LibraryStore
 import StackroomFormat  // for BookRecord
-import LibraryServerAPI
 import OSLog
 
 private let settingsLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettingsSheet")

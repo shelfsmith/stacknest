@@ -4,7 +4,6 @@ import AppKit
 import CoreGraphics
 import LibraryServerAPI
 import LibraryStore
-import RemoteClient
 import SwiftUI
 
 /// Phase 4.2b-1: リモートライブラリの閲覧 UI（解錠フォーム / 一覧 / グリッド / ページャ）。

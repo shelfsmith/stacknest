@@ -2,7 +2,6 @@
 import AppKit
 import SwiftUI
 import AppCore
-import LibraryServerAPI
 
 /// Return/Enter で選択本を開くための NSTableView サブクラス。
 final class RemoteKeyTableView: NSTableView {

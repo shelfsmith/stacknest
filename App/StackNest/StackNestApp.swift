@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
-import LibraryStore
 import ObjectiveC
 import os
 import RemoteClient
@@ -409,7 +408,6 @@ struct LibraryWindowContainer: View {
     /// host window への直接参照を保持して cancel 時に確実に close する。
     @State private var hostWindow: NSWindow?
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -1054,17 +1052,11 @@ extension NSAlert {
 final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "AppDelegate")
 
-    static private(set) var shared: StackNestAppDelegate?
     /// Set to true when AppDelegate receives a launch URL via application(_:open:).
     /// BridgeContent.onAppear checks this to decide whether to suppress Title window spawn.
     static var hasLaunchURL = false
     /// C-④a: 終了処理中フラグ。終了時に窓が閉じても open-set から削除しない（開いていた庫を復元対象に残す）。
     static var isTerminating = false
-
-    override init() {
-        super.init()
-        StackNestAppDelegate.shared = self
-    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 4.2c-9 (#5): StackNest はウィンドウタブを使わないため標準タブバーを無効化する
@@ -1272,15 +1264,6 @@ enum UserDefaultsKeys {
     /// Retrieve the single most recent bundle URL, if any.
     static func lastOpenedBundleURL() -> URL? {
         return lastOpenedBundleURLs().first
-    }
-
-    /// Remove a bundle URL from the recently opened list.
-    static func removeLastOpenedBundleURL(_ url: URL) {
-        let urls = lastOpenedBundleURLs().filter { $0 != url }
-        UserDefaults.standard.setValue(
-            urls.map { $0.absoluteString },
-            forKey: lastOpenedBundleURLsKey
-        )
     }
 
     /// Retrieve the default parent directory for saving/opening libraries.

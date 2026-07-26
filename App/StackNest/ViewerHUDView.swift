@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import SwiftUI
-import AppCore
 import LibraryStore
 
 /// ミニマル HUD: 下端に「現在 / 総数」と細い進捗バー。表示/非表示は controller が isVisible で制御。

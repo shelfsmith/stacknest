@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 import Foundation
-import AppCore
 
 /// リモート再オープンの保留意図（ウィンドウ生成時に1回消費）。
 struct PendingRemoteOpen: Equatable {
@@ -15,9 +14,6 @@ struct PendingRemoteOpen: Equatable {
 final class RemoteResumeIntent {
     static let shared = RemoteResumeIntent()
     var pending: PendingRemoteOpen?
-    /// セッション unlock トークンキャッシュ（"serverID/libraryUUID" → token・メモリのみ）。
-    var unlockTokens: [String: String] = [:]
-    static func key(_ serverID: UUID, _ libraryUUID: String) -> String { "\(serverID.uuidString)/\(libraryUUID)" }
 
     /// 自分(serverID,libraryUUID)宛ての pending を取り出して消す。
     func take(serverID: UUID, libraryUUID: String) -> PendingRemoteOpen? {

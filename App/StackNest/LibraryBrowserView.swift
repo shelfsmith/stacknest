@@ -4,7 +4,6 @@ import AppKit
 import UniformTypeIdentifiers
 import LibraryStore
 import AppCore
-import LibraryServerAPI
 
 // Identifiable wrapper so [BookRow] can be used with sheet(item:).
 struct BookRenameSelection: Identifiable {
