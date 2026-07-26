@@ -755,6 +755,39 @@ struct RemoteLibraryClientDownloadGuardTests {
         #expect(Int64(RemoteLibraryClient.maxGeneralResponseBytes) < RemoteLibraryClient.maxDownloadBytes)
     }
 
+    // G23 Codex High #3: 「宣言 Content-Length の詐称を弾く」統合テストは書けなかった。
+    // `StubURLProtocol` が `Content-Length` ヘッダを立てても、`URLProtocol` が `didLoad` で
+    // 渡した実データ長が `expectedContentLength` になるため、**詐称そのものを再現できない**。
+    // 判定ロジックは `generalLimitRejectsOversizedDeclaredLength` ほかの単体テストで担保し、
+    // 逐次受信で実際に打ち切る経路は下の境界テストと実機 smoke で確認する。
+
+    /// 通常サイズの応答は影響を受けない（逐次受信化で壊れていないことの確認）。
+    @Test func normalSizedResponseStillSucceedsAfterStreamingChange() async throws {
+        let json = #"[{"id":"L1","name":"lib","locked":false,"bookCount":1}]"#
+        StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data(json.utf8))
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [StubURLProtocol.self]
+        let client = RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "dtok",
+                                         session: URLSession(configuration: cfg))
+        let libs = try await client.listLibraries()
+        #expect(libs.count == 1)
+        #expect(libs.first?.name == "lib")
+    }
+
+    /// チャンク境界（64KiB）をまたぐ応答でも欠落しない。
+    @Test func responseAcrossChunkBoundaryIsIntact() async throws {
+        // 64KiB を超える JSON を作る（name を長くする）。
+        let filler = String(repeating: "あ", count: 30_000)   // UTF-8 で 90KB 相当
+        let json = #"[{"id":"L1","name":"\#(filler)","locked":false,"bookCount":1}]"#
+        StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data(json.utf8))
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [StubURLProtocol.self]
+        let client = RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "dtok",
+                                         session: URLSession(configuration: cfg))
+        let libs = try await client.listLibraries()
+        #expect(libs.first?.name.count == filler.count)
+    }
+
     /// #13: リダイレクト拒否デリゲートは 3xx に一切従わない（completionHandler(nil)）。
     @Test func noRedirectDelegateDeniesRedirect() async {
         let delegate = RemoteLibraryClient.NoRedirectSessionDelegate()

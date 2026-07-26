@@ -398,18 +398,29 @@ public struct LibraryServerCore: Sendable {
             // #2: ブルートフォース抑止。連続失敗が閾値超なら一定時間 429 で拒否する。
             // G23 (M3): 数える単位は library＋principal。library 単体だと、閲覧トークンを渡した
             // 相手が失敗を繰り返すだけで正当な所有者を締め出せてしまう。
+            //
+            // G23 Codex High #2: 判定と枠の確保を **actor 内で原子的に**行う。以前は判定と
+            // 失敗記録の間に PBKDF2 検証（actor 外・意図的に重い）が挟まっており、同時要求が
+            // すべて記録前のゲートを通過できた（レート制限の迂回＋CPU 枯渇）。
             let principal = context.grantID
-            if await unlockRateLimiter.isLockedOut(uuid, principal: principal) {
-                let retry = await unlockRateLimiter.retryAfterSeconds(uuid, principal: principal)
-                    ?? Int(unlockRateLimiter.lockoutSeconds)
-                throw HTTPError(.tooManyRequests, headers: [.retryAfter: String(retry)])
+            switch await unlockRateLimiter.beginAttempt(uuid, principal: principal) {
+            case .lockedOut(let retryAfter), .tooManyConcurrent(let retryAfter):
+                throw HTTPError(.tooManyRequests, headers: [.retryAfter: String(retryAfter)])
+            case .granted:
+                break
             }
-            let body = try await request.decode(as: UnlockRequestBody.self, context: context)
-            guard lib.verifyPassword(body.password) else {
-                await unlockRateLimiter.recordFailure(uuid, principal: principal)
-                throw HTTPError(.forbidden)
+            // 枠を取ったら、どの経路で抜けても必ず返す。
+            let body: UnlockRequestBody
+            do {
+                body = try await request.decode(as: UnlockRequestBody.self, context: context)
+            } catch {
+                // 本文不正は試行として数えない（失敗回数を増やさずに枠だけ返す）。
+                await unlockRateLimiter.finishAttempt(uuid, principal: principal, success: true)
+                throw error
             }
-            await unlockRateLimiter.recordSuccess(uuid, principal: principal)
+            let ok = lib.verifyPassword(body.password)
+            await unlockRateLimiter.finishAttempt(uuid, principal: principal, success: ok)
+            guard ok else { throw HTTPError(.forbidden) }
             return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
         }
         // books 一覧（ページング・検索・ソート・進行状況・scope/filter/browse）。ロック庫は X-Library-Token 必須。
@@ -1696,16 +1707,21 @@ public struct LibraryServerCore: Sendable {
         // G8a: ライブ同期 SSE。接続トークンの scope で絞ったイベントをストリームする。
         // イベント本流とハートビートを 1 本の AsyncStream<ByteBuffer> に合流させ、
         // 切断（body 終了 = onTermination）で forward/heartbeat を cancel し EventHub から unsubscribe する。
-        api.get("events") { [eventHub, grantsProvider = config.grantsProvider] request, context in
+        api.get("events") { [eventHub, grantsProvider = effectiveGrantsProvider] _, context in
             let (subID, events) = await eventHub.subscribe(scope: context.scope)
             let (frames, cont) = AsyncStream<ByteBuffer>.makeStream()
-            // 接続時に提示されたトークンと scope を保持し、ハートビート毎に再検証する（C-③a・長寿命接続の即時失効反映）。
-            let presentedToken: String? = {
-                if let header = request.headers[.authorization], header.hasPrefix("Bearer ") {
-                    return String(header.dropFirst("Bearer ".count))
-                }
-                return request.uri.queryParameters.get("token")
-            }()
+            // 接続時に認証された principal（grant id）と scope を保持し、ハートビート毎に再検証する
+            // （C-③a・長寿命接続の即時失効反映）。
+            //
+            // G23 (#9/#10) Codex High #1: 以前はリクエストから**生のトークン文字列**を取り出して
+            // 保持し、ハートビートで grant token と直接比較していた。クエリに載るのが短命
+            // セッショントークンになった今、その比較は必ず失敗し、**約 5 秒ごとに切断→再接続**を
+            // 繰り返していた。ミドルウェアが解決済みの `grantID` を使えば、トークンの種類に依存せず
+            // 判定できる。秘密トークンを長寿命 Task に保持しなくて済む副次的な利点もある。
+            //
+            // あわせて `config.grantsProvider` ではなく `effectiveGrantsProvider` をキャプチャする。
+            // 前者だと `grantRepository` 単独構成で grant 失効が既存 SSE に反映されない（同 High #1）。
+            let subscribedGrantID = context.grantID
             let subscribedScope = context.scope
             // イベント → SSE フレーム
             let forward = Task {
@@ -1720,8 +1736,8 @@ public struct LibraryServerCore: Sendable {
             let heartbeat = Task {
                 while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(5))
-                    if let grantsProvider, let presentedToken {
-                        if !liveConnectionStillAuthorized(presentedToken: presentedToken,
+                    if let grantsProvider {
+                        if !liveConnectionStillAuthorized(grantID: subscribedGrantID,
                                                           subscribedScope: subscribedScope,
                                                           grants: grantsProvider()) {
                             cont.finish()

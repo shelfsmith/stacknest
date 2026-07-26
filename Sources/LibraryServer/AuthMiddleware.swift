@@ -85,9 +85,15 @@ func constantTimeEquals(_ a: String, _ b: String) -> Bool {
     return diff == 0
 }
 
-/// SSE 長寿命接続の再認証: 提示トークンに一致する grant が現存し、その scope が接続時 scope と一致するか。
-/// grants に一致トークンが無い＝失効、scope が変わった＝再接続で更新すべき → いずれも false。
-func liveConnectionStillAuthorized(presentedToken: String, subscribedScope: GrantScope, grants: [Grant]) -> Bool {
-    guard let g = grants.first(where: { constantTimeEquals(presentedToken, $0.token) }) else { return false }
+/// SSE 長寿命接続の再認証: 接続時に認証された grant が現存し、その scope が接続時 scope と一致するか。
+/// grants に該当 id が無い＝失効、scope が変わった＝再接続で更新すべき → いずれも false。
+///
+/// G23 (#9/#10) Codex High #1: 以前は**提示トークン文字列**を grant token と突き合わせていたが、
+/// クエリに載るのが短命セッショントークンになったため、その比較は必ず失敗していた
+/// （= ハートビート毎に SSE が切断される）。ミドルウェアが解決済みの grant id で判定する。
+/// id は秘密ではないため、長寿命 Task が秘密を保持しなくて済む。
+/// 固定トークン経路（grantsProvider 不在）ではそもそも本関数を呼ばない。
+func liveConnectionStillAuthorized(grantID: String, subscribedScope: GrantScope, grants: [Grant]) -> Bool {
+    guard let g = grants.first(where: { $0.id == grantID }) else { return false }
     return g.scope == subscribedScope
 }
