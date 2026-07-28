@@ -661,13 +661,13 @@ struct LibraryWindowContainer: View {
             UserDefaultsKeys.addOpenLibrary(bundleURL)   // C-④a: 開いている庫集合へ追加（willClose で削除）
             self.appState = state
             // Determine lock state based on whether a password hash is configured
-            if state.librarySettings?.lockPasswordHash != nil {
-                self.requiresUnlock = true
-                state.isUnlocked = false
-            } else {
-                self.requiresUnlock = false
-                state.isUnlocked = true
-            }
+            // G25b-1r: isUnlocked は「このセッションでパスワード検証に成功した」だけを表し、
+            // 「施錠されていない」は含めない（＝庫を開いた時点では常に false）。
+            // 未施錠を true で表すと、開いた後に施錠された場合（設定シート／CLI・MCP／共有サーバ経由）に
+            // 「解錠していないのに解錠済み」になり、⌘⇧O がロックを迂回する。
+            // 施錠の有無は ResumeGate が librarySettings から都度読むので、どの経路で施錠されても追従する。
+            self.requiresUnlock = state.librarySettings?.lockPasswordHash != nil
+            state.isUnlocked = false
         } catch {
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
             OpenLibraryRegistry.shared.unregister(bundleURL)
