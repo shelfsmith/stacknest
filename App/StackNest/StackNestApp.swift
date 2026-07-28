@@ -603,7 +603,7 @@ struct LibraryWindowContainer: View {
             .focusedSceneValue(\.appState, appState)
             // 4.2c-9: メニューコマンドのルーティング用（ローカルターゲット）。
             .focusedSceneValue(\.browserCommandTarget, appState as (any BrowserCommandTarget)?)
-            } // end else (unlocked)
+            } // end else (isUnlocked)
         } else if let error = error {
             ErrorView(error: error)
         } else {

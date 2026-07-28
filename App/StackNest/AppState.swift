@@ -398,6 +398,9 @@ final class AppState {
     /// G25b-1r: 解錠成功時に呼ぶ。保留していた resume 対象を 1 回だけ消費して最終ページから開く。
     /// self-clear するため、再解錠しても再発火しない。
     func consumePendingResume() {
+        // 呼出点は解錠成功ハンドラ 1 箇所のみ、という契約に安全性を依存させない。
+        // 未解錠のまま呼ばれても本を開かないことをここで強制する（#7 の多層防御）。
+        guard isUnlocked else { return }
         guard let id = pendingResumeBookID else { return }
         pendingResumeBookID = nil
         guard let row = try? database?.fetchBook(id: id) else { return }

@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-import Foundation
 
 /// ⌘⇧O（最後に開いたページを開く）の分岐判定。AppKit 非依存の純ロジック。
 ///
