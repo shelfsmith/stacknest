@@ -402,7 +402,6 @@ struct LibraryWindowContainer: View {
     @State private var error: Error?
     @State private var hasLoaded = false
     @State private var frameObserver: WindowFrameObserver?
-    @State private var unlocked = false
     @State private var requiresUnlock = false
     /// Q3-2-v3: sheet 表示中は NSApp.keyWindow が sheet panel を指すため、
     /// host window への直接参照を保持して cancel 時に確実に close する。
@@ -475,7 +474,7 @@ struct LibraryWindowContainer: View {
     @ViewBuilder
     private var contentView: some View {
         if let appState = appState {
-            if requiresUnlock && !unlocked {
+            if requiresUnlock && !appState.isUnlocked {
                 Color.clear
                     .sheet(isPresented: .constant(true)) {
                         let settings = appState.librarySettings
@@ -491,7 +490,16 @@ struct LibraryWindowContainer: View {
                                 // 2.6g 以前の plaintext Keychain item を除去（one-shot、no-throw）
                                 if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
                             },
-                            onUnlock: { unlocked = true },
+                            onUnlock: {
+                                appState.isUnlocked = true
+                                // G25b-1r: ⌘⇧O が積んだ保留 resume を解錠成功後に開く（1 回だけ）。
+                                // isUnlocked を立てた直後はまだ解錠シートが表示中で、その最中に
+                                // ビューア窓を開くとシート解除と競合しうる。同ファイルの onCancel が
+                                // 同じ理由で main.async を使っているのに倣い、1 tick 遅らせる。
+                                DispatchQueue.main.async {
+                                    appState.consumePendingResume()
+                                }
+                            },
                             onCancel: {
                                 if let url = bundleURL {
                                     LibraryOpenLockManager.shared.release(bundleURL: url)
@@ -647,10 +655,10 @@ struct LibraryWindowContainer: View {
             // Determine lock state based on whether a password hash is configured
             if state.librarySettings?.lockPasswordHash != nil {
                 self.requiresUnlock = true
-                self.unlocked = false
+                state.isUnlocked = false
             } else {
                 self.requiresUnlock = false
-                self.unlocked = true
+                state.isUnlocked = true
             }
         } catch {
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)

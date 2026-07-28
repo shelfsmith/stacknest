@@ -23,12 +23,16 @@ enum ResumeLastReadCoordinator {
             // try? + optional-chaining は二重 Optional を平坦化し BookRow? を返すため単一バインドで足りる。
             if let st = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundlePath }),
                let book = try? st.database?.fetchBook(id: bookID) {
-                // #7: 施錠ライブラリは resumeDirect でロックを迂回しない（.remote 経路と同じ扱い）。
-                // ウィンドウを前面化して通常の解錠ゲート（LibraryUnlockSheet）に委ね、解錠まで本を開かない。
-                if st.librarySettings?.lockPasswordHash != nil {
-                    openWindow(value: URL(fileURLWithPath: bundlePath))   // フォーカスのみ（解錠ゲートが出る）
-                } else {
+                // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。ただし既にこのウィンドウで
+                // 解錠済みなら再認証は求めない（.remote 経路と同一規則＝ResumeGate に一本化）。
+                switch ResumeGate.decide(isLocked: st.librarySettings?.lockPasswordHash != nil,
+                                         isUnlocked: st.isUnlocked) {
+                case .openBook:
                     st.openBooks([book], resumeDirect: true)
+                case .deferUntilUnlock:
+                    // 解錠ゲートが出るので、解錠に成功した時点で開くよう保留する。
+                    st.pendingResumeBookID = bookID
+                    openWindow(value: URL(fileURLWithPath: bundlePath))   // フォーカス（解錠ゲートが出る）
                 }
             } else {
                 LocalResumeIntent.shared.pending = (bundlePath, bookID)
@@ -43,9 +47,12 @@ enum ResumeLastReadCoordinator {
                 openWindow(value: RemoteLibraryRef(serverID: serverID, libraryUUID: libraryUUID)) // フォーカス
                 // #7: 既に開いているウィンドウが認証済み（非施錠 or library token 取得済み）なら、
                 // ユーザーは既にそのライブラリを解錠して閲覧中なので resume を再認証なしで受け入れる。
-                if !st.locked || st.libraryToken != nil {
+                // G25b-1r: 判定はローカル経路と同一の ResumeGate に通す（従来の
+                // `!st.locked || st.libraryToken != nil` と等価＝挙動は変わらない）。
+                switch ResumeGate.decide(isLocked: st.locked, isUnlocked: st.libraryToken != nil) {
+                case .openBook:
                     await st.openBookByID(bookID, resumeDirect: true)
-                } else {
+                case .deferUntilUnlock:
                     // 施錠かつ未認証（ウィンドウを閉じて token 無効化済み）: 本は直接開かず解錠を促す。
                     // 解錠後（unlock → reload）に対象本が開くよう pending を積む
                     // （バイパスは防ぎつつ、解錠さえすれば従来どおり続きから開く）。
