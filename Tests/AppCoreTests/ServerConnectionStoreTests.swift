@@ -45,4 +45,24 @@ struct ServerConnectionStoreTests {
         #expect(store.connection(id: id)?.token == "t")
         #expect(store.connection(id: UUID()) == nil)
     }
+
+    @Test("サーバ名は前後の空白を落とす")
+    func normalizedDisplayNameTrimsWhitespace() {
+        #expect(ServerConnection.normalizedDisplayName(input: "  マイサーバ  ", host: "192.168.1.10") == "マイサーバ")
+    }
+
+    @Test("空欄なら host にフォールバックする")
+    func normalizedDisplayNameFallsBackToHost() {
+        #expect(ServerConnection.normalizedDisplayName(input: "", host: "192.168.1.10") == "192.168.1.10")
+    }
+
+    @Test("空白だけの入力も空欄として扱う")
+    func normalizedDisplayNameTreatsBlankAsEmpty() {
+        #expect(ServerConnection.normalizedDisplayName(input: "   ", host: "192.168.1.10") == "192.168.1.10")
+    }
+
+    @Test("空欄かつ host も無ければ nil")
+    func normalizedDisplayNameReturnsNilWithoutHost() {
+        #expect(ServerConnection.normalizedDisplayName(input: "", host: nil) == nil)
+    }
 }

@@ -16,6 +16,15 @@ public struct ServerConnection: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+extension ServerConnection {
+    /// G25b-1r: 入力されたサーバ名を正規化する。前後の空白を落とし、空なら host にフォールバックする。
+    /// 新規接続時（RemoteConnectFlowView.connectNew）と改名の両方が同じ規則を使うために切り出した。
+    public static func normalizedDisplayName(input: String, host: String?) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? host : trimmed
+    }
+}
+
 /// 接続履歴を UserDefaults に平文でリスト永続化する。
 public struct ServerConnectionStore: @unchecked Sendable {
     private let defaults: UserDefaults
