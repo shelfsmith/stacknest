@@ -27,6 +27,16 @@ final class AppState {
     /// ツールバーボタンで切り替え、DetailPaneView(showCover:) に注入する。
     var showDetailCover: Bool = true
 
+    /// G25b-1r: 施錠庫の解錠状態（**このウィンドウのセッション限定**・永続しない）。
+    /// #7 以前は `LibraryWindowContainer` の `@State` にしか無く、`ResumeLastReadCoordinator` から
+    /// 「解錠済みか」を判定できなかった。単一の真実をここに置き、View はこれを読む。
+    /// `closeBundle()` でリセットされるため、**窓を閉じれば再解錠が必要**（#7 の意図を維持）。
+    var isUnlocked: Bool = false
+
+    /// G25b-1r: 解錠後に開く予定の本（⌘⇧O が施錠庫に対して積む・解錠成功時に 1 回だけ消費）。
+    /// リモート経路の `RemoteLibraryState.pendingOpenBookID` に対応する。
+    var pendingResumeBookID: Int?
+
     /// 監視フォルダ自動取込の要約（バナー表示用・一定時間で自動クリア）。
     var watchImportSummary: String?
     private var folderWatcher: FolderWatcher?
@@ -283,10 +293,13 @@ final class AppState {
         if let p = LocalResumeIntent.shared.pending, bundleURL.path == p.bundlePath,
            let row = try? database?.fetchBook(id: p.bookID) {
             LocalResumeIntent.shared.pending = nil
-            // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。解錠は通常ゲート（unlock sheet）に委ね、
-            // 解錠までビューアを自動で開かない（intent は消費済み＝解錠後は手動で開く）。
+            // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。未施錠なら即開く。
+            // G25b-1r: 施錠なら intent を捨てず保留し、**解錠に成功した時点で** consumePendingResume() が開く
+            //（従来は捨てていたため、解錠しても本が開かなかった＝リモート経路との非対称性）。
             if librarySettings?.lockPasswordHash == nil {
                 openBooks([row], resumeDirect: true)
+            } else {
+                pendingResumeBookID = p.bookID
             }
         }
     }
@@ -382,6 +395,15 @@ final class AppState {
         }
     }
 
+    /// G25b-1r: 解錠成功時に呼ぶ。保留していた resume 対象を 1 回だけ消費して最終ページから開く。
+    /// self-clear するため、再解錠しても再発火しない。
+    func consumePendingResume() {
+        guard let id = pendingResumeBookID else { return }
+        pendingResumeBookID = nil
+        guard let row = try? database?.fetchBook(id: id) else { return }
+        openBooks([row], resumeDirect: true)
+    }
+
     func closeBundle() {
         folderWatcher?.stop()
         folderWatcher = nil
@@ -399,6 +421,9 @@ final class AppState {
         selectedBook = nil
         selectedSidebarItem = .library
         librarySettings = nil
+        // G25b-1r: 窓を閉じたら解錠状態と保留 resume を落とす（再オープン時は再解錠が必要＝#7 の意図）。
+        isUnlocked = false
+        pendingResumeBookID = nil
         Self.activeInstances.remove(self)
     }
 
