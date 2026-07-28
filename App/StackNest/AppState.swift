@@ -27,10 +27,18 @@ final class AppState {
     /// ツールバーボタンで切り替え、DetailPaneView(showCover:) に注入する。
     var showDetailCover: Bool = true
 
-    /// G25b-1r: 施錠庫の解錠状態（**このウィンドウのセッション限定**・永続しない）。
+    /// G25b-1r: **このセッションでパスワード検証に成功したか**（このウィンドウ限定・永続しない）。
     /// #7 以前は `LibraryWindowContainer` の `@State` にしか無く、`ResumeLastReadCoordinator` から
     /// 「解錠済みか」を判定できなかった。単一の真実をここに置き、View はこれを読む。
-    /// `closeBundle()` でリセットされるため、**窓を閉じれば再解錠が必要**（#7 の意図を維持）。
+    ///
+    /// **「施錠されていない」はこのフラグで表さない。** 未施錠庫も false のままにする。
+    /// 未施錠を true で表すと、開いた後に施錠された場合（設定シート／CLI・MCP／共有サーバ経由の
+    /// `reloadLockSettings()`）に「解錠していないのに解錠済み」となり ⌘⇧O がロックを迂回する。
+    /// 施錠の有無は `ResumeGate` が `librarySettings` から都度読むため、施錠経路を増やしても
+    /// ここに手当てを足す必要はない（リモート経路の `libraryToken != nil` と同じ意味論）。
+    ///
+    /// `closeBundle()` と `handleWindowWillClose` でリセットされるため、
+    /// **窓を閉じれば再解錠が必要**（#7 の意図を維持）。
     var isUnlocked: Bool = false
 
     /// G25b-1r: 解錠後に開く予定の本（⌘⇧O が施錠庫に対して積む・解錠成功時に 1 回だけ消費）。
@@ -290,16 +298,21 @@ final class AppState {
         reloadFolderWatcher()
         // Phase 4.2c-2: ローカル resume 意図を 1 回だけ消費する。本ライブラリの bundlePath と
         // 一致し、対象 bookID が存在すれば続き確認なしで内蔵ビューアを開く（resumeDirect）。
-        if let p = LocalResumeIntent.shared.pending, bundleURL.path == p.bundlePath,
-           let row = try? database?.fetchBook(id: p.bookID) {
+        // G25b-1r: 消費の判定は bundlePath 一致のみで行い、**本の有無に関わらず必ず 1 回で消費する**。
+        // 以前は fetchBook の成否も同じ if let チェーンに入っていたため、対象本が削除済みだと
+        // intent が残留した。book.id は AUTOINCREMENT ではなく再利用されうるので、後で同じ id の
+        // 別の本が作られると、その本が意図せず resume 対象になる（施錠庫なら解錠直後に開く）。
+        if let p = LocalResumeIntent.shared.pending, bundleURL.path == p.bundlePath {
             LocalResumeIntent.shared.pending = nil
-            // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。未施錠なら即開く。
-            // G25b-1r: 施錠なら intent を捨てず保留し、**解錠に成功した時点で** consumePendingResume() が開く
-            //（従来は捨てていたため、解錠しても本が開かなかった＝リモート経路との非対称性）。
-            if librarySettings?.lockPasswordHash == nil {
-                openBooks([row], resumeDirect: true)
-            } else {
-                pendingResumeBookID = p.bookID
+            if let row = try? database?.fetchBook(id: p.bookID) {
+                // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。未施錠なら即開く。
+                // G25b-1r: 施錠なら intent を捨てず保留し、**解錠に成功した時点で** consumePendingResume() が開く
+                //（従来は捨てていたため、解錠しても本が開かなかった＝リモート経路との非対称性）。
+                if librarySettings?.lockPasswordHash == nil {
+                    openBooks([row], resumeDirect: true)
+                } else {
+                    pendingResumeBookID = p.bookID
+                }
             }
         }
     }
