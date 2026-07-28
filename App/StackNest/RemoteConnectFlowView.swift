@@ -103,6 +103,10 @@ struct ConnectFormView: View {
     @State private var error: String?
     @State private var connecting = false
     @State private var saved: [ServerConnection] = []
+    /// G25b-1r: 改名中のサーバ（nil の間はシートを出さない）。
+    @State private var renaming: ServerConnection?
+    /// 改名シートの入力欄。
+    @State private var renameText = ""
     private let store = ServerConnectionStore()
 
     var body: some View {
@@ -133,6 +137,10 @@ struct ConnectFormView: View {
                             .help("この接続先を履歴から削除")
                         }
                         .contextMenu {
+                            Button("サーバ名を変更") {
+                                renameText = conn.displayName ?? ""
+                                renaming = conn
+                            }
                             Button("削除", role: .destructive) {
                                 store.remove(id: conn.id)
                                 saved = store.all()
@@ -156,15 +164,44 @@ struct ConnectFormView: View {
         }
         .padding(20)
         .onAppear { saved = store.all() }
+        .sheet(item: $renaming) { conn in renameSheet(conn) }
+    }
+
+    /// G25b-1r: 接続済みサーバの表示名を変更するシート。
+    private func renameSheet(_ conn: ServerConnection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("サーバ名を変更").font(.headline)
+            Text(conn.baseURL).font(.caption).foregroundStyle(.secondary)
+            TextField("サーバ名（空欄でホスト名に戻す）", text: $renameText)
+                .textFieldStyle(.roundedBorder)
+            HStack {
+                Spacer()
+                Button("キャンセル") { renaming = nil }
+                    .keyboardShortcut(.cancelAction)
+                Button("変更") { applyRename(conn) }
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+    }
+
+    /// 表示名だけを差し替えて upsert する（id 一致で in-place 更新されるため token/URL は保持される）。
+    private func applyRename(_ conn: ServerConnection) {
+        var updated = conn
+        updated.displayName = ServerConnection.normalizedDisplayName(
+            input: renameText, host: URL(string: conn.baseURL)?.host)
+        store.upsert(updated)
+        saved = store.all()
+        renaming = nil
     }
 
     @MainActor private func connectNew() async {
         guard let base = URL(string: urlText) else { error = "URL が不正です"; return }
         connecting = true
         defer { connecting = false }
-        // サーバ名: 入力があればそれを、なければ host にフォールバック。
-        let trimmed = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let displayName = trimmed.isEmpty ? base.host : trimmed
+        // サーバ名: 入力があればそれを、なければ host にフォールバック（改名と同一規則）。
+        let displayName = ServerConnection.normalizedDisplayName(input: nameText, host: base.host)
         await attempt(
             ServerConnection(id: UUID(), displayName: displayName, baseURL: urlText, token: tokenText),
             base: base)
