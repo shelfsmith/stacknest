@@ -1160,8 +1160,11 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         // 関わらず必ず落とす（closeBundle() は onDisappear 依存で、WindowGroup では不確実）。
         // closeBundle() 全体をここで呼んではいけない（DB クローズと B22 バックアップ／
         // open-set 復元のセマンティクスを壊す）。落とすのは解錠状態と保留 resume だけ。
+        // 照合は path で行う。ResumeLastReadCoordinator が AppState を探すときの規則
+        //（`$0.bundleURL.path == bundlePath`）と必ず一致させること。URL 同値比較にすると、
+        // 末尾スラッシュ等の表現差でここだけ空振りし、coordinator 側は拾える＝防御が抜ける。
         if let url = w.stacknestBundleURL {
-            for st in AppState.activeInstances.allObjects where st.bundleURL == url {
+            for st in AppState.activeInstances.allObjects where st.bundleURL.path == url.path {
                 st.isUnlocked = false
                 st.pendingResumeBookID = nil
             }
