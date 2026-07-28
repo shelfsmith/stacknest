@@ -21,8 +21,14 @@ enum ResumeLastReadCoordinator {
         case .local(let bundlePath, let bookID, _):
             // 既に開いていれば直接開く。bundleURL は非 optional。
             // try? + optional-chaining は二重 Optional を平坦化し BookRow? を返すため単一バインドで足りる。
-            if let st = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundlePath }),
-               let book = try? st.database?.fetchBook(id: bookID) {
+            if let st = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundlePath }) {
+                // ↑ 窓の有無だけを判定する（本の有無は下の guard で別に見る）。
+                // G25b-1r: 「窓は開いている」と「本がまだ在る」を分けて判定する。以前は 1 本の
+                // if let チェーンだったため、本を削除した後に ⌘⇧O を押すと else 枝（＝窓が開いて
+                // いない前提のコード）へ落ち、誰にも消費されない LocalResumeIntent が残留していた。
+                // 新コードではその残留意図が次回オープン時に pendingResumeBookID へ化けるため、
+                // bookID が再利用されると解錠直後に要求していない本が開きうる。ここで no-op にする。
+                guard let book = try? st.database?.fetchBook(id: bookID) else { return }
                 // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。ただし既にこのウィンドウで
                 // 解錠済みなら再認証は求めない（.remote 経路と同一規則＝ResumeGate に一本化）。
                 switch ResumeGate.decide(isLocked: st.librarySettings?.lockPasswordHash != nil,

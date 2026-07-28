@@ -450,6 +450,14 @@ struct LibraryWindowContainer: View {
                 hostWindow?.stacknestBundleURL = newURL   // C-④a: 窓再利用時に関連付けを更新
                 if let oldURL {
                     appState?.closeBundle()
+                    // G25b-1r: 旧庫の requiresUnlock を残したまま openBundleIfNeeded() の await を
+                    // 待つと、その間だけ「新 URL の名前・空 salt/hash」の幽霊解錠シートが出る
+                    // （解錠状態が @State から AppState へ移り、旧 unlocked=true の遮蔽が無くなったため）。
+                    // 空 hash では解錠は成立しないが、この幽霊シートで ESC を押すと onCancel が
+                    // 新 URL に対して release/unregister を走らせ、飛行中の openBundleIfNeeded の
+                    // 再登録と競合しうる。旧庫の状態はここで一緒に落とす。
+                    requiresUnlock = false
+                    appState = nil
                     LibraryOpenLockManager.shared.release(bundleURL: oldURL)
                     OpenLibraryRegistry.shared.unregister(oldURL)
                     UserDefaultsKeys.removeOpenLibrary(oldURL)   // C-④a: 窓再利用時は旧庫を集合から外す
