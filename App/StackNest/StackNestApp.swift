@@ -1146,6 +1146,18 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
             st.libraryToken = nil
             w.stacknestRemoteState = nil
         }
+        // G25b-1r: ローカル庫にも同じ保証を与える。⌘⇧O の解錠判定が isUnlocked を読むように
+        // なったため、閉じた窓の AppState に isUnlocked=true が残ると「解錠済み」と誤判定して
+        // 施錠庫の本を解錠なしで開けてしまう。上のリモート枝と同じく、終了中かどうかに
+        // 関わらず必ず落とす（closeBundle() は onDisappear 依存で、WindowGroup では不確実）。
+        // closeBundle() 全体をここで呼んではいけない（DB クローズと B22 バックアップ／
+        // open-set 復元のセマンティクスを壊す）。落とすのは解錠状態と保留 resume だけ。
+        if let url = w.stacknestBundleURL {
+            for st in AppState.activeInstances.allObjects where st.bundleURL == url {
+                st.isUnlocked = false
+                st.pendingResumeBookID = nil
+            }
+        }
         // C-④a: 庫ウィンドウの open-set 削除は「手動クローズのみ」（終了時は復元対象に残す）。
         guard !Self.isTerminating, let url = w.stacknestBundleURL else { return }
         UserDefaultsKeys.removeOpenLibrary(url)
