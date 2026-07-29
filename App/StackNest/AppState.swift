@@ -41,6 +41,16 @@ final class AppState {
     /// **窓を閉じれば再解錠が必要**（#7 の意図を維持）。
     var isUnlocked: Bool = false
 
+    /// G25c: この庫が今このウィンドウで解錠を要するか。
+    /// **解錠シートのゲートと ⌘⇧O のローカル判定が共有する唯一の述語**（別々に書くと乖離し、
+    /// 乖離の方向によっては「シートが出ないまま resume が本を開く」＝施錠のバイパスになる）。
+    /// 施錠の有無は `librarySettings` から都度読むため、開いた後に施錠されても追従する
+    ///（`LibrarySettings` は `@Observable` なので View 側の再評価も自動で起きる）。
+    var needsUnlock: Bool {
+        ResumeGate.decide(isLocked: librarySettings?.lockPasswordHash != nil,
+                          isUnlocked: isUnlocked) == .deferUntilUnlock
+    }
+
     /// G25b-1r: 解錠後に開く予定の本（⌘⇧O が施錠庫に対して積む・解錠成功時に 1 回だけ消費）。
     /// リモート経路の `RemoteLibraryState.pendingOpenBookID` に対応する。
     var pendingResumeBookID: Int?
