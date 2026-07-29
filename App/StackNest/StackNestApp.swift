@@ -497,7 +497,9 @@ struct LibraryWindowContainer: View {
                                 if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
                             },
                             onUnlock: {
-                                appState.isUnlocked = true
+                                // G25c: 検証したハッシュを記録する。#8 の PBKDF2 移行（onUpgradeHash）は
+                                // onUnlock より先に走るため、ここで読む値は移行後の新形式になっている。
+                                appState.markUnlocked(hash: appState.librarySettings?.lockPasswordHash)
                                 // G25b-1r: ⌘⇧O が積んだ保留 resume を解錠成功後に開く（1 回だけ）。
                                 // isUnlocked を立てた直後はまだ解錠シートが表示中で、その最中に
                                 // ビューア窓を開くとシート解除と競合しうる。同ファイルの onCancel が
@@ -664,7 +666,7 @@ struct LibraryWindowContainer: View {
             // 「解錠していないのに解錠済み」になり、⌘⇧O がロックを迂回する。
             // G25c: 解錠シートの表示条件も AppState.needsUnlock から都度導出するため、
             // ここで表示用のフラグを別に持つ必要はない（施錠の有無は librarySettings が正）。
-            state.isUnlocked = false
+            state.markUnlocked(hash: nil)
         } catch {
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
             OpenLibraryRegistry.shared.unregister(bundleURL)
@@ -1162,7 +1164,7 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         // 末尾スラッシュ等の表現差でここだけ空振りし、coordinator 側は拾える＝防御が抜ける。
         if let url = w.stacknestBundleURL {
             for st in AppState.activeInstances.allObjects where st.bundleURL.path == url.path {
-                st.isUnlocked = false
+                st.markUnlocked(hash: nil)
                 st.pendingResumeBookID = nil
             }
         }

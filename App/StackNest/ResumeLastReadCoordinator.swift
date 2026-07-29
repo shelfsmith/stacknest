@@ -31,14 +31,15 @@ enum ResumeLastReadCoordinator {
                 guard let book = try? st.database?.fetchBook(id: bookID) else { return }
                 // #7: 施錠ライブラリは resumeDirect でロックを迂回しない。ただし既にこのウィンドウで
                 // 解錠済みなら再認証は求めない（.remote 経路と同一規則＝ResumeGate に一本化）。
-                switch ResumeGate.decide(isLocked: st.librarySettings?.lockPasswordHash != nil,
-                                         isUnlocked: st.isUnlocked) {
-                case .openBook:
-                    st.openBooks([book], resumeDirect: true)
-                case .deferUntilUnlock:
+                // G25c: 施錠判定は AppState.needsUnlock を使う（解錠シートのゲートと同じ述語を共有する。
+                // ここで lockPasswordHash を再度読むと導出が 2 箇所に分かれ、乖離すれば
+                // 「シートが出ないまま resume が本を開く」＝バイパスになりうる）。
+                if st.needsUnlock {
                     // 解錠ゲートが出るので、解錠に成功した時点で開くよう保留する。
                     st.pendingResumeBookID = bookID
                     openWindow(value: URL(fileURLWithPath: bundlePath))   // フォーカス（解錠ゲートが出る）
+                } else {
+                    st.openBooks([book], resumeDirect: true)
                 }
             } else {
                 LocalResumeIntent.shared.pending = (bundlePath, bookID)

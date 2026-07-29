@@ -39,7 +39,22 @@ final class AppState {
     ///
     /// `closeBundle()` と `handleWindowWillClose` でリセットされるため、
     /// **窓を閉じれば再解錠が必要**（#7 の意図を維持）。
-    var isUnlocked: Bool = false
+    ///
+    /// G25c: **どのハッシュを検証したかを保持する**（真偽値では「検証したハッシュとは別のパスワードに
+    /// 差し替えられた」場合を区別できない）。設定するときは `markUnlocked(hash:)` を使う。
+    private var verifiedHash: String?
+
+    /// G25c: このセッションで**現在有効なパスワード**の検証に成功したか。
+    /// `verifiedHash` と現在のハッシュを突き合わせるため、**ハッシュが差し替えられた時点で自動的に失効する**
+    ///（例: 解錠 → 設定シートで施錠解除 → 外部から別パスワードで施錠。真偽値だと解錠済みのまま素通りしていた）。
+    var isUnlocked: Bool {
+        guard let verifiedHash, let current = librarySettings?.lockPasswordHash else { return false }
+        return verifiedHash == current
+    }
+
+    /// G25c: 解錠成功（または本人によるパスワード設定）を記録する。
+    /// 呼出点は 2 つだけに保つこと＝①解錠シートの成功 ②設定シートで本人がパスワードを設定したとき。
+    func markUnlocked(hash: String?) { verifiedHash = hash }
 
     /// G25c: この庫が今このウィンドウで解錠を要するか。
     /// **解錠シートのゲートと ⌘⇧O のローカル判定が共有する唯一の述語**（別々に書くと乖離し、
@@ -448,7 +463,7 @@ final class AppState {
         selectedSidebarItem = .library
         librarySettings = nil
         // G25b-1r: 窓を閉じたら解錠状態と保留 resume を落とす（再オープン時は再解錠が必要＝#7 の意図）。
-        isUnlocked = false
+        markUnlocked(hash: nil)
         pendingResumeBookID = nil
         Self.activeInstances.remove(self)
     }
