@@ -14,7 +14,11 @@ struct LibraryUnlockSheet: View {
     let armedHash: () -> String?
     /// この Mac をアームする（パスワード入力成功時に呼ぶ）。
     let armThisMachine: () -> Void
-    let onUnlock: () -> Void
+    /// G25c: 解錠成功を通知する。引数は**実際に検証が通ったハッシュ**（呼出側はこれを記録する）。
+    /// 「現在のハッシュ」ではなく検証したものを渡すこと — 生体認証はプロンプト表示中に外部から
+    /// パスワードを差し替えられる余地があり、現在値を記録すると検証していないハッシュを
+    /// 解錠済みとして扱ってしまう。
+    let onUnlock: (String) -> Void
     let onCancel: () -> Void
     /// G23 (#8): 保存値が旧形式だったとき、新形式（PBKDF2）のハッシュを親へ渡す。
     /// このシートは LibrarySettings を持たないため、保存は親の責務。
@@ -100,7 +104,8 @@ struct LibraryUnlockSheet: View {
             if useBiometric {
                 armThisMachine()
             }
-            onUnlock()
+            // 移行が走った場合、以後有効なのは移行後のハッシュ。
+            onUnlock(upgraded ?? hash)
         case .failed:
             failureCount += 1
             password = ""
@@ -120,7 +125,10 @@ struct LibraryUnlockSheet: View {
             switch decideBiometricUnlock(armedHash: armedHash(), currentHash: hash) {
             case .unlock:
                 logger.info("tryBiometric: armed hash matches current — unlocking")
-                onUnlock()
+                // decideBiometricUnlock が照合したのはこの `hash`。プロンプト表示中に
+                // 外部から差し替えられていた場合、記録した値と現在値が食い違うので
+                // AppState.isUnlocked は自動的に false のままになる（＝素通りしない）。
+                onUnlock(hash)
             case .requirePassword:
                 logger.info("tryBiometric: not armed on this machine (or password changed) — require password")
                 showPasswordHint = true
