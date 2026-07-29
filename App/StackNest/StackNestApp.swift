@@ -496,10 +496,11 @@ struct LibraryWindowContainer: View {
                                 // 2.6g 以前の plaintext Keychain item を除去（one-shot、no-throw）
                                 if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
                             },
-                            onUnlock: {
-                                // G25c: 検証したハッシュを記録する。#8 の PBKDF2 移行（onUpgradeHash）は
-                                // onUnlock より先に走るため、ここで読む値は移行後の新形式になっている。
-                                appState.markUnlocked(hash: appState.librarySettings?.lockPasswordHash)
+                            onUnlock: { verifiedHash in
+                                // G25c: 記録するのは**実際に検証が通ったハッシュ**（現在値ではない）。
+                                // 生体認証のプロンプト表示中に外部からパスワードが差し替えられた場合、
+                                // 記録値と現在値が食い違い isUnlocked は false のままになる＝素通りしない。
+                                appState.markUnlocked(hash: verifiedHash)
                                 // G25b-1r: ⌘⇧O が積んだ保留 resume を解錠成功後に開く（1 回だけ）。
                                 // isUnlocked を立てた直後はまだ解錠シートが表示中で、その最中に
                                 // ビューア窓を開くとシート解除と競合しうる。同ファイルの onCancel が
