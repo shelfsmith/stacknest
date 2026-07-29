@@ -402,7 +402,6 @@ struct LibraryWindowContainer: View {
     @State private var error: Error?
     @State private var hasLoaded = false
     @State private var frameObserver: WindowFrameObserver?
-    @State private var requiresUnlock = false
     /// Q3-2-v3: sheet 表示中は NSApp.keyWindow が sheet panel を指すため、
     /// host window への直接参照を保持して cancel 時に確実に close する。
     @State private var hostWindow: NSWindow?
@@ -450,13 +449,10 @@ struct LibraryWindowContainer: View {
                 hostWindow?.stacknestBundleURL = newURL   // C-④a: 窓再利用時に関連付けを更新
                 if let oldURL {
                     appState?.closeBundle()
-                    // G25b-1r: 旧庫の requiresUnlock を残したまま openBundleIfNeeded() の await を
-                    // 待つと、その間だけ「新 URL の名前・空 salt/hash」の幽霊解錠シートが出る
-                    // （解錠状態が @State から AppState へ移り、旧 unlocked=true の遮蔽が無くなったため）。
-                    // 空 hash では解錠は成立しないが、この幽霊シートで ESC を押すと onCancel が
-                    // 新 URL に対して release/unregister を走らせ、飛行中の openBundleIfNeeded の
-                    // 再登録と競合しうる。旧庫の状態はここで一緒に落とす。
-                    requiresUnlock = false
+                    // G25b-1r/G25c: 旧 AppState を残したまま openBundleIfNeeded() の await を待つと、
+                    // その間だけ旧庫の状態で解錠シートの判定が走る。appState を nil にすると
+                    // contentView は ProgressView に落ちるため、幽霊解錠シートは生じない。
+                    // （G25b-1r では旧 @State 変数も併せて落としていたが、G25c で廃止したため不要になった。）
                     appState = nil
                     LibraryOpenLockManager.shared.release(bundleURL: oldURL)
                     OpenLibraryRegistry.shared.unregister(oldURL)
@@ -482,7 +478,9 @@ struct LibraryWindowContainer: View {
     @ViewBuilder
     private var contentView: some View {
         if let appState = appState {
-            if requiresUnlock && !appState.isUnlocked {
+            // G25c: 庫を開いた時点で固定される @State ではなく、現在のロック状態から都度導出する。
+            // これにより開いた後に施錠された場合（設定シート／CLI・MCP／共有サーバ経由）も追従する。
+            if appState.needsUnlock {
                 Color.clear
                     .sheet(isPresented: .constant(true)) {
                         let settings = appState.librarySettings
@@ -660,13 +658,12 @@ struct LibraryWindowContainer: View {
             UserDefaultsKeys.appendLastOpenedBundleURL(bundleURL)
             UserDefaultsKeys.addOpenLibrary(bundleURL)   // C-④a: 開いている庫集合へ追加（willClose で削除）
             self.appState = state
-            // Determine lock state based on whether a password hash is configured
             // G25b-1r: isUnlocked は「このセッションでパスワード検証に成功した」だけを表し、
             // 「施錠されていない」は含めない（＝庫を開いた時点では常に false）。
             // 未施錠を true で表すと、開いた後に施錠された場合（設定シート／CLI・MCP／共有サーバ経由）に
             // 「解錠していないのに解錠済み」になり、⌘⇧O がロックを迂回する。
-            // 施錠の有無は ResumeGate が librarySettings から都度読むので、どの経路で施錠されても追従する。
-            self.requiresUnlock = state.librarySettings?.lockPasswordHash != nil
+            // G25c: 解錠シートの表示条件も AppState.needsUnlock から都度導出するため、
+            // ここで表示用のフラグを別に持つ必要はない（施錠の有無は librarySettings が正）。
             state.isUnlocked = false
         } catch {
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
