@@ -567,7 +567,7 @@ struct LibrarySettingsSheet: View {
             // G25c: 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
             // **ハッシュ代入より前に立てる**こと(後だと「施錠済み && 未解錠」が一瞬成立し、
             // live 導出になったゲートが解錠シートを出してしまう)。
-            appState?.isUnlocked = true
+            appState?.markUnlocked(hash: hash)
             settings.lockPasswordHash = hash
             settings.lockPasswordSalt = salt
             settings.useBiometric = useBiometricInput
