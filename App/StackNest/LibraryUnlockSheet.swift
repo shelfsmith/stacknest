@@ -13,7 +13,11 @@ struct LibraryUnlockSheet: View {
     /// この Mac の armedHash を返す（未アームなら nil）。
     let armedHash: () -> String?
     /// この Mac をアームする（パスワード入力成功時に呼ぶ）。
-    let armThisMachine: () -> Void
+    /// G25c: 引数は**実際に検証が通ったハッシュ**。現在値でアームすると、検証中に外部から
+    /// パスワードを差し替えられた場合に「ユーザーが一度も検証していないパスワード」でアームされ、
+    /// 以後の生体認証だけでそれを解錠できてしまう。検証した値でアームすれば、差し替えられていた場合は
+    /// `decideBiometricUnlock` が armed≠current を検出して `requirePassword` に落ちる（fail-closed）。
+    let armThisMachine: (String) -> Void
     /// G25c: 解錠成功を通知する。引数は**実際に検証が通ったハッシュ**（呼出側はこれを記録する）。
     /// 「現在のハッシュ」ではなく検証したものを渡すこと — 生体認証はプロンプト表示中に外部から
     /// パスワードを差し替えられる余地があり、現在値を記録すると検証していないハッシュを
@@ -22,7 +26,10 @@ struct LibraryUnlockSheet: View {
     let onCancel: () -> Void
     /// G23 (#8): 保存値が旧形式だったとき、新形式（PBKDF2）のハッシュを親へ渡す。
     /// このシートは LibrarySettings を持たないため、保存は親の責務。
-    var onUpgradeHash: ((String) -> Void)? = nil
+    /// G25c: 引数は (この試行で照合したハッシュ, 移行後のハッシュ)。**戻り値は実際に書き戻したか。**
+    /// 親は `shouldPersistHashUpgrade` で compare-and-set し、検証中に差し替えられていたら false を返す
+    /// （無条件に書き戻すと外部が設定した新パスワードを旧パスワード由来の値で巻き戻してしまう）。
+    var onUpgradeHash: ((String, String) -> Bool)? = nil
 
     @State private var password = ""
     @State private var failureCount = 0
@@ -99,13 +106,18 @@ struct LibraryUnlockSheet: View {
         switch LibraryLock.verifyAndUpgrade(password: password, saltHex: salt, against: hash) {
         case .ok(let upgraded):
             // G23 (#8): 旧形式だった場合はここで新形式へ移行する（平文が手に入るのはこの瞬間だけ）。
-            if let upgraded { onUpgradeHash?(upgraded) }
-            // パスワード証明成功: 生体認証有効ならこの Mac を自動アーム（平文は保存されない）。
-            if useBiometric {
-                armThisMachine()
+            // G25c: 親は検証中の差し替えを検出したら書き戻しを拒否して false を返す。その場合は
+            // 移行後の値を「有効」とみなしてはならない（DB には入っていない）。
+            var effectiveHash = hash
+            if let upgraded, onUpgradeHash?(hash, upgraded) == true {
+                effectiveHash = upgraded
             }
-            // 移行が走った場合、以後有効なのは移行後のハッシュ。
-            onUnlock(upgraded ?? hash)
+            // パスワード証明成功: 生体認証有効ならこの Mac を自動アーム（平文は保存されない）。
+            // アームも通知も **検証した値**（移行が成立したならその結果）で行う。
+            if useBiometric {
+                armThisMachine(effectiveHash)
+            }
+            onUnlock(effectiveHash)
         case .failed:
             failureCount += 1
             password = ""

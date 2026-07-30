@@ -491,8 +491,9 @@ struct LibraryWindowContainer: View {
                             hash: settings?.lockPasswordHash ?? "",
                             useBiometric: settings?.useBiometric ?? false,
                             armedHash: { BiometricArming.armedHash(for: settings) },
-                            armThisMachine: {
-                                BiometricArming.arm(settings, hash: settings?.lockPasswordHash ?? "")
+                            armThisMachine: { verifiedHash in
+                                // G25c: 現在値ではなく**検証したハッシュ**でアームする。
+                                BiometricArming.arm(settings, hash: verifiedHash)
                                 // 2.6g 以前の plaintext Keychain item を除去（one-shot、no-throw）
                                 if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
                             },
@@ -524,7 +525,16 @@ struct LibraryWindowContainer: View {
                             // G23 (#8): 旧形式（生 SHA-256）のハッシュを PBKDF2 形式へ移行する。
                             // lockPasswordHash は didSet で DB へ永続化される。この代入は
                             // armThisMachine より前に走るため、再アーム時の armedHash も新形式になる。
-                            onUpgradeHash: { newHash in settings?.lockPasswordHash = newHash }
+                            onUpgradeHash: { verifiedAgainst, upgraded in
+                                // G25c: compare-and-set。検証中に外部からハッシュを差し替えられていたら
+                                // 書き戻さない（無条件代入だと外部設定の新パスワードを巻き戻す）。
+                                guard shouldPersistHashUpgrade(verifiedAgainst: verifiedAgainst,
+                                                               current: settings?.lockPasswordHash) else {
+                                    return false
+                                }
+                                settings?.lockPasswordHash = upgraded
+                                return true
+                            }
                         )
                     }
             } else {
