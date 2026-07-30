@@ -562,6 +562,9 @@ struct LibrarySettingsSheet: View {
             } catch {
                 settingsLogger.error("clearLock failed: \(error.localizedDescription, privacy: .public)")
                 presentLockWriteFailure(error)
+                // ロック以外の設定はここより前で永続化済み。ウォッチャーだけ取り残さないよう
+                // 成功時と同じく再構成してから抜ける（シートは閉じない＝再試行できる）。
+                appState?.reloadFolderWatcher()
                 return
             }
             settings.useBiometric = false
@@ -583,6 +586,8 @@ struct LibrarySettingsSheet: View {
             } catch {
                 settingsLogger.error("setLock failed: \(error.localizedDescription, privacy: .public)")
                 presentLockWriteFailure(error)
+                // 同上: ロック以外の設定は永続化済みなのでウォッチャーを再構成してから抜ける。
+                appState?.reloadFolderWatcher()
                 return
             }
             // 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
