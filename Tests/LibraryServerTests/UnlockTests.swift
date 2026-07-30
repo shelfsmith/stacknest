@@ -81,10 +81,34 @@ struct UnlockTests {
     /// ライブラリトークンは TTL（テストでは短縮注入）で失効する。
     @Test func libraryTokenExpiresAfterTTL() async throws {
         let store = LibraryTokenStore(ttl: .milliseconds(50))
-        let t = await store.issueToken(for: "lib1")
-        #expect(await store.isValid(t, for: "lib1"))
+        let t = await store.issueToken(for: "lib1", credential: "H1")
+        #expect(await store.isValid(t, for: "lib1", currentCredential: "H1"))
         try await Task.sleep(for: .milliseconds(120))
-        #expect(!(await store.isValid(t, for: "lib1")))
+        #expect(!(await store.isValid(t, for: "lib1", currentCredential: "H1")))
+    }
+
+    /// G25d: ★パスワードが変更されたら、発行済みトークンは即座に失効する。
+    /// これが無いと「認証した世代とは別のパスワードになった庫」に 24 時間アクセスできてしまう。
+    @Test func libraryTokenIsInvalidatedWhenPasswordChanges() async throws {
+        let store = LibraryTokenStore()
+        let t = await store.issueToken(for: "lib1", credential: "H1")
+        #expect(await store.isValid(t, for: "lib1", currentCredential: "H1"))
+        // 管理者が別パスワードへ変更 → 現行世代が H2 になる。
+        #expect(!(await store.isValid(t, for: "lib1", currentCredential: "H2")))
+    }
+
+    /// G25d: 施錠が解除されたら（現行世代が無い）トークンは無効。
+    @Test func libraryTokenIsInvalidWhenLockRemoved() async throws {
+        let store = LibraryTokenStore()
+        let t = await store.issueToken(for: "lib1", credential: "H1")
+        #expect(!(await store.isValid(t, for: "lib1", currentCredential: nil)))
+    }
+
+    /// G25d: 別ライブラリのトークンは、たまたま同じ世代文字列でも通らない。
+    @Test func libraryTokenIsScopedToItsLibrary() async throws {
+        let store = LibraryTokenStore()
+        let t = await store.issueToken(for: "lib1", credential: "H1")
+        #expect(!(await store.isValid(t, for: "lib2", currentCredential: "H1")))
     }
 
     /// #2a: グラントの scope 外のライブラリに対する unlock は 404（既存/未存在の判別を与えない）。

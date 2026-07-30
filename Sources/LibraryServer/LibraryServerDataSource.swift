@@ -23,13 +23,23 @@ public struct ServedLibrary: Sendable {
     /// ロック庫のパスワード照合（headless 可・LibraryLock 再利用）。
     /// G23 (#8): 保存値が旧形式（生 SHA-256）だった場合は、この場で PBKDF2 形式へ書き戻す。
     /// 平文パスワードが手に入るのは解錠の瞬間だけなので、移行できるのはここしかない。
-    public func verifyPassword(_ password: String) -> Bool {
+    /// G25d: 現在有効な credential 世代（＝ロックハッシュ）。未施錠なら nil。
+    /// トークン検証時に「発行時の世代が今も現行か」を突き合わせるために使う。
+    public func currentLockCredential() -> String? {
+        (try? db.getLibrarySetting(key: "lock_password_hash")) ?? nil
+    }
+
+    /// G25d: 照合に成功した **credential 世代（＝有効なハッシュ）** を返す。`nil` は失敗。
+    /// 真偽値ではなく世代を返すのは、発行するトークンを「**どのパスワードで認証したか**」に
+    /// 束縛するため。現在値ではなく照合した値を返すこと — 照合中に差し替えられていた場合、
+    /// 現在値で束縛すると「知らないパスワードのトークン」を発行してしまう。
+    public func verifiedCredential(for password: String) -> String? {
         // G25c: salt/hash は単一 read transaction で読む（世代混在だと正しいパスワードが弾かれる）。
         let pair = (try? db.getLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])) ?? [:]
-        guard let hash = pair["lock_password_hash"], let salt = pair["lock_password_salt"] else { return false }
+        guard let hash = pair["lock_password_hash"], let salt = pair["lock_password_salt"] else { return nil }
         switch LibraryLock.verifyAndUpgrade(password: password, saltHex: salt, against: hash) {
         case .failed:
-            return false
+            return nil
         case .ok(let upgraded):
             // G25c: 照合したのは**開始時に読んだスナップショット** `hash` であって、現行の値とは限らない。
             // 照合中に管理者や別経路がパスワードを変更していた場合、旧パスワードでの成功を返すと
@@ -39,12 +49,13 @@ public struct ServedLibrary: Sendable {
                 // 移行を試みる。CAS 成功＝照合した hash が現行だった証拠なので、それで確認を兼ねる。
                 if (try? db.compareAndSetLibrarySetting(
                         key: "lock_password_hash", expected: hash, newValue: upgraded)) == true {
-                    return true
+                    // 移行後の値が以後の有効な世代。
+                    return upgraded
                 }
                 // 拒否（差し替えられた）か書き込み失敗。下の再読みでどちらかを切り分ける
                 // ＝書き込み失敗なら現行値は hash のままなので解錠は認める（移行は次回に再試行）。
             }
-            return (try? db.getLibrarySetting(key: "lock_password_hash")) == hash
+            return (try? db.getLibrarySetting(key: "lock_password_hash")) == hash ? hash : nil
         }
     }
 }
