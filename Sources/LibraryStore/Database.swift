@@ -1639,6 +1639,26 @@ public final class Database: @unchecked Sendable {
     }
 
     /// Inserts or updates the value for the given key (UPSERT semantics).
+    /// G25c: 複数の設定キーを**単一の read transaction**で読む。
+    ///
+    /// 書き込みを原子的にしても読みが分割されていると意味がない。salt と hash を別々に読むと、
+    /// その間に別接続が原子的に (S2, H2) へ差し替えた場合に `H1 + S2` のような**世代混在**を掴み、
+    /// 新旧どちらのパスワードでも照合できない状態になる。組で読む。
+    /// - Returns: 存在したキーのみを含む辞書（欠けているキーは省かれる）。
+    public func getLibrarySettings(keys: [String]) throws -> [String: String] {
+        guard let q = queue, !keys.isEmpty else { return [:] }
+        return try q.read { db in
+            var out: [String: String] = [:]
+            for key in keys {
+                if let v = try String.fetchOne(db, sql: "SELECT value FROM library_settings WHERE key = ?",
+                                               arguments: [key]) {
+                    out[key] = v
+                }
+            }
+            return out
+        }
+    }
+
     /// G25c: 複数の設定キーを**単一トランザクション**で書く。
     ///
     /// ロックの salt と hash のように**組で意味を持つ値**を別々のトランザクションで書くと、

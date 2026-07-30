@@ -107,8 +107,18 @@ extension LibrarySettingsSheet {
         }
         if LibraryLock.verify(password: disableLockPassword, saltHex: salt, against: hash) {
             // 正しい password: クリア実行
-            // G25c: salt/hash は組でまとめて消す。
-            try? settings.clearLock()
+            // G25c: salt/hash は組でまとめて消す。書き込みの成功を後続処理の前提にする
+            // （失敗を握り潰すと DB にロックが残ったまま UI だけ解除済みになる）。
+            do {
+                try settings.clearLock()
+            } catch {
+                let alert = NSAlert()
+                alert.messageText = "ロックを解除できませんでした"
+                alert.informativeText = "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n\(error.localizedDescription)"
+                alert.addButton(withTitle: "OK")
+                alert.runModal()
+                return
+            }
             settings.useBiometric = false
             BiometricArming.disarm(settings)
             if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }

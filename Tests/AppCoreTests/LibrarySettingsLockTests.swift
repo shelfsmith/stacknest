@@ -30,8 +30,7 @@ struct LibrarySettingsLockTests {
     func persistsAndReloadsHashSaltBiometric() throws {
         let db = try makeFreshDB()
         let s = try LibrarySettings(database: db)
-        s.lockPasswordHash = "deadbeef"
-        s.lockPasswordSalt = "cafebabe"
+        try s.setLock(hash: "deadbeef", salt: "cafebabe")
         s.useBiometric = true
         let r = try LibrarySettings(database: db)
         #expect(r.lockPasswordHash == "deadbeef")
@@ -43,11 +42,9 @@ struct LibrarySettingsLockTests {
     func clearingHashRemovesAllLockData() throws {
         let db = try makeFreshDB()
         let s = try LibrarySettings(database: db)
-        s.lockPasswordHash = "deadbeef"
-        s.lockPasswordSalt = "cafebabe"
+        try s.setLock(hash: "deadbeef", salt: "cafebabe")
         s.useBiometric = true
-        s.lockPasswordHash = nil
-        s.lockPasswordSalt = nil
+        try s.clearLock()
         s.useBiometric = false
         let r = try LibrarySettings(database: db)
         #expect(r.lockPasswordHash == nil)

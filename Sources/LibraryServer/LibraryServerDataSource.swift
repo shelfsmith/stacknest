@@ -24,8 +24,9 @@ public struct ServedLibrary: Sendable {
     /// G23 (#8): 保存値が旧形式（生 SHA-256）だった場合は、この場で PBKDF2 形式へ書き戻す。
     /// 平文パスワードが手に入るのは解錠の瞬間だけなので、移行できるのはここしかない。
     public func verifyPassword(_ password: String) -> Bool {
-        guard let hash = try? db.getLibrarySetting(key: "lock_password_hash"),
-              let salt = try? db.getLibrarySetting(key: "lock_password_salt") else { return false }
+        // G25c: salt/hash は単一 read transaction で読む（世代混在だと正しいパスワードが弾かれる）。
+        let pair = (try? db.getLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])) ?? [:]
+        guard let hash = pair["lock_password_hash"], let salt = pair["lock_password_salt"] else { return false }
         switch LibraryLock.verifyAndUpgrade(password: password, saltHex: salt, against: hash) {
         case .failed:
             return false
