@@ -1639,6 +1639,27 @@ public final class Database: @unchecked Sendable {
     }
 
     /// Inserts or updates the value for the given key (UPSERT semantics).
+    /// G25c: 期待値と一致するときだけ更新する原子的 compare-and-set。更新できたら true。
+    ///
+    /// #8 の遅延ハッシュ移行（旧 SHA-256 / 旧 iteration → 現行 PBKDF2）は「検証したハッシュが**今も DB 上の値**」
+    /// のときだけ書き戻さなければならない。メモリ上の値と比較する方式では、別プロセス／別 Mac が
+    /// DB を書き換えていた場合を検出できず、**外部が設定した新しいパスワードを旧パスワード由来の
+    /// ハッシュで巻き戻す**（ロックのダウングレード）。単一の UPDATE ... WHERE で判定と書き込みを
+    /// 不可分にし、更新行数で結果を返す。
+    ///
+    /// キーが存在しない場合は false（行がヒットしないため）。INSERT はしない
+    /// ＝「消えている（施錠解除済み）」を「一致しない」として扱うのが安全側。
+    public func compareAndSetLibrarySetting(key: String, expected: String, newValue: String) throws -> Bool {
+        guard let q = queue else { return false }
+        return try q.write { db in
+            try db.execute(
+                sql: "UPDATE library_settings SET value = ? WHERE key = ? AND value = ?",
+                arguments: [newValue, key, expected]
+            )
+            return db.changesCount == 1
+        }
+    }
+
     public func setLibrarySetting(key: String, value: String) throws {
         guard let q = queue else { return }
         try q.write { db in

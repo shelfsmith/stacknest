@@ -526,14 +526,10 @@ struct LibraryWindowContainer: View {
                             // lockPasswordHash は didSet で DB へ永続化される。この代入は
                             // armThisMachine より前に走るため、再アーム時の armedHash も新形式になる。
                             onUpgradeHash: { verifiedAgainst, upgraded in
-                                // G25c: compare-and-set。検証中に外部からハッシュを差し替えられていたら
-                                // 書き戻さない（無条件代入だと外部設定の新パスワードを巻き戻す）。
-                                guard shouldPersistHashUpgrade(verifiedAgainst: verifiedAgainst,
-                                                               current: settings?.lockPasswordHash) else {
-                                    return false
-                                }
-                                settings?.lockPasswordHash = upgraded
-                                return true
+                                // G25c: DB 層の原子的 compare-and-set に委ねる（メモリ比較では
+                                // 別プロセス／別 Mac による差し替えを検出できず、外部設定の新パスワードを
+                                // 巻き戻してしまう）。戻り値は**実際に DB を更新したか**。
+                                settings?.upgradeLockHash(verifiedAgainst: verifiedAgainst, to: upgraded) ?? false
                             }
                         )
                     }
