@@ -652,12 +652,30 @@ public final class LibrarySettings {
             reloadLockSettings()
             return false
         }
-        // DB が真。メモリを同期する（didSet の再永続化は同値の UPSERT なので無害）。
-        lockPasswordHash = upgraded
+        // DB が真。メモリを同期する。**ここで didSet の永続化を走らせてはいけない** —
+        // CAS 成功と代入の間に外部が別の値を書いていれば、無条件 UPSERT がそれを巻き戻す
+        //（「同値だから無害」は外部書き込みが無いことを前提にした循環した理由付けだった）。
+        syncLockFieldsFromDatabase(hash: upgraded, salt: lockPasswordSalt)
         return true
     }
 
+    /// G25c: **DB を真として読み直した値をメモリへ反映する**間だけ true にする。
+    /// 本クラスは `didSet` で永続化するため、メモリへの代入はすべて「無条件の書き込み」になる。
+    /// DB から読んだ値をそのまま書き戻すと、読みと書き戻しの間に外部（別プロセス／別 Mac）が
+    /// 書いた値を巻き戻す。反映のときは書き込みを抑止する。
+    private var isSyncingFromDatabase = false
+
+    /// 永続化を伴わずにロック系のメモリ値を DB の内容へ揃える。
+    private func syncLockFieldsFromDatabase(hash: String?, salt: String?) {
+        isSyncingFromDatabase = true
+        lockPasswordHash = hash
+        lockPasswordSalt = salt
+        isSyncingFromDatabase = false
+    }
+
     private func persistLockHash() {
+        // G25c: DB からの反映中は書き戻さない（外部更新の巻き戻しを防ぐ）。
+        guard !isSyncingFromDatabase else { return }
         do {
             if let h = lockPasswordHash {
                 try database.setLibrarySetting(key: Self.lockHashKey, value: h)
@@ -670,6 +688,8 @@ public final class LibrarySettings {
     }
 
     private func persistLockSalt() {
+        // G25c: DB からの反映中は書き戻さない（persistLockHash と同じ理由）。
+        guard !isSyncingFromDatabase else { return }
         do {
             if let s = lockPasswordSalt {
                 try database.setLibrarySetting(key: Self.lockSaltKey, value: s)
@@ -774,9 +794,12 @@ public final class LibrarySettings {
     /// 他の reload と違い、**キーの削除（解除）も反映する**必要がある点に注意。
     /// 「値があれば代入」だけにするとロック解除がメモリへ伝わらない。
     public func reloadLockSettings() {
-        // 代入は didSet で DB へ書き戻るが、書き戻す値は今 DB から読んだものと同じなので実害はない。
-        lockPasswordHash = (try? database.getLibrarySetting(key: Self.lockHashKey)) ?? nil
-        lockPasswordSalt = (try? database.getLibrarySetting(key: Self.lockSaltKey)) ?? nil
+        // G25c: 以前は「書き戻す値は今 DB から読んだものと同じなので実害はない」としていたが、
+        // 読みと書き戻しの間に外部が別の値を書いていれば巻き戻す（＝外部更新の消失）。
+        // 反映は永続化を抑止して行う。
+        syncLockFieldsFromDatabase(
+            hash: (try? database.getLibrarySetting(key: Self.lockHashKey)) ?? nil,
+            salt: (try? database.getLibrarySetting(key: Self.lockSaltKey)) ?? nil)
     }
 
     private func persistIgnoredDuplicateKeys() {
