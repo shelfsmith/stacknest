@@ -476,6 +476,7 @@ public final class LibrarySettings {
     }
 
     private func persistColumns() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(listViewColumns)
             let str = String(decoding: data, as: UTF8.self)
@@ -486,6 +487,7 @@ public final class LibrarySettings {
     }
 
     private func persistSort() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(listViewSort)
             let str = String(decoding: data, as: UTF8.self)
@@ -496,6 +498,7 @@ public final class LibrarySettings {
     }
 
     private func persistColumnOrder() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(listColumnOrder)
             let str = String(decoding: data, as: UTF8.self)
@@ -506,6 +509,7 @@ public final class LibrarySettings {
     }
 
     private func persistFilterState() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(filterState)
             let str = String(decoding: data, as: UTF8.self)
@@ -516,6 +520,7 @@ public final class LibrarySettings {
     }
 
     private func persistBrowserPaneState() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(browserPaneState)
             let str = String(decoding: data, as: UTF8.self)
@@ -526,6 +531,7 @@ public final class LibrarySettings {
     }
 
     private func persistViewMode() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(viewMode)
             let str = String(decoding: data, as: UTF8.self)
@@ -536,6 +542,7 @@ public final class LibrarySettings {
     }
 
     private func persistWindowFrame() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             if let frame = windowFrame {
                 let data = try JSONEncoder().encode(frame)
@@ -550,6 +557,7 @@ public final class LibrarySettings {
     }
 
     private func persistFilenameFormat() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.filenameFormatKey, value: filenameFormat)
         } catch {
@@ -558,6 +566,7 @@ public final class LibrarySettings {
     }
 
     private func persistDisplayName() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.displayNameKey, value: displayName)
         } catch {
@@ -572,6 +581,7 @@ public final class LibrarySettings {
     }
 
     private func persistFilenameFormatPresets() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(filenameFormatPresets)
             let str = String(data: data, encoding: .utf8) ?? "[]"
@@ -582,6 +592,7 @@ public final class LibrarySettings {
     }
 
     private func persistDefaultFilenameFormatPresetID() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.filenameFormatDefaultIDKey, value: defaultFilenameFormatPresetID)
         } catch {
@@ -623,10 +634,31 @@ public final class LibrarySettings {
     }
 
     private func persistTopPaneMode() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.topPaneModeKey, value: topPaneMode)
         } catch {
             Self.logger.error("Failed to persist topPaneMode: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// G25c: ロックの salt と hash を**単一トランザクション**で設定する（新規施錠・パスワード変更）。
+    /// 別々に書くと `salt B + hash A` のような不整合が残り、どのパスワードでも解錠できない庫になりうる。
+    /// メモリ値は書き込み成功後に永続化を抑止して揃える（didSet の二重書き込みを避ける）。
+    public func setLock(hash: String, salt: String) throws {
+        try database.setLibrarySettings([Self.lockHashKey: hash, Self.lockSaltKey: salt])
+        syncingFromDatabase {
+            lockPasswordHash = hash
+            lockPasswordSalt = salt
+        }
+    }
+
+    /// G25c: ロックを解除する（salt と hash を単一トランザクションで削除）。
+    public func clearLock() throws {
+        try database.deleteLibrarySettings(keys: [Self.lockHashKey, Self.lockSaltKey])
+        syncingFromDatabase {
+            lockPasswordHash = nil
+            lockPasswordSalt = nil
         }
     }
 
@@ -655,7 +687,7 @@ public final class LibrarySettings {
         // DB が真。メモリを同期する。**ここで didSet の永続化を走らせてはいけない** —
         // CAS 成功と代入の間に外部が別の値を書いていれば、無条件 UPSERT がそれを巻き戻す
         //（「同値だから無害」は外部書き込みが無いことを前提にした循環した理由付けだった）。
-        syncLockFieldsFromDatabase(hash: upgraded, salt: lockPasswordSalt)
+        syncingFromDatabase { lockPasswordHash = upgraded }
         return true
     }
 
@@ -663,19 +695,20 @@ public final class LibrarySettings {
     /// 本クラスは `didSet` で永続化するため、メモリへの代入はすべて「無条件の書き込み」になる。
     /// DB から読んだ値をそのまま書き戻すと、読みと書き戻しの間に外部（別プロセス／別 Mac）が
     /// 書いた値を巻き戻す。反映のときは書き込みを抑止する。
-    private var isSyncingFromDatabase = false
+    /// ネスト可能にするためカウンタで持つ（真偽値だと入れ子の内側が抜けた時点で解除されてしまう）。
+    private var databaseSyncDepth = 0
+    private var isSyncingFromDatabase: Bool { databaseSyncDepth > 0 }
 
-    /// 永続化を伴わずにロック系のメモリ値を DB の内容へ揃える。
-    private func syncLockFieldsFromDatabase(hash: String?, salt: String?) {
-        isSyncingFromDatabase = true
-        lockPasswordHash = hash
-        lockPasswordSalt = salt
-        isSyncingFromDatabase = false
+    /// **DB を真として読んだ値をメモリへ反映する**ブロック。この間 `persist*` は書き込みを行わない。
+    /// `defer` で必ず解除するため、body が throw / early return しても残留しない。
+    private func syncingFromDatabase(_ body: () -> Void) {
+        databaseSyncDepth += 1
+        defer { databaseSyncDepth -= 1 }
+        body()
     }
 
     private func persistLockHash() {
-        // G25c: DB からの反映中は書き戻さない（外部更新の巻き戻しを防ぐ）。
-        guard !isSyncingFromDatabase else { return }
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             if let h = lockPasswordHash {
                 try database.setLibrarySetting(key: Self.lockHashKey, value: h)
@@ -688,8 +721,7 @@ public final class LibrarySettings {
     }
 
     private func persistLockSalt() {
-        // G25c: DB からの反映中は書き戻さない（persistLockHash と同じ理由）。
-        guard !isSyncingFromDatabase else { return }
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             if let s = lockPasswordSalt {
                 try database.setLibrarySetting(key: Self.lockSaltKey, value: s)
@@ -702,6 +734,7 @@ public final class LibrarySettings {
     }
 
     private func persistUseBiometric() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.useBiometricKey, value: useBiometric ? "true" : "false")
         } catch {
@@ -710,6 +743,7 @@ public final class LibrarySettings {
     }
 
     private func persistColumnWidths() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(columnWidths)
             let str = String(decoding: data, as: UTF8.self)
@@ -720,6 +754,7 @@ public final class LibrarySettings {
     }
 
     private func persistStampDefinitions() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(stampDefinitions)
             let str = String(data: data, encoding: .utf8) ?? "{}"
@@ -733,24 +768,32 @@ public final class LibrarySettings {
     /// DB から再読込してメモリ表現（@Observable）を更新する（ローカル UI へライブ反映）。
     /// 失敗時は現状維持（誤って空に潰さない）。
     public func reloadStampDefinitions() {
-        guard let json = (try? database.getLibrarySetting(key: Self.stampDefinitionsKey)) ?? nil,
-              let data = json.data(using: .utf8),
-              let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else { return }
-        stampDefinitions = decoded
+        // G25c: DB を真として反映する。永続化を抑止しないと、読みと書き戻しの間に
+        // 外部（別プロセス／別 Mac）が書いた値を didSet が巻き戻す。
+        syncingFromDatabase {
+            guard let json = (try? database.getLibrarySetting(key: Self.stampDefinitionsKey)) ?? nil,
+                  let data = json.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else { return }
+            stampDefinitions = decoded
+        }
     }
 
     /// 4.2c-8: 外部（リモート RW のライブラリ設定 PUT 等）が DB の custom_field_labels /
     /// custom_book_type_labels を直接書き換えたとき、DB から再読込してメモリ（@Observable）へ反映する
     /// （サーバ機ローカル UI へラベル変更をライブ反映）。未設定キーは空マップにフォールバック。
     public func reloadCustomLabels() {
-        func decodeMap(_ key: String) -> [String: String] {
-            guard let json = (try? database.getLibrarySetting(key: key)) ?? nil,
-                  let data = json.data(using: .utf8),
-                  let map = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
-            return map
+        // G25c: DB を真として反映する。永続化を抑止しないと、読みと書き戻しの間に
+        // 外部（別プロセス／別 Mac）が書いた値を didSet が巻き戻す。
+        syncingFromDatabase {
+            func decodeMap(_ key: String) -> [String: String] {
+                guard let json = (try? database.getLibrarySetting(key: key)) ?? nil,
+                      let data = json.data(using: .utf8),
+                      let map = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+                return map
+            }
+            customFieldLabels = decodeMap(Self.customFieldLabelsKey)
+            customBookTypeLabels = decodeMap(Self.customBookTypeLabelsKey)
         }
-        customFieldLabels = decodeMap(Self.customFieldLabelsKey)
-        customBookTypeLabels = decodeMap(Self.customBookTypeLabelsKey)
     }
 
     /// G12b-2c A2: 外部（リモートの watch-config PUT 等）が DB の folder_watch_enabled /
@@ -758,29 +801,37 @@ public final class LibrarySettings {
     /// FolderWatcher をライブ再構成する（`AppState.reloadFolderWatcher()`）ために使う。
     /// 未設定/デコード失敗時は既定（無効・空）に倒す（init と同じ挙動）。
     public func reloadWatchedFolders() {
-        if let v = (try? database.getLibrarySetting(key: Self.folderWatchEnabledKey)) ?? nil {
-            folderWatchEnabled = (v == "1" || v == "true")
-        } else {
-            folderWatchEnabled = false
-        }
-        if let json = (try? database.getLibrarySetting(key: Self.watchedFoldersKey)) ?? nil,
-           let data = json.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode([WatchedFolder].self, from: data) {
-            watchedFolders = decoded
-        } else {
-            watchedFolders = []
+        // G25c: DB を真として反映する。永続化を抑止しないと、読みと書き戻しの間に
+        // 外部（別プロセス／別 Mac）が書いた値を didSet が巻き戻す。
+        syncingFromDatabase {
+            if let v = (try? database.getLibrarySetting(key: Self.folderWatchEnabledKey)) ?? nil {
+                folderWatchEnabled = (v == "1" || v == "true")
+            } else {
+                folderWatchEnabled = false
+            }
+            if let json = (try? database.getLibrarySetting(key: Self.watchedFoldersKey)) ?? nil,
+               let data = json.data(using: .utf8),
+               let decoded = try? JSONDecoder().decode([WatchedFolder].self, from: data) {
+                watchedFolders = decoded
+            } else {
+                watchedFolders = []
+            }
         }
     }
 
     /// G12b-3a: 外部（リモートの general-settings PUT 等）が DB の display_name/backup_* を
     /// 直接書き換えたとき、DB から再読込してメモリへ反映する（ホスト UI・配信名へライブ反映）。
     public func reloadGeneralSettings() {
-        if let v = (try? database.getLibrarySetting(key: Self.displayNameKey)) ?? nil { displayName = v }
-        if let v = (try? database.getLibrarySetting(key: Self.backupEnabledKey)) ?? nil {
-            backupEnabled = (v == "1" || v == "true")
-        }
-        if let v = (try? database.getLibrarySetting(key: Self.backupGenerationsKey)) ?? nil, let n = Int(v) {
-            backupGenerations = n
+        // G25c: DB を真として反映する。永続化を抑止しないと、読みと書き戻しの間に
+        // 外部（別プロセス／別 Mac）が書いた値を didSet が巻き戻す。
+        syncingFromDatabase {
+            if let v = (try? database.getLibrarySetting(key: Self.displayNameKey)) ?? nil { displayName = v }
+            if let v = (try? database.getLibrarySetting(key: Self.backupEnabledKey)) ?? nil {
+                backupEnabled = (v == "1" || v == "true")
+            }
+            if let v = (try? database.getLibrarySetting(key: Self.backupGenerationsKey)) ?? nil, let n = Int(v) {
+                backupGenerations = n
+            }
         }
     }
 
@@ -797,12 +848,14 @@ public final class LibrarySettings {
         // G25c: 以前は「書き戻す値は今 DB から読んだものと同じなので実害はない」としていたが、
         // 読みと書き戻しの間に外部が別の値を書いていれば巻き戻す（＝外部更新の消失）。
         // 反映は永続化を抑止して行う。
-        syncLockFieldsFromDatabase(
-            hash: (try? database.getLibrarySetting(key: Self.lockHashKey)) ?? nil,
-            salt: (try? database.getLibrarySetting(key: Self.lockSaltKey)) ?? nil)
+        syncingFromDatabase {
+            lockPasswordHash = (try? database.getLibrarySetting(key: Self.lockHashKey)) ?? nil
+            lockPasswordSalt = (try? database.getLibrarySetting(key: Self.lockSaltKey)) ?? nil
+        }
     }
 
     private func persistIgnoredDuplicateKeys() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(ignoredDuplicateKeys)
             try database.setLibrarySetting(key: Self.ignoredDuplicateKeysKey, value: String(decoding: data, as: UTF8.self))
@@ -812,6 +865,7 @@ public final class LibrarySettings {
     }
 
     private func persistCustomFieldLabels() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let cleaned = customFieldLabels.filter { !$0.value.isEmpty }
             let data = try JSONEncoder().encode(cleaned)
@@ -822,6 +876,7 @@ public final class LibrarySettings {
     }
 
     private func persistCustomBookTypeLabels() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let cleaned = customBookTypeLabels.filter { !$0.value.isEmpty }
             let data = try JSONEncoder().encode(cleaned)
@@ -832,6 +887,7 @@ public final class LibrarySettings {
     }
 
     private func persistGridItemSize() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.gridItemSizeKey, value: String(gridItemSize))
         } catch {
@@ -840,6 +896,7 @@ public final class LibrarySettings {
     }
 
     private func persistRecentDays() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.recentDaysKey, value: String(recentDays))
         } catch {
@@ -848,6 +905,7 @@ public final class LibrarySettings {
     }
 
     private func persistSortMode() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.sortModeKey, value: sortMode.rawValue)
         } catch {
@@ -856,6 +914,7 @@ public final class LibrarySettings {
     }
 
     private func persistBackupEnabled() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.backupEnabledKey, value: backupEnabled ? "true" : "false")
         } catch {
@@ -864,6 +923,7 @@ public final class LibrarySettings {
     }
 
     private func persistBackupGenerations() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.backupGenerationsKey, value: String(backupGenerations))
         } catch {
@@ -872,6 +932,7 @@ public final class LibrarySettings {
     }
 
     private func persistRemoteSharingEnabled() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.remoteSharingEnabledKey, value: remoteSharingEnabled ? "true" : "false")
         } catch {
@@ -880,6 +941,7 @@ public final class LibrarySettings {
     }
 
     private func persistFolderWatchEnabled() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             try database.setLibrarySetting(key: Self.folderWatchEnabledKey, value: folderWatchEnabled ? "true" : "false")
         } catch {
@@ -888,6 +950,7 @@ public final class LibrarySettings {
     }
 
     private func persistWatchedFolders() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             let data = try JSONEncoder().encode(watchedFolders)
             try database.setLibrarySetting(key: Self.watchedFoldersKey, value: String(data: data, encoding: .utf8) ?? "[]")
@@ -897,6 +960,7 @@ public final class LibrarySettings {
     }
 
     private func persistImportAutoClassify() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             if let v = importAutoClassify {
                 try database.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: v ? "true" : "false")
@@ -909,6 +973,7 @@ public final class LibrarySettings {
     }
 
     private func persistImportThickThreshold() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
         do {
             if let v = importThickThreshold {
                 try database.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: String(v))

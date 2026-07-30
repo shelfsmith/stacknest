@@ -62,4 +62,44 @@ struct LibrarySettingCASTests {
         _ = try db.compareAndSetLibrarySetting(key: "lock_password_hash", expected: "H1", newValue: "PBKDF2_H1")
         #expect(try db.getLibrarySetting(key: "lock_password_salt") == "S1")
     }
+
+    @Test("組書き込みは両方のキーを反映する")
+    func setsPairTogether() throws {
+        let (db, url) = try makeDB("pair")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try db.setLibrarySettings(["lock_password_hash": "H1", "lock_password_salt": "S1"])
+        #expect(try db.getLibrarySetting(key: "lock_password_hash") == "H1")
+        #expect(try db.getLibrarySetting(key: "lock_password_salt") == "S1")
+    }
+
+    @Test("組書き込みは既存値を上書きする（新規施錠・パスワード変更）")
+    func setsPairOverwritingExisting() throws {
+        let (db, url) = try makeDB("pair-overwrite")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try db.setLibrarySettings(["lock_password_hash": "H1", "lock_password_salt": "S1"])
+        try db.setLibrarySettings(["lock_password_hash": "H2", "lock_password_salt": "S2"])
+        // salt と hash が必ず同じ世代であること（片方だけ古い＝解錠不能を防ぐ）。
+        #expect(try db.getLibrarySetting(key: "lock_password_hash") == "H2")
+        #expect(try db.getLibrarySetting(key: "lock_password_salt") == "S2")
+    }
+
+    @Test("組削除は両方のキーを消す（施錠解除）")
+    func deletesPairTogether() throws {
+        let (db, url) = try makeDB("pair-delete")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try db.setLibrarySettings(["lock_password_hash": "H1", "lock_password_salt": "S1"])
+        try db.deleteLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])
+        #expect(try db.getLibrarySetting(key: "lock_password_hash") == nil)
+        #expect(try db.getLibrarySetting(key: "lock_password_salt") == nil)
+    }
+
+    @Test("組書き込み・組削除は無関係なキーを巻き込まない")
+    func pairOpsDoNotTouchUnrelatedKeys() throws {
+        let (db, url) = try makeDB("pair-scope")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try db.setLibrarySetting(key: "view_mode", value: "grid")
+        try db.setLibrarySettings(["lock_password_hash": "H1", "lock_password_salt": "S1"])
+        try db.deleteLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])
+        #expect(try db.getLibrarySetting(key: "view_mode") == "grid")
+    }
 }

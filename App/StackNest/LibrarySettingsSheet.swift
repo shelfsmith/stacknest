@@ -554,8 +554,8 @@ struct LibrarySettingsSheet: View {
 
         // Lock 反映
         if !lockToggleOn {
-            settings.lockPasswordHash = nil
-            settings.lockPasswordSalt = nil
+            // G25c: salt/hash は組でまとめて消す（片方だけ残る中間状態を作らない）。
+            try? settings.clearLock()
             settings.useBiometric = false
             BiometricArming.disarm(settings)
             if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
@@ -568,8 +568,8 @@ struct LibrarySettingsSheet: View {
             // **ハッシュ代入より前に立てる**こと(後だと「施錠済み && 未解錠」が一瞬成立し、
             // live 導出になったゲートが解錠シートを出してしまう)。
             appState?.markUnlocked(hash: hash)
-            settings.lockPasswordHash = hash
-            settings.lockPasswordSalt = salt
+            // G25c: salt/hash は組でまとめて書く（別々だと外部変更と交錯して不整合が残りうる）。
+            try? settings.setLock(hash: hash, salt: salt)
             settings.useBiometric = useBiometricInput
             settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput), isChange=\(isChange)")
             if useBiometricInput && !isChange {

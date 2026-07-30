@@ -1639,6 +1639,34 @@ public final class Database: @unchecked Sendable {
     }
 
     /// Inserts or updates the value for the given key (UPSERT semantics).
+    /// G25c: 複数の設定キーを**単一トランザクション**で書く。
+    ///
+    /// ロックの salt と hash のように**組で意味を持つ値**を別々のトランザクションで書くと、
+    /// 同時実行や外部からの変更と交錯して `salt B + hash A` のような不整合が残り、
+    /// **どのパスワードでも解錠できない庫**になりうる。組は必ずまとめて書く。
+    public func setLibrarySettings(_ pairs: [String: String]) throws {
+        guard let q = queue, !pairs.isEmpty else { return }
+        try q.write { db in
+            for (key, value) in pairs {
+                try db.execute(
+                    sql: "INSERT INTO library_settings (key, value) VALUES (?, ?) "
+                       + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    arguments: [key, value]
+                )
+            }
+        }
+    }
+
+    /// G25c: 複数の設定キーを**単一トランザクション**で削除する（施錠解除で salt/hash を同時に消す用）。
+    public func deleteLibrarySettings(keys: [String]) throws {
+        guard let q = queue, !keys.isEmpty else { return }
+        try q.write { db in
+            for key in keys {
+                try db.execute(sql: "DELETE FROM library_settings WHERE key = ?", arguments: [key])
+            }
+        }
+    }
+
     /// G25c: 期待値と一致するときだけ更新する原子的 compare-and-set。更新できたら true。
     ///
     /// #8 の遅延ハッシュ移行（旧 SHA-256 / 旧 iteration → 現行 PBKDF2）は「検証したハッシュが**今も DB 上の値**」

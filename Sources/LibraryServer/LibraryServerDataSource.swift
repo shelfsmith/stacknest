@@ -30,15 +30,20 @@ public struct ServedLibrary: Sendable {
         case .failed:
             return false
         case .ok(let upgraded):
+            // G25c: 照合したのは**開始時に読んだスナップショット** `hash` であって、現行の値とは限らない。
+            // 照合中に管理者や別経路がパスワードを変更していた場合、旧パスワードでの成功を返すと
+            // **無効になったパスワードに library token を発行する**（認証の fail-open）。
+            // 成功を返す前に「照合した hash が今も現行である」ことを確かめる。
             if let upgraded {
-                // 移行の失敗は解錠を妨げない（次回の解錠でまた試みる）。
-                // G25c: 無条件 UPSERT は、照合中に外部（別経路・別プロセス）が新パスワードを
-                // 設定していた場合にそれを旧パスワード由来のハッシュへ巻き戻す。
-                // 「読んだ値が今も DB 上の値である」ときだけ書き戻す原子的 CAS を使う。
-                _ = try? db.compareAndSetLibrarySetting(
-                    key: "lock_password_hash", expected: hash, newValue: upgraded)
+                // 移行を試みる。CAS 成功＝照合した hash が現行だった証拠なので、それで確認を兼ねる。
+                if (try? db.compareAndSetLibrarySetting(
+                        key: "lock_password_hash", expected: hash, newValue: upgraded)) == true {
+                    return true
+                }
+                // 拒否（差し替えられた）か書き込み失敗。下の再読みでどちらかを切り分ける
+                // ＝書き込み失敗なら現行値は hash のままなので解錠は認める（移行は次回に再試行）。
             }
-            return true
+            return (try? db.getLibrarySetting(key: "lock_password_hash")) == hash
         }
     }
 }
