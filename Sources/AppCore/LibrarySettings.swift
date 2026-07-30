@@ -696,6 +696,9 @@ public final class LibrarySettings {
     /// DB から読んだ値をそのまま書き戻すと、読みと書き戻しの間に外部（別プロセス／別 Mac）が
     /// 書いた値を巻き戻す。反映のときは書き込みを抑止する。
     /// ネスト可能にするためカウンタで持つ（真偽値だと入れ子の内側が抜けた時点で解除されてしまう）。
+    /// `@ObservationIgnored`: これは内部の制御状態であって UI が観測すべき値ではない。
+    /// 付けないと reload のたびに観測通知が飛び、不要な再描画を誘発する。
+    @ObservationIgnored
     private var databaseSyncDepth = 0
     private var isSyncingFromDatabase: Bool { databaseSyncDepth > 0 }
 
