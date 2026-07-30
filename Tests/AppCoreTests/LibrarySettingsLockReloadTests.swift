@@ -74,4 +74,47 @@ struct LibrarySettingsLockReloadTests {
         s.reloadLockSettings()
         #expect(s.lockPasswordHash == "h2")
     }
+
+    /// G25c: **reload は DB へ書き戻してはならない。**
+    /// 以前は「読んだ値をそのまま代入するので同値＝無害」としていたが、`didSet` の無条件 UPSERT は
+    /// 読みと書き戻しの間に外部が書いた値を巻き戻す。ここでは「反映後にメモリ値を再代入しても
+    /// DB が変わらない」＝反映経路が書き込みを伴わないことを検証する。
+    @Test func reloadDoesNotWriteBackToDatabase() throws {
+        let db = try Database.openInMemory(); try db.migrate()
+        try db.setLibrarySetting(key: "lock_password_hash", value: "H1")
+        try db.setLibrarySetting(key: "lock_password_salt", value: "S1")
+        let s = try LibrarySettings(database: db)
+        #expect(s.lockPasswordHash == "H1")
+
+        // 外部が H2 へ差し替え → 反映する。
+        try db.setLibrarySetting(key: "lock_password_hash", value: "H2")
+        s.reloadLockSettings()
+        #expect(s.lockPasswordHash == "H2")
+
+        // 反映の直後に外部が H3 を書く。反映が書き戻しを伴っていれば、この後に
+        // メモリ値（H2）が DB へ流れ込んで H3 を潰す。DB が H3 のままであること。
+        try db.setLibrarySetting(key: "lock_password_hash", value: "H3")
+        s.reloadLockSettings()
+        #expect(try db.getLibrarySetting(key: "lock_password_hash") == "H3")
+        #expect(s.lockPasswordHash == "H3")
+    }
+
+    /// G25c: #8 の遅延移行は、照合したハッシュが今も DB 上の値のときだけ書き戻す。
+    @Test func upgradeLockHashUsesCompareAndSet() throws {
+        let db = try Database.openInMemory(); try db.migrate()
+        try db.setLibrarySetting(key: "lock_password_hash", value: "H1")
+        let s = try LibrarySettings(database: db)
+
+        // 非競合: 成功して DB とメモリの両方が移行後の値になる。
+        #expect(s.upgradeLockHash(verifiedAgainst: "H1", to: "PBKDF2_H1") == true)
+        #expect(try db.getLibrarySetting(key: "lock_password_hash") == "PBKDF2_H1")
+        #expect(s.lockPasswordHash == "PBKDF2_H1")
+
+        // 競合: 照合したのは H_old なのに DB は既に別の値 → 拒否し、DB を巻き戻さない。
+        try db.setLibrarySetting(key: "lock_password_hash", value: "H2")
+        #expect(s.upgradeLockHash(verifiedAgainst: "H_old", to: "PBKDF2_H_old") == false)
+        #expect(try db.getLibrarySetting(key: "lock_password_hash") == "H2")
+        // 拒否時はメモリを現況（H2）へ揃える。
+        #expect(s.lockPasswordHash == "H2")
+    }
 }

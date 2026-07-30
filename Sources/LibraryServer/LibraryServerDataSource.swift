@@ -32,7 +32,11 @@ public struct ServedLibrary: Sendable {
         case .ok(let upgraded):
             if let upgraded {
                 // 移行の失敗は解錠を妨げない（次回の解錠でまた試みる）。
-                try? db.setLibrarySetting(key: "lock_password_hash", value: upgraded)
+                // G25c: 無条件 UPSERT は、照合中に外部（別経路・別プロセス）が新パスワードを
+                // 設定していた場合にそれを旧パスワード由来のハッシュへ巻き戻す。
+                // 「読んだ値が今も DB 上の値である」ときだけ書き戻す原子的 CAS を使う。
+                _ = try? db.compareAndSetLibrarySetting(
+                    key: "lock_password_hash", expected: hash, newValue: upgraded)
             }
             return true
         }
