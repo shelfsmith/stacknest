@@ -1215,8 +1215,10 @@ public struct LibraryServerCore: Sendable {
             guard !body.password.isEmpty else { throw HTTPError(.badRequest) }
             let salt = LibraryLock.generateSalt()
             let hash = LibraryLock.computeHash(password: body.password, saltHex: salt)
-            try lib.db.setLibrarySetting(key: "lock_password_salt", value: salt)
-            try lib.db.setLibrarySetting(key: "lock_password_hash", value: hash)
+            // G25c: salt と hash は**組で意味を持つ**ため単一トランザクションで書く。
+            // 別々に書くと同時実行や外部変更と交錯して `salt B + hash A` が残り、
+            // どのパスワードでも解錠できない庫になりうる。
+            try lib.db.setLibrarySettings(["lock_password_salt": salt, "lock_password_hash": hash])
             self.notifySettingsChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }
@@ -1224,8 +1226,8 @@ public struct LibraryServerCore: Sendable {
         api.delete("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
-            try lib.db.deleteLibrarySetting(key: "lock_password_hash")
-            try lib.db.deleteLibrarySetting(key: "lock_password_salt")
+            // G25c: 解除も組でまとめて消す（片方だけ残る中間状態を作らない）。
+            try lib.db.deleteLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])
             self.notifySettingsChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }

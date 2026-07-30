@@ -107,8 +107,8 @@ extension LibrarySettingsSheet {
         }
         if LibraryLock.verify(password: disableLockPassword, saltHex: salt, against: hash) {
             // 正しい password: クリア実行
-            settings.lockPasswordHash = nil
-            settings.lockPasswordSalt = nil
+            // G25c: salt/hash は組でまとめて消す。
+            try? settings.clearLock()
             settings.useBiometric = false
             BiometricArming.disarm(settings)
             if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
