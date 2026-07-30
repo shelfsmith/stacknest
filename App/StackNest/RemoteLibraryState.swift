@@ -235,7 +235,7 @@ final class RemoteLibraryState {
             total = result.total
             errorText = nil
         } catch let e as RemoteClientError {
-            errorText = Self.message(for: e)
+            presentRemoteError(e)
         } catch {
             errorText = "読み込みに失敗しました"
         }
@@ -283,7 +283,7 @@ final class RemoteLibraryState {
             if case .cancelled = e { return }
             // G12b-3b Task 1: 赤バナー切り分け用（一括編集中の自エコー reload 競合を activeBatchCount で判別）。
             Self.reloadLog.warning("reload failed during activeBatchCount=\(self.activeBatchCount, privacy: .public): \(String(describing: e), privacy: .public)")
-            errorText = Self.message(for: e)
+            presentRemoteError(e)
         } catch {
             if Task.isCancelled { return }
             errorText = "読み込みに失敗しました"
@@ -367,7 +367,7 @@ final class RemoteLibraryState {
             // キャンセルは「より新しい reload に追い越された」だけで異常ではないので赤字にしない
             // （現在の一覧はローカルで既に正しく、追い越した reload が続けて反映する）。
             if case .cancelled = e { return }
-            errorText = Self.message(for: e)
+            presentRemoteError(e)
         } catch {
             if Task.isCancelled { return }
             errorText = "読み込みに失敗しました"
@@ -408,7 +408,7 @@ final class RemoteLibraryState {
             total = result.total
             errorText = nil
         } catch let e as RemoteClientError {
-            errorText = Self.message(for: e)
+            presentRemoteError(e)
         } catch {
             errorText = "読み込みに失敗しました"
         }
@@ -422,6 +422,30 @@ final class RemoteLibraryState {
         await reload()
     }
 
+    /// G25d: 施錠ゲートの 403 を受けた＝**保持しているライブラリトークンが失効した**
+    /// （パスワード変更・施錠解除・TTL 切れ）。トークンを捨てて解錠フォームを出し直す。
+    ///
+    /// `RemoteLibraryView.isUnlockFormShown` は `locked && libraryToken == nil` で判定するため、
+    /// 失効した文字列を持ち続けるとフォームが出ず、利用者は拒否されたまま再認証できない
+    /// （窓を閉じて開き直すしかない）。**捨てることが復帰導線になる。**
+    /// G25d: リモート呼び出しのエラーを一括処理する。**施錠ゲートの 403 はここで失効として拾う。**
+    /// 経路ごとに手当てを足すと必ず漏れるため（本フェーズで何度も踏んだ構造）、
+    /// エラー文言を出す入口を 1 つにして、そこで失効判定も行う。
+    func presentRemoteError(_ e: RemoteClientError) {
+        if case .libraryLocked = e {
+            invalidateLibraryToken()
+            return
+        }
+        presentRemoteError(e)
+    }
+
+    func invalidateLibraryToken() {
+        guard libraryToken != nil else { return }
+        libraryToken = nil
+        locked = true
+        errorText = "ライブラリのパスワードが変更されました。解錠し直してください。"
+    }
+
     func unlock(password: String) async {
         do {
             let token = try await client.unlock(libraryUUID: libraryUUID, password: password)
@@ -431,7 +455,7 @@ final class RemoteLibraryState {
         } catch RemoteClientError.forbidden {
             errorText = "パスワードが違います"
         } catch let e as RemoteClientError {
-            errorText = Self.message(for: e)
+            presentRemoteError(e)
         } catch {
             errorText = "解錠に失敗しました"
         }
@@ -1700,7 +1724,15 @@ final class RemoteLibraryState {
             openViewer(book: dto, resumeDirect: resumeDirect)
             return
         }
-        guard let d = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: id, libraryToken: libraryToken) else {
+        // G25d: `try?` で潰すと施錠ゲートの 403（＝トークン失効）を拾えず、利用者は
+        // 「本を開けませんでした」だけ見て再認証できない。エラー種別を見て失効を処理する。
+        let d: BookDetailDTO
+        do {
+            d = try await client.bookDetail(libraryUUID: libraryUUID, bookID: id, libraryToken: libraryToken)
+        } catch let e as RemoteClientError {
+            presentRemoteError(e)
+            return
+        } catch {
             errorText = "本を開けませんでした"
             return
         }
@@ -2107,6 +2139,10 @@ final class RemoteLibraryState {
             } catch let e as RemoteClientError {
                 if Task.isCancelled { break }
                 switch e {
+                case .libraryLocked:
+                    // G25d: ライブラリトークンが失効した。捨てて解錠フォームを出し直す。
+                    invalidateLibraryToken()
+                    return                               // 再接続しない（解錠後に張り直す）
                 case .unauthorized, .forbidden:
                     errorText = Self.message(for: e)     // 認証失効を提示（unlock 導線は locked/unlock UI が担う）
                     return                               // 再接続しない
@@ -2222,6 +2258,7 @@ final class RemoteLibraryState {
         case .timeout: return "接続がタイムアウトしました"
         case .unauthorized: return "トークンが無効です"
         case .forbidden: return "アクセスが拒否されました"
+        case .libraryLocked: return "ライブラリのパスワードが変更されました。解錠し直してください。"
         case .notFound: return "見つかりませんでした"
         case .badRequest(let msg): return msg ?? "リクエストが不正です"
         case .server(let code): return "サーバエラー（\(code)）"
