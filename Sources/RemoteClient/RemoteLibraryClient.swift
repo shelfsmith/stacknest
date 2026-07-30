@@ -115,7 +115,7 @@ public struct RemoteLibraryClient: Sendable {
                 return (data, http)
             case 400: throw RemoteClientError.badRequest(Self.errorMessage(from: data))
             case 401: throw RemoteClientError.unauthorized
-            case 403: throw RemoteClientError.forbidden
+            case 403: throw RemoteClientError.forbidden(headers: Self.headerMap(http))
             case 404: throw RemoteClientError.notFound
             default: throw RemoteClientError.server(http.statusCode)
             }
@@ -149,6 +149,15 @@ public struct RemoteLibraryClient: Sendable {
     /// 400 応答の body からユーザー提示用のエラー文言を取り出す（防御的パース）。
     /// Hummingbird の `HTTPError(_, message:)` は `{"error":{"message":"..."}}` を返すのでそれを優先、
     /// 取れなければ生文字列（短ければ）を使う。何も取れなければ nil。
+    /// G25d: 403 の種別判定にヘッダを渡すための抽出。
+    static func headerMap(_ http: HTTPURLResponse) -> [String: String] {
+        var out: [String: String] = [:]
+        for (k, v) in http.allHeaderFields {
+            if let ks = k as? String, let vs = v as? String { out[ks] = vs }
+        }
+        return out
+    }
+
     private static func errorMessage(from data: Data) -> String? {
         struct HBError: Decodable { struct E: Decodable { let message: String? }; let error: E? }
         if let parsed = try? JSONDecoder().decode(HBError.self, from: data),
@@ -338,7 +347,7 @@ public struct RemoteLibraryClient: Sendable {
             switch http.statusCode {
             case 200...299: break
             case 401: throw RemoteClientError.unauthorized
-            case 403: throw RemoteClientError.forbidden
+            case 403: throw RemoteClientError.forbidden(headers: Self.headerMap(http))
             case 404: throw RemoteClientError.notFound
             default: throw RemoteClientError.server(http.statusCode)
             }
@@ -776,7 +785,7 @@ public struct RemoteLibraryClient: Sendable {
                         switch http.statusCode {
                         case 200...299: break
                         case 401: continuation.finish(throwing: RemoteClientError.unauthorized); return
-                        case 403: continuation.finish(throwing: RemoteClientError.forbidden); return
+                        case 403: continuation.finish(throwing: RemoteClientError.forbidden(headers: Self.headerMap(http))); return
                         case 404: continuation.finish(throwing: RemoteClientError.notFound); return
                         default: continuation.finish(throwing: RemoteClientError.server(http.statusCode)); return
                         }

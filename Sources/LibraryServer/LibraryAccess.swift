@@ -81,6 +81,11 @@ enum LibraryAccessError: Error, HTTPResponseError {
     }
 
     func response(from request: Request, context: some RequestContext) throws -> Response {
-        Response(status: status)
+        // G25d: 施錠ゲートによる 403 であることをクライアントへ伝える。権限不足の 403 と区別が付かないと、
+        // クライアントは「失効したライブラリトークンを捨てて解錠し直す」判断ができない
+        // （逆に権限不足で捨てると、権限が無いだけの利用者を解錠フォームへ飛ばしてしまう）。
+        var headers = HTTPFields()
+        headers[.init("X-Library-Locked")!] = "1"
+        return Response(status: status, headers: headers)
     }
 }
