@@ -27,7 +27,8 @@ struct LibraryUnlockSheet: View {
     /// G23 (#8): 保存値が旧形式だったとき、新形式（PBKDF2）のハッシュを親へ渡す。
     /// このシートは LibrarySettings を持たないため、保存は親の責務。
     /// G25c: 引数は (この試行で照合したハッシュ, 移行後のハッシュ)。**戻り値は実際に書き戻したか。**
-    /// 親は `shouldPersistHashUpgrade` で compare-and-set し、検証中に差し替えられていたら false を返す
+    /// 親は DB 層の原子的 compare-and-set（`LibrarySettings.upgradeLockHash`）で書き戻し、
+    /// 検証中に差し替えられていた場合や書き込みに失敗した場合は false を返す
     /// （無条件に書き戻すと外部が設定した新パスワードを旧パスワード由来の値で巻き戻してしまう）。
     var onUpgradeHash: ((String, String) -> Bool)? = nil
 

@@ -630,6 +630,33 @@ public final class LibrarySettings {
         }
     }
 
+    /// G25c: #8 の遅延ハッシュ移行を**原子的に**書き戻す。
+    ///
+    /// 解錠シートは構築時のハッシュを保持し続けるため、検証が通った時点で DB 上の値が
+    /// 別のものへ差し替えられている可能性がある（外部経路・別プロセス・別 Mac）。
+    /// メモリ値との比較では検出できないため、DB 層の compare-and-set に委ねる。
+    ///
+    /// - Returns: **実際に DB を更新したか。** 期待値と一致しなかった場合も、書き込みが失敗した場合も false。
+    ///   呼出側は false のとき移行後のハッシュを「有効」として扱ってはならない（DB に入っていない）。
+    public func upgradeLockHash(verifiedAgainst: String, to upgraded: String) -> Bool {
+        let persisted: Bool
+        do {
+            persisted = try database.compareAndSetLibrarySetting(
+                key: Self.lockHashKey, expected: verifiedAgainst, newValue: upgraded)
+        } catch {
+            Self.logger.error("Failed to upgrade lockPasswordHash: \(error.localizedDescription, privacy: .public)")
+            return false
+        }
+        guard persisted else {
+            // 検証中に差し替えられた（または施錠解除された）。メモリ値も現況へ揃えておく。
+            reloadLockSettings()
+            return false
+        }
+        // DB が真。メモリを同期する（didSet の再永続化は同値の UPSERT なので無害）。
+        lockPasswordHash = upgraded
+        return true
+    }
+
     private func persistLockHash() {
         do {
             if let h = lockPasswordHash {
