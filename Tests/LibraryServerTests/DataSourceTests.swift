@@ -21,7 +21,10 @@ struct DataSourceTests {
         defer { fixture.cleanup() }
         let lib = fixture.servedLibrary()
         #expect(lib.isLocked)
-        #expect(lib.verifyPassword("pw123"))
-        #expect(!lib.verifyPassword("wrong"))
+        // G25d: 照合成功時は credential 世代（＝現行ハッシュ）を返す。失敗は nil。
+        let credential = lib.verifiedCredential(for: "pw123")
+        #expect(credential != nil)
+        #expect(credential == lib.currentLockCredential())
+        #expect(lib.verifiedCredential(for: "wrong") == nil)
     }
 }

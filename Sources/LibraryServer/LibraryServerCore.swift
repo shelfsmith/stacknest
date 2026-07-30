@@ -429,10 +429,11 @@ public struct LibraryServerCore: Sendable {
                 await unlockRateLimiter.finishAttempt(uuid, principal: principal, success: true)
                 throw error
             }
-            let ok = lib.verifyPassword(body.password)
-            await unlockRateLimiter.finishAttempt(uuid, principal: principal, success: ok)
-            guard ok else { throw HTTPError(.forbidden) }
-            return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid))
+            // G25d: 照合した credential 世代を受け取り、その世代にトークンを束縛する。
+            let credential = lib.verifiedCredential(for: body.password)
+            await unlockRateLimiter.finishAttempt(uuid, principal: principal, success: credential != nil)
+            guard let credential else { throw HTTPError(.forbidden) }
+            return UnlockReply(libraryToken: await tokenStore.issueToken(for: uuid, credential: credential))
         }
         // books 一覧（ページング・検索・ソート・進行状況・scope/filter/browse）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books") { request, context in
