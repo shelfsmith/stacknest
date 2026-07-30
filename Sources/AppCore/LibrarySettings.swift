@@ -129,10 +129,13 @@ public final class LibrarySettings {
     /// ラベル解決で参照する実効マップ（override 優先・nil なら custom）。
     private var activeFieldLabels: [String: String] { remoteFieldLabelOverride ?? customFieldLabels }
     private var activeBookTypeLabels: [String: String] { remoteBookTypeLabelOverride ?? customBookTypeLabels }
-    public var lockPasswordHash: String? {
+    /// G25c: **書き込みは `setLock(hash:salt:)` / `clearLock()` に限定する**（`private(set)`）。
+    /// 個別に代入できると salt/hash が別トランザクションで書かれ、世代混在（どのパスワードでも
+    /// 解錠できない庫）が再発する。型として「必ず同世代」を保証するための制約。
+    public private(set) var lockPasswordHash: String? {
         didSet { persistLockHash() }
     }
-    public var lockPasswordSalt: String? {
+    public private(set) var lockPasswordSalt: String? {
         didSet { persistLockSalt() }
     }
     public var useBiometric: Bool {
@@ -335,8 +338,10 @@ public final class LibrarySettings {
             self.topPaneMode = Self.defaultTopPaneMode
         }
         // Load lock fields. Defaults: no password, biometric off.
-        self.lockPasswordHash = try database.getLibrarySetting(key: Self.lockHashKey)
-        self.lockPasswordSalt = try database.getLibrarySetting(key: Self.lockSaltKey)
+        // G25c: salt/hash は組で読む（世代混在を掴まないため）。
+        let lockPair = try database.getLibrarySettings(keys: [Self.lockHashKey, Self.lockSaltKey])
+        self.lockPasswordHash = lockPair[Self.lockHashKey]
+        self.lockPasswordSalt = lockPair[Self.lockSaltKey]
         self.useBiometric = (try database.getLibrarySetting(key: Self.useBiometricKey)) == "true"
         self.libraryUUID = try database.getLibrarySetting(key: Self.libraryUUIDKey)
         // Load columnWidths. Decode failure (first launch or corrupt data) starts with empty map.
@@ -851,9 +856,12 @@ public final class LibrarySettings {
         // G25c: 以前は「書き戻す値は今 DB から読んだものと同じなので実害はない」としていたが、
         // 読みと書き戻しの間に外部が別の値を書いていれば巻き戻す（＝外部更新の消失）。
         // 反映は永続化を抑止して行う。
+        // G25c: salt と hash は**単一の read transaction**で読む。別々に読むと、その間に
+        // 外部が原子的に差し替えた場合に世代混在（H1 + S2）を掴み、どのパスワードでも照合できなくなる。
+        let pair = (try? database.getLibrarySettings(keys: [Self.lockHashKey, Self.lockSaltKey])) ?? [:]
         syncingFromDatabase {
-            lockPasswordHash = (try? database.getLibrarySetting(key: Self.lockHashKey)) ?? nil
-            lockPasswordSalt = (try? database.getLibrarySetting(key: Self.lockSaltKey)) ?? nil
+            lockPasswordHash = pair[Self.lockHashKey]
+            lockPasswordSalt = pair[Self.lockSaltKey]
         }
     }
 

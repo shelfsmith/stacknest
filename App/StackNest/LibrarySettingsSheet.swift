@@ -555,7 +555,15 @@ struct LibrarySettingsSheet: View {
         // Lock 反映
         if !lockToggleOn {
             // G25c: salt/hash は組でまとめて消す（片方だけ残る中間状態を作らない）。
-            try? settings.clearLock()
+            // **書き込みの成功を後続の状態変更の前提にする** — 失敗を握り潰すと、UI 上は解除できたのに
+            // DB にはロックが残り、生体設定と Keychain だけ消えた不整合になる。
+            do {
+                try settings.clearLock()
+            } catch {
+                settingsLogger.error("clearLock failed: \(error.localizedDescription, privacy: .public)")
+                presentLockWriteFailure(error)
+                return
+            }
             settings.useBiometric = false
             BiometricArming.disarm(settings)
             if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
@@ -567,9 +575,18 @@ struct LibrarySettingsSheet: View {
             // G25c: 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
             // **ハッシュ代入より前に立てる**こと(後だと「施錠済み && 未解錠」が一瞬成立し、
             // live 導出になったゲートが解錠シートを出してしまう)。
-            appState?.markUnlocked(hash: hash)
             // G25c: salt/hash は組でまとめて書く（別々だと外部変更と交錯して不整合が残りうる）。
-            try? settings.setLock(hash: hash, salt: salt)
+            // **書き込みが成功してから**「この窓は解錠済み」と記録する。先に記録すると、
+            // 書き込み失敗時に DB に存在しないハッシュを「検証済み」として保持してしまう。
+            do {
+                try settings.setLock(hash: hash, salt: salt)
+            } catch {
+                settingsLogger.error("setLock failed: \(error.localizedDescription, privacy: .public)")
+                presentLockWriteFailure(error)
+                return
+            }
+            // 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
+            appState?.markUnlocked(hash: hash)
             settings.useBiometric = useBiometricInput
             settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput), isChange=\(isChange)")
             if useBiometricInput && !isChange {
@@ -602,6 +619,15 @@ struct LibrarySettingsSheet: View {
 
         appState?.reloadFolderWatcher()
         dismiss()
+    }
+
+    /// G25c: ロックの書き込みに失敗したことを伝える。シートは閉じない（利用者が再試行できるように）。
+    private func presentLockWriteFailure(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "ロック設定を保存できませんでした"
+        alert.informativeText = "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n\(error.localizedDescription)"
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     /// 3 件のダミーレコードでプレビュー (実 library が空でも表示できるように)
