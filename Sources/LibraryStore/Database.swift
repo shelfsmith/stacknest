@@ -393,6 +393,24 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// `bookRow(from:)` が読む book テーブルの全列。BookRow を返す SELECT は
+    /// すべてこの 1 か所を参照する（以前は同じリストが 16 か所にコピペされていた）。
+    /// `bookRow(from:)` は列名で読むため SELECT の順序は結果に影響しないが、
+    /// 既存 SQL との差分を最小にするため元の順序を保っている。
+    private static let bookColumnList = [
+        "id", "title", "author", "genre", "path", "date_added", "play_date",
+        "book_type", "file_type", "pages", "rating", "unseen", "keyword_a",
+        "keyword_b", "keyword_c", "neta", "memo", "series", "volume",
+        "cover_image_name", "cover_crop_rect", "page_direction",
+        "content_hash", "file_size", "file_mtime",
+    ]
+
+    /// `FROM book`（別名なし）用の SELECT リスト。
+    private static let bookColumns = bookColumnList.joined(separator: ", ")
+
+    /// `FROM book b` 用の SELECT リスト（`b.` 前置）。JOIN を伴う SQL で使う。
+    private static let bookColumnsB = bookColumnList.map { "b.\($0)" }.joined(separator: ", ")
+
     /// Maps a SQL row to BookRow. Centralized to keep column ordering consistent
     /// across fetchFirstBookRow / fetchAllBooks / fetchBook(id:).
     private static func bookRow(from row: Row) -> BookRow {
@@ -435,7 +453,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let row = try Row.fetchOne(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book ORDER BY id LIMIT 1"
+                sql: "SELECT \(Self.bookColumns) FROM book ORDER BY id LIMIT 1"
             )
             return row.map(Self.bookRow(from:))
         }
@@ -446,7 +464,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let cursor = try Row.fetchCursor(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book ORDER BY date_added DESC"
+                sql: "SELECT \(Self.bookColumns) FROM book ORDER BY date_added DESC"
             )
             var result: [BookRow] = []
             while let row = try cursor.next() {
@@ -464,7 +482,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let rows = try Row.fetchAll(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book WHERE date_added >= ? ORDER BY date_added DESC",
+                sql: "SELECT \(Self.bookColumns) FROM book WHERE date_added >= ? ORDER BY date_added DESC",
                 arguments: [cutoff]
             )
             return rows.map { Self.bookRow(from: $0) }
@@ -476,7 +494,7 @@ public final class Database: @unchecked Sendable {
         return try q.read { db in
             let row = try Row.fetchOne(
                 db,
-                sql: "SELECT id, title, author, genre, path, date_added, play_date, book_type, file_type, pages, rating, unseen, keyword_a, keyword_b, keyword_c, neta, memo, series, volume, cover_image_name, cover_crop_rect, page_direction, content_hash, file_size, file_mtime FROM book WHERE id = ?",
+                sql: "SELECT \(Self.bookColumns) FROM book WHERE id = ?",
                 arguments: [id]
             )
             return row.map(Self.bookRow(from:))
@@ -1003,11 +1021,7 @@ public final class Database: @unchecked Sendable {
         guard let q = queue else { return [] }
         return try q.read { db in
             let rows = try Row.fetchAll(db, sql: """
-                SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                       b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                       b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                       b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                       b.content_hash, b.file_size, b.file_mtime
+                SELECT \(Self.bookColumnsB)
                 FROM book b
                 INNER JOIN playlist_item pi ON pi.book_id = b.id
                 WHERE pi.playlist_id = ?
@@ -1202,6 +1216,112 @@ public final class Database: @unchecked Sendable {
         return result.sorted()
     }
 
+    /// `distinctValues` / `searchBooks` が共有する検索経路。クエリ長で 3 通りに分かれ、
+    /// FTS 経路だけが仮想表 `book_fts` の JOIN を伴う。
+    private enum SearchPath {
+        /// 空クエリ。検索述語なし。
+        case all
+        /// 1-2 文字の LIKE fallback（trigram FTS は 3 文字以上を要求するため）。Phase 2.4e。
+        case like(whereSQL: String, args: [DatabaseValueConvertible])
+        /// 3 文字以上の trigram FTS。
+        case fts(query: String)
+    }
+
+    /// 検索経路 × sidebar scope から組み立てた SQL 断片。
+    private struct ScopedQuery {
+        /// `FROM book b` に続く JOIN 群（先頭に改行付き、無ければ空文字）。
+        let joins: String
+        /// `WHERE` に続く述語。必ず `1=1` で始まるので、述語が 1 つも無くても文法が壊れない。
+        let whereSQL: String
+        /// `whereSQL` 中の `?` と同順の bind 値。
+        let args: [DatabaseValueConvertible]
+    }
+
+    /// クエリ文字列から検索経路を決める（空 / 1-2 文字 LIKE / 3 文字以上 trigram FTS）。
+    private static func searchPath(for trimmed: String) -> SearchPath {
+        if trimmed.isEmpty { return .all }
+        if trimmed.count < 3 {
+            let (whereSQL, args) = buildLikeClause("%\(escapeLikePattern(trimmed))%")
+            return .like(whereSQL: whereSQL, args: args)
+        }
+        // trigram は default で部分一致するため wildcard 不要。`"` だけ FTS 構文用に escape する。
+        return .fts(query: "\"\(trimmed.replacingOccurrences(of: "\"", with: "\"\""))\"")
+    }
+
+    /// 検索経路 × scope の直積で同型に散らばっていた JOIN / WHERE / bind 値を 1 か所で組む。
+    ///
+    /// 述語の並びは `検索 → scope → スマートシェルフ → filter → browser → recent 日付` に統一した。
+    /// 元コードは経路ごとに並びが揺れていた（LIKE × shelf のみ `pi.playlist_id` が LIKE の前）が、
+    /// AND の連言なので順序は結果に影響しない。bind 値は必ず SQL 中の `?` と同順で積むこと。
+    private static func scopedQuery(
+        path: SearchPath,
+        scope: SidebarScope,
+        smart: (whereSQL: String, args: [DatabaseValueConvertible]),
+        filterClause: (whereSQL: String, args: [DatabaseValueConvertible]),
+        browserClause: (whereSQL: String, args: [DatabaseValueConvertible])
+    ) -> ScopedQuery {
+        var joins: [String] = []
+        var whereSQL = "1=1"
+        var args: [DatabaseValueConvertible] = []
+
+        switch path {
+        case .all:
+            break
+        case .like(let likeSQL, let likeArgs):
+            whereSQL += " AND \(likeSQL)"
+            args.append(contentsOf: likeArgs)
+        case .fts(let query):
+            joins.append("INNER JOIN book_fts ON book_fts.rowid = b.id")
+            whereSQL += " AND book_fts MATCH ?"
+            args.append(query)
+        }
+
+        // recent の日付述語だけは filter/browser の後ろに置く（元 SQL と同じ位置）。
+        var recentCutoff: Double?
+        switch scope {
+        case .library, .smartShelf:
+            // スマートシェルフ条件。`.smartShelf` 以外は ("", []) なので SQL に影響しない。
+            whereSQL += smart.whereSQL
+            args.append(contentsOf: smart.args)
+        case .favorites(let pid), .shelf(let pid):
+            joins.append("INNER JOIN playlist_item pi ON pi.book_id = b.id")
+            whereSQL += " AND pi.playlist_id = ?"
+            args.append(pid)
+        case .recent(let days):
+            recentCutoff = Date().timeIntervalSince1970 - Double(days) * secondsPerDay
+        }
+
+        whereSQL += filterClause.whereSQL
+        args.append(contentsOf: filterClause.args)
+        whereSQL += browserClause.whereSQL
+        args.append(contentsOf: browserClause.args)
+
+        if let cutoff = recentCutoff {
+            whereSQL += " AND b.date_added >= ?"
+            args.append(cutoff)
+        }
+
+        return ScopedQuery(
+            joins: joins.isEmpty ? "" : "\n" + joins.joined(separator: "\n"),
+            whereSQL: whereSQL,
+            args: args
+        )
+    }
+
+    /// `searchBooks` の ORDER BY。scope が優先（shelf は手動並び順、recent は追加日の新しい順）で、
+    /// library / smartShelf のときだけ検索経路で決まる（FTS は関連度 rank、それ以外は id 順）。
+    private static func bookOrderBy(path: SearchPath, scope: SidebarScope) -> String {
+        switch scope {
+        case .favorites, .shelf:
+            return "pi.position ASC"
+        case .recent:
+            return "b.date_added DESC"
+        case .library, .smartShelf:
+            if case .fts = path { return "rank" }
+            return "b.id"
+        }
+    }
+
     /// Browser pane の各列に表示する distinct 値のリストを返す。
     /// scope/filter/searchQuery/上位列の selection を全て AND 連結して絞り込んだ範囲で DISTINCT する。
     /// NULL は除外、ORDER BY value ASC で安定順序。
@@ -1216,159 +1336,26 @@ public final class Database: @unchecked Sendable {
     ) throws -> [String] {
         guard let q = queue else { return [] }
         let column = try Self.validatedColumn(column, allowed: Self.browseColumns)
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedCount = trimmed.count
-        let (filterSQL, filterArgs) = Self.buildFilterClause(filter)
-        let (browserSQL, browserArgs) = try Self.buildBrowserClause(browserConstraints)
-
-        // スマートシェルフ条件を WHERE 句断片に解決（library scope + 注入 WHERE）。
-        // `.smartShelf` 以外は ("", []) なので SQL に影響しない。
-        let smartClause = smartClauseForScope(sidebarScope)
+        let browserClause = try Self.buildBrowserClause(browserConstraints)
+        // 検索経路（空 / LIKE / FTS）と scope（library・smartShelf / favorites・shelf / recent）の
+        // 直積を 1 か所で組む。scope 別のスマートシェルフ条件・JOIN・日付述語も scopedQuery が持つ。
+        let scoped = Self.scopedQuery(
+            path: Self.searchPath(for: query.trimmingCharacters(in: .whitespacesAndNewlines)),
+            scope: sidebarScope,
+            smart: smartClauseForScope(sidebarScope),
+            filterClause: Self.buildFilterClause(filter),
+            browserClause: browserClause
+        )
 
         // SQL DISTINCT で rawValues を取得し、text 系マルチ値カラムのみ Swift 側で split + unique + sorted。
         let rawValues = try q.read { db in
-            if trimmed.isEmpty {
-                switch sidebarScope {
-                case .library, .smartShelf:
-                    let sql = """
-                        SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                        FROM book b
-                        WHERE b.\(column) IS NOT NULL\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
-                        ORDER BY v
-                        """
-                    var args = smartClause.args
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-
-                case .favorites(let pid), .shelf(let pid):
-                    let sql = """
-                        SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                        FROM book b
-                        INNER JOIN playlist_item pi ON pi.book_id = b.id
-                        WHERE pi.playlist_id = ? AND b.\(column) IS NOT NULL\(filterSQL)\(browserSQL)
-                        ORDER BY v
-                        """
-                    var args: [DatabaseValueConvertible] = [pid]
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-
-                case .recent(let days):
-                    let cutoff = Date().timeIntervalSince1970 - Double(days) * Self.secondsPerDay
-                    let sql = """
-                        SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                        FROM book b
-                        WHERE b.\(column) IS NOT NULL\(filterSQL)\(browserSQL)
-                          AND b.date_added >= ?
-                        ORDER BY v
-                        """
-                    var args = filterArgs
-                    args.append(contentsOf: browserArgs)
-                    args.append(cutoff)
-                    return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                }
-            }
-
-            // 1-2 文字 LIKE fallback path (Phase 2.4e)
-            if trimmedCount < 3 {
-                let likePattern = "%\(Self.escapeLikePattern(trimmed))%"
-                let (likeSQL, likeArgs) = Self.buildLikeClause(likePattern)
-
-                switch sidebarScope {
-                case .library, .smartShelf:
-                    let sql = """
-                        SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                        FROM book b
-                        WHERE \(likeSQL) AND b.\(column) IS NOT NULL\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
-                        ORDER BY v
-                        """
-                    var args = likeArgs
-                    args.append(contentsOf: smartClause.args)
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-
-                case .favorites(let pid), .shelf(let pid):
-                    let sql = """
-                        SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                        FROM book b
-                        INNER JOIN playlist_item pi ON pi.book_id = b.id
-                        WHERE pi.playlist_id = ? AND \(likeSQL) AND b.\(column) IS NOT NULL\(filterSQL)\(browserSQL)
-                        ORDER BY v
-                        """
-                    var args: [DatabaseValueConvertible] = [pid]
-                    args.append(contentsOf: likeArgs)
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-
-                case .recent(let days):
-                    let cutoff = Date().timeIntervalSince1970 - Double(days) * Self.secondsPerDay
-                    let sql = """
-                        SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                        FROM book b
-                        WHERE \(likeSQL) AND b.\(column) IS NOT NULL\(filterSQL)\(browserSQL)
-                          AND b.date_added >= ?
-                        ORDER BY v
-                        """
-                    var args = likeArgs
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    args.append(cutoff)
-                    return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                }
-            }
-
-            // Trigram FTS path (3 文字以上)。wildcard 不要 (trigram は default で部分一致)。
-            let escaped = trimmed.replacingOccurrences(of: "\"", with: "\"\"")
-            let ftsQuery = "\"\(escaped)\""
-
-            switch sidebarScope {
-            case .library, .smartShelf:
-                let sql = """
-                    SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                    FROM book b
-                    INNER JOIN book_fts ON book_fts.rowid = b.id
-                    WHERE book_fts MATCH ? AND b.\(column) IS NOT NULL\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
-                    ORDER BY v
-                    """
-                var args: [DatabaseValueConvertible] = [ftsQuery]
-                args.append(contentsOf: smartClause.args)
-                args.append(contentsOf: filterArgs)
-                args.append(contentsOf: browserArgs)
-                return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-
-            case .favorites(let pid), .shelf(let pid):
-                let sql = """
-                    SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                    FROM book b
-                    INNER JOIN book_fts ON book_fts.rowid = b.id
-                    INNER JOIN playlist_item pi ON pi.book_id = b.id
-                    WHERE book_fts MATCH ? AND pi.playlist_id = ? AND b.\(column) IS NOT NULL\(filterSQL)\(browserSQL)
-                    ORDER BY v
-                    """
-                var args: [DatabaseValueConvertible] = [ftsQuery, pid]
-                args.append(contentsOf: filterArgs)
-                args.append(contentsOf: browserArgs)
-                return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-
-            case .recent(let days):
-                let cutoff = Date().timeIntervalSince1970 - Double(days) * Self.secondsPerDay
-                let sql = """
-                    SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
-                    FROM book b
-                    INNER JOIN book_fts ON book_fts.rowid = b.id
-                    WHERE book_fts MATCH ? AND b.\(column) IS NOT NULL\(filterSQL)\(browserSQL)
-                      AND b.date_added >= ?
-                    ORDER BY v
-                    """
-                var args: [DatabaseValueConvertible] = [ftsQuery]
-                args.append(contentsOf: filterArgs)
-                args.append(contentsOf: browserArgs)
-                args.append(cutoff)
-                return try String.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-            }
+            let sql = """
+                SELECT DISTINCT CAST(b.\(column) AS TEXT) AS v
+                FROM book b\(scoped.joins)
+                WHERE \(scoped.whereSQL) AND b.\(column) IS NOT NULL
+                ORDER BY v
+                """
+            return try String.fetchAll(db, sql: sql, arguments: StatementArguments(scoped.args))
         }
         // text 系マルチ値カラムのみ split + unique + sorted を後適用
         return Self.dedupeMultiValue(rawValues, column: column)
@@ -1401,230 +1388,40 @@ public final class Database: @unchecked Sendable {
             return (try fetchBook(id: bid)).map { [$0] } ?? []
         }
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedCount = trimmed.count
-        let (filterSQL, filterArgs) = Self.buildFilterClause(filter)
-        let (browserSQL, browserArgs) = try Self.buildBrowserClause(browserConstraints)
 
-        // スマートシェルフ条件を WHERE 句断片に解決（library scope + 注入 WHERE）。
-        // `.smartShelf` 以外は ("", []) なので SQL に影響しない。
-        let smartClause = smartClauseForScope(sidebarScope)
-
-        // Empty query path
-        if trimmed.isEmpty {
-            // Filter + browser inactive → fast path (existing helpers).
-            // `.smartShelf` は条件評価のため fast path を使わず動的 SQL に進む。
-            if filter.isEmpty && browserConstraints.isEmpty {
-                switch sidebarScope {
-                case .library: return try fetchAllBooks()
-                case .favorites(let id), .shelf(let id): return try fetchBooksInPlaylist(playlistID: id)
-                case .recent(let days): return try fetchRecentBooks(days: days)
-                case .smartShelf: break   // fall through to dynamic SQL below
-                }
-            }
-            // Filter or browser active → dynamic SQL
-            return try q.read { db in
-                let limitClause = limit.map { "LIMIT \($0)" } ?? ""
-                switch sidebarScope {
-                case .library, .smartShelf:
-                    let sql = """
-                        SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                               b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                               b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                               b.content_hash, b.file_size, b.file_mtime
-                        FROM book b
-                        WHERE 1=1\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
-                        ORDER BY b.id
-                        \(limitClause)
-                        """
-                    var args = smartClause.args
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    return rows.map { Self.bookRow(from: $0) }
-
-                case .favorites(let pid), .shelf(let pid):
-                    let sql = """
-                        SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                               b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                               b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                               b.content_hash, b.file_size, b.file_mtime
-                        FROM book b
-                        INNER JOIN playlist_item pi ON pi.book_id = b.id
-                        WHERE pi.playlist_id = ?\(filterSQL)\(browserSQL)
-                        ORDER BY pi.position ASC
-                        \(limitClause)
-                        """
-                    var args: [DatabaseValueConvertible] = [pid]
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    return rows.map { Self.bookRow(from: $0) }
-
-                case .recent(let days):
-                    let cutoff = Date().timeIntervalSince1970 - Double(days) * Self.secondsPerDay
-                    let sql = """
-                        SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                               b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                               b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                               b.content_hash, b.file_size, b.file_mtime
-                        FROM book b
-                        WHERE 1=1\(filterSQL)\(browserSQL)
-                          AND b.date_added >= ?
-                        ORDER BY b.date_added DESC
-                        \(limitClause)
-                        """
-                    var args = filterArgs
-                    args.append(contentsOf: browserArgs)
-                    args.append(cutoff)
-                    let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    return rows.map { Self.bookRow(from: $0) }
-                }
+        // Empty query + filter/browser inactive → fast path (existing helpers).
+        // `.smartShelf` は条件評価のため fast path を使わず動的 SQL に進む。
+        if trimmed.isEmpty && filter.isEmpty && browserConstraints.isEmpty {
+            switch sidebarScope {
+            case .library: return try fetchAllBooks()
+            case .favorites(let id), .shelf(let id): return try fetchBooksInPlaylist(playlistID: id)
+            case .recent(let days): return try fetchRecentBooks(days: days)
+            case .smartShelf: break   // fall through to dynamic SQL below
             }
         }
 
-        // 1-2 文字 LIKE fallback path (Phase 2.4e: trigram は 3 文字以上が必要)
-        if trimmedCount < 3 {
-            let likePattern = "%\(Self.escapeLikePattern(trimmed))%"
-            let (likeSQL, likeArgs) = Self.buildLikeClause(likePattern)
-            let limitClause = limit.map { "LIMIT \($0)" } ?? ""
-
-            return try q.read { db in
-                switch sidebarScope {
-                case .library, .smartShelf:
-                    let sql = """
-                        SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                               b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                               b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                               b.content_hash, b.file_size, b.file_mtime
-                        FROM book b
-                        WHERE \(likeSQL)\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
-                        ORDER BY b.id
-                        \(limitClause)
-                        """
-                    var args = likeArgs
-                    args.append(contentsOf: smartClause.args)
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    return rows.map { Self.bookRow(from: $0) }
-
-                case .favorites(let pid), .shelf(let pid):
-                    let sql = """
-                        SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                               b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                               b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                               b.content_hash, b.file_size, b.file_mtime
-                        FROM book b
-                        INNER JOIN playlist_item pi ON pi.book_id = b.id
-                        WHERE pi.playlist_id = ? AND \(likeSQL)\(filterSQL)\(browserSQL)
-                        ORDER BY pi.position ASC
-                        \(limitClause)
-                        """
-                    var args: [DatabaseValueConvertible] = [pid]
-                    args.append(contentsOf: likeArgs)
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    return rows.map { Self.bookRow(from: $0) }
-
-                case .recent(let days):
-                    let cutoff = Date().timeIntervalSince1970 - Double(days) * Self.secondsPerDay
-                    let sql = """
-                        SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                               b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                               b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                               b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                               b.content_hash, b.file_size, b.file_mtime
-                        FROM book b
-                        WHERE \(likeSQL)\(filterSQL)\(browserSQL)
-                          AND b.date_added >= ?
-                        ORDER BY b.date_added DESC
-                        \(limitClause)
-                        """
-                    var args = likeArgs
-                    args.append(contentsOf: filterArgs)
-                    args.append(contentsOf: browserArgs)
-                    args.append(cutoff)
-                    let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                    return rows.map { Self.bookRow(from: $0) }
-                }
-            }
-        }
-
-        // Trigram FTS path (3 文字以上)。wildcard 不要 (trigram は default で部分一致)。
-        let escaped = trimmed.replacingOccurrences(of: "\"", with: "\"\"")
-        let ftsQuery = "\"\(escaped)\""
+        // 検索経路（空 / LIKE / FTS）と scope の直積を 1 か所で組む（`distinctValues` と共有）。
+        let browserClause = try Self.buildBrowserClause(browserConstraints)
+        let path = Self.searchPath(for: trimmed)
+        let scoped = Self.scopedQuery(
+            path: path,
+            scope: sidebarScope,
+            smart: smartClauseForScope(sidebarScope),
+            filterClause: Self.buildFilterClause(filter),
+            browserClause: browserClause
+        )
         let limitClause = limit.map { "LIMIT \($0)" } ?? ""
 
         return try q.read { db in
-            switch sidebarScope {
-            case .library, .smartShelf:
-                let sql = """
-                    SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                           b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                           b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                           b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                           b.content_hash, b.file_size, b.file_mtime
-                    FROM book b
-                    INNER JOIN book_fts ON book_fts.rowid = b.id
-                    WHERE book_fts MATCH ?\(smartClause.whereSQL)\(filterSQL)\(browserSQL)
-                    ORDER BY rank
-                    \(limitClause)
-                    """
-                var args: [DatabaseValueConvertible] = [ftsQuery]
-                args.append(contentsOf: smartClause.args)
-                args.append(contentsOf: filterArgs)
-                args.append(contentsOf: browserArgs)
-                let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                return rows.map { Self.bookRow(from: $0) }
-
-            case .favorites(let pid), .shelf(let pid):
-                let sql = """
-                    SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                           b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                           b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                           b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                           b.content_hash, b.file_size, b.file_mtime
-                    FROM book b
-                    INNER JOIN book_fts ON book_fts.rowid = b.id
-                    INNER JOIN playlist_item pi ON pi.book_id = b.id
-                    WHERE book_fts MATCH ? AND pi.playlist_id = ?\(filterSQL)\(browserSQL)
-                    ORDER BY pi.position ASC
-                    \(limitClause)
-                    """
-                var args: [DatabaseValueConvertible] = [ftsQuery, pid]
-                args.append(contentsOf: filterArgs)
-                args.append(contentsOf: browserArgs)
-                let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                return rows.map { Self.bookRow(from: $0) }
-
-            case .recent(let days):
-                let cutoff = Date().timeIntervalSince1970 - Double(days) * Self.secondsPerDay
-                let sql = """
-                    SELECT b.id, b.title, b.author, b.genre, b.path, b.date_added, b.play_date,
-                           b.book_type, b.file_type, b.pages, b.rating, b.unseen, b.keyword_a,
-                           b.keyword_b, b.keyword_c, b.neta, b.memo, b.series, b.volume,
-                           b.cover_image_name, b.cover_crop_rect, b.page_direction,
-                           b.content_hash, b.file_size, b.file_mtime
-                    FROM book b
-                    INNER JOIN book_fts ON book_fts.rowid = b.id
-                    WHERE book_fts MATCH ?\(filterSQL)\(browserSQL)
-                      AND b.date_added >= ?
-                    ORDER BY b.date_added DESC
-                    \(limitClause)
-                    """
-                var args: [DatabaseValueConvertible] = [ftsQuery]
-                args.append(contentsOf: filterArgs)
-                args.append(contentsOf: browserArgs)
-                args.append(cutoff)
-                let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(args))
-                return rows.map { Self.bookRow(from: $0) }
-            }
+            let sql = """
+                SELECT \(Self.bookColumnsB)
+                FROM book b\(scoped.joins)
+                WHERE \(scoped.whereSQL)
+                ORDER BY \(Self.bookOrderBy(path: path, scope: sidebarScope))
+                \(limitClause)
+                """
+            let rows = try Row.fetchAll(db, sql: sql, arguments: StatementArguments(scoped.args))
+            return rows.map { Self.bookRow(from: $0) }
         }
     }
 
@@ -2199,11 +1996,7 @@ public final class Database: @unchecked Sendable {
             let row = try Row.fetchOne(
                 db,
                 sql: """
-                SELECT id, title, author, genre, path, date_added, play_date,
-                       book_type, file_type, pages, rating, unseen, keyword_a,
-                       keyword_b, keyword_c, neta, memo, series, volume,
-                       cover_image_name, cover_crop_rect, page_direction,
-                       content_hash, file_size, file_mtime
+                SELECT \(Self.bookColumns)
                 FROM book
                 WHERE series = ? AND series != '' AND volume IS NOT NULL AND volume > ?
                 ORDER BY volume ASC, id ASC
@@ -2225,11 +2018,7 @@ public final class Database: @unchecked Sendable {
             let row = try Row.fetchOne(
                 db,
                 sql: """
-                SELECT id, title, author, genre, path, date_added, play_date,
-                       book_type, file_type, pages, rating, unseen, keyword_a,
-                       keyword_b, keyword_c, neta, memo, series, volume,
-                       cover_image_name, cover_crop_rect, page_direction,
-                       content_hash, file_size, file_mtime
+                SELECT \(Self.bookColumns)
                 FROM book
                 WHERE series = ? AND series != '' AND volume IS NOT NULL AND volume < ?
                 ORDER BY volume DESC, id DESC
