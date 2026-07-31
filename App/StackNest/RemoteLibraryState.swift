@@ -436,7 +436,7 @@ final class RemoteLibraryState {
             invalidateLibraryToken()
             return
         }
-        presentRemoteError(e)
+        errorText = Self.message(for: e)
     }
 
     func invalidateLibraryToken() {
