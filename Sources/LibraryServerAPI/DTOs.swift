@@ -88,6 +88,12 @@ extension BookListItemDTO {
     }
 
     /// 応答スライス用。fields に含まれない追加フィールドを nil に落とす。memo は 200 字に切詰。
+    ///
+    /// **⚠ フィールドを増やすときは必ずここにも足すこと。失敗の向きが copy-and-mutate 化で反転した。**
+    /// 旧実装（全フィールドを手で再構築）で書き足しを忘れると、そのフィールドは常に**欠落**した
+    /// （＝取りこぼしとして目に見える）。現在は self のコピーを削る形なので、書き足しを忘れると
+    /// **`&fields=` の指定を無視して常に送信される＝意図しない漏洩**になる。
+    /// ゴールデンテストが捕まえるのは、テスト側の `full` ケースにも新フィールドを足した場合だけ。
     public func keepingExtras(_ fields: Set<String>) -> BookListItemDTO {
         var c = self
         if !fields.contains("genre") { c.genre = nil }

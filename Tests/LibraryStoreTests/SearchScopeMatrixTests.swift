@@ -210,7 +210,7 @@ struct SearchScopeMatrixTests {
     // 「棚メンバーシップだけが除外理由になる」状況を作って主張する。
 
     // ★ 重要: 空クエリ **かつ** filter/browser がどちらも空だと、`searchBooks` は
-    // fast path（`fetchBooksInPlaylist` 等）へ抜けて**動的 SQL を通らない**（Database.swift:1416）。
+    // fast path（`fetchBooksInPlaylist` 等）へ抜けて**動的 SQL を通らない**（Database.swift:1394）。
     // Task 2 が畳むのは動的 SQL 側なので、**フィルタを 1 つ有効にして fast path を避ける**。
     // これを外すと「畳む対象に到達しないテスト」になり、安全網として無意味になる。
 

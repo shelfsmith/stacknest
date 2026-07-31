@@ -235,8 +235,16 @@ extension CoverPickerSource {
     /// ローカル経路。`book.path` は sheet 生存中は不変なので値だけ捕捉する
     /// (BookRow ごと捕捉しない)。実処理は nonisolated な static func 側にあるので、
     /// ImageIO のデコードが MainActor に載ることはない。
-    /// `fileprivate`: リモート経路からローカル専用のアーカイブ読み出しに到達できないことを、
-    /// 規約ではなく**型で**担保する（このファイルの外からは呼べない）。
+    /// `fileprivate`: このファイルの外から**ローカル用 source を直接組み立てられない**ようにする。
+    ///
+    /// **保証の範囲を正確に言うと**: ローカル読み出しの実体 `LocalCoverEntryLoader` が
+    /// このファイルの `private` なので、他ファイルはアーカイブ直読みの経路を**自前で書き直さない限り
+    /// 組めない**。リモート側（`RemoteCoverPickerSheet`）は `CoverPickerSource` を自分で作って
+    /// 渡すため、ローカル経路には構造上到達しない。
+    /// 一方、`CoverPickerSheet(book:onSelect:)`（便宜 init）と `CoverPickerSource` の
+    /// memberwise init は internal のままである — 前者は `DetailPaneView` がローカルシートを
+    /// 開くための正規の入口で、**塞ぐものではない**。「他モジュールから一切構築できない」ことまでは
+    /// 担保していない。
     fileprivate static func local(book: BookRow) -> CoverPickerSource {
         let path = book.path
         return CoverPickerSource(
