@@ -118,3 +118,12 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.shelfsmith.stacknest
         GENERATE_INFOPLIST_FILE: NO
+
+  StackNestTests:
+    type: bundle.unit-test
+    platform: macOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: StackNestTests
+    dependencies:
+      - target: StackNest
