@@ -1347,6 +1347,14 @@ public final class Database: @unchecked Sendable {
             browserClause: browserClause
         )
 
+        // ★不変条件（`AND b.<col> IS NOT NULL` を **末尾**に置いているため必須）:
+        //   `scoped.whereSQL` に載る各断片は、**内部に OR を含むなら自身を括弧で包む**こと。
+        //   裸の OR を返す断片が 1 つでもあると `A AND (B OR C) AND D` のつもりが
+        //   `(A AND B) OR (C AND D)` に化け、**ブラウザペインに scope 外の値が黙って混ざる**
+        //   （クラッシュもエラーも出ないので気づけない）。
+        //   現在の生成元 4 つ（buildLikeClause / appendTextFacetClause / buildBrowserClause /
+        //   SmartShelfClause）はいずれも括弧で包む。断片を足すときはここを守ること。
+        //
         // SQL DISTINCT で rawValues を取得し、text 系マルチ値カラムのみ Swift 側で split + unique + sorted。
         let rawValues = try q.read { db in
             let sql = """
