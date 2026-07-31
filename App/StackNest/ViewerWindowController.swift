@@ -1204,6 +1204,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// これ以降（新 target の算出・成長閾値・トークンの扱い・表示差し替え）は両者で異なるため、
     /// 意図的に各呼び出し側に残してある。
     ///
+    /// **⚠ 呼ぶ順序が意味を持つ**: 本メソッドは `lastDecodeTarget` を読む。C3（リサイズ）は
+    /// この直後に `lastDecodeTarget.removeAll()` を行うため、**必ずその破棄より前に呼ぶこと**。
+    /// 後ろに移すと `lastTarget` が常に 0 になって毎回ここで早期 return し、**リサイズ再デコードが
+    /// 恒久的に無効化される**（拡大しても画像がぼけたまま・警告もクラッシュも出ないので気づけない）。
+    ///
     /// G18 C3 review Important #4 fix: 実際にデコードされたピクセルサイズ（`prefetch[$0].pixelSize`）
     /// ではなく、最後に「要求した」target（`lastDecodeTarget`）を成長判定の基準にする。
     /// `kCGImageSourceThumbnailMaxPixelSize` は upscale しないため、低解像度ソースは要求 target
