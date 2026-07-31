@@ -9,34 +9,36 @@ import StackroomFormat
 
 /// books 一覧 1 件分の DTO（spec §3.3）。日付はサーバ共通エンコーダで ISO8601。
 public struct BookListItemDTO: Codable, Sendable {
-    public let id: Int
-    public let title: String
-    public let author: String?
-    public let series: String?
-    public let volume: Double?
-    public let rating: Int
-    public let unseen: Bool
-    public let bookType: Int
-    public let pages: Int?
-    public let lastPage: Int?
-    public let lastReadAt: Date?
-    public let dateAdded: Date
-    public let hasCover: Bool
+    // 差し替えコピー（下の extension）を素直に書くため var。ただし setter は
+    // 同一ファイル内に閉じる（`private(set)`）ので、モジュール外からは実質 let のまま。
+    public private(set) var id: Int
+    public private(set) var title: String
+    public private(set) var author: String?
+    public private(set) var series: String?
+    public private(set) var volume: Double?
+    public private(set) var rating: Int
+    public private(set) var unseen: Bool
+    public private(set) var bookType: Int
+    public private(set) var pages: Int?
+    public private(set) var lastPage: Int?
+    public private(set) var lastReadAt: Date?
+    public private(set) var dateAdded: Date
+    public private(set) var hasCover: Bool
     /// 表紙差し替えを Web の `?v=` で追跡するためのバージョン文字列（thumbnail.jpg の mtime+size 由来）。
     /// 表紙なしの本は nil。stat コスト抑制のためページスライス後の本のみ算出する（run 参照）。
-    public let coverVersion: String?
+    public private(set) var coverVersion: String?
     /// 4.2c-6b: 表紙クロップ矩形 JSON（リモートグリッド/リストのクロップ適用用）。クロップ無しは nil。
-    public let coverCropRectJSON: String?
+    public private(set) var coverCropRectJSON: String?
     /// G15 V3: サーバ側ファイル basename（フルパスではない）。BuiltInViewerSupport 判定に使う。
     /// path を持たない本（folder 等）は nil。
-    public let filename: String?
+    public private(set) var filename: String?
     // ── 動的フィールド（&fields= で要求された時のみ充填・既定 nil） ──
-    public let genre: String?
-    public let neta: String?
-    public let keywordA: String?
-    public let keywordB: String?
-    public let keywordC: String?
-    public let memo: String?
+    public private(set) var genre: String?
+    public private(set) var neta: String?
+    public private(set) var keywordA: String?
+    public private(set) var keywordB: String?
+    public private(set) var keywordC: String?
+    public private(set) var memo: String?
 
     public init(
         id: Int,
@@ -80,69 +82,37 @@ public struct BookListItemDTO: Codable, Sendable {
 }
 
 extension BookListItemDTO {
-    /// coverVersion だけ差し替えたコピーを返す（全 let のため再構築）。
+    /// coverVersion だけ差し替えたコピーを返す。
     public func withCoverVersion(_ version: String?) -> BookListItemDTO {
-        BookListItemDTO(
-            id: id, title: title, author: author,
-            series: series, volume: volume,
-            rating: rating, unseen: unseen, bookType: bookType,
-            pages: pages, lastPage: lastPage, lastReadAt: lastReadAt,
-            dateAdded: dateAdded, hasCover: hasCover, coverVersion: version,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON, filename: filename
-        )
+        var c = self; c.coverVersion = version; return c
     }
 
     /// 応答スライス用。fields に含まれない追加フィールドを nil に落とす。memo は 200 字に切詰。
     public func keepingExtras(_ fields: Set<String>) -> BookListItemDTO {
-        BookListItemDTO(
-            id: id, title: title, author: author, series: series, volume: volume,
-            rating: rating, unseen: unseen, bookType: bookType, pages: pages,
-            lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
-            hasCover: hasCover, coverVersion: coverVersion,
-            genre: fields.contains("genre") ? genre : nil,
-            neta: fields.contains("neta") ? neta : nil,
-            keywordA: fields.contains("keywordA") ? keywordA : nil,
-            keywordB: fields.contains("keywordB") ? keywordB : nil,
-            keywordC: fields.contains("keywordC") ? keywordC : nil,
-            memo: fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil,
-            coverCropRectJSON: coverCropRectJSON, filename: filename)
+        var c = self
+        if !fields.contains("genre") { c.genre = nil }
+        if !fields.contains("neta") { c.neta = nil }
+        if !fields.contains("keywordA") { c.keywordA = nil }
+        if !fields.contains("keywordB") { c.keywordB = nil }
+        if !fields.contains("keywordC") { c.keywordC = nil }
+        c.memo = fields.contains("memo") ? memo.map { String($0.prefix(200)) } : nil
+        return c
     }
 
     /// lastPage を差し替えた複製（リモート閲覧の進捗をメモリ上の一覧へ反映し、
     /// 一覧を再取得しなくても再オープン時に続きから開くために使う）。
     public func withLastPage(_ page: Int?) -> BookListItemDTO {
-        BookListItemDTO(
-            id: id, title: title, author: author,
-            series: series, volume: volume,
-            rating: rating, unseen: unseen, bookType: bookType,
-            pages: pages, lastPage: page, lastReadAt: lastReadAt,
-            dateAdded: dateAdded, hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON, filename: filename
-        )
+        var c = self; c.lastPage = page; return c
     }
 
     /// unseen フラグだけ差し替えた複製（リモート閲覧で未読マーカーを楽観的に消すために使う）。
     public func withUnseen(_ v: Bool) -> BookListItemDTO {
-        BookListItemDTO(
-            id: id, title: title, author: author, series: series, volume: volume,
-            rating: rating, unseen: v, bookType: bookType, pages: pages,
-            lastPage: lastPage, lastReadAt: lastReadAt, dateAdded: dateAdded,
-            hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON, filename: filename)
+        var c = self; c.unseen = v; return c
     }
 
     /// lastReadAt だけ差し替えた複製（リモート閲覧で最終閲覧日時を楽観的に更新するために使う）。
     public func withLastReadAt(_ date: Date?) -> BookListItemDTO {
-        BookListItemDTO(
-            id: id, title: title, author: author, series: series, volume: volume,
-            rating: rating, unseen: unseen, bookType: bookType, pages: pages,
-            lastPage: lastPage, lastReadAt: date, dateAdded: dateAdded,
-            hasCover: hasCover, coverVersion: coverVersion,
-            genre: genre, neta: neta, keywordA: keywordA, keywordB: keywordB, keywordC: keywordC, memo: memo,
-            coverCropRectJSON: coverCropRectJSON, filename: filename)
+        var c = self; c.lastReadAt = date; return c
     }
 }
 
