@@ -263,4 +263,38 @@ struct SearchScopeMatrixTests {
         let v = try db.distinctValues(forColumn: "genre", query: "", sidebarScope: .shelf(playlistID: sid))
         #expect(v == ["棚内ジャンル"])
     }
+
+    // Task 2 レビュー Minor-3: LIKE / trigram 経路の shelf テストも negative case が
+    // 「どの棚にも属さない本」だったため、`INNER JOIN` 単独で除外され
+    // `pi.playlist_id = ?` の消失を検出できない。空クエリ経路と同じく「別の棚の本」で塞ぐ。
+
+    @Test("LIKE経路×shelf: 別の棚の本は混ざらない")
+    func likePathShelfExcludesOtherShelves() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "この棚のスコア本"))
+        try db.insertBook(book(id: 2, title: "別の棚のスコア本"))
+        let sid = try db.createUserShelf(title: "棚")
+        try db.appendBooksToShelf(playlistID: sid, bookIDs: [1])
+        let other = try db.createUserShelf(title: "別の棚")
+        try db.appendBooksToShelf(playlistID: other, bookIDs: [2])
+
+        // 1-2 文字＝LIKE fallback 経路。両方の本が「ス」に合致するので、
+        // 除外理由は棚メンバーシップだけになる。
+        let r = try db.searchBooks(query: "ス", sidebarScope: .shelf(playlistID: sid))
+        #expect(r.map(\.id) == [1])
+    }
+
+    @Test("trigram経路×shelf: 別の棚の本は混ざらない")
+    func trigramPathShelfExcludesOtherShelves() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "この棚のスコア本"))
+        try db.insertBook(book(id: 2, title: "別の棚のスコア本"))
+        let sid = try db.createUserShelf(title: "棚")
+        try db.appendBooksToShelf(playlistID: sid, bookIDs: [1])
+        let other = try db.createUserShelf(title: "別の棚")
+        try db.appendBooksToShelf(playlistID: other, bookIDs: [2])
+
+        let r = try db.searchBooks(query: "スコア", sidebarScope: .shelf(playlistID: sid))
+        #expect(r.map(\.id) == [1])
+    }
 }
