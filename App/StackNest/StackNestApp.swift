@@ -249,6 +249,13 @@ struct BridgeContent: View {
                 // Plain launch → no URL arrives, fall through and open based on StartupMode.
                 // URL launch → hasLaunchURL flips true within milliseconds, skip Title.
                 Task { @MainActor in
+                    // App ユニットテストではライブラリを一切復元しない。テストホストは
+                    // アプリ本体なので、復元経路のモーダル（競合検知・復元失敗）が出ると
+                    // 閉じる者がおらずテストが永久に停止する（AppEnvironment を参照）。
+                    if AppEnvironment.isRunningUnitTests {
+                        Self.logger.info("BridgeContent: running under XCTest → skip startup restore")
+                        return
+                    }
                     try? await Task.sleep(nanoseconds: 300_000_000)  // 300ms grace period
                     if StackNestAppDelegate.hasLaunchURL {
                         Self.logger.info("BridgeContent: launch URL detected → skip Title")
@@ -689,6 +696,10 @@ struct LibraryWindowContainer: View {
     /// Returns true if the user chose "force open".
     @MainActor
     static func confirmForceOpen(bundleName: String, holder: LibraryOpenLockInfo) -> Bool {
+        // テスト実行中はモーダルを出さず、安全側の既定（＝開かない）で即答する。
+        // 起動時復元は AppEnvironment の判定で既に抑止済みだが、テストが明示的に庫を
+        // 開こうとした場合の二重の歯止め。
+        if AppEnvironment.isRunningUnitTests { return false }
         let sameHost = holder.hostUUID == LibraryOpenLockManager.shared.currentHostUUIDString
         let location = sameHost ? "別のプロセス" : "別の Mac（\(holder.hostName)）"
         let alert = NSAlert()
