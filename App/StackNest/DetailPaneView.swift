@@ -18,13 +18,9 @@ struct DetailPaneView: View {
     let librarySettings: LibrarySettings?   // was appState.librarySettings
     let bundleURL: URL                      // was appState.bundleURL
     let loader: ThumbnailLoader?
-    /// Optional cover-image provider for remote (read-only) clients.
-    /// When non-nil, called instead of `loader` to fetch the cover NSImage over HTTP.
-    /// Defaults to nil — local callers omit this and stay on the `loader` path.
-    let coverImage: ((Int) async -> NSImage?)?
     let canEdit: Bool                       // local = true
     /// G10: 詳細ペインの表紙表示トグル。per-browser（呼び出し側が自身の状態を注入）・既定 true。
-    let showCover: Bool
+    var showCover: Bool = true
     /// 「Finder で表示」ボタンの表示可否。リモートはローカルにファイルが無いため false。
     var canShowFinder: Bool = true
     /// リモートのファイル拡張子（"zip"/""=フォルダ/nil=不明）。path が秘匿のリモートで
@@ -42,10 +38,10 @@ struct DetailPaneView: View {
     /// 4.2c-9: リモートの未読専用適用（R 可・(unseen, bookIDs)）。nil ならローカル patch 経路。
     var onSetUnseen: ((Bool, [Int]) -> Void)? = nil
     /// 読む方向ピッカーの編集可否。canEdit と独立（R/O リモートでも /direction 経由で変更可）。
-    let directionEditable: Bool
+    var directionEditable: Bool = true
     /// 単一ブック時の読む方向変更を専用ルートへ流す closure（リモートは /direction へ）。
     /// nil ならローカル従来どおり onApplyPatch（DB 直書き）へフォールバック。
-    let onSetPageDirection: ((Int, PageDirection?) -> Void)?
+    var onSetPageDirection: ((Int, PageDirection?) -> Void)? = nil
     let onApplyPatch: (Int, BookPatch) -> Void          // was applyPatch(bookID:patch:undoManager:)
     let onApplyPatchMulti: ([Int], BookPatch) -> Void   // was applyPatch(bookIDs:patch:undoManager:)
     let onSetCover: (String?, Int) async throws -> Void  // was setCoverImageName(_:for:undoManager:)
@@ -53,83 +49,23 @@ struct DetailPaneView: View {
     let onSetCrop: (Int, String) -> Void                // was updateBookCoverCropRect(id:json:<json>)+refresh
     let onJump: (DetailField, String) -> Void           // was jumpToFilterOrSearch(field:value:)
     let onError: (AppError) -> Void                     // was appState.error = <AppError>
+    /// Optional cover-image provider for remote (read-only) clients.
+    /// When non-nil, called instead of `loader` to fetch the cover NSImage over HTTP.
+    /// Defaults to nil — local callers omit this and stay on the `loader` path.
+    var coverImage: ((Int) async -> NSImage?)? = nil
     /// 4.2c-6b: リモート表紙編集用の注入（nil=ローカル＝従来 CoverPickerSheet）。
     var remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil
     var remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
     /// G4a: 外部画像を表紙に設定（imageData, crop, bookID）。ローカルのみ注入・リモート/オフラインは nil。
-    let onSetExternalCover: ((Data, CGRect?, Int) async -> Void)?
-    /// G21 #5: 1 冊だけ表紙を今のファイルから作り直す（右クリック「表紙を再生成」）。
-    /// nil ならメニュー項目自体が無効（オフライン等・編集不可の閲覧専用ビュー）。
-    /// 外部表紙（@external）の本は呼び出し側で disabled にする（サーバ/ローカルいずれも no-op 規約）。
-    var onRegenerateCover: ((Int) -> Void)? = nil
+    var onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil
     /// G4b: 表紙書き込みごとに増える版数。詳細ペイン表紙ビューの identity に含め、
     /// メタ不変（外部画像の差し替え等）でも再描画/再取得させる。リモートは state.coverVersion を注入、
     /// ローカル/オフラインは 0 固定（従来挙動＝メタ変化で再描画）。
     var coverVersion: Int = 0
-
-    /// 明示イニシャライザ。`coverImage` は inline default (`= nil`) を持つため
-    /// 合成メモリワイズ init からは除外され、呼び出し側で渡せなくなる。
-    /// リモート (read-only) クライアントが coverImage を注入できるよう、
-    /// 末尾に default 付きで明示的に受け取る。ローカル呼び出しは従来どおり省略可。
-    init(
-        books: [BookRow],
-        librarySettings: LibrarySettings?,
-        bundleURL: URL,
-        loader: ThumbnailLoader?,
-        canEdit: Bool,
-        showCover: Bool = true,
-        canShowFinder: Bool = true,
-        remoteFileExtension: String? = nil,
-        remoteFilename: String? = nil,
-        ratingEditable: Bool? = nil,
-        onSetRating: ((Int, [Int]) -> Void)? = nil,
-        unseenEditable: Bool? = nil,
-        onSetUnseen: ((Bool, [Int]) -> Void)? = nil,
-        directionEditable: Bool = true,
-        onSetPageDirection: ((Int, PageDirection?) -> Void)? = nil,
-        onApplyPatch: @escaping (Int, BookPatch) -> Void,
-        onApplyPatchMulti: @escaping ([Int], BookPatch) -> Void,
-        onSetCover: @escaping (String?, Int) async throws -> Void,
-        onClearCrop: @escaping (Int) -> Void,
-        onSetCrop: @escaping (Int, String) -> Void,
-        onJump: @escaping (DetailField, String) -> Void,
-        onError: @escaping (AppError) -> Void,
-        coverImage: ((Int) async -> NSImage?)? = nil,
-        remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil,
-        remoteEntryImage: ((Int, String) async -> NSImage?)? = nil,
-        onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil,
-        coverVersion: Int = 0,
-        onRegenerateCover: ((Int) -> Void)? = nil
-    ) {
-        self.books = books
-        self.librarySettings = librarySettings
-        self.bundleURL = bundleURL
-        self.loader = loader
-        self.canEdit = canEdit
-        self.showCover = showCover
-        self.canShowFinder = canShowFinder
-        self.remoteFileExtension = remoteFileExtension
-        self.remoteFilename = remoteFilename
-        self.ratingEditable = ratingEditable
-        self.onSetRating = onSetRating
-        self.unseenEditable = unseenEditable
-        self.onSetUnseen = onSetUnseen
-        self.directionEditable = directionEditable
-        self.onSetPageDirection = onSetPageDirection
-        self.onApplyPatch = onApplyPatch
-        self.onApplyPatchMulti = onApplyPatchMulti
-        self.onSetCover = onSetCover
-        self.onClearCrop = onClearCrop
-        self.onSetCrop = onSetCrop
-        self.onJump = onJump
-        self.onError = onError
-        self.coverImage = coverImage
-        self.remoteCoverCandidates = remoteCoverCandidates
-        self.remoteEntryImage = remoteEntryImage
-        self.onSetExternalCover = onSetExternalCover
-        self.coverVersion = coverVersion
-        self.onRegenerateCover = onRegenerateCover
-    }
+    /// G21 #5: 1 冊だけ表紙を今のファイルから作り直す（右クリック「表紙を再生成」）。
+    /// nil ならメニュー項目自体が無効（オフライン等・編集不可の閲覧専用ビュー）。
+    /// 外部表紙（@external）の本は呼び出し側で disabled にする（サーバ/ローカルいずれも no-op 規約）。
+    var onRegenerateCover: ((Int) -> Void)? = nil
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
     /// @State and resets to the original (non-empty) title.
