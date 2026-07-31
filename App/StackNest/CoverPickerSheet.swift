@@ -6,12 +6,39 @@ import ArchiveAdapter
 import CoreGraphics
 import ImageIO
 
+/// crop editor 用 preview の読み込み結果。
+/// `.unchanged` はローカル経路の従来挙動（画像データは取れたが `NSImage` 化に失敗したときは
+/// 直前の preview を残す）を共有シェルでそのまま再現するために必要。
+/// リモート経路は `.image` / `.cleared` しか返さない（従来どおり nil で消える）。
+enum CoverPreviewLoadResult {
+    case image(NSImage)
+    case cleared
+    case unchanged
+}
+
+/// 表紙ピッカーのデータ取得経路。ローカルは ArchiveAdapter 直読み、リモートは注入クロージャ。
+/// 共有シェル (`CoverPickerSheet`) はこの struct 経由でしかデータに触らないので、
+/// リモート実行時にローカル専用 API（ArchiveAdapter / ファイル直読み）へ到達することはない。
+struct CoverPickerSource {
+    /// 画像エントリ一覧。`errorMessage` が非 nil ならグリッドの代わりに⚠️エラー表示になる。
+    let listEntries: () async -> (entries: [String], errorMessage: String?)
+    /// grid 用 thumbnail を 1 枚。nil を返すと失敗アイコンになる。
+    /// 描画パスを経路ごとに変えられるよう `Image` を返す（ローカル=ImageIO で 200px 縮小した
+    /// CGImage、リモート=サーバから受けた NSImage）。
+    let thumbnail: (String) async -> Image?
+    /// crop 編集に足る解像度の full-size preview。
+    let preview: (String) async -> CoverPreviewLoadResult
+}
+
 /// アーカイブ / フォルダ内の全画像エントリを thumbnail grid で表示し、ユーザが表紙ページを選択する sheet。
 /// Detail Pane の表紙エリア右クリック「表紙を選択…」から起動される (Task 8 で wire)。
 /// Phase 2.5h A18-ext: 選択後の page に crop 矩形を指定して横長カバーの一部だけを表示できる。
 /// crop が全体 (full rect) のままなら NULL を渡し、現行挙動を維持する。
+/// G25b-2 P4: ローカル / リモート (`RemoteCoverPickerSheet`) で UI シェルを共有し、
+/// 経路差は `CoverPickerSource` のクロージャだけに閉じ込める。
 struct CoverPickerSheet: View {
     let book: BookRow
+    let source: CoverPickerSource
     /// 選択されたエントリ名 + crop 矩形 (nil = 全体) を受け取るコールバック (sheet は自動 dismiss)
     let onSelect: (String, CGRect?) -> Void
 
@@ -102,9 +129,9 @@ struct CoverPickerSheet: View {
                 LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(entries, id: \.self) { entry in
                         CoverPickerThumbnail(
-                            book: book,
                             entryName: entry,
-                            isCurrent: entry == selectedEntry
+                            isCurrent: entry == selectedEntry,
+                            load: { await source.thumbnail(entry) }
                         ) {
                             selectedEntry = entry
                         }
@@ -167,73 +194,119 @@ struct CoverPickerSheet: View {
     }
 
     private func loadEntries() async {
-        guard let path = book.path else {
-            await MainActor.run {
-                self.errorMessage = "ファイル パスが見つかりません"
-                self.loading = false
-            }
-            return
+        let (names, error) = await source.listEntries()
+        await MainActor.run {
+            self.entries = names
+            self.errorMessage = error
+            self.loading = false
         }
-        let url = URL(fileURLWithPath: path)
-        guard let extractor = ArchiveAdapter.coverExtractor(for: url) else {
-            await MainActor.run {
-                self.errorMessage = "未対応のフォーマットです"
-                self.loading = false
-            }
-            return
-        }
-        do {
-            let names = try await extractor.listImageEntries(in: url)
-            await MainActor.run {
-                self.entries = names
-                self.loading = false
-            }
-            // 初期 selection (book.coverImageName) があれば preview を先読み。
-            if let current = selectedEntry {
-                await loadPreview(forEntry: current)
-            }
-        } catch {
-            await MainActor.run {
-                self.errorMessage = "ページ一覧の取得に失敗: \(error.localizedDescription)"
-                self.loading = false
-            }
+        // 初期 selection (book.coverImageName) があれば preview を先読み。
+        if let current = selectedEntry {
+            await loadPreview(forEntry: current)
         }
     }
 
     /// crop editor 用の full-size preview を読み込む。
     /// thumbnail grid は別経路で読み込まれるが、こちらは crop 編集に十分な解像度が必要。
     private func loadPreview(forEntry entry: String?) async {
-        guard let entry, let path = book.path else {
+        guard let entry else {
             await MainActor.run { self.previewImage = nil }
             return
         }
-        let url = URL(fileURLWithPath: path)
-        guard let extractor = ArchiveAdapter.coverExtractor(for: url) else { return }
-        do {
-            let data = try await extractor.extractCoverImage(from: url, preferredName: entry)
-            if let img = NSImage(data: data) {
-                await MainActor.run { self.previewImage = img }
-            }
-        } catch {
+        switch await source.preview(entry) {
+        case .image(let img):
+            await MainActor.run { self.previewImage = img }
+        case .cleared:
             await MainActor.run { self.previewImage = nil }
+        case .unchanged:
+            break
         }
     }
 }
 
-/// 各ページの thumbnail (lazy 生成、選択 indicator 付き)。
+extension CoverPickerSheet {
+    /// ローカル用の初期化（ArchiveAdapter でアーカイブ / フォルダを直読み）。
+    init(book: BookRow, onSelect: @escaping (String, CGRect?) -> Void) {
+        self.init(book: book, source: .local(book: book), onSelect: onSelect)
+    }
+}
+
+extension CoverPickerSource {
+    /// ローカル経路。`book.path` は sheet 生存中は不変なので値だけ捕捉する
+    /// (BookRow ごと捕捉しない)。実処理は nonisolated な static func 側にあるので、
+    /// ImageIO のデコードが MainActor に載ることはない。
+    static func local(book: BookRow) -> CoverPickerSource {
+        let path = book.path
+        return CoverPickerSource(
+            listEntries: { await LocalCoverEntryLoader.entries(path: path) },
+            thumbnail: { await LocalCoverEntryLoader.thumbnail(path: path, entry: $0) },
+            preview: { await LocalCoverEntryLoader.preview(path: path, entry: $0) }
+        )
+    }
+}
+
+/// ローカル経路の実処理（ArchiveAdapter）。
+private enum LocalCoverEntryLoader {
+    static func entries(path: String?) async -> (entries: [String], errorMessage: String?) {
+        guard let path else { return ([], "ファイル パスが見つかりません") }
+        let url = URL(fileURLWithPath: path)
+        guard let extractor = ArchiveAdapter.coverExtractor(for: url) else {
+            return ([], "未対応のフォーマットです")
+        }
+        do {
+            return (try await extractor.listImageEntries(in: url), nil)
+        } catch {
+            return ([], "ページ一覧の取得に失敗: \(error.localizedDescription)")
+        }
+    }
+
+    static func thumbnail(path: String?, entry: String) async -> Image? {
+        guard let path else { return nil }
+        let url = URL(fileURLWithPath: path)
+        guard let extractor = ArchiveAdapter.coverExtractor(for: url),
+              let data = try? await extractor.extractCoverImage(from: url, preferredName: entry),
+              let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                  kCGImageSourceCreateThumbnailFromImageAlways: true,
+                  kCGImageSourceShouldCacheImmediately: true,
+                  kCGImageSourceThumbnailMaxPixelSize: 200,
+                  kCGImageSourceCreateThumbnailWithTransform: true,  // EXIF orientation を反映
+              ] as CFDictionary) else {
+            return nil
+        }
+        return Image(decorative: cg, scale: 1.0)
+    }
+
+    static func preview(path: String?, entry: String) async -> CoverPreviewLoadResult {
+        guard let path else { return .cleared }
+        let url = URL(fileURLWithPath: path)
+        guard let extractor = ArchiveAdapter.coverExtractor(for: url) else { return .unchanged }
+        do {
+            let data = try await extractor.extractCoverImage(from: url, preferredName: entry)
+            // デコードに失敗したときは直前の preview を残す（従来挙動）。
+            guard let img = NSImage(data: data) else { return .unchanged }
+            return .image(img)
+        } catch {
+            return .cleared
+        }
+    }
+}
+
+/// 各ページの thumbnail (lazy 生成、選択 indicator 付き)。ローカル / リモート共用
+/// （画像取得だけ `CoverPickerSource.thumbnail` に委譲する）。
 private struct CoverPickerThumbnail: View {
-    let book: BookRow
     let entryName: String
     let isCurrent: Bool
+    let load: () async -> Image?
     let onTap: () -> Void
-    @State private var image: CGImage?
+    @State private var image: Image?
     @State private var loadFailed: Bool = false
 
     var body: some View {
         VStack(spacing: 4) {
             ZStack {
                 if let image {
-                    Image(decorative: image, scale: 1.0)
+                    image
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                 } else if loadFailed {
@@ -261,34 +334,11 @@ private struct CoverPickerThumbnail: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
-        .task { await loadImage() }
-    }
-
-    private func loadImage() async {
-        guard let path = book.path else {
-            await MainActor.run { self.loadFailed = true }
-            return
-        }
-        let url = URL(fileURLWithPath: path)
-        guard let extractor = ArchiveAdapter.coverExtractor(for: url) else {
-            await MainActor.run { self.loadFailed = true }
-            return
-        }
-        do {
-            let data = try await extractor.extractCoverImage(from: url, preferredName: entryName)
-            guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                  let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                      kCGImageSourceCreateThumbnailFromImageAlways: true,
-                      kCGImageSourceShouldCacheImmediately: true,
-                      kCGImageSourceThumbnailMaxPixelSize: 200,
-                      kCGImageSourceCreateThumbnailWithTransform: true,  // EXIF orientation を反映
-                  ] as CFDictionary) else {
-                await MainActor.run { self.loadFailed = true }
-                return
+        .task {
+            let loaded = await load()
+            await MainActor.run {
+                if let loaded { self.image = loaded } else { self.loadFailed = true }
             }
-            await MainActor.run { self.image = cg }
-        } catch {
-            await MainActor.run { self.loadFailed = true }
         }
     }
 }
