@@ -15,35 +15,48 @@ import RemoteClient  // RemoteClientError は public なので @testable 不要
 ///
 /// **実行方法**: `cd App && xcodebuild test -scheme StackNest -destination 'platform=macOS' -derivedDataPath build`
 ///
-/// **検出力は実証済み（G25e）**: 意図的に自己再帰を戻すと `exit=65` / `** TEST FAILED **` /
-/// `Restarting after unexpected exit, crash, or test timeout` となる。スタックオーバーフローなので
-/// 綺麗な assertion 失敗ではなく**テストプロセスのクラッシュ**として現れる点に注意。
+/// **検出力は実証済み（G25e・巻き戻しを再現して確認）**:
+/// - 自己再帰を戻すと `exit=65` / `** TEST FAILED **` /
+///   `Restarting after unexpected exit, crash, or test timeout`。スタックオーバーフローなので
+///   綺麗な assertion 失敗ではなく**テストプロセスのクラッシュ**として現れる点に注意。
+/// - 表紙キャッシュの注入を無視する形に戻すと、`s.coverCache === injected` が失敗する。
+///
+/// **テストを足すときは「わざと壊して落ちること」まで確認すること。** 通ることは
+/// 「テストが動く」証拠にすぎず、「目的の欠陥を捕まえる」証拠ではない
+/// （G25e では、実パスの有無を観察する初版が**通るのに検出力ゼロ**だった）。
 @MainActor
 @Suite("RemoteLibraryState のエラー提示")
 struct RemoteErrorPresentationTests {
-    private func makeState(libraryToken: String?) -> RemoteLibraryState {
+    /// G25e: **ディスクを持たない表紙キャッシュ**（L2 を通さず NSCache のみ）。
+    /// 既定の `RemotePageCache.shared` のままだと、テストを走らせるだけで
+    /// `~/Library/Application Support/StackNest/RemoteCache/` に blobs / index.sqlite が作られる。
+    private func makeMemoryOnlyCache() -> RemoteCoverCache {
+        RemoteCoverCache(cache: nil, serverID: nil, libraryUUID: nil)
+    }
+
+    private func makeState(libraryToken: String?,
+                           coverCache: RemoteCoverCache? = nil) -> RemoteLibraryState {
         RemoteLibraryState(
             client: RemoteLibraryClient(baseURL: URL(string: "http://127.0.0.1:1/")!, deviceToken: "device"),
             serverID: UUID(), libraryUUID: "LIB-\(UUID().uuidString)",
             libraryName: "テスト", locked: true, libraryToken: libraryToken,
-            // G25e: **ディスクキャッシュを注入して実利用領域を汚さない。**
-            // 既定（`RemotePageCache.shared`）のままだと、テストを走らせるだけで
-            // `~/Library/Application Support/StackNest/RemoteCache/` に blobs / index.sqlite が作られる。
-            coverCache: RemoteCoverCache(cache: nil, serverID: nil, libraryUUID: nil))
+            coverCache: coverCache ?? makeMemoryOnlyCache())
     }
 
-    /// G25e: 上の注入が効いていること＝テストが実利用のキャッシュ領域に触れないことを固定する。
-    /// これが崩れると、テストを走らせるだけで開発者・利用者のキャッシュ DB を作成／更新してしまう。
-    @Test("テストは実利用のディスクキャッシュを作らない")
-    func doesNotTouchRealDiskCache() {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        let cacheDir = appSupport.appendingPathComponent("StackNest/RemoteCache", isDirectory: true)
-        let existedBefore = FileManager.default.fileExists(atPath: cacheDir.path)
-
-        _ = makeState(libraryToken: "TOKEN")
-
-        // 元から在る環境では「増えないこと」を、無い環境では「作られないこと」を主張する。
-        #expect(FileManager.default.fileExists(atPath: cacheDir.path) == existedBefore)
+    /// G25e: **注入した表紙キャッシュがそのまま使われる**ことを固定する。
+    ///
+    /// これが崩れると `RemotePageCache.shared` が使われ、テストを走らせるだけで
+    /// 開発者・利用者の `~/Library/Application Support/StackNest/RemoteCache/` を作成／更新してしまう。
+    ///
+    /// **実パス（ディレクトリの有無）を観察する形は採らない** — 既にキャッシュがある環境や
+    /// 並列実行では巻き戻しが起きても通ってしまい、検出力が無いため（Codex レビュー指摘）。
+    /// 配線そのものを見れば、引数を消す巻き戻しはコンパイルが落ち、
+    /// 引数を残して無視する巻き戻しはこの identity 検証が落ちる。
+    @Test("注入した表紙キャッシュがそのまま使われる（実利用領域を汚さない）")
+    func usesTheInjectedCoverCache() {
+        let injected = makeMemoryOnlyCache()
+        let s = makeState(libraryToken: "TOKEN", coverCache: injected)
+        #expect(s.coverCache === injected)
     }
 
     @Test("★通常のエラーは赤字表示になり、トークンを失効させない（自己再帰の回帰検出）")
