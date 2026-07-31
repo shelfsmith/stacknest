@@ -25,7 +25,25 @@ struct RemoteErrorPresentationTests {
         RemoteLibraryState(
             client: RemoteLibraryClient(baseURL: URL(string: "http://127.0.0.1:1/")!, deviceToken: "device"),
             serverID: UUID(), libraryUUID: "LIB-\(UUID().uuidString)",
-            libraryName: "テスト", locked: true, libraryToken: libraryToken)
+            libraryName: "テスト", locked: true, libraryToken: libraryToken,
+            // G25e: **ディスクキャッシュを注入して実利用領域を汚さない。**
+            // 既定（`RemotePageCache.shared`）のままだと、テストを走らせるだけで
+            // `~/Library/Application Support/StackNest/RemoteCache/` に blobs / index.sqlite が作られる。
+            coverCache: RemoteCoverCache(cache: nil, serverID: nil, libraryUUID: nil))
+    }
+
+    /// G25e: 上の注入が効いていること＝テストが実利用のキャッシュ領域に触れないことを固定する。
+    /// これが崩れると、テストを走らせるだけで開発者・利用者のキャッシュ DB を作成／更新してしまう。
+    @Test("テストは実利用のディスクキャッシュを作らない")
+    func doesNotTouchRealDiskCache() {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let cacheDir = appSupport.appendingPathComponent("StackNest/RemoteCache", isDirectory: true)
+        let existedBefore = FileManager.default.fileExists(atPath: cacheDir.path)
+
+        _ = makeState(libraryToken: "TOKEN")
+
+        // 元から在る環境では「増えないこと」を、無い環境では「作られないこと」を主張する。
+        #expect(FileManager.default.fileExists(atPath: cacheDir.path) == existedBefore)
     }
 
     @Test("★通常のエラーは赤字表示になり、トークンを失効させない（自己再帰の回帰検出）")
