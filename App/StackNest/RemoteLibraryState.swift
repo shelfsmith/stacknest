@@ -143,14 +143,19 @@ final class RemoteLibraryState {
 
     let coverCache: RemoteCoverCache
 
-    init(client: RemoteLibraryClient, serverID: UUID, libraryUUID: String, libraryName: String, locked: Bool, libraryToken: String? = nil) {
+    /// - Parameter coverCache: 既定は実利用のディスクキャッシュ（`RemotePageCache.shared`）を使う。
+    ///   **テストは必ず注入すること** — 既定のままだと
+    ///   `~/Library/Application Support/StackNest/RemoteCache/` に実データを作ってしまう
+    ///   （G25e の Codex レビュー指摘。`RemoteCoverCache(cache: nil, ...)` を渡せば副作用が無い）。
+    init(client: RemoteLibraryClient, serverID: UUID, libraryUUID: String, libraryName: String,
+         locked: Bool, libraryToken: String? = nil, coverCache: RemoteCoverCache? = nil) {
         self.client = client
         self.serverID = serverID
         self.libraryUUID = libraryUUID
         self.libraryName = libraryName
         self.locked = locked
         self.libraryToken = libraryToken
-        self.coverCache = RemoteCoverCache(serverID: serverID, libraryUUID: libraryUUID)
+        self.coverCache = coverCache ?? RemoteCoverCache(serverID: serverID, libraryUUID: libraryUUID)
         self.per = prefs.perPageSize
         self.scrollMode = prefs.scrollMode
         // 4.2c-7: 保存済みブラウズ状態（ファセット/ソート/grid/フィルタ/サイドバー）を復元する。

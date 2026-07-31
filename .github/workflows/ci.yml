@@ -50,6 +50,24 @@ jobs:
       - name: Generate Xcode project
         run: xcodegen generate --spec App/project.yml --use-cache
 
+      # G25e: App 層のユニットテスト。`swift test` は App ターゲットを一切見ないため、
+      # このステップが無いと App 層の回帰（例: G25d で混入した presentRemoteError の自己再帰＝
+      # 失効以外の全通信エラーでクラッシュ）を CI が素通りする。実際 SPM の全テストも
+      # App の通常ビルドも、その自己再帰を検出できなかった。
+      # テストはホスト arch で十分（製品ビルドの Universal は下の step で別途行う）。
+      # 注: この workflow は 2026-07-31 時点で GitHub 側で disabled_manually。
+      # 再有効化したときに正しく回るよう用意している（現状このステップは実行されない）。
+      - name: Test macOS App (app-layer unit tests)
+        run: |
+          xcodebuild \
+            -project App/StackNest.xcodeproj \
+            -scheme StackNest \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            test
+
       - name: Build macOS App (Universal)
         run: |
           xcodebuild \
