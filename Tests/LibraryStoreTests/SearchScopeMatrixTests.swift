@@ -200,4 +200,67 @@ struct SearchScopeMatrixTests {
         let r = try db.distinctValues(forColumn: "author", query: "スコア", sidebarScope: .smartShelf(playlistID: sid))
         #expect(r == ["X"])
     }
+
+    // MARK: - 棚メンバーシップ単独の検出力（G25b-2 Task 1 追補）
+    //
+    // 既存の favorites/shelf テストは**フィルタ条件が偶然すべてを絞っている**ため、
+    // JOIN の絞り込み（`pi.playlist_id = ?`）を無効化しても結果が変わらず、通ってしまっていた。
+    // 実測: その条件を `(pi.playlist_id = ? OR 1=1)` に改変しても 1683 テストが全部 pass。
+    // ここでは**棚に属さないが query/filter には合致する本**を置き、
+    // 「棚メンバーシップだけが除外理由になる」状況を作って主張する。
+
+    // ★ 重要: 空クエリ **かつ** filter/browser がどちらも空だと、`searchBooks` は
+    // fast path（`fetchBooksInPlaylist` 等）へ抜けて**動的 SQL を通らない**（Database.swift:1416）。
+    // Task 2 が畳むのは動的 SQL 側なので、**フィルタを 1 つ有効にして fast path を避ける**。
+    // これを外すと「畳む対象に到達しないテスト」になり、安全網として無意味になる。
+
+    @Test("空クエリ×favorites（動的SQL）: 棚外の本は、フィルタに合致しても除外される")
+    func emptyQueryFavoritesExcludesNonMembers() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "棚の中の本"))
+        try db.insertBook(book(id: 2, title: "別の棚の本"))
+        let favID = try db.ensureFavoritesShelf()
+        try db.appendBooksToShelf(playlistID: favID, bookIDs: [1])
+        // ★ 2 を**別の棚**に入れる。INNER JOIN 自体はどの棚にも属さない本を弾くので、
+        //   `pi.playlist_id = ?` が区別しているのは「どの棚か」だけ。別棚の本を置いて初めて
+        //   その条件の消失（＝他の棚の本が混ざる）を検出できる。
+        let other = try db.createUserShelf(title: "別の棚")
+        try db.appendBooksToShelf(playlistID: other, bookIDs: [2])
+
+        var f = FilterState()
+        f.ratingMin = 0            // 両方に合致する条件＝除外理由を棚メンバーシップだけにする
+        let r = try db.searchBooks(query: "", sidebarScope: .favorites(playlistID: favID), filter: f)
+        // 2 が混ざるなら JOIN の絞り込みが効いていない。
+        #expect(r.map(\.id) == [1])
+    }
+
+    @Test("空クエリ×shelf（動的SQL）: 棚外の本は、フィルタに合致しても除外される")
+    func emptyQueryShelfExcludesNonMembers() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "棚の中の本"))
+        try db.insertBook(book(id: 2, title: "別の棚の本"))
+        let sid = try db.createUserShelf(title: "棚")
+        try db.appendBooksToShelf(playlistID: sid, bookIDs: [1])
+        let other = try db.createUserShelf(title: "別の棚")   // ★ 上と同じ理由
+        try db.appendBooksToShelf(playlistID: other, bookIDs: [2])
+
+        var f = FilterState()
+        f.ratingMin = 0
+        let r = try db.searchBooks(query: "", sidebarScope: .shelf(playlistID: sid), filter: f)
+        #expect(r.map(\.id) == [1])
+    }
+
+    @Test("distinctValues 空クエリ×shelf: 棚外の本の値は出てこない")
+    func emptyQueryShelfDistinctExcludesNonMembers() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "中", genre: "棚内ジャンル"))
+        try db.insertBook(book(id: 2, title: "外", genre: "別棚ジャンル"))
+        let sid = try db.createUserShelf(title: "棚")
+        try db.appendBooksToShelf(playlistID: sid, bookIDs: [1])
+        let other = try db.createUserShelf(title: "別の棚")   // ★ 上と同じ理由
+        try db.appendBooksToShelf(playlistID: other, bookIDs: [2])
+
+        let v = try db.distinctValues(forColumn: "genre", query: "", sidebarScope: .shelf(playlistID: sid))
+        #expect(v == ["棚内ジャンル"])
+    }
 }
