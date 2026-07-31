@@ -235,7 +235,9 @@ extension CoverPickerSource {
     /// ローカル経路。`book.path` は sheet 生存中は不変なので値だけ捕捉する
     /// (BookRow ごと捕捉しない)。実処理は nonisolated な static func 側にあるので、
     /// ImageIO のデコードが MainActor に載ることはない。
-    static func local(book: BookRow) -> CoverPickerSource {
+    /// `fileprivate`: リモート経路からローカル専用のアーカイブ読み出しに到達できないことを、
+    /// 規約ではなく**型で**担保する（このファイルの外からは呼べない）。
+    fileprivate static func local(book: BookRow) -> CoverPickerSource {
         let path = book.path
         return CoverPickerSource(
             listEntries: { await LocalCoverEntryLoader.entries(path: path) },
