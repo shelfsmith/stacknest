@@ -1197,6 +1197,30 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         scheduleResizeRedecodeCheck()
     }
 
+    // MARK: - G18 C3/C4 共通: 再デコード判定の前提
+
+    /// C3（リサイズ）と C4（ズーム）で**完全に同一だった前提条件**: 現在見開きのページ集合と、
+    /// その中で最も低い「最後に要求した target」。どちらか一方でも不成立なら nil＝再デコードしない。
+    /// これ以降（新 target の算出・成長閾値・トークンの扱い・表示差し替え）は両者で異なるため、
+    /// 意図的に各呼び出し側に残してある。
+    ///
+    /// G18 C3 review Important #4 fix: 実際にデコードされたピクセルサイズ（`prefetch[$0].pixelSize`）
+    /// ではなく、最後に「要求した」target（`lastDecodeTarget`）を成長判定の基準にする。
+    /// `kCGImageSourceThumbnailMaxPixelSize` は upscale しないため、低解像度ソースは要求 target
+    /// より小さい実ピクセルサイズにしかならず、実ピクセルサイズ基準だと拡大リサイズのたびに
+    /// 際限なく再デコード（RemoteBookContent ではネットワーク再フェッチ）が発生してしまう。
+    /// G18 C3 re-review Minor fix: 見開き 2 ページ中、片方がキャッシュヒットで古い小さい target、
+    /// もう片方が新規デコードで大きい target だった場合、`.max()` を取ると「解像度の低い方の
+    /// ページ」の再デコードが必要でも見送られてしまう。`.min()` を使い、見開き内で最も解像度の
+    /// 低いページを基準にすることで、そのページも十分な解像度になるまで再デコードを促す。
+    private func redecodeBaseline() -> (pages: [Int], lastTarget: Int)? {
+        let pages = currentSpreadPages()
+        guard !pages.isEmpty else { return nil }
+        let lastTarget = pages.compactMap { lastDecodeTarget[$0] }.min() ?? 0
+        guard lastTarget > 0 else { return nil }
+        return (pages, lastTarget)
+    }
+
     // MARK: - G18 C3: 拡大リサイズ時の再デコード
 
     /// リサイズのたびに直接判定せず、デバウンスして「落ち着いた」タイミングで 1 回だけ判定する。
@@ -1239,24 +1263,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             checkAndRedecodeForZoom()
             return
         }
-        let pages = currentSpreadPages()
-        guard !pages.isEmpty else { return }
-        // G18 C3 review Important #4 fix: 実際にデコードされたピクセルサイズ（`prefetch[$0].pixelSize`）
-        // ではなく、最後に「要求した」target（`lastDecodeTarget`）を成長判定の基準にする。
-        // `kCGImageSourceThumbnailMaxPixelSize` は upscale しないため、低解像度ソースは要求 target
-        // より小さい実ピクセルサイズにしかならず、実ピクセルサイズ基準だと拡大リサイズのたびに
-        // 際限なく再デコード（RemoteBookContent ではネットワーク再フェッチ）が発生してしまう。
-        // G18 C3 re-review Minor fix: 見開き 2 ページ中、片方がキャッシュヒットで古い小さい target、
-        // もう片方が新規デコードで大きい target だった場合、`.max()` を取ると「解像度の低い方の
-        // ページ」の再デコードが必要でも見送られてしまう。`.min()` を使い、見開き内で最も解像度の
-        // 低いページを基準にすることで、そのページも十分な解像度になるまで再デコードを促す。
-        let lastTarget = pages.compactMap { lastDecodeTarget[$0] }.min() ?? 0
-        guard lastTarget > 0 else { return }
+        // 成長判定の基準（ページ集合と最小 lastDecodeTarget）は C4 と共通 → `redecodeBaseline()`。
+        guard let (pages, lastTarget) = redecodeBaseline() else { return }
         let newTarget = decodeTargetMaxPixelSize()
         guard CGFloat(newTarget) > CGFloat(lastTarget) * resizeRedecodeGrowthThreshold else { return }
 
         // 近傍の低解像キャッシュを破棄する（現在ページ分はどのみち下で上書きされる）。
         // in-flight なプリフェッチも中断し、古い target でのデコードが完了時に紛れ込まないようにする。
+        // ※ `redecodeBaseline()` は `lastDecodeTarget` を読むので、必ずこの破棄より**前**に呼ぶこと。
         prefetch.removeAll()
         lastDecodeTarget.removeAll()
         for (_, entry) in inFlightPrefetch { entry.task.cancel() }
@@ -1350,15 +1364,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // （高解像を積極的に破棄する必要はない。同一ページに留まる限りメモリ方針上は許容範囲。
         //   離脱時の破棄は loadCurrentPage 冒頭の zoomHighResPages 後始末が担う。）
         guard zoomFactor > 1.0001 else { return }
-        let pages = currentSpreadPages()
-        guard !pages.isEmpty else { return }
-        // G18 C3 review Important #4 の教訓を踏襲: 実際にデコードされたピクセルサイズではなく
-        // 「最後に要求した」target（lastDecodeTarget）を成長判定の基準にする（ImageIO は upscale
-        // しないため、実ピクセルサイズ基準だと際限なく再デコードが発生してしまう）。
-        // 見開き内で最も解像度の低いページを基準にする（.min()）ことで、片方だけキャッシュヒットで
-        // 古い小さい target だった場合もそのページの再デコードが見送られないようにする。
-        let lastTarget = pages.compactMap { lastDecodeTarget[$0] }.min() ?? 0
-        guard lastTarget > 0 else { return }
+        // 成長判定の基準（ページ集合と最小 lastDecodeTarget）は C3 と共通 → `redecodeBaseline()`。
+        guard let (pages, lastTarget) = redecodeBaseline() else { return }
         let baseTarget = decodeTargetMaxPixelSize()
         let newTarget = DecodeTargetMath.zoomDecodeTarget(baseTarget: baseTarget, zoomFactor: zoomFactor)
         guard DecodeTargetMath.shouldRedecodeForZoom(lastTarget: lastTarget, newTarget: newTarget, growthThreshold: zoomRedecodeGrowthThreshold) else { return }
