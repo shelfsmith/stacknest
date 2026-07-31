@@ -13,11 +13,11 @@ import RemoteClient  // RemoteClientError は public なので @testable 不要
 /// 実機 smoke でもたまたま該当経路を踏まなかった。**レビューだけが検出できた。**
 /// 同じ誤置換が再発しても気づけるよう、実際の `presentRemoteError` を呼ぶテストを置く。
 ///
-/// **⚠️ 現時点でこのファイルはビルドに組み込まれていない。** App ターゲットは SPM パッケージ
-/// （C ターゲット `Carchive` を含む）に依存しており、Xcode のユニットテストバンドルを足すと
-/// 製品の静的／動的の扱いが食い違ってビルドが壊れる。4 通り試して解決できなかったため、
-/// テストターゲットの整備は **G25e** に切り出した。このファイルはそのときに使う準備物。
-/// 経緯は `analysis/decisions.md`（2026-07-31）。
+/// **実行方法**: `cd App && xcodebuild test -scheme StackNest -destination 'platform=macOS' -derivedDataPath build`
+///
+/// **検出力は実証済み（G25e）**: 意図的に自己再帰を戻すと `exit=65` / `** TEST FAILED **` /
+/// `Restarting after unexpected exit, crash, or test timeout` となる。スタックオーバーフローなので
+/// 綺麗な assertion 失敗ではなく**テストプロセスのクラッシュ**として現れる点に注意。
 @MainActor
 @Suite("RemoteLibraryState のエラー提示")
 struct RemoteErrorPresentationTests {
