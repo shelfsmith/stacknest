@@ -1535,7 +1535,8 @@ public struct LibraryServerCore: Sendable {
                 direction: directionString(row.pageDirection ?? config.defaultPageDirection),
                 format: formatString(BookCategory.classify(path: row.path ?? "")),
                 etag: etag,
-                pageOverrides: pageOverrides
+                pageOverrides: pageOverrides,
+                damageNote: await content.damageNote
             )
         }
         // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。

@@ -240,13 +240,18 @@ public struct ManifestDTO: Codable, Sendable {
     /// 後方互換のため optional・省略可。override が 1 件も無い本は nil を返す
     /// （旧クライアントはこのキー自体を知らないので単に無視する）。
     public let pageOverrides: [String: Int]?
+    /// G26: 破損等で全ページを読めなかったときの注意文。
+    /// **nil ならキー自体を省略する**（`pageOverrides` と同じ後方互換方針）。
+    public let damageNote: String?
 
-    public init(pageCount: Int, direction: String, format: String, etag: String, pageOverrides: [String: Int]? = nil) {
+    public init(pageCount: Int, direction: String, format: String, etag: String,
+                pageOverrides: [String: Int]? = nil, damageNote: String? = nil) {
         self.pageCount = pageCount
         self.direction = direction
         self.format = format
         self.etag = etag
         self.pageOverrides = pageOverrides
+        self.damageNote = damageNote
     }
 }
 

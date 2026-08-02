@@ -155,6 +155,10 @@ export async function renderReader(uuid, bookId, query, deps) {
     }
 
     const { pageCount, format } = manifest;
+    // G26: 破損アーカイブを部分読みで開いた場合の注意。旧サーバはこのキーを返さない。
+    if (manifest.damageNote) {
+        toast(manifest.damageNote);
+    }
     // G4d 層2: manifest.etag は HTTP ETag 形式で前後にダブルクォートを含む（例: '"5-...-abc"'）。
     // クォート付きのまま IndexedDB キーに使うと `...|v"5-..."` のように汚れるうえ、native 側
     // （RemoteBookContent.normalizeVersion）と正規化規約がずれる。version が web reader へ入る
