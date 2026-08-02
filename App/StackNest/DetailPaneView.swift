@@ -54,7 +54,7 @@ struct DetailPaneView: View {
     /// Defaults to nil — local callers omit this and stay on the `loader` path.
     var coverImage: ((Int) async -> NSImage?)? = nil
     /// 4.2c-6b: リモート表紙編集用の注入（nil=ローカル＝従来 CoverPickerSheet）。
-    var remoteCoverCandidates: ((Int) async -> (entries: [String], current: String?))? = nil
+    var remoteCoverCandidates: ((Int) async -> [String])? = nil
     var remoteEntryImage: ((Int, String) async -> NSImage?)? = nil
     /// G4a: 外部画像を表紙に設定（imageData, crop, bookID）。ローカルのみ注入・リモート/オフラインは nil。
     var onSetExternalCover: ((Data, CGRect?, Int) async -> Void)? = nil

@@ -1560,9 +1560,9 @@ final class RemoteLibraryState {
 
     // MARK: - 4.2c-6b: リモート表紙/クロップ編集
 
-    /// 表紙候補（アーカイブのページ名一覧）＋現 coverImageName。
-    func coverCandidates(bookID: Int) async -> (entries: [String], current: String?) {
-        (try? await client.fetchCoverCandidates(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken)) ?? ([], nil)
+    /// 表紙候補（アーカイブのページ名一覧）。
+    func coverCandidates(bookID: Int) async -> [String] {
+        (try? await client.fetchCoverCandidates(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken))?.entries ?? []
     }
 
     /// 選択ページのプレビュー画像（クロップ編集用・maxw=800）。

@@ -9,7 +9,7 @@ import CoreGraphics
 /// `CoverPickerSource` を組み立てるだけ（ローカル専用 API には一切触れない）。
 struct RemoteCoverPickerSheet: View {
     let book: BookRow
-    let loadCandidates: () async -> (entries: [String], current: String?)
+    let loadCandidates: () async -> [String]
     let loadEntryImage: (String) async -> NSImage?
     let onSelect: (String, CGRect?) -> Void
 
@@ -20,7 +20,7 @@ struct RemoteCoverPickerSheet: View {
     private var source: CoverPickerSource {
         CoverPickerSource(
             listEntries: {
-                let (names, _) = await loadCandidates()
+                let names = await loadCandidates()
                 // リモートは取得エラーを区別できない（クロージャは throw しない）ため、
                 // 空リストはエラー表示に寄せる（従来挙動）。
                 return (names, names.isEmpty ? "画像エントリが見つかりませんでした" : nil)

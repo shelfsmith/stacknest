@@ -31,7 +31,7 @@ struct CoverPickerSource {
 }
 
 /// アーカイブ / フォルダ内の全画像エントリを thumbnail grid で表示し、ユーザが表紙ページを選択する sheet。
-/// Detail Pane の表紙エリア右クリック「表紙を選択…」から起動される (Task 8 で wire)。
+/// Detail Pane の表紙エリア右クリック「表紙を編集」から起動される (Task 8 で wire)。
 /// Phase 2.5h A18-ext: 選択後の page に crop 矩形を指定して横長カバーの一部だけを表示できる。
 /// crop が全体 (full rect) のままなら NULL を渡し、現行挙動を維持する。
 /// G25b-2 P4: ローカル / リモート (`RemoteCoverPickerSheet`) で UI シェルを共有し、
@@ -61,7 +61,7 @@ struct CoverPickerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("表紙を選択")
+            Text("表紙を編集")
                 .font(.title2.bold())
                 .padding(.bottom, 4)
 
