@@ -837,22 +837,6 @@ final class AppState {
             openInExternalViewer([book])
             return
         }
-        // G26: DB の pages が実際と食い違っていたら、開いたついでに直す。
-        // 破損 → 部分読みで少ない pages も、修復 → 正しい pages も、この 1 経路で収束する。
-        // （`refreshCoverAndPageCount` は再リンク経路からしか呼ばれず、同じパスへの
-        //   ファイル差し替えでは走らない。）
-        if let db = database {
-            let snapshotPath = book.path
-            Task { [weak self] in
-                guard let self else { return }
-                guard let live = try? await content.pageCount, live > 0 else { return }
-                guard let latest = try? db.fetchBook(id: book.id),
-                      CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
-                      latest.pages != live else { return }
-                try? db.updateBookPages(id: book.id, newPages: live)
-                await MainActor.run { self.booksDataVersion += 1 }
-            }
-        }
         // Phase 2.6b-2 D3 / 4.1c: per-book page direction を解決。
         // Web リーダー（POST /direction）等で DB の page_direction が更新されている場合があるため、
         // インメモリの book ではなく DB から最新値を読む。失敗時はインメモリ値にフォールバック。
@@ -884,6 +868,38 @@ final class AppState {
                 openInExternalViewer([book])
                 return
             }
+            // G26: 破損アーカイブは「壊れた位置まで」開くので、そのことを content から一度だけ受け取り、
+            // ビューア（通知表示）と下の pages 収束の双方で使う。非 nil ⇔ 打ち切り読み。
+            let damageNote = await content.damageNote
+
+            // G26: DB の pages が実際と食い違っていたら、開いたついでに直す。
+            // （`refreshCoverAndPageCount` は再リンク経路からしか呼ばれず、同じパスへの
+            //   ファイル差し替えでは走らない。）
+            //
+            // 最終レビュー Important #2: ページ数は**上で既に await 済みの `pageCount` を使う**。
+            // 独立した Task から `content.pageCount` をもう一度取ると、actor は await をまたいで
+            // 再入するため 2 本目が `entryNames` の充填前に入り、キャッシュが効かない。結果として
+            // 1 冊開くたびに libarchive の全走査／ディレクトリ走査が 2 回走っていた（破損本に限らず
+            // 全アーカイブ・全フォルダ本。NAS 上のフォルダ本で最も高くつく）。
+            //
+            // 最終レビュー Important #1: 打ち切り読み（damageNote 非 nil）から出たページ数は
+            // **記録しない**。書くと pages が縮んで「30/30＝読了」に化け、しかも読書位置の
+            // クランプ書き戻しと合わさって元の位置が復元不能になる。触らずにおけば、修復後の
+            // 次回オープンで正しい値へ収束する。
+            if let db = self.database,
+               let newPages = TruncatedReadPolicy.pageCountToWrite(
+                   livePageCount: pageCount, truncated: damageNote != nil) {
+                let snapshotPath = book.path
+                let bookID = book.id
+                Task { [weak self] in
+                    guard let self else { return }
+                    guard let latest = try? db.fetchBook(id: bookID),
+                          CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
+                          latest.pages != newPages else { return }
+                    try? db.updateBookPages(id: bookID, newPages: newPages)
+                    await MainActor.run { self.booksDataVersion += 1 }
+                }
+            }
 
             // 本ごと保存状態をロードして App 層の Resolved 型に変換
             let initialState = Self.resolvedState(for: book, database: self.database)
@@ -909,7 +925,8 @@ final class AppState {
                 persistPageOverride: { [weak self] (b, page, mode) in
                     try? self?.database?.setPageOverride(bookID: b.id, page: page, mode: mode)
                 },
-                suppressResumeDialog: resumeDirect
+                suppressResumeDialog: resumeDirect,
+                damageNote: damageNote
             )
             // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する
             // （init 引数の時点では自身の identity をまだ束縛できないため controller を渡せない）。
@@ -929,23 +946,25 @@ final class AppState {
             }
             // G16 C1: 巻送りでローカルの bookID が変わったら、registry の identity を追従させる
             // （bundle は不変なので bundlePath はそのまま・bookID のみ張り替え）。
-            controller.onBookSwapped = { [weak self, weak controller] newBook, pageCount in
+            controller.onBookSwapped = { [weak self, weak controller] newBook, pageCount, damaged in
                 guard let self, let controller else { return }
                 let newIdentity = ViewerIdentity.local(bundlePath: self.bundleURL.path, bookID: newBook.id)
                 ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
-                // G26 fix round 2: 巻送り経路は openInBuiltInViewer を通らないため上の Step 6 は
+                // G26 fix round 2: 巻送り経路は openInBuiltInViewer を通らないため上の pages 収束は
                 // 効かない。ここでも同じガード（shouldWritePageCount・latest.pages != live）で
                 // pages を収束させる。pageCount は performSwap が既に await 済みなので再取得しない。
-                if let db = self.database {
+                // 最終レビュー Important #1: 打ち切り読みなら初回オープンと同様に何も書かない
+                // （`damaged` は performSwap が新 content の damageNote から解決して渡す）。
+                if let db = self.database,
+                   let newPages = TruncatedReadPolicy.pageCountToWrite(
+                       livePageCount: pageCount, truncated: damaged) {
                     let snapshotPath = newBook.path
-                    let live = pageCount
                     Task { [weak self] in
                         guard let self else { return }
-                        guard live > 0 else { return }
                         guard let latest = try? db.fetchBook(id: newBook.id),
                               CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
-                              latest.pages != live else { return }
-                        try? db.updateBookPages(id: newBook.id, newPages: live)
+                              latest.pages != newPages else { return }
+                        try? db.updateBookPages(id: newBook.id, newPages: newPages)
                         await MainActor.run { self.booksDataVersion += 1 }
                     }
                 }

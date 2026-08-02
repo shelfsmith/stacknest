@@ -290,6 +290,9 @@ struct OfflineLibraryView: View {
                 ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
+            // G26: 破損（打ち切り読み）注意文を content と一緒に確定させてビューアへ渡す
+            // （ビューア側で遅延取得すると永続化ゲートに間に合わない — `TruncatedReadPolicy` 参照）。
+            let damageNote = await content.damageNote
             // ローカル DB は持たないため、見開きはグローバル既定で開き、lastPage は OfflineStore の値。
             let initialState = ResolvedViewerState(
                 spreadEnabled: ViewerSettings.shared.spreadByDefault,
@@ -339,7 +342,8 @@ struct OfflineLibraryView: View {
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
                 suppressResumeDialog: resumeDirect,
-                sourceLabel: "オフライン"
+                sourceLabel: "オフライン",
+                damageNote: damageNote
             )
             // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する
             // （init 引数の時点では自身の identity をまだ束縛できないため controller を渡せない）。
@@ -356,7 +360,7 @@ struct OfflineLibraryView: View {
             // （serverID/libraryUUID はシリーズ内で不変・.remote へ統一済み＝C3）。
             // G26 fix round 2: pageCount 引数はローカル DB を持たないオフライン/リモート経路では使わない
             // （pages 収束はローカル database を持つ AppState 側のみ・onBookSwapped 参照）。
-            controller.onBookSwapped = { [weak controller] newBook, _ in
+            controller.onBookSwapped = { [weak controller] newBook, _, _ in
                 guard let controller else { return }
                 let newIdentity = ViewerIdentity.remote(
                     serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: newBook.id)
