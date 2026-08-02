@@ -48,6 +48,15 @@ public struct RemoteBookContent: BookContent {
         }
     }
 
+    /// G26: サーバ側で部分読みになった本の注意文。manifest から受け取る。
+    /// 旧サーバはキーを返さないので nil になり、何も表示されない（後方互換）。
+    public var damageNote: String? {
+        get async {
+            try? await client.manifest(libraryUUID: libraryUUID, bookID: bookID,
+                                       libraryToken: libraryToken).damageNote
+        }
+    }
+
     public func imageData(at page: Int) async throws -> Data {
         let client = self.client, uuid = self.libraryUUID, bid = self.bookID
         let token = self.libraryToken, mw = self.maxWidth, ver = self.version
