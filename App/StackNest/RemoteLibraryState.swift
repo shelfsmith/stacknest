@@ -1824,15 +1824,22 @@ final class RemoteLibraryState {
             // （content は必ずここで一度だけ構築＝以前のように後から差し替える必要がない）。
             // manifest 取得に失敗した場合は版なしのまま（既存のページキャッシュ後方互換フォールバック）。
             var remoteOverrides: [Int: PageLayoutOverride] = [:]
+            // G26: 破損（打ち切り読み）注意文。ここで content と一緒に確定させ、ビューアには値として
+            // 渡す（ビューア側で遅延取得すると永続化ゲートに間に合わない — `TruncatedReadPolicy` 参照）。
+            var damageNote: String?
             if readingOffline, let offlineContent, let offlineRow {
                 content = offlineContent
                 row = offlineRow
                 sourceLabel = "オフライン"
+                damageNote = await offlineContent.damageNote
             } else {
                 var version: String?
                 if let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) {
                     remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
                     version = m.etag
+                    // 既に取得済みの manifest から拾う（RemoteBookContent.damageNote を呼ぶと
+                    // 同じ manifest をもう一度取りに行くことになる）。
+                    damageNote = m.damageNote
                 }
                 let made = RemoteBookContent(
                     client: self.client, serverID: self.serverID, libraryUUID: self.libraryUUID, bookID: book.id,
@@ -1938,7 +1945,8 @@ final class RemoteLibraryState {
                     }
                 },
                 suppressResumeDialog: resumeDirect,
-                sourceLabel: sourceLabel
+                sourceLabel: sourceLabel,
+                damageNote: damageNote
             )
             // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する
             // （init 引数の時点では自身の identity をまだ束縛できないため controller を渡せない）。
@@ -1987,7 +1995,7 @@ final class RemoteLibraryState {
             // `.remote` のまま＝C3 で統一済み）。
             // G26 fix round 2: pageCount 引数はローカル DB を持たないリモート経路では使わない
             // （pages 収束はローカル database を持つ AppState 側のみ・onBookSwapped 参照）。
-            controller.onBookSwapped = { [weak self, weak controller] newBook, _ in
+            controller.onBookSwapped = { [weak self, weak controller] newBook, _, _ in
                 guard let self, let controller else { return }
                 let newIdentity = ViewerIdentity.remote(
                     serverID: self.serverID.uuidString, libraryUUID: self.libraryUUID, bookID: newBook.id)

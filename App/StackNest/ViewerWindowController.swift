@@ -34,8 +34,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// owner はこれを使って ViewerWindowRegistry の identity を新しい本のものへ張り替える。
     /// 0-page で中断したスワップ（アトミックに commit されなかった場合）では呼ばれない。
     /// G26 fix round 2: pageCount は owner（AppState）側の pages 収束（DB 側 pages カラムの補正）に使う —
-    /// 巻送り経路は openInBuiltInViewer を通らないため、そちらの Step 6 ロジックがここには効かない。
-    var onBookSwapped: ((BookRow, Int) -> Void)?
+    /// 巻送り経路は openInBuiltInViewer を通らないため、そちらのロジックがここには効かない。
+    /// G26 最終レビュー Important #1: 第 3 引数 `truncated` は「新 content が打ち切り読みか」。
+    /// true の巻については owner は pages を書いてはいけない（`TruncatedReadPolicy` 参照）。
+    /// 本 controller は DB を一切知らないので、判断材料だけをここから外へ出す。
+    var onBookSwapped: ((BookRow, Int, Bool) -> Void)?
 
     // Per-book spread state
     private var overrides: [Int: PageLayoutOverride] = [:]
@@ -46,9 +49,19 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var isSwapping = false
     /// 前回の読書位置（lastPage）。> 0 の場合のみ present() でダイアログを表示する。
     private let resumeLastPage: Int
+    /// G26 最終レビュー Important #1: **この巻を開いた時点で保存されていた**読書位置。
+    /// 打ち切り読み時に「クランプで下がっただけの位置」を書き戻さないための下限として使う
+    /// （`TruncatedReadPolicy.lastPageToPersist`）。巻スワップで新しい巻の保存値に更新する。
+    private var storedLastPage: Int
     /// resume ダイアログを 1 回だけ表示するフラグ。
     private var didShowResumeDialog = false
     private let suppressResumeDialog: Bool
+    /// G26: 現在 content の破損（打ち切り読み）注意文。nil なら正常に全ページ読めている。
+    /// 呼び出し側が `content.damageNote` を解決して渡す（巻スワップでは performSwap が解決する）。
+    /// **非 nil ⇔ 打ち切り読み**。表示（HUD ノート）と永続化ゲートの両方がこの 1 つの値を見る。
+    /// content と同時に確定させるのが要点 — 巻スワップ直後の `persistCurrent()`（0.4s デバウンス）は
+    /// 破損通知（3s 後）より早く発火するため、通知契機で遅延解決していては永続化ゲートに間に合わない。
+    private var damageNote: String?
     /// G26 fix round 2: 破損通知を「今の content について」1 回だけ出すフラグ。
     /// 巻送り（performSwap）で content が差し替わるたびリセットする。
     private var didPresentDamageNotice = false
@@ -193,7 +206,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         persistState: @escaping (BookRow, Int, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
         suppressResumeDialog: Bool = false,
-        sourceLabel: String? = nil
+        sourceLabel: String? = nil,
+        damageNote: String? = nil
     ) {
         self.content = content
         self.book = book
@@ -206,6 +220,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         self.sourceLabel = sourceLabel
         self.overrides = initialState.overrides
         self.resumeLastPage = initialState.lastPage
+        self.storedLastPage = initialState.lastPage
+        self.damageNote = damageNote
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
@@ -367,10 +383,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private func presentDamageNoticeIfNeeded() {
         guard !didPresentDamageNotice else { return }
         didPresentDamageNotice = true
-        Task { @MainActor [weak self] in
-            guard let self, let note = await self.content.damageNote else { return }
-            self.hudNote(note)
-        }
+        // G26 最終レビュー Important #1: 注意文は content と一緒に確定済み（`damageNote`）なので
+        // ここで await しない。以前はこの場で `content.damageNote` を取りに行っていたため、
+        // 解決が永続化より遅れる（＝打ち切り判定が間に合わない）構造になっていた。
+        guard let note = damageNote else { return }
+        hudNote(note)
     }
 
     /// 指定の lastPage（> 0）で「続きから / 最初から」シートを表示する汎用版。
@@ -394,6 +411,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 return
             }
             if response == .alertSecondButtonReturn {
+                // G26 最終レビュー Important #1: 「最初から」は保存済み位置を捨てるという明示的な
+                // 意思表示なので、打ち切り読みの保護下限そのものを 0 に下げる（さもないと破損本では
+                // 「最初から」を選んでも位置が書き戻されず、次回また続きを訊かれる）。
+                self.storedLastPage = 0
                 self.navDirection = -1  // 案A レビュー Minor #3: 先頭方向へのジャンプとして先読み方向を明示
                 self.model.goFirst()
                 self.rebuildSpreads()
@@ -792,8 +813,18 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// 実際の永続化書き込み（現在の book/model 状態を SQLite へ）。
+    ///
+    /// G26 最終レビュー Important #1: 破損（打ち切り）読みでは `ViewerModel` の pageCount が
+    /// 実際より小さいため、`goTo(page:)` が保存済み位置をクランプして下げてしまう。その値を
+    /// そのまま書き戻すと読書位置が破壊される（開いて閉じるだけで起こる）。打ち切り時に
+    /// 「保存値より手前」を書こうとしている間は、保存値をそのまま書き直して位置を守る。
     private func writePersistNow() {
-        persistState(book, model.currentPage, model.displayMode == .spread, model.coverOffset)
+        let page = TruncatedReadPolicy.lastPageToPersist(
+            currentPage: model.currentPage,
+            storedLastPage: storedLastPage,
+            truncated: damageNote != nil
+        )
+        persistState(book, page, model.displayMode == .spread, model.coverOffset)
     }
 
     private func handleZoneClick(leftHalf: Bool) {
@@ -1041,6 +1072,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             hudNote("次の巻を開けません（0ページ）")
             return
         }
+        // G26 最終レビュー Important #1: 新 content の打ち切り判定は、下のアトミック区間へ入る**前**に
+        // 解決しておく（区間内に await を作らないため・かつ、区間末尾の persistCurrent より先に
+        // 確定させるため）。0-page 中断時は不要なので、ガードを通ってから取る。
+        let newDamageNote = await nv.content.damageNote
         // ここから content-swap と model-install の間に suspension は無い（atomic swap）。
         // G18 C3 review Critical fix: 巻/コンテンツの切替そのものとして contentGeneration を再度
         // バンプする（loadVolume 冒頭で既に 1 回バンプ済みだが、ここでも念のため進める。monotonic
@@ -1052,10 +1087,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         inFlightPrefetch.removeAll()
         content = nv.content
         book = nv.book
+        damageNote = newDamageNote      // G26: 通知表示と永続化ゲートの両方がこの値を見る
+        storedLastPage = state.lastPage  // G26: 新しい巻の「開いた時点の保存位置」が保護下限になる
         // G16 C1: atomic swap が commit された（0-page 中断は上のガードで既に return 済み）。
         // owner に新しい本とページ数を通知し、ViewerWindowRegistry の identity 張り替え・
         // pages 収束（G26 fix round 2）の双方に使わせる。
-        onBookSwapped?(nv.book, pageCount)
+        onBookSwapped?(nv.book, pageCount, newDamageNote != nil)
         overrides = state.overrides
         orientations = [:]
         prefetch.removeAll()
