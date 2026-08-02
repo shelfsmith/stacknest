@@ -837,6 +837,22 @@ final class AppState {
             openInExternalViewer([book])
             return
         }
+        // G26: DB の pages が実際と食い違っていたら、開いたついでに直す。
+        // 破損 → 部分読みで少ない pages も、修復 → 正しい pages も、この 1 経路で収束する。
+        // （`refreshCoverAndPageCount` は再リンク経路からしか呼ばれず、同じパスへの
+        //   ファイル差し替えでは走らない。）
+        if let db = database {
+            let snapshotPath = book.path
+            Task { [weak self] in
+                guard let self else { return }
+                guard let live = try? await content.pageCount, live > 0 else { return }
+                guard let latest = try? db.fetchBook(id: book.id),
+                      CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
+                      latest.pages != live else { return }
+                try? db.updateBookPages(id: book.id, newPages: live)
+                await MainActor.run { self.booksDataVersion += 1 }
+            }
+        }
         // Phase 2.6b-2 D3 / 4.1c: per-book page direction を解決。
         // Web リーダー（POST /direction）等で DB の page_direction が更新されている場合があるため、
         // インメモリの book ではなく DB から最新値を読む。失敗時はインメモリ値にフォールバック。

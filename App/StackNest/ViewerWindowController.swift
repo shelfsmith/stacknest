@@ -235,6 +235,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         rebuildSpreads()   // 末尾で model.setSpreads(...) し currentPage から currentSpreadIndex を再アンカー
         loadCurrentPage()  // スプレッド構築・再アンカー後に初回ロード（resume 後の黒画面バグを防ぐ）
         // 続きから開いた場合のダイアログは present() でウィンドウ表示後にシート表示する。
+
+        // G26: 破損アーカイブを部分読みで開いたときに一度だけ知らせる。
+        // hudNote は 3 秒で自動的に消え、ページ送りが割り込んでも消えない（passthrough）。
+        Task { @MainActor [weak self] in
+            guard let self, let note = await self.content.damageNote else { return }
+            self.hudNote(note)
+        }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
