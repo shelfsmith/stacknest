@@ -15,7 +15,7 @@ struct LibarchiveImageDataTests {
 
     @Test func returnsDataForNamedEntry() async throws {
         let extractor = LibarchiveCoverExtractor()
-        let names = try await extractor.listImageEntries(in: fixture("three_pages.zip"))
+        let names = try await extractor.listImageEntries(in: fixture("three_pages.zip")).names
         #expect(names == ["p1.png", "p2.png", "p10.png"])
         let data = try await extractor.imageData(in: fixture("three_pages.zip"), entryName: "p2.png")
         #expect(data.count > 0)

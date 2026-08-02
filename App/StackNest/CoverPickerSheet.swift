@@ -264,7 +264,7 @@ private enum LocalCoverEntryLoader {
             return ([], "未対応のフォーマットです")
         }
         do {
-            return (try await extractor.listImageEntries(in: url), nil)
+            return (try await extractor.listImageEntries(in: url).names, nil)
         } catch {
             return ([], "ページ一覧の取得に失敗: \(error.localizedDescription)")
         }

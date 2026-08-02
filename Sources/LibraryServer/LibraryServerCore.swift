@@ -1014,7 +1014,7 @@ public struct LibraryServerCore: Sendable {
             let (_, row) = try await resolver.resolveBook(request, context)
             var entries: [String] = []
             if let path = row.path, let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) {
-                entries = (try? await ex.listImageEntries(in: URL(fileURLWithPath: path))) ?? []
+                entries = (try? await ex.listImageEntries(in: URL(fileURLWithPath: path)))?.names ?? []
             }
             return CoverCandidatesDTO(entries: entries, current: row.coverImageName)
         }

@@ -14,7 +14,8 @@ public protocol CoverImageExtractor: Sendable {
     func extractCoverImage(from url: URL, preferredName: String?) async throws -> Data
 
     /// Returns the list of image entry names inside the archive, sorted in natural order.
-    func listImageEntries(in url: URL) async throws -> [String]
+    /// 破損等で列挙が打ち切られた場合は `truncated == true` で、**読めた分だけ**を返す。
+    func listImageEntries(in url: URL) async throws -> ArchiveListing
 
     /// Counts the number of image entries inside the archive or folder.
     /// Returns 0 by default; conformers override to provide a real count.
@@ -35,8 +36,10 @@ public extension CoverImageExtractor {
     /// Default: PDF 非対応 (`nil`)。LibarchiveCoverExtractor / FolderCoverExtractor で override する。
     func extractFirstPDFData(in url: URL) async throws -> Data? { nil }
 
-    /// Default: returns empty array (conformers that don't implement this will report no entries).
-    func listImageEntries(in url: URL) async throws -> [String] { [] }
+    /// Default: returns empty listing (conformers that don't implement this will report no entries).
+    func listImageEntries(in url: URL) async throws -> ArchiveListing {
+        ArchiveListing(names: [], truncated: false)
+    }
 
     /// Default: forwards to extractCoverImage(from:) ignoring preferredName — backward compat.
     func extractCoverImage(from url: URL, preferredName: String?) async throws -> Data {

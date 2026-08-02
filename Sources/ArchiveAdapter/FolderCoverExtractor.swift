@@ -26,10 +26,11 @@ public struct FolderCoverExtractor: CoverImageExtractor {
         }.value
     }
 
-    public func listImageEntries(in url: URL) async throws -> [String] {
+    /// フォルダは順次読みではないので打ち切りは起こらない（常に truncated: false）。
+    public func listImageEntries(in url: URL) async throws -> ArchiveListing {
         return try await Task.detached(priority: .userInitiated) {
-            try Self.listImageFiles(at: url)
-                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            ArchiveListing(names: try Self.listImageFiles(at: url)
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }, truncated: false)
         }.value
     }
 

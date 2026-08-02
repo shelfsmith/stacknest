@@ -15,7 +15,7 @@ struct SequentialArchiveExtractorTests {
     }
 
     private func imageNames() async throws -> [String] {
-        try await LibarchiveCoverExtractor().listImageEntries(in: fixture("three_pages.zip"))
+        try await LibarchiveCoverExtractor().listImageEntries(in: fixture("three_pages.zip")).names
     }
 
     @Test func forwardReadsReturnCorrectPngBytes() async throws {

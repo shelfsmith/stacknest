@@ -30,7 +30,7 @@ struct FolderCoverPreferredNameTests {
         let folderURL = try makeFolder(pages: ["page10.jpg", "page2.jpg", "page1.jpg"])
         defer { try? FileManager.default.removeItem(at: folderURL) }
         let extractor = FolderCoverExtractor()
-        let names = try await extractor.listImageEntries(in: folderURL)
+        let names = try await extractor.listImageEntries(in: folderURL).names
         #expect(names == ["page1.jpg", "page2.jpg", "page10.jpg"])
     }
 

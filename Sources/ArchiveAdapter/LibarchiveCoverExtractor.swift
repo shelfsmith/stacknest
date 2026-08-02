@@ -25,9 +25,9 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
 
     public func extractCoverImage(from url: URL, preferredName: String?) async throws -> Data {
         return try await Task.detached(priority: .userInitiated) {
-            let names = try Self.enumerateImageEntries(from: url)
-            guard !names.isEmpty else { throw ArchiveAdapterError.noImageEntry(url) }
-            let sorted = names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            let listing = try Self.enumerateImageEntries(from: url)
+            guard !listing.names.isEmpty else { throw ArchiveAdapterError.noImageEntry(url) }
+            let sorted = listing.names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
             let target: String
             if let pref = preferredName, sorted.contains(pref) {
                 target = pref
@@ -39,10 +39,13 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
         }.value
     }
 
-    public func listImageEntries(in url: URL) async throws -> [String] {
+    public func listImageEntries(in url: URL) async throws -> ArchiveListing {
         return try await Task.detached(priority: .userInitiated) {
-            let names = try Self.enumerateImageEntries(from: url)
-            return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            let listing = try Self.enumerateImageEntries(from: url)
+            return ArchiveListing(
+                names: listing.names.sorted { $0.localizedStandardCompare($1) == .orderedAscending },
+                truncated: listing.truncated
+            )
         }.value
     }
 
@@ -106,8 +109,12 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
             let r = archive_read_next_header(archive, &entry)
             if r == ARCHIVE_EOF { break }
             if r != ARCHIVE_OK && r != ARCHIVE_WARN {
-                let msg = errorMessage(archive)
-                throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                // G26: 途中打ち切り。集めた分を返す（0 件なら throw）。
+                if names.isEmpty {
+                    let msg = errorMessage(archive)
+                    throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                }
+                return names
             }
             guard let entry = entry else { archive_read_data_skip(archive); continue }
             guard let cName = archive_entry_pathname(entry) else { archive_read_data_skip(archive); continue }
@@ -130,10 +137,10 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
 
     private static func extract(from url: URL) throws -> Data {
         // Pass 1: enumerate all image entry names
-        let imageNames = try enumerateImageEntries(from: url)
-        guard !imageNames.isEmpty else { throw ArchiveAdapterError.noImageEntry(url) }
+        let listing = try enumerateImageEntries(from: url)
+        guard !listing.names.isEmpty else { throw ArchiveAdapterError.noImageEntry(url) }
         // Natural sort (localizedStandardCompare): page2 < page10
-        let sorted = imageNames.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        let sorted = listing.names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         let target = sorted[0]
 
         // Pass 2: extract the data for the target entry by name
@@ -141,7 +148,7 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
     }
 
     /// Pass 1 — open the archive and collect all image-extension entry names.
-    private static func enumerateImageEntries(from url: URL) throws -> [String] {
+    private static func enumerateImageEntries(from url: URL) throws -> ArchiveListing {
         guard let archive = archive_read_new() else {
             throw ArchiveAdapterError.archiveUnreadable(url, reason: "archive_read_new failed")
         }
@@ -167,8 +174,14 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
             let r = archive_read_next_header(archive, &entry)
             if r == ARCHIVE_EOF { break }
             if r != ARCHIVE_OK && r != ARCHIVE_WARN {
-                let msg = errorMessage(archive)
-                throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                // G26: 破損等で途中打ち切り。**それまでに集めた分を返す**。
+                // 1 件も集まっていなければ従来どおり throw する
+                // （全く読めないファイルを「0 ページの本」として黙って開かせないため）。
+                if names.isEmpty {
+                    let msg = errorMessage(archive)
+                    throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                }
+                return ArchiveListing(names: names, truncated: true)
             }
             guard let entry = entry else { archive_read_data_skip(archive); continue }
             guard let cName = archive_entry_pathname(entry) else { archive_read_data_skip(archive); continue }
@@ -180,7 +193,7 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
                 names.append(name)
             }
         }
-        return names
+        return ArchiveListing(names: names, truncated: false)
     }
 
     /// Pass 2 — open the archive again and extract the entry whose pathname == targetName.
@@ -263,8 +276,12 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
             let r = archive_read_next_header(archive, &entry)
             if r == ARCHIVE_EOF { break }
             if r != ARCHIVE_OK && r != ARCHIVE_WARN {
-                let msg = errorMessage(archive)
-                throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                // G26: 途中打ち切り。数えられた分を返す（0 件なら throw）。
+                if count == 0 {
+                    let msg = errorMessage(archive)
+                    throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                }
+                return count
             }
             guard let entry = entry,
                   let cName = archive_entry_pathname(entry) else {

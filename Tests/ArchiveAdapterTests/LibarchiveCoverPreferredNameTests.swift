@@ -66,7 +66,7 @@ struct LibarchiveCoverPreferredNameTests {
         let zipURL = try makeZip(pages: ["page10.jpg", "page2.jpg", "page1.jpg"])
         defer { try? FileManager.default.removeItem(at: zipURL.deletingLastPathComponent()) }
         let extractor = LibarchiveCoverExtractor()
-        let names = try await extractor.listImageEntries(in: zipURL)
+        let names = try await extractor.listImageEntries(in: zipURL).names
         #expect(names == ["page1.jpg", "page2.jpg", "page10.jpg"])
     }
 }

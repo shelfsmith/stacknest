@@ -79,7 +79,7 @@ public actor ArchiveBookContent: BookContent {
 
     private func loadEntries() async throws -> [String] {
         if let names = entryNames { return names }
-        let names = try await extractor.listImageEntries(in: url)
+        let names = try await extractor.listImageEntries(in: url).names
         entryNames = names
         return names
     }
@@ -163,7 +163,7 @@ public actor FolderBookContent: BookContent {
 
     private func loadEntries() async throws -> [String] {
         if let names = entryNames { return names }
-        let names = try await extractor.listImageEntries(in: url)
+        let names = try await extractor.listImageEntries(in: url).names
         entryNames = names
         return names
     }
