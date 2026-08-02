@@ -36,6 +36,30 @@ public struct FilterState: Codable, Sendable, Equatable {
 
     public init() {}
 
+    private enum CodingKeys: String, CodingKey {
+        case bookTypes, unseen, ratingMin, dateAdded, playDate
+        case genres, serieses, authors, netas, keywordAs, keywordBs, keywordCs
+    }
+
+    /// **欠けたキーは既定値**にする。CLI/MCP は部分的な JSON を送ってくるため、
+    /// synthesized のデコーダ（全キー必須）では `{"unseen":0}` すら受け取れない。
+    /// 受け取れないと `decodeFilterState` が空フィルタへ落ち、**指定が黙って無視される**。
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        bookTypes  = try c.decodeIfPresent(Set<Int>.self,    forKey: .bookTypes)  ?? []
+        unseen     = try c.decodeIfPresent(UnseenMode.self,  forKey: .unseen)
+        ratingMin  = try c.decodeIfPresent(Int.self,         forKey: .ratingMin)
+        dateAdded  = try c.decodeIfPresent(DateRangeCondition.self, forKey: .dateAdded)
+        playDate   = try c.decodeIfPresent(DateRangeCondition.self, forKey: .playDate)
+        genres     = try c.decodeIfPresent(Set<String>.self, forKey: .genres)     ?? []
+        serieses   = try c.decodeIfPresent(Set<String>.self, forKey: .serieses)   ?? []
+        authors    = try c.decodeIfPresent(Set<String>.self, forKey: .authors)    ?? []
+        netas      = try c.decodeIfPresent(Set<String>.self, forKey: .netas)      ?? []
+        keywordAs  = try c.decodeIfPresent(Set<String>.self, forKey: .keywordAs)  ?? []
+        keywordBs  = try c.decodeIfPresent(Set<String>.self, forKey: .keywordBs)  ?? []
+        keywordCs  = try c.decodeIfPresent(Set<String>.self, forKey: .keywordCs)  ?? []
+    }
+
     public var isEmpty: Bool {
         bookTypes.isEmpty
             && unseen == nil
