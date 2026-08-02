@@ -7,6 +7,13 @@ import ArchiveAdapter
 public protocol BookContent: Sendable {
     var pageCount: Int { get async throws }
     func imageData(at page: Int) async throws -> Data
+    /// 破損等で全ページを読み取れなかったときにユーザーへ出す注意文。正常なら nil。
+    /// **既定は nil**（下の extension）なので、打ち切りが起こり得ない実装は何もしなくてよい。
+    var damageNote: String? { get async }
+}
+
+public extension BookContent {
+    var damageNote: String? { get async { nil } }
 }
 
 /// BookContent 生成・取得のエラー。
@@ -62,6 +69,8 @@ public actor ArchiveBookContent: BookContent {
     private let url: URL
     private let extractor = LibarchiveCoverExtractor()
     private var entryNames: [String]?
+    /// 直近の列挙で打ち切りが起きたか（`loadEntries()` が設定する）。
+    private var listingTruncated = false
     /// G18 C5: ページ取得を「毎回開き直して線形スキャン（O(N)）」から「開いたまま順方向 1 パス
     /// ＋抽出キャッシュ」へ。本 1 冊につき 1 インスタンスを遅延生成し全ページ取得を集約する。
     private var seqExtractor: SequentialArchiveExtractor?
@@ -79,9 +88,17 @@ public actor ArchiveBookContent: BookContent {
 
     private func loadEntries() async throws -> [String] {
         if let names = entryNames { return names }
-        let names = try await extractor.listImageEntries(in: url).names
-        entryNames = names
-        return names
+        let listing = try await extractor.listImageEntries(in: url)
+        entryNames = listing.names
+        listingTruncated = listing.truncated
+        return listing.names
+    }
+
+    public var damageNote: String? {
+        get async {
+            guard let names = try? await loadEntries(), listingTruncated else { return nil }
+            return "⚠ このファイルは破損しています。\(names.count) ページまで読み込みました"
+        }
     }
 
     private var pdfDataTask: Task<Data?, Error>?
