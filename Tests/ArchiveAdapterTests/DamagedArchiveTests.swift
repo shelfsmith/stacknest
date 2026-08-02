@@ -139,9 +139,41 @@ extension DamagedArchiveTests {
         #expect(listing.truncated == true)
     }
 
-    @Test func totallyUnreadableArchiveStillThrows() async throws {
-        // zip ですらないバイト列 → 開けない → 従来どおり throw。
+    /// zip ですらないバイト列 → `archive_read_open_filename` 自体が失敗する経路。
+    /// これは G26 より前から存在する分岐で、`names.isEmpty` ガード（下の
+    /// `archiveDamagedBeforeAnyEntryThrows`）とは別物。open が失敗するので
+    /// 1 回も `archive_read_next_header` に到達しないままエラーになる。
+    @Test func openFailureOnNonZipBytesStillThrows() async throws {
         let url = try Self.writeTemp(Data(repeating: 0x41, count: 4096))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        await #expect(throws: (any Error).self) {
+            _ = try await LibarchiveCoverExtractor().listImageEntries(in: url)
+        }
+    }
+
+    /// 1 件目のローカルヘッダ署名を壊した zip。EOCD・central directory は無傷なので
+    /// `archive_read_open_filename` 自体は成功し、**最初の** `archive_read_next_header` が
+    /// いきなり `ARCHIVE_FATAL` を返す — つまり `names` が 1 件も集まらないまま致命的
+    /// エラーに達する。これで `enumerateImageEntries` の `names.isEmpty` ガード
+    /// （壊れたファイルを 0 ページの本として黙って開かせないための分岐）を直接踏む。
+    static func makeZipDamagedAtFirstEntry() -> Data {
+        var zip = makeStoredZip((1...6).map { ("\($0).png", tinyPNG) })
+        let sig: [UInt8] = [0x50, 0x4B, 0x03, 0x04]
+        var found = 0
+        var i = 0
+        while i + 4 <= zip.count {
+            if Array(zip[i..<i+4]) == sig {
+                found += 1
+                if found == 1 { zip[i + 2] = 0xFF; break }   // 署名を破壊
+            }
+            i += 1
+        }
+        return zip
+    }
+
+    @Test func archiveDamagedBeforeAnyEntryThrows() async throws {
+        let url = try Self.writeTemp(Self.makeZipDamagedAtFirstEntry())
         defer { try? FileManager.default.removeItem(at: url) }
 
         await #expect(throws: (any Error).self) {
