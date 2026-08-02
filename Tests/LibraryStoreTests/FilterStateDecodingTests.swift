@@ -26,12 +26,24 @@ struct FilterStateDecodingTests {
         #expect(fs.isEmpty)
     }
 
+    /// 全 12 プロパティに非既定値を入れて round-trip する。
+    /// 各 `Set` は他フィールドと重複しない値にし、2 つの `DateRangeCondition`
+    /// (`dateAdded`/`playDate`) は direction を変えて、フィールド取り違え（コピペ事故）が
+    /// あれば確実に不一致になるようにする。
     @Test func fullJSONStillRoundTrips() throws {
         var fs = FilterState()
+        fs.bookTypes = [1, 2]
         fs.unseen = .readOnly
         fs.ratingMin = 3
-        fs.genres = ["A", "B"]
         fs.dateAdded = .init(direction: .within, days: 7)
+        fs.playDate = .init(direction: .olderThan, days: 30)
+        fs.genres = ["genreA", "genreB"]
+        fs.serieses = ["seriesA"]
+        fs.authors = ["authorA"]
+        fs.netas = ["netaA"]
+        fs.keywordAs = ["kwA1"]
+        fs.keywordBs = ["kwB1"]
+        fs.keywordCs = ["kwC1"]
         let data = try JSONEncoder().encode(fs)
         let back = try JSONDecoder().decode(FilterState.self, from: data)
         #expect(back == fs)
