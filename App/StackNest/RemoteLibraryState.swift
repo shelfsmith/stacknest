@@ -1985,7 +1985,9 @@ final class RemoteLibraryState {
             // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
             // （serverID/libraryUUID はライブラリ内で不変・DL 済みへ切り替わっても identity は
             // `.remote` のまま＝C3 で統一済み）。
-            controller.onBookSwapped = { [weak self, weak controller] newBook in
+            // G26 fix round 2: pageCount 引数はローカル DB を持たないリモート経路では使わない
+            // （pages 収束はローカル database を持つ AppState 側のみ・onBookSwapped 参照）。
+            controller.onBookSwapped = { [weak self, weak controller] newBook, _ in
                 guard let self, let controller else { return }
                 let newIdentity = ViewerIdentity.remote(
                     serverID: self.serverID.uuidString, libraryUUID: self.libraryUUID, bookID: newBook.id)

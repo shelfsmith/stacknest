@@ -929,10 +929,26 @@ final class AppState {
             }
             // G16 C1: 巻送りでローカルの bookID が変わったら、registry の identity を追従させる
             // （bundle は不変なので bundlePath はそのまま・bookID のみ張り替え）。
-            controller.onBookSwapped = { [weak self, weak controller] newBook in
+            controller.onBookSwapped = { [weak self, weak controller] newBook, pageCount in
                 guard let self, let controller else { return }
                 let newIdentity = ViewerIdentity.local(bundlePath: self.bundleURL.path, bookID: newBook.id)
                 ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
+                // G26 fix round 2: 巻送り経路は openInBuiltInViewer を通らないため上の Step 6 は
+                // 効かない。ここでも同じガード（shouldWritePageCount・latest.pages != live）で
+                // pages を収束させる。pageCount は performSwap が既に await 済みなので再取得しない。
+                if let db = self.database {
+                    let snapshotPath = newBook.path
+                    let live = pageCount
+                    Task { [weak self] in
+                        guard let self else { return }
+                        guard live > 0 else { return }
+                        guard let latest = try? db.fetchBook(id: newBook.id),
+                              CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
+                              latest.pages != live else { return }
+                        try? db.updateBookPages(id: newBook.id, newPages: live)
+                        await MainActor.run { self.booksDataVersion += 1 }
+                    }
+                }
             }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.present()

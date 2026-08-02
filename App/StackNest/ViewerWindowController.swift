@@ -30,10 +30,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private let persistPageOverride: (BookRow, Int, Int?) -> Void          // (book, page, mode int or nil)
     /// Phase 2.6b-2 D3: コールバック。本のページ方向が変わったら AppState 経由で DB に永続化する。
     var onSetBookPageDirection: ((Int, PageDirection) -> Void)?
-    /// G16 C1: 巻スワップが成功して表示中の本が切り替わったら、新しい本を渡して owner に通知する。
+    /// G16 C1: 巻スワップが成功して表示中の本が切り替わったら、新しい本とページ数を渡して owner に通知する。
     /// owner はこれを使って ViewerWindowRegistry の identity を新しい本のものへ張り替える。
     /// 0-page で中断したスワップ（アトミックに commit されなかった場合）では呼ばれない。
-    var onBookSwapped: ((BookRow) -> Void)?
+    /// G26 fix round 2: pageCount は owner（AppState）側の pages 収束（DB 側 pages カラムの補正）に使う —
+    /// 巻送り経路は openInBuiltInViewer を通らないため、そちらの Step 6 ロジックがここには効かない。
+    var onBookSwapped: ((BookRow, Int) -> Void)?
 
     // Per-book spread state
     private var overrides: [Int: PageLayoutOverride] = [:]
@@ -47,6 +49,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// resume ダイアログを 1 回だけ表示するフラグ。
     private var didShowResumeDialog = false
     private let suppressResumeDialog: Bool
+    /// G26 fix round 2: 破損通知を「今の content について」1 回だけ出すフラグ。
+    /// 巻送り（performSwap）で content が差し替わるたびリセットする。
+    private var didPresentDamageNotice = false
     /// 非 nil ならタイトルバーに "<ラベル>: <書名>" を表示する（リモート由来などの可視マーカ）。
     /// 4.2c-3: 巻送りでソースが変わる（DL済み=オフライン/未DL=リモート）ため var にして更新する。
     private var sourceLabel: String?
@@ -235,13 +240,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         rebuildSpreads()   // 末尾で model.setSpreads(...) し currentPage から currentSpreadIndex を再アンカー
         loadCurrentPage()  // スプレッド構築・再アンカー後に初回ロード（resume 後の黒画面バグを防ぐ）
         // 続きから開いた場合のダイアログは present() でウィンドウ表示後にシート表示する。
-
-        // G26: 破損アーカイブを部分読みで開いたときに一度だけ知らせる。
-        // hudNote は 3 秒で自動的に消え、ページ送りが割り込んでも消えない（passthrough）。
-        Task { @MainActor [weak self] in
-            guard let self, let note = await self.content.damageNote else { return }
-            self.hudNote(note)
-        }
+        // G26 破損通知も同じタイミング（showResumeDialogIfNeeded 経由）で present() 後に出す
+        // （レビュー Important #1: init 直後だと全画面遷移＋resume シートの間に 3 秒の表示窓が
+        //   ユーザーに見えないまま尽きる）。
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -347,24 +348,51 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// 続きから読む場合（resumeLastPage > 0）のみ、ウィンドウ表示後に一度だけシートダイアログを表示する。
+    /// シートを出さない場合は破損通知をここで即出す。出す場合はシート dismiss 後（onDismiss）に出す —
+    /// シートの裏で 3 秒タイマーが尽きるとユーザーが読めないため（レビュー Important #1）。
     private func showResumeDialogIfNeeded() {
-        guard !suppressResumeDialog, resumeLastPage > 0, !didShowResumeDialog else { return }
+        guard !suppressResumeDialog, resumeLastPage > 0, !didShowResumeDialog else {
+            presentDamageNoticeIfNeeded()
+            return
+        }
         didShowResumeDialog = true
-        showResumeDialog(forLastPage: resumeLastPage)
+        showResumeDialog(forLastPage: resumeLastPage, onDismiss: { [weak self] in
+            self?.presentDamageNoticeIfNeeded()
+        })
+    }
+
+    /// G26 fix round 2: 破損アーカイブを部分読みで開いたときに一度だけ知らせる。
+    /// `didPresentDamageNotice` で 1 content あたり 1 回に絞る（巻送りで performSwap がリセットする）。
+    /// hudNote は 3 秒で自動的に消え、ページ送りが割り込んでも消えない（passthrough）。
+    private func presentDamageNoticeIfNeeded() {
+        guard !didPresentDamageNotice else { return }
+        didPresentDamageNotice = true
+        Task { @MainActor [weak self] in
+            guard let self, let note = await self.content.damageNote else { return }
+            self.hudNote(note)
+        }
     }
 
     /// 指定の lastPage（> 0）で「続きから / 最初から」シートを表示する汎用版。
     /// 初回オープン（showResumeDialogIfNeeded）と巻送り（performSwap）の双方から使う（4.2b-6）。
     /// 呼び出し時点で model は lastPage に移動済みのため、「続きから」は no-op。
-    private func showResumeDialog(forLastPage lastPage: Int) {
-        guard lastPage > 0, let window else { return }
+    /// `onDismiss` はシートが実際に閉じた後（表示しなかった場合は即座）に呼ばれる —
+    /// 呼び出し側はこれを使って破損通知等、シートと競合させたくない後続処理を鎖でつなぐ。
+    private func showResumeDialog(forLastPage lastPage: Int, onDismiss: (() -> Void)? = nil) {
+        guard lastPage > 0, let window else {
+            onDismiss?()
+            return
+        }
         let alert = NSAlert()
         alert.messageText = "続きから読みますか？"
         alert.informativeText = "前回は P.\(lastPage + 1) まで読みました。"
         alert.addButton(withTitle: "続きから (P.\(lastPage + 1))")   // .alertFirstButtonReturn
         alert.addButton(withTitle: "最初から")                       // .alertSecondButtonReturn
         alert.beginSheetModal(for: window) { [weak self] response in
-            guard let self else { return }
+            guard let self else {
+                onDismiss?()
+                return
+            }
             if response == .alertSecondButtonReturn {
                 self.navDirection = -1  // 案A レビュー Minor #3: 先頭方向へのジャンプとして先読み方向を明示
                 self.model.goFirst()
@@ -373,6 +401,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 self.persistCurrent()
             }
             // .alertFirstButtonReturn → 続きから（既にレジューム済みページを表示中）→ no-op
+            onDismiss?()
         }
     }
 
@@ -1024,13 +1053,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         content = nv.content
         book = nv.book
         // G16 C1: atomic swap が commit された（0-page 中断は上のガードで既に return 済み）。
-        // owner に新しい本を通知し、ViewerWindowRegistry の identity を張り替えさせる。
-        onBookSwapped?(nv.book)
+        // owner に新しい本とページ数を通知し、ViewerWindowRegistry の identity 張り替え・
+        // pages 収束（G26 fix round 2）の双方に使わせる。
+        onBookSwapped?(nv.book, pageCount)
         overrides = state.overrides
         orientations = [:]
         prefetch.removeAll()
         lastDecodeTarget.removeAll()
         zoomHighResPages = []   // G18 C4: 旧巻の高解像状態を持ち越さない
+        didPresentDamageNotice = false   // G26 fix round 2: 新しい content について再度知らせてよい
         let newModel = ViewerModel(pageCount: pageCount, options: options)
         newModel.setCoverOffset(state.coverOffset)
         newModel.setDisplayMode(state.spreadEnabled ? .spread : .single)
@@ -1050,8 +1081,19 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         hudNote("\(hudPrefix)：\(nv.book.title)")
         // 4.2b-6: 巻送り先が読みかけなら、初回オープンと同じ「続き/最初」シートを出す。
         // 未読（lastPage==0）のときは出さず黙って先頭（既存挙動と一貫）。
+        // G26 fix round 2: 破損通知はシートがあれば dismiss 後に、なければ上の hudNote
+        // （「〜を開きました」）が読める時間を空けてから出す — 即座に上書きすると
+        // 巻送り成功の合図自体が読めなくなる（レビュー Important #2）。
         if state.lastPage > 0 {
-            showResumeDialog(forLastPage: state.lastPage)
+            showResumeDialog(forLastPage: state.lastPage, onDismiss: { [weak self] in
+                self?.presentDamageNoticeIfNeeded()
+            })
+        } else {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                try? await Task.sleep(nanoseconds: UInt64(self.hudNoteDuration * 1_000_000_000))
+                self.presentDamageNoticeIfNeeded()
+            }
         }
     }
 
