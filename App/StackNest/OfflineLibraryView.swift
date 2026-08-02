@@ -354,7 +354,9 @@ struct OfflineLibraryView: View {
             }
             // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
             // （serverID/libraryUUID はシリーズ内で不変・.remote へ統一済み＝C3）。
-            controller.onBookSwapped = { [weak controller] newBook in
+            // G26 fix round 2: pageCount 引数はローカル DB を持たないオフライン/リモート経路では使わない
+            // （pages 収束はローカル database を持つ AppState 側のみ・onBookSwapped 参照）。
+            controller.onBookSwapped = { [weak controller] newBook, _ in
                 guard let controller else { return }
                 let newIdentity = ViewerIdentity.remote(
                     serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: newBook.id)
