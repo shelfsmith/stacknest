@@ -450,7 +450,7 @@ public struct LibraryServerCore: Sendable {
                 order = sort.defaultOrder
             }
             // ?filter=<URL-encoded JSON FilterState> — decode or use empty default.
-            let filter = decodeFilterState(from: qp.get("filter"))
+            let filter = try decodeFilterState(from: qp.get("filter"))
             // ?browse=<URL-encoded JSON [[column,value]]> — 不正列名は 400（SQL injection 防御）。
             let browse = try decodeBrowseConstraintsValidated(from: qp.get("browse"))
             // ?fields=genre,neta,... — 応答に追加する任意フィールド（許可外は無視）。
@@ -590,7 +590,7 @@ public struct LibraryServerCore: Sendable {
             let field = try context.parameters.require("field")
             guard allowedFacetColumns.contains(field) else { throw HTTPError(.badRequest) }
             let qp = request.uri.queryParameters
-            let filter = decodeFilterState(from: qp.get("filter"))
+            let filter = try decodeFilterState(from: qp.get("filter"))
             let browse = try decodeBrowseConstraintsValidated(from: qp.get("browse"))
             let values = try lib.db.distinctValues(
                 forColumn: field,
@@ -1870,13 +1870,19 @@ struct UnseenRequestBody: Decodable {
     let unseen: Bool
 }
 
-/// ?filter=<URL-decoded JSON> から FilterState をデコードする。
-/// 不正 JSON / nil は空の FilterState にフォールバックする（呼び出し側で 400 にしない）。
-private func decodeFilterState(from jsonString: String?) -> FilterState {
-    guard let s = jsonString, !s.isEmpty,
-          let data = s.data(using: .utf8),
+/// ?filter=<URL-encoded JSON FilterState> をデコードする。
+/// - パラメータ無し / 空文字列 → 空 `FilterState`（フィルタ指定なし）
+/// - JSON として壊れている → **`HTTPError(.badRequest)`**
+///
+/// G26 以前は両者を空 `FilterState` に潰していたため、**壊れた（あるいは部分的な）JSON を
+/// 送ると絞り込みが黙って無視され、絞られていない一覧が返っていた**。部分 JSON は
+/// `FilterState.init(from:)` が既定値で受けるようになったので、ここに来る失敗は
+/// 「JSON として妥当でない」場合だけになる。
+private func decodeFilterState(from jsonString: String?) throws -> FilterState {
+    guard let s = jsonString, !s.isEmpty else { return FilterState() }
+    guard let data = s.data(using: .utf8),
           let fs = try? JSONDecoder().decode(FilterState.self, from: data)
-    else { return FilterState() }
+    else { throw HTTPError(.badRequest) }
     return fs
 }
 
