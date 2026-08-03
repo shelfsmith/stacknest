@@ -173,4 +173,43 @@ struct BookImporterTests {
         // カバー抽出は読めた分（3 枚目より手前）から続行できているはず。
         #expect(!r.coverFailures.contains(zipURL))
     }
+
+    /// G26 Codex Minor #2: 打ち切り読みのページ数は `books.pages` だけでなく **bookType 自動分類**
+    /// にも渡さない。破損 zip は 2 ページしか読めないので、閾値 100 でそのまま分類すると
+    /// 「薄い本」(1) になる。bookType は永続化され、しかも修復後に見直す経路が無い
+    /// （pages は次回オープンで収束するが bookType は収束しない）ので、ページ数由来の判定自体を
+    /// 止めて自動分類 OFF 時と同じ既定値 0 にする。
+    @Test func damagedArchiveImportDoesNotLetTheTruncatedCountDriveBookType() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let zipURL = dir.appendingPathComponent("damaged-type.zip")
+        try DamagedZipFixture.makeDamagedZip().write(to: zipURL)
+
+        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: true, thickThreshold: 100)
+        #expect(r.addedIDs.count == 1)
+        guard let book = try db.fetchAllBooks().first(where: { $0.path == zipURL.path }) else {
+            Issue.record("expected the damaged zip to be imported as a book")
+            return
+        }
+        #expect(book.bookType == 0,
+                "打ち切り読みの 2 ページで「薄い本」と分類され、修復後も直らない状態が永続化された")
+    }
+
+    /// 対照: 健全なアーカイブでは閾値判定が従来どおり効く（上のテストが「自動分類が丸ごと
+    /// 止まった」だけでも通ってしまわないようにする）。同じ 6 枚でも壊れていなければ
+    /// 閾値 100 未満なので「薄い本」(1) になる。
+    @Test func healthyArchiveImportStillClassifiesFromThePageCount() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let zipURL = dir.appendingPathComponent("healthy-type.zip")
+        try DamagedZipFixture.makeStoredZip(
+            (1...6).map { ("\($0).png", DamagedZipFixture.tinyPNG) }).write(to: zipURL)
+
+        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: true, thickThreshold: 100)
+        #expect(r.addedIDs.count == 1)
+        guard let book = try db.fetchAllBooks().first(where: { $0.path == zipURL.path }) else {
+            Issue.record("expected the healthy zip to be imported as a book")
+            return
+        }
+        #expect(book.pages == 6)
+        #expect(book.bookType == 1)
+    }
 }

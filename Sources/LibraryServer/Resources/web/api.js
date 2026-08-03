@@ -148,11 +148,16 @@ export async function fetchPageBlob(uuid, bookId, apiIndex, maxw, signal, versio
 }
 
 /// 進行状況の書き込み（apiIndex は 0 始まり）。!ok は status 付き Error。
-export async function postProgress(uuid, bookId, apiIndex) {
+/// G26 Codex Important #1: `restart` は「ユーザーが明示的に『最初から』を選んだ」意思表示。
+/// サーバは破損（打ち切り読み）本で保存済み位置を守るため後退書き込みを無視するが、
+/// このキーが true のときだけは保護下限を 0 に落として書き込みを通す。
+/// false のときはキー自体を送らない（旧サーバ互換・既定の body 形を変えない）。
+export async function postProgress(uuid, bookId, apiIndex, restart = false) {
+    const body = restart ? { page: apiIndex, restart: true } : { page: apiIndex };
     const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/progress`,
         { libraryUUID: uuid, method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ page: apiIndex }) });
+          body: JSON.stringify(body) });
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
 }
 

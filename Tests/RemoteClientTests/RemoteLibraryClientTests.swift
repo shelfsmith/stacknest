@@ -531,18 +531,31 @@ struct StubBackedRemoteClientTests {
         }
         private func enc() -> JSONEncoder { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; return e }
 
-        @Test func pageCountFromManifest() async throws {
-            StubURLProtocol.stub = .init(status: 200, headers: [:],
-                body: try enc().encode(ManifestDTO(pageCount: 42, direction: "rtl", format: "archive", etag: "e")))
-            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 1, libraryToken: nil, maxWidth: 1600, cache: nil)
-            let n = try await content.pageCount
-            #expect(n == 42)
+        /// G26 Codex Important #3: `pageCount` と `damageNote` は**開いた時点の manifest
+        /// スナップショット**から返し、追加のリクエストを一切出さない。
+        ///
+        /// 以前はどちらもその場で manifest を取り直していた（＝別レスポンス）。`damageNote` 側の
+        /// 取得だけが一時的に失敗すると `try?` が nil を返し、呼び出し側は「破損していない本」と
+        /// 判断して打ち切りゲートを素通りさせていた。ネットワークが一瞬揺れただけで読書位置が
+        /// 壊れる、という構造そのものを消す。実リクエスト数 0 がその証拠になる。
+        @Test func pageCountAndDamageNoteComeFromTheSnapshotWithoutAnyRequest() async throws {
+            StubURLProtocol.requestCount = 0
+            StubURLProtocol.stub = .init(status: 500, headers: [:], body: Data())   // 触ったら失敗する
+            let snapshot = RemoteBookSnapshot(manifest: ManifestDTO(
+                pageCount: 42, direction: "rtl", format: "archive", etag: "e",
+                damageNote: "⚠ このファイルは破損しています。42 ページまで読み込みました"))
+            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 1,
+                                            libraryToken: nil, maxWidth: 1600, snapshot: snapshot, cache: nil)
+            #expect(try await content.pageCount == 42)
+            #expect(await content.damageNote != nil)
+            #expect(StubURLProtocol.requestCount == 0,
+                    "pageCount/damageNote が manifest を取り直している（片方だけ失敗すると破損判定が消える）")
         }
 
         @Test func imageDataFetchesPageWithMaxw() async throws {
             let bytes = Data([0xFF, 0xD8, 0x01, 0x02])
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
-            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9, libraryToken: nil, maxWidth: 1600, cache: nil)
+            let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9, libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 10), cache: nil)
             let data = try await content.imageData(at: 3)
             #expect(data == bytes)
             let url = StubURLProtocol.lastRequest?.url
@@ -559,7 +572,7 @@ struct StubBackedRemoteClientTests {
             let bytes = Data([0xFF, 0xD8, 0x01, 0x02])
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
             let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9,
-                                            libraryToken: nil, maxWidth: 1600, version: "\"etag-abc\"", cache: nil)
+                                            libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "\"etag-abc\""), cache: nil)
             _ = try await content.imageData(at: 3)
             let url = StubURLProtocol.lastRequest?.url
             let comps = URLComponents(url: url!, resolvingAgainstBaseURL: false)!
@@ -577,7 +590,8 @@ struct StubBackedRemoteClientTests {
             let bytes = Data([0xFF, 0xD8, 0x01, 0x02])
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: bytes)
             let content = RemoteBookContent(client: client(), serverID: UUID(), libraryUUID: "u", bookID: 9,
-                                            libraryToken: nil, maxWidth: 1600, cache: nil)   // version 省略 → nil
+                                            libraryToken: nil, maxWidth: 1600,
+                                            snapshot: .init(pageCount: 10), cache: nil)   // etag 省略 → version nil
             #expect(content.versionValue == nil)
             _ = try await content.imageData(at: 3)
             let url = StubURLProtocol.lastRequest?.url
@@ -599,20 +613,20 @@ struct StubBackedRemoteClientTests {
 
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([1, 1, 1]))
             let v1 = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
-                                       libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+                                       libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "etag-v1"), cache: cache)
             _ = try await v1.imageData(at: 0)
             #expect(StubURLProtocol.requestCount == 1)
 
             // 同一 version で開き直す（例: 巻を閉じてまた開く）→ ヒットして実リクエストは増えない。
             let v1Again = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
-                                            libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+                                            libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "etag-v1"), cache: cache)
             _ = try await v1Again.imageData(at: 0)
             #expect(StubURLProtocol.requestCount == 1)   // ヒット・再取得なし
 
             // relink でサーバの本体が差し替わり etag が変わった想定 → 同じ page でも必ず再取得される。
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([2, 2, 2]))
             let v2 = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
-                                       libraryToken: nil, maxWidth: 1600, version: "etag-v2", cache: cache)
+                                       libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "etag-v2"), cache: cache)
             let data2 = try await v2.imageData(at: 0)
             #expect(StubURLProtocol.requestCount == 2)   // ミス・再取得
             #expect(data2 == Data([2, 2, 2]))
@@ -645,7 +659,7 @@ struct StubBackedRemoteClientTests {
             // 1回目: サーバが no-store で応答（?v= が現在版と食い違うケースを模す）。
             StubURLProtocol.stub = .init(status: 200, headers: ["Cache-Control": "no-store"], body: Data([0xA]))
             let content = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
-                                            libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+                                            libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "etag-v1"), cache: cache)
             let data1 = try await content.imageData(at: 0)
             #expect(data1 == Data([0xA]), "no-store でも今の正しいバイトはそのまま返す")
             #expect(StubURLProtocol.requestCount == 1)
@@ -654,7 +668,7 @@ struct StubBackedRemoteClientTests {
             // store していなければ必ずミス→再取得され、2回目の戻り値は新 body(B) になる。
             StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([0xB]))
             let contentAgain = RemoteBookContent(client: client(), serverID: sid, libraryUUID: "u", bookID: 42,
-                                                 libraryToken: nil, maxWidth: 1600, version: "etag-v1", cache: cache)
+                                                 libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "etag-v1"), cache: cache)
             let data2 = try await contentAgain.imageData(at: 0)
             #expect(StubURLProtocol.requestCount == 2,
                      "no-store 応答が RemotePageCache に保存されている — 誤った版キーの下へバイトが固定される（relink 巻き戻し時に stale 表示が再発する）")

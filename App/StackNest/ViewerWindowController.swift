@@ -26,7 +26,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     // Phase 2.6b-2 injected closures
     private let loadNextVolume: (BookRow) async -> NextVolume?
     private let loadPrevVolume: (BookRow) async -> NextVolume?
-    private let persistState: (BookRow, Int, Bool, Bool) -> Void          // (book, lastPage, spreadEnabled, coverOffset)
+    /// (book, lastPage, spreadEnabled, coverOffset, restartedFromBeginning)
+    ///
+    /// G26 Codex Important #1: 第 5 引数は「この巻でユーザーが resume シートの『最初から』を
+    /// 選んだか」。ローカル DB へ書く owner はこれを無視してよい（打ち切りゲートは本 controller が
+    /// 通過済み）が、**リモート owner はサーバへ転送しなければならない** — サーバ側 `/progress` は
+    /// 自前で保存済み位置を見てゲートするので、意思表示を伝えないと「最初から」が捨てられる。
+    private let persistState: (BookRow, Int, Bool, Bool, Bool) -> Void
     private let persistPageOverride: (BookRow, Int, Int?) -> Void          // (book, page, mode int or nil)
     /// Phase 2.6b-2 D3: コールバック。本のページ方向が変わったら AppState 経由で DB に永続化する。
     var onSetBookPageDirection: ((Int, PageDirection) -> Void)?
@@ -53,6 +59,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// 打ち切り読み時に「クランプで下がっただけの位置」を書き戻さないための下限として使う
     /// （`TruncatedReadPolicy.lastPageToPersist`）。巻スワップで新しい巻の保存値に更新する。
     private var storedLastPage: Int
+    /// G26 Codex Important #1: この巻で「最初から」が選ばれたか（＝保存済み位置を捨てる明示の意思）。
+    /// `storedLastPage = 0` と対になるフラグで、リモート owner がサーバへ意思を転送するために使う。
+    /// 巻スワップで新しい巻の状態にリセットする。
+    private var didRestartFromBeginning = false
     /// resume ダイアログを 1 回だけ表示するフラグ。
     private var didShowResumeDialog = false
     private let suppressResumeDialog: Bool
@@ -65,6 +75,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// G26 fix round 2: 破損通知を「今の content について」1 回だけ出すフラグ。
     /// 巻送り（performSwap）で content が差し替わるたびリセットする。
     private var didPresentDamageNotice = false
+    /// G26 Codex Minor #1: 未読破損（lastPage==0）の巻で「hudNote が読める時間だけ待ってから
+    /// 破損通知を出す」遅延 Task。3 秒待つ間に次の巻へ進む／窓を閉じるとこれが遅れて発火し、
+    /// 古い巻の注意文を出す（かつ閉じた controller を掴み続ける）ため、保持して swap と close で
+    /// cancel する。`didPresentDamageNotice` は「出したか」であって「予約中か」ではないので
+    /// このフラグだけでは止められない。
+    private var damageNoticeTask: Task<Void, Never>?
     /// 非 nil ならタイトルバーに "<ラベル>: <書名>" を表示する（リモート由来などの可視マーカ）。
     /// 4.2c-3: 巻送りでソースが変わる（DL済み=オフライン/未DL=リモート）ため var にして更新する。
     private var sourceLabel: String?
@@ -203,7 +219,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         initialState: ResolvedViewerState,
         loadNextVolume: @escaping (BookRow) async -> NextVolume?,
         loadPrevVolume: @escaping (BookRow) async -> NextVolume?,
-        persistState: @escaping (BookRow, Int, Bool, Bool) -> Void,
+        persistState: @escaping (BookRow, Int, Bool, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
         suppressResumeDialog: Bool = false,
         sourceLabel: String? = nil,
@@ -415,6 +431,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 // 意思表示なので、打ち切り読みの保護下限そのものを 0 に下げる（さもないと破損本では
                 // 「最初から」を選んでも位置が書き戻されず、次回また続きを訊かれる）。
                 self.storedLastPage = 0
+                self.didRestartFromBeginning = true   // G26 Codex Important #1: リモートにも意思を伝える
                 self.navDirection = -1  // 案A レビュー Minor #3: 先頭方向へのジャンプとして先読み方向を明示
                 self.model.goFirst()
                 self.rebuildSpreads()
@@ -824,7 +841,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             storedLastPage: storedLastPage,
             truncated: damageNote != nil
         )
-        persistState(book, page, model.displayMode == .spread, model.coverOffset)
+        persistState(book, page, model.displayMode == .spread, model.coverOffset, didRestartFromBeginning)
     }
 
     private func handleZoneClick(leftHalf: Bool) {
@@ -1089,6 +1106,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         book = nv.book
         damageNote = newDamageNote      // G26: 通知表示と永続化ゲートの両方がこの値を見る
         storedLastPage = state.lastPage  // G26: 新しい巻の「開いた時点の保存位置」が保護下限になる
+        didRestartFromBeginning = false  // G26 Codex Important #1: 「最初から」の意思は巻ごと
+        // G26 Codex Minor #1: 前の巻の遅延破損通知が残っていれば破棄する（3 秒以内に 2 回
+        // 巻送りすると、古い巻の注意文が新しい巻の上に出る）。
+        damageNoticeTask?.cancel()
+        damageNoticeTask = nil
         // G16 C1: atomic swap が commit された（0-page 中断は上のガードで既に return 済み）。
         // owner に新しい本とページ数を通知し、ViewerWindowRegistry の identity 張り替え・
         // pages 収束（G26 fix round 2）の双方に使わせる。
@@ -1126,9 +1148,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 self?.presentDamageNoticeIfNeeded()
             })
         } else {
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                try? await Task.sleep(nanoseconds: UInt64(self.hudNoteDuration * 1_000_000_000))
+            // G26 Codex Minor #1: 予約は 1 本だけ。次の swap / close が来たら破棄する。
+            let delay = UInt64(hudNoteDuration * 1_000_000_000)
+            damageNoticeTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled, let self else { return }
                 self.presentDamageNoticeIfNeeded()
             }
         }
@@ -1246,6 +1270,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         idleTimer = nil
         hudNoteTimer?.invalidate()
         hudNoteTimer = nil
+        damageNoticeTask?.cancel()        // G26 Codex Minor #1: 閉じた窓に遅れて通知を出さない
+        damageNoticeTask = nil
         helpOverlayTimer?.invalidate()
         helpOverlayTimer = nil
         cacheCoverageTimer?.invalidate()

@@ -1411,9 +1411,17 @@ public struct LibraryServerCore: Sendable {
                         bookID: updatedRow.id, sourceURLPath: updatedRow.path,
                         preferredName: updatedRow.coverImageName, bundleURL: lib.bundleURL, db: lib.db)
                 }
+                // G26 Codex Important #2: relink 先が破損していると `pageCount` は打ち切り値
+                // （40 ページ本を差し替えたつもりで 13）になる。relink は**まさに**ユーザーが
+                // 差し替え先を指し示す操作なので、ここを素通ししたら「壊れた読みから出た数値は
+                // 記録しない」という規則が最も要る場所で破れる。ビューア/取込経路と同じ
+                // `TruncatedReadPolicy.pageCountToWrite` を通す（nil＝書かない。修復後に
+                // 次回オープンの収束処理が正しい値を入れる）。
                 if let content = try? BookContentFactory.make(for: updatedRow),
-                   let n = try? await content.pageCount {
-                    try? lib.db.updateBookPages(id: updatedRow.id, newPages: n)
+                   let n = try? await content.pageCount,
+                   let pages = TruncatedReadPolicy.pageCountToWrite(
+                       livePageCount: n, truncated: await content.damageNote != nil) {
+                    try? lib.db.updateBookPages(id: updatedRow.id, newPages: pages)
                 }
             }
             self.notifyStructureChanged(lib.uuid)
@@ -1577,11 +1585,43 @@ public struct LibraryServerCore: Sendable {
         // 閲覧進行状況の書き込み（last_page）＋ mark-as-read（Mac ビューアとパリティ: unseen=false /
         // play_date=now）。本を mutate するので最後に onBookChanged を発火し Mac UI / 将来のクライアントへ
         // 即時反映させる（4.2a）。viewer フラグ（spread/coverOffset）は触らない。
-        api.post("libraries/:lib/books/:id/progress") { [config] request, context in
+        //
+        // G26 Codex Important #1: 破損アーカイブは「壊れた位置まで読める本」として開くため、
+        // Web リーダーの `startUi = min(pageCount, p)` が保存済み位置（例 150）を打ち切り
+        // ページ数（例 30）の末尾へクランプし、その 29 をここへ POST してくる。素直に書くと
+        // ネイティブ側で `TruncatedReadPolicy` を作る原因になった事故（読書位置の破壊）が
+        // そのまま再現する。**クライアントの自己抑制には頼れない**（旧クライアントが居るし、
+        // 判定材料の damageNote を持たないクライアントもある）ので、判定はサーバで行う。
+        //
+        // `restart`（optional・省略＝false）は「ユーザーが明示的に『最初から』を選んだ」という
+        // 意思表示。ネイティブの resume シートが `storedLastPage = 0` に落として意思を通すのと
+        // 同じことを、保護下限を 0 にすることで行う。**page == 0 からは推測しない** —
+        // page 0 は単に 1 ページ目でもあるため、破損本の 1 ページ目を表示しただけで
+        // 保存位置が消える（Codex の指摘どおり）。旧クライアントはキーを送らないので
+        // 従来どおり保護される（保護しすぎる側に倒れるので安全）。
+        api.post("libraries/:lib/books/:id/progress") { [config, contentCache] request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
             let body = try await request.decode(as: ProgressRequestBody.self, context: context)
             guard body.page >= 0 else { throw HTTPError(.badRequest) }
-            try lib.db.updateLastPage(bookID: row.id, lastPage: body.page)
+            let storedLastPage = (body.restart == true)
+                ? 0
+                : ((try? lib.db.loadViewerState(bookID: row.id))?.lastPage ?? 0)
+            // 前進書き込み（大多数）では打ち切りか否かで結果が変わらない。破損判定は
+            // アーカイブ全走査を伴いうるので、結果に効く場合だけ払う（判断自体は policy 側）。
+            var truncated = false
+            if TruncatedReadPolicy.truncationAffectsLastPage(
+                currentPage: body.page, storedLastPage: storedLastPage) {
+                if let content = try? await contentCache.content(for: row, libraryUUID: lib.uuid) {
+                    truncated = await content.damageNote != nil
+                } else {
+                    // 中身を開けない（ファイル欠損等）＝打ち切りかどうか確かめられない。
+                    // 保存位置を壊す側ではなく守る側へ倒す。
+                    truncated = true
+                }
+            }
+            let page = TruncatedReadPolicy.lastPageToPersist(
+                currentPage: body.page, storedLastPage: storedLastPage, truncated: truncated)
+            try lib.db.updateLastPage(bookID: row.id, lastPage: page)
             try lib.db.markAsRead(bookID: row.id, at: Date())
             config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok
@@ -1846,6 +1886,9 @@ struct UnlockRequestBody: Decodable {
 /// progress 書き込みリクエストボディ（ファイルスコープ — swiftc ASTMangler 対策）。
 struct ProgressRequestBody: Decodable {
     let page: Int
+    /// G26 Codex Important #1: ユーザーが明示的に「最初から」を選んだことを表す任意フィールド。
+    /// 省略（旧クライアント）＝ nil ＝ false。true のとき打ち切り読みの保護下限を 0 に落とす。
+    let restart: Bool?
 }
 
 /// 方向書き込みボディ（swiftc ASTMangler 対策でファイルスコープ）。

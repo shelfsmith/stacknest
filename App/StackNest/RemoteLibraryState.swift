@@ -1833,17 +1833,24 @@ final class RemoteLibraryState {
                 sourceLabel = "オフライン"
                 damageNote = await offlineContent.damageNote
             } else {
-                var version: String?
-                if let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) {
-                    remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
-                    version = m.etag
-                    // 既に取得済みの manifest から拾う（RemoteBookContent.damageNote を呼ぶと
-                    // 同じ manifest をもう一度取りに行くことになる）。
-                    damageNote = m.damageNote
+                // G26 Codex Important #3: manifest は **1 回**取り、pageCount / damageNote /
+                // override / etag をその 1 レスポンスから束で受け取る（`RemoteBookSnapshot`）。
+                // 以前は damageNote 用と pageCount 用で別リクエストになっており、damageNote 側だけ
+                // 落ちると「破損していない本」として開いて位置を書き戻していた。
+                // 取れなかったときは**開かない** — 「破損していないことにして開く」は
+                // まさに守ろうとしている読書位置を壊す側の失敗なので、fail safe に倒す。
+                guard let m = try? await self.client.manifest(
+                    libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) else {
+                    self.errorText = "本を開けませんでした"
+                    ViewerWindowRegistry.shared.cancelOpen(identity)
+                    return
                 }
+                remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
+                damageNote = m.damageNote
                 let made = RemoteBookContent(
                     client: self.client, serverID: self.serverID, libraryUUID: self.libraryUUID, bookID: book.id,
-                    libraryToken: self.libraryToken, maxWidth: 1600, version: version)
+                    libraryToken: self.libraryToken, maxWidth: 1600,
+                    snapshot: RemoteBookSnapshot(manifest: m))
                 content = made
                 remoteContent = made
                 row = Self.makeBookRow(from: book)
@@ -1906,7 +1913,11 @@ final class RemoteLibraryState {
                     await self?.resolveRemoteVolume(after: cur.id, direction: "prev")
                 },
                 // 進捗をリモートサーバへ POST する（ローカル DB 書き込みの代替）。
-                persistState: { [weak self] (b, lastPage, _, _) in
+                // G26 Codex Important #1: 第 5 引数（resume シートで「最初から」を選んだか）は
+                // **必ず** サーバへ転送する。サーバ側 `/progress` は保存済み位置を自分で読んで
+                // 打ち切りゲートを掛けるので、これを伝えないと破損本の「最初から」が握り潰される
+                // （ローカルでは controller が storedLastPage=0 にして通していた意思表示）。
+                persistState: { [weak self] (b, lastPage, _, _, restart) in
                     guard let self else { return }
                     // Phase 4.2c-2: 巻スワップ後も「最後に開いた本」を現在の巻に更新する（リモート）。
                     LastReadTracker.shared.record(.remote(
@@ -1916,7 +1927,7 @@ final class RemoteLibraryState {
                     Task {
                         try? await self.client.postProgress(
                             libraryUUID: self.libraryUUID, bookID: b.id,
-                            page: lastPage, libraryToken: self.libraryToken)
+                            page: lastPage, restart: restart, libraryToken: self.libraryToken)
                     }
                     // 4.2c-5: DL済み(オフライン読み出し)はオフラインストアの lastPage も更新し、
                     // オフラインビューアと続きを一致させる。未DLはエントリが無く no-op。
@@ -2081,12 +2092,14 @@ final class RemoteLibraryState {
             $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
         }
         var remoteOverrides: [Int: PageLayoutOverride] = [:]
-        // G4d 層2: 同じ manifest 取得から version（etag）も得て、次巻の RemoteBookContent に注入する。
-        var manifestVersion: String?
+        // G26 Codex Important #3: 巻送りも初回オープンと同じく manifest 1 回分のスナップショット
+        // （pageCount / damageNote / override / etag）を束で持ち回る。damageNote だけ別リクエストに
+        // すると、巻送り先が破損本のときに「破損していない」と誤認して位置を書き戻しうる。
+        var snapshot: RemoteBookSnapshot?
         if offlineEntry == nil {
             if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
-                manifestVersion = m.etag
+                snapshot = RemoteBookSnapshot(manifest: m)
             }
         }
         // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
@@ -2104,17 +2117,20 @@ final class RemoteLibraryState {
         }
         // レビュー Minor3 fix: ここに到達するのは (a) offlineEntry == nil（上の manifest 取得済み）、
         // または (b) offlineEntry != nil だが BookContentFactory.make が失敗した場合。(b) は
-        // offlineEntry == nil ガードにより上の manifest 取得をスキップされているため、version が
-        // 未取得のまま version: nil でリモートへフォールバックすると relink 後も旧版ページを
-        // 返しかねない。この稀な失敗経路でだけ、まだ取得していなければここで一度だけ取得する
+        // offlineEntry == nil ガードにより上の manifest 取得をスキップされているため、スナップショットが
+        // 未取得のままになる。この稀な失敗経路でだけ、まだ取得していなければここで一度だけ取得する
         // （offlineEntry == nil の通常経路は既にフェッチ済みなので二重フェッチしない＝共通経路に
         // 追加のネットワーク往復は発生しない）。
-        if offlineEntry != nil, manifestVersion == nil {
+        if offlineEntry != nil, snapshot == nil {
             if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
-                manifestVersion = m.etag
+                snapshot = RemoteBookSnapshot(manifest: m)
             }
         }
+        // G26 Codex Important #3: manifest が取れなければ次巻は開かない（nil ＝隣接巻なし扱い →
+        // ビューアは「次の巻を開けません」で止まる）。ページ数も破損判定も分からないまま開くと、
+        // 打ち切りゲートが無効な状態で読書位置を書き戻すことになる。
+        guard let snapshot else { return nil }
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,
@@ -2123,7 +2139,7 @@ final class RemoteLibraryState {
         )
         let content = RemoteBookContent(
             client: client, serverID: serverID, libraryUUID: libraryUUID,
-            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600, version: manifestVersion)
+            bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600, snapshot: snapshot)
         let row = Self.makeBookRow(from: dto)
         return NextVolume(content: content, book: row, state: state, sourceLabel: "リモート")
     }

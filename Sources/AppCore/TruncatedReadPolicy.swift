@@ -41,4 +41,27 @@ public enum TruncatedReadPolicy {
         guard truncated, currentPage < storedLastPage else { return currentPage }
         return storedLastPage
     }
+
+    /// `lastPageToPersist` の答えが `truncated` に依存するか。
+    ///
+    /// false のとき、`truncated` が true でも false でも結果は同じ（＝現在位置がそのまま通る）ので、
+    /// 呼び出し側は**破損判定そのものを省いてよい**。サーバの `/progress` のように打ち切り判定に
+    /// アーカイブ走査のコストが伴う経路で、前進書き込み（大多数）を素通しさせるために使う。
+    ///
+    /// この述語を policy 側に置くのは、「前進なら truncated は無関係」という判断も規則の一部で
+    /// あり、呼び出し側で `if page < stored` と書き下すとそれが規則の二重定義になるため。
+    /// 不変条件は `TruncatedReadPolicyTests` が総当りで固定する。
+    public static func truncationAffectsLastPage(currentPage: Int, storedLastPage: Int) -> Bool {
+        currentPage < storedLastPage
+    }
+
+    /// **永続化される自動分類**（`BookTypeClassifier.autoClassify`）へ渡してよいページ数。
+    /// 打ち切り読みなら nil（＝ページ数に依存しない分類へフォールバックさせる）。
+    ///
+    /// `pageCountToWrite` と分けてあるのは 0 の扱いだけが違うため。`books.pages` は 0 を
+    /// 「収束させる材料が無い」として書かないが、分類では「0 ページの本」という事実自体は
+    /// 打ち切りではなく正しい入力なので素通しする（従来どおり薄い本に分類される）。
+    public static func pageCountForClassification(livePageCount: Int, truncated: Bool) -> Int? {
+        truncated ? nil : livePageCount
+    }
 }

@@ -57,15 +57,24 @@ final class TestLibraryFixture: @unchecked Sendable {
         return ServedLibrary(uuid: uuid, name: name, bundleURL: bundleURL, db: db, isLocked: locked)
     }
 
-    /// 本テスト target の zip fixture をバンドル一時領域へコピーし、
-    /// その path を持つ本を実 insert API（`insertBookReturningID(_: BookRecord)`）で登録して id を返す。
-    func addRealBook(zipFixtureNamed name: String) throws -> Int {
+    /// 本テスト target の zip fixture をバンドル一時領域へコピーし、その URL を返す。
+    /// バンドル配下なので relink の許可ルート検証も通る（G26 relink ゲートのテストで使う）。
+    @discardableResult
+    func copyFixtureZip(named name: String, as fileName: String? = nil) throws -> URL {
         guard let src = Bundle.module.url(
             forResource: name, withExtension: "zip", subdirectory: "Fixtures") else {
             throw CocoaError(.fileNoSuchFile)
         }
-        let dst = bundleURL.appendingPathComponent("\(name).zip")
+        let dst = bundleURL.appendingPathComponent(fileName ?? "\(name).zip")
+        try? FileManager.default.removeItem(at: dst)
         try FileManager.default.copyItem(at: src, to: dst)
+        return dst
+    }
+
+    /// 本テスト target の zip fixture をバンドル一時領域へコピーし、
+    /// その path を持つ本を実 insert API（`insertBookReturningID(_: BookRecord)`）で登録して id を返す。
+    func addRealBook(zipFixtureNamed name: String) throws -> Int {
+        let dst = try copyFixtureZip(named: name)
         return try db.insertBookReturningID(BookRecord(
             id: 0,   // insertBookReturningID は id を使わず ROWID 自動採番
             title: name,

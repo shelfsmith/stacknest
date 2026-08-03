@@ -326,7 +326,10 @@ struct OfflineLibraryView: View {
                                               current: cur, direction: .prev)
                 },
                 // 進捗を OfflineStore に永続化する（リモートサーバへの POST の代替）。
-                persistState: { b, lastPage, _, _ in
+                // G26 Codex Important #1: 第 5 引数（「最初から」の意思表示）は下の best-effort
+                // POST に必ず載せる。オフライン読みでも本体はサーバ上の同じ本なので、伝えないと
+                // サーバ側 `/progress` の打ち切りゲートが「最初から」を握り潰す。
+                persistState: { b, lastPage, _, _, restart in
                     LastReadTracker.shared.record(.offline(bookID: b.id, title: b.title))
                     store.updateLastPage(serverID: serverID, libraryUUID: libraryUUID, bookID: b.id, page: lastPage)
                     // 4.2c-5: サーバへも best-effort で POST（リモートビューアと続きを一致させる）。
@@ -336,7 +339,8 @@ struct OfflineLibraryView: View {
                               let base = URL(string: conn.baseURL) else { return }
                         let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
                         try? await client.postProgress(
-                            libraryUUID: libraryUUID, bookID: b.id, page: lastPage, libraryToken: nil)
+                            libraryUUID: libraryUUID, bookID: b.id, page: lastPage,
+                            restart: restart, libraryToken: nil)
                     }
                 },
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。

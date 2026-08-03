@@ -415,8 +415,16 @@ public struct RemoteLibraryClient: Sendable {
         return try await send(request(url, libraryToken: libraryToken, cachePolicy: .reloadIgnoringLocalCacheData))
     }
 
-    public func postProgress(libraryUUID: String, bookID: Int, page: Int, libraryToken: String?) async throws {
-        let body = try JSONEncoder().encode(["page": page])
+    /// G26 Codex Important #1: `restart` は「ユーザーが明示的に『最初から』を選んだ」意思表示。
+    /// サーバはこれを見て打ち切り読みの保護下限を 0 に落とす。false のときは**キー自体を送らない**
+    /// （旧サーバは未知キーを無視するので害はないが、既定形を変えない方が差分が読みやすい）。
+    public func postProgress(libraryUUID: String, bookID: Int, page: Int,
+                             restart: Bool = false, libraryToken: String?) async throws {
+        struct ProgressBody: Encodable {
+            let page: Int
+            let restart: Bool?
+        }
+        let body = try JSONEncoder().encode(ProgressBody(page: page, restart: restart ? true : nil))
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/progress")
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }

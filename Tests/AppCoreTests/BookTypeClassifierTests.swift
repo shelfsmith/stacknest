@@ -39,4 +39,18 @@ struct BookTypeClassifierTests {
         #expect(BookTypeClassifier.autoClassify(url: url("/x/a.zip"), pageCount: 30, thickThreshold: 50) == 1)
         #expect(BookTypeClassifier.autoClassify(url: url("/x/a.zip"), pageCount: 50, thickThreshold: 50) == 0)
     }
+
+    /// G26 Codex Minor #2: ページ数が信用できない（打ち切り読み）とき、archive は閾値判定を
+    /// **行わず** 自動分類 OFF 時と同じ既定値 0 を返す。打ち切りの 2 ページで「薄い本」と決めると
+    /// その分類が永続化され、ファイルを直しても見直されない。
+    @Test func archiveWithUnknownPageCountFallsBackToTheDefaultInsteadOfThin() {
+        #expect(BookTypeClassifier.autoClassify(url: url("/x/a.zip"), pageCount: nil, thickThreshold: 50) == 0)
+    }
+
+    /// ページ数に依存しない分類は pageCount が nil でも従来どおり働く。
+    @Test func pageCountIndependentCategoriesAreUnaffectedByUnknownPageCount() {
+        #expect(BookTypeClassifier.autoClassify(url: url("/x/a.mp4"), pageCount: nil, thickThreshold: 20) == 5)
+        #expect(BookTypeClassifier.autoClassify(url: url("/x/a.txt"), pageCount: nil, thickThreshold: 20) == 4)
+        #expect(BookTypeClassifier.autoClassify(url: url("/x/a.jpg"), pageCount: nil, thickThreshold: 20) == 3)
+    }
 }
