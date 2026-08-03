@@ -897,7 +897,13 @@ final class AppState {
                           CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
                           latest.pages != newPages else { return }
                     try? db.updateBookPages(id: bookID, newPages: newPages)
-                    await MainActor.run { self.booksDataVersion += 1 }
+                    // 実機 smoke 修正: DB へ書いただけでは displayedBooks/displayedSelectedBooks の
+                    // in-memory BookRow は古いままで、詳細ペインが復元まで旧ページ数を表示し続けていた。
+                    // regenerateThumbnail(refreshUI:) と同じ精度で、書込みが起きた（このガードを
+                    // 通った）ときだけ refreshDisplayedBooks() を呼んで再クエリさせる。
+                    // refreshDisplayedBooks() 内部で booksDataVersion も bump するので、個別の +1 は
+                    // 冗長になり削除した（LibraryBrowserView/SidebarView はこちらの bump を引き続き観測する）。
+                    await MainActor.run { try? self.refreshDisplayedBooks() }
                 }
             }
 
@@ -965,7 +971,10 @@ final class AppState {
                               CoverRegen.shouldWritePageCount(snapshotPath: snapshotPath, livePath: latest.path),
                               latest.pages != newPages else { return }
                         try? db.updateBookPages(id: newBook.id, newPages: newPages)
-                        await MainActor.run { self.booksDataVersion += 1 }
+                        // 実機 smoke 修正: openInBuiltInViewer 側と同じ理由で refreshDisplayedBooks() を
+                        // 呼ぶ（このガードを通って実際に書き込みが起きたときだけ）。booksDataVersion は
+                        // refreshDisplayedBooks() 内部で bump されるため個別の +1 は削除した。
+                        await MainActor.run { try? self.refreshDisplayedBooks() }
                     }
                 }
             }
