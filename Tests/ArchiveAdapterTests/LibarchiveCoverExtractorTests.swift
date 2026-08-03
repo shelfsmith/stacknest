@@ -62,15 +62,17 @@ struct LibarchiveCoverExtractorTests {
     func countsImagesInZip() async throws {
         let extractor = LibarchiveCoverExtractor()
         // sample_cover.zip contains page01.png and page02.png
-        let count = try await extractor.countImageEntries(in: fixture("sample_cover.zip"))
-        #expect(count == 2)
+        let result = try await extractor.countImageEntries(in: fixture("sample_cover.zip"))
+        #expect(result.count == 2)
+        #expect(result.truncated == false)
     }
 
     @Test
     func emptyZipCountsZero() async throws {
         let extractor = LibarchiveCoverExtractor()
-        let count = try await extractor.countImageEntries(in: fixture("empty.zip"))
-        #expect(count == 0)
+        let result = try await extractor.countImageEntries(in: fixture("empty.zip"))
+        #expect(result.count == 0)
+        #expect(result.truncated == false)
     }
 
     // MARK: - Natural sort cover tests

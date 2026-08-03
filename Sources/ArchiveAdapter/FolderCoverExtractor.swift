@@ -34,9 +34,10 @@ public struct FolderCoverExtractor: CoverImageExtractor {
         }.value
     }
 
-    public func countImageEntries(in url: URL) async throws -> Int {
+    /// フォルダは順次読みではないので打ち切りは起こらない（常に truncated: false）。
+    public func countImageEntries(in url: URL) async throws -> ArchiveEntryCount {
         return try await Task.detached(priority: .userInitiated) {
-            try Self.count(from: url)
+            ArchiveEntryCount(count: try Self.count(from: url), truncated: false)
         }.value
     }
 

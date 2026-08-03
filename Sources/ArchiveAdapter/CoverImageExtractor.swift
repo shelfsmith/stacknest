@@ -18,8 +18,10 @@ public protocol CoverImageExtractor: Sendable {
     func listImageEntries(in url: URL) async throws -> ArchiveListing
 
     /// Counts the number of image entries inside the archive or folder.
-    /// Returns 0 by default; conformers override to provide a real count.
-    func countImageEntries(in url: URL) async throws -> Int
+    /// 破損等で計数が途中で打ち切られた場合は `truncated == true` で、**数えられた分だけ**を返す
+    /// （`listImageEntries` の `ArchiveListing.truncated` と同じ意味論。G26 Import gate fixup）。
+    /// Returns count 0 / truncated false by default; conformers override to provide a real count.
+    func countImageEntries(in url: URL) async throws -> ArchiveEntryCount
 
     /// Phase 2.5i: アーカイブ / フォルダ内の **最初の PDF entry** の Data を返す。
     /// PDF が無ければ nil。画像 0 件時のフォールバック cover 用。
@@ -31,7 +33,7 @@ public protocol CoverImageExtractor: Sendable {
 }
 
 public extension CoverImageExtractor {
-    func countImageEntries(in url: URL) async throws -> Int { 0 }
+    func countImageEntries(in url: URL) async throws -> ArchiveEntryCount { ArchiveEntryCount(count: 0, truncated: false) }
 
     /// Default: PDF 非対応 (`nil`)。LibarchiveCoverExtractor / FolderCoverExtractor で override する。
     func extractFirstPDFData(in url: URL) async throws -> Data? { nil }

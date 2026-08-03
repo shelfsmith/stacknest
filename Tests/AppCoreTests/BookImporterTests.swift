@@ -149,4 +149,28 @@ struct BookImporterTests {
         #expect(r.addedIDs.count == 1)
         #expect(try db.fetchAllBooks().count == 1)
     }
+
+    // G26 Import gate fixup: TruncatedReadPolicy の「打ち切り読みから出た数値は DB に書かない」を
+    // import 経路にも適用したことの確認。DamagedZipFixture は 6 枚中 3 枚目のローカルヘッダを壊した
+    // zip を作る（LibarchiveCoverExtractor は ARCHIVE_FATAL に当たると読めた分＝2 枚を truncated=true
+    // で返す）。この count をそのまま書くと books.pages=2 になり、13/40 ページ本の smoke で見つかった
+    // 不具合（読了と誤認・pages IS NULL クエリから漏れる）を再現してしまう。
+    @Test func damagedArchiveImportDoesNotRecordATruncatedPageCount() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let zipURL = dir.appendingPathComponent("damaged.zip")
+        try DamagedZipFixture.makeDamagedZip().write(to: zipURL)
+
+        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r.addedIDs.count == 1)
+        let books = try db.fetchAllBooks()
+        guard let book = books.first(where: { $0.path == zipURL.path }) else {
+            Issue.record("expected the damaged zip to be imported as a book")
+            return
+        }
+        // 打ち切り読みからの数値は一切残らない — 0 でも読めた分の数でもなく nil であること
+        // (nil は「pages IS NULL」の follow-up 機能が破損本を見つけるための足場でもある)。
+        #expect(book.pages == nil)
+        // カバー抽出は読めた分（3 枚目より手前）から続行できているはず。
+        #expect(!r.coverFailures.contains(zipURL))
+    }
 }

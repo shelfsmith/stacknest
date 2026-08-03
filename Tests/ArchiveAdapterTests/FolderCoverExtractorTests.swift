@@ -88,8 +88,9 @@ struct FolderCoverExtractorTests {
         defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
 
         let extractor = FolderCoverExtractor()
-        let count = try await extractor.countImageEntries(in: folder)
-        #expect(count == 3)
+        let result = try await extractor.countImageEntries(in: folder)
+        #expect(result.count == 3)
+        #expect(result.truncated == false)
     }
 
     @Test
@@ -105,8 +106,9 @@ struct FolderCoverExtractorTests {
         defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
 
         let extractor = FolderCoverExtractor()
-        let count = try await extractor.countImageEntries(in: folder)
-        #expect(count == 1)
+        let result = try await extractor.countImageEntries(in: folder)
+        #expect(result.count == 1)
+        #expect(result.truncated == false)
     }
 
     // MARK: - Phase 2.6b-2 T-C: heic/heif/tiff/tif/avif は画像として認識されること
@@ -122,8 +124,9 @@ struct FolderCoverExtractorTests {
         defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
 
         let extractor = FolderCoverExtractor()
-        let count = try await extractor.countImageEntries(in: folder)
-        #expect(count >= 1, "フォルダに .heic ファイルが 1 枚あれば imageFiles >= 1 であること (T-C)")
+        let result = try await extractor.countImageEntries(in: folder)
+        #expect(result.count >= 1, "フォルダに .heic ファイルが 1 枚あれば imageFiles >= 1 であること (T-C)")
+        #expect(result.truncated == false)
     }
 
     @Test
@@ -139,7 +142,8 @@ struct FolderCoverExtractorTests {
         defer { try? FileManager.default.removeItem(at: folder.deletingLastPathComponent()) }
 
         let extractor = FolderCoverExtractor()
-        let count = try await extractor.countImageEntries(in: folder)
-        #expect(count == 4, "heif/tiff/tif/avif はすべて画像として認識されること (T-C)")
+        let result = try await extractor.countImageEntries(in: folder)
+        #expect(result.count == 4, "heif/tiff/tif/avif はすべて画像として認識されること (T-C)")
+        #expect(result.truncated == false)
     }
 }

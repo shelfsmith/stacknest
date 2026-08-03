@@ -49,7 +49,7 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
         }.value
     }
 
-    public func countImageEntries(in url: URL) async throws -> Int {
+    public func countImageEntries(in url: URL) async throws -> ArchiveEntryCount {
         return try await Task.detached(priority: .userInitiated) {
             try Self.count(from: url)
         }.value
@@ -250,7 +250,7 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
         throw ArchiveAdapterError.noImageEntry(url)
     }
 
-    private static func count(from url: URL) throws -> Int {
+    private static func count(from url: URL) throws -> ArchiveEntryCount {
         guard let archive = archive_read_new() else {
             throw ArchiveAdapterError.archiveUnreadable(url, reason: "archive_read_new failed")
         }
@@ -276,12 +276,12 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
             let r = archive_read_next_header(archive, &entry)
             if r == ARCHIVE_EOF { break }
             if r != ARCHIVE_OK && r != ARCHIVE_WARN {
-                // G26: 途中打ち切り。数えられた分を返す（0 件なら throw）。
+                // G26: 途中打ち切り。数えられた分を truncated=true で返す（0 件なら throw）。
                 if count == 0 {
                     let msg = errorMessage(archive)
                     throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
                 }
-                return count
+                return ArchiveEntryCount(count: count, truncated: true)
             }
             guard let entry = entry,
                   let cName = archive_entry_pathname(entry) else {
@@ -299,6 +299,6 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
             }
             archive_read_data_skip(archive)
         }
-        return count
+        return ArchiveEntryCount(count: count, truncated: false)
     }
 }
