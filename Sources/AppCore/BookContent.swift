@@ -86,9 +86,32 @@ public actor ArchiveBookContent: BookContent {
         }
     }
 
+    /// 進行中の列挙。`loadEntries()` の再入 caller はこれを await して**同一の走査結果**を共有する。
+    private var entriesTask: Task<ArchiveListing, Error>?
+
+    /// G26 Codex Minor #3: `listImageEntries` の await は actor の再入点なので、素朴に書くと
+    /// 複数 caller（pageCount / imageData / damageNote が並行に走る）がそれぞれ別の走査を始め、
+    /// `entryNames` と `listingTruncated` が**別々の走査の結果で上書きされうる**
+    /// （読んでいる最中にファイルが差し替われば、names は健全なのに truncated だけ true 等）。
+    /// 走査は 1 本の Task に集約し、コミットは await 後の同期区間で 1 度だけ行う
+    /// （先にコミットした caller が居ればその結果に従う — `resolvePDFFallback` と同じ流儀）。
     private func loadEntries() async throws -> [String] {
         if let names = entryNames { return names }
-        let listing = try await extractor.listImageEntries(in: url)
+        if entriesTask == nil {
+            entriesTask = Task { [extractor, url] in
+                try await extractor.listImageEntries(in: url)
+            }
+        }
+        let listing: ArchiveListing
+        do {
+            listing = try await entriesTask!.value
+        } catch {
+            // 失敗はキャッシュしない（従来どおり次回呼び出しで再試行できる）。
+            entriesTask = nil
+            throw error
+        }
+        // 以降 suspension なし＝actor 上アトミック。
+        if let names = entryNames { return names }   // 再入した別 caller が先にコミット済み
         entryNames = listing.names
         listingTruncated = listing.truncated
         return listing.names

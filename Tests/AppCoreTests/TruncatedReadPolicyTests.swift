@@ -60,4 +60,50 @@ struct TruncatedReadPolicyTests {
         #expect(TruncatedReadPolicy.lastPageToPersist(
             currentPage: 12, storedLastPage: 0, truncated: true) == 12)
     }
+
+    // MARK: - truncationAffectsLastPage（G26 Codex Important #1）
+
+    /// この述語の**唯一の存在理由**は「false なら破損判定を省いてよい」という保証なので、
+    /// その不変条件を総当りで固定する。ここが崩れると、サーバ `/progress` が
+    /// 「前進だから damageNote を見なくてよい」と判断した書き込みが実は保護対象だった、
+    /// という取りこぼしになる（しかも静かに壊れる）。
+    @Test func skippingTheTruncationCheckNeverChangesTheAnswer() {
+        for current in -1...6 {
+            for stored in 0...6 {
+                let withTruncation = TruncatedReadPolicy.lastPageToPersist(
+                    currentPage: current, storedLastPage: stored, truncated: true)
+                let without = TruncatedReadPolicy.lastPageToPersist(
+                    currentPage: current, storedLastPage: stored, truncated: false)
+                if TruncatedReadPolicy.truncationAffectsLastPage(
+                    currentPage: current, storedLastPage: stored) {
+                    continue   // 差が出てよい領域（実際に差が出るかは上の個別テストが見る）
+                }
+                #expect(withTruncation == without,
+                        "truncationAffectsLastPage が false なのに答えが変わる (current=\(current), stored=\(stored))")
+            }
+        }
+    }
+
+    /// 後退（＝クランプの疑いがある）ときだけ破損判定が要る。
+    @Test func onlyBackwardWritesNeedTheTruncationCheck() {
+        #expect(TruncatedReadPolicy.truncationAffectsLastPage(currentPage: 29, storedLastPage: 149))
+        #expect(!TruncatedReadPolicy.truncationAffectsLastPage(currentPage: 149, storedLastPage: 149))
+        #expect(!TruncatedReadPolicy.truncationAffectsLastPage(currentPage: 150, storedLastPage: 149))
+        #expect(!TruncatedReadPolicy.truncationAffectsLastPage(currentPage: 0, storedLastPage: 0))
+    }
+
+    // MARK: - pageCountForClassification（G26 Codex Minor #2）
+
+    /// 打ち切り読みのページ数は bookType 自動分類にも渡さない。
+    /// bookType は永続化され、しかも修復後に見直されない（pages と違って収束経路が無い）。
+    @Test func truncatedPageCountIsNotOfferedToClassification() {
+        #expect(TruncatedReadPolicy.pageCountForClassification(livePageCount: 13, truncated: true) == nil)
+    }
+
+    /// 正常読みならそのまま渡す。0 ページも**分類では**正しい入力なので素通しする
+    /// （`pageCountToWrite` が 0 を弾くのは「pages を収束させる材料が無い」という別の理由）。
+    @Test func intactPageCountIsOfferedToClassificationIncludingZero() {
+        #expect(TruncatedReadPolicy.pageCountForClassification(livePageCount: 13, truncated: false) == 13)
+        #expect(TruncatedReadPolicy.pageCountForClassification(livePageCount: 0, truncated: false) == 0)
+    }
 }

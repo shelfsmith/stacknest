@@ -980,17 +980,22 @@ function openDetail(uuid, book, deps) {
     if (book.lastReadAt) addRow("最終読書", formatDate(book.lastReadAt));
 
     const lastUi = (book.lastPage != null && book.lastPage > 0) ? book.lastPage + 1 : null;
-    const openAt = (ui) => {
+    // G26 Codex Important #1: restart=true は「読みかけの本で『最初から』を選んだ」＝保存済み
+    // 位置を捨てるという明示の意思。サーバの打ち切りゲートはこの意思がないと後退書き込みを
+    // 無視するので、リーダーへ URL で引き継ぐ。**「開く」（未読・lastUi なし）には付けない** —
+    // p=1 は単に 1 ページ目でもあるため、ページ 1 の表示から意思を推測してはいけない。
+    const openAt = (ui, restart = false) => {
         // 開いた時点の（絞り込み・並び順込みの）一覧 hash を from= に積んで、
         // リーダー側の「戻る」がこの一覧状態へ戻れるようにする（G17 T2）。
         const fromHash = location.hash;
         saveListScroll(fromHash); // D5: 戻ったとき復元するため現在のスクロール位置を保存
         close();
-        location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}&from=${encodeURIComponent(fromHash)}`;
+        const restartQ = restart ? "&restart=1" : "";
+        location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}${restartQ}&from=${encodeURIComponent(fromHash)}`;
     };
     const readerActions = lastUi
         ? [ el("button", { type: "button", class: "btn-primary", text: "続きから読む", onClick: () => openAt(lastUi) }),
-            el("button", { type: "button", class: "btn-secondary", text: "最初から", onClick: () => openAt(1) }),
+            el("button", { type: "button", class: "btn-secondary", text: "最初から", onClick: () => openAt(1, true) }),
             el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }) ]
         : [ el("button", { type: "button", class: "btn-primary", text: "開く", onClick: () => openAt(1) }),
             el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }) ];

@@ -1410,6 +1410,13 @@ paths:
         閲覧進行状況（last_page）を書き込み、mark-as-read（unseen=false / play_date=now）を実行する。
         **認証ロールは R でも可（共有閲覧状態の更新）。**
         変更後は `onBookChanged` コールバックが発火し Mac UI がリアルタイム反映される。
+
+        **破損（部分読み）本の保護（G26）:** 全ページを読めない本（manifest の `damageNote` が
+        非 null）では、クライアントの表示位置が読める範囲の末尾へクランプされる。この値をそのまま
+        書くと保存済みの読書位置が失われるため、サーバは **保存済み `last_page` より手前への
+        書き込みを無視**する（現在値を維持して 200 を返す）。前進方向の書き込みと、破損していない
+        本の書き込みは従来どおり常に反映される。ユーザーが明示的に「最初から」を選んだ場合のみ
+        `restart: true` を送ることで、この保護を解除して後退書き込みを反映させる。
       tags: [Viewer]
       security:
         - bearerAuth: []
@@ -1438,6 +1445,13 @@ paths:
                   type: integer
                   minimum: 0
                   description: 最終閲覧ページ（0 始まり）
+                restart:
+                  type: boolean
+                  default: false
+                  description: |
+                    ユーザーが明示的に「最初から」を選んだことを表す（省略可・既定 false）。
+                    true のとき破損本の後退書き込み保護を解除する。
+                    **`page == 0` から推測してはならない**（0 は単に 1 ページ目でもある）。
       responses:
         '200':
           description: 書き込み成功

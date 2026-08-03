@@ -128,10 +128,16 @@ public struct BookImporter: Sendable {
                 }
 
                 // 2. bookType を確定 (自動分類 ON 時は BookTypeClassifier、OFF 時は旧挙動)。
+                // G26 Codex Minor #2: 打ち切り読みのページ数は bookType 自動分類にも渡さない。
+                // bookType も DB に永続化され、しかも修復後に見直されない（pages と違って
+                // 「次回オープンで収束する」経路が無い）ため、pages と同じ規則を適用する。
                 let bookType: Int
                 if autoClassifyEnabled {
                     bookType = BookTypeClassifier.autoClassify(
-                        url: url, pageCount: pageCount, thickThreshold: thickThreshold
+                        url: url,
+                        pageCount: TruncatedReadPolicy.pageCountForClassification(
+                            livePageCount: pageCount, truncated: pageCountTruncated),
+                        thickThreshold: thickThreshold
                     )
                 } else {
                     // 旧挙動: フォルダ → 3、それ以外 → 0

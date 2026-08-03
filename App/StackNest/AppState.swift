@@ -922,7 +922,10 @@ final class AppState {
                 loadPrevVolume: { [weak self] cur in
                     self?.resolveVolume(cur, direction: .prev)
                 },
-                persistState: { [weak self] (b, lastPage, spread, cover) in
+                // G26 Codex Important #1: ローカルは第 5 引数（「最初から」の意思表示）を使わない。
+                // 打ち切りゲートは controller 側で通過済みで、ここは素直に書くだけの経路のため
+                // （リモートは同じ値をサーバへ転送する — RemoteLibraryState 参照）。
+                persistState: { [weak self] (b, lastPage, spread, cover, _) in
                     guard let self else { return }
                     LastReadTracker.shared.record(.local(bundlePath: self.bundleURL.path, bookID: b.id, title: b.title))
                     try? self.database?.saveViewerState(
@@ -1750,8 +1753,15 @@ final class AppState {
     func refreshCoverAndPageCount(afterRelinkOf bookID: Int, refreshUI: Bool = true) async {
         guard let db = database, let row = try? db.fetchBook(id: bookID) else { return }
         await regenerateThumbnail(for: row, refreshUI: refreshUI)
+        // G26 Codex Important #2: サーバ側 `/relink` と同じ理由で、打ち切り読みから出た
+        // ページ数は書かない（`TruncatedReadPolicy.pageCountToWrite` が nil を返す）。
+        // relink 先が破損コピーだったとき 40 → 13 に縮めると、そのまま「読了」に化けたうえで
+        // ビューアのクランプ書き戻しと合わさって読書位置まで失われる。何も書かなければ
+        // 修復後の次回オープンで収束する。
         if let content = try? BookContentFactory.make(for: row),
-           let pages = try? await content.pageCount {
+           let live = try? await content.pageCount,
+           let pages = TruncatedReadPolicy.pageCountToWrite(
+               livePageCount: live, truncated: await content.damageNote != nil) {
             // Codex re-review #2 follow-on: the cover write in regenerateThumbnail is guarded against
             // a superseded relink, but the page count is computed from the originally-fetched `row`
             // (its captured path). `content.pageCount` can await for seconds on a large PDF, during

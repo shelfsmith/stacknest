@@ -177,8 +177,17 @@ export async function renderReader(uuid, bookId, query, deps) {
     }
 
     // 2. resume: p は uiPage（1始まり）→ apiIndex（0始まり）に変換
+    // 注意: この Math.min(pageCount, …) こそが破損本で保存位置を潰すクランプ。破損時の
+    // pageCount は「読めたところまで」（例: 150 ページ中 30）なので、続きの p=151 が 30 に
+    // 落ちる。サーバの `/progress` はこの後退書き込みを無視して保存位置を守る
+    // （G26 Codex Important #1・`TruncatedReadPolicy`）。クライアント側の自己抑制には
+    // 頼らない設計なので、ここは今までどおり「読める範囲で表示する」に徹してよい。
     const startUi = Math.max(1, Math.min(pageCount, Number(query.p) || 1));
     let cur = startUi - 1; // apiIndex
+    // G26 Codex Important #1: 「最初から」で入ってきたか（books.js / openVolume が付ける）。
+    // 保存位置を捨てる意思表示なので、このリーダーが生きている間の progress 送信すべてに
+    // 載せる（ネイティブの resume シートが storedLastPage=0 を巻の間ずっと保つのと同じ）。
+    const restartIntent = query.restart === "1";
 
     // 3. PrefetchEngine 構築
     purgeExpired();   // 7日以上アクセスの無いページキャッシュを掃除（await 不要・best-effort）
@@ -272,7 +281,7 @@ export async function renderReader(uuid, bookId, query, deps) {
     async function flushProgress(apiIndex) {
         clearTimeout(progressTimer);
         try {
-            await postProgress(uuid, bookId, apiIndex);
+            await postProgress(uuid, bookId, apiIndex, restartIntent);
         } catch (e) {
             if (e && e.status === 404) {
                 typeof onLibraryUnshared === "function" && onLibraryUnshared();
@@ -948,11 +957,14 @@ export async function renderReader(uuid, bookId, query, deps) {
     // lastPage は API index(0始まり)なので、続きの UI ページは lastPage+1。最初は 1。
     function openVolume(book) {
         const last = book.lastPage ?? 0;
-        const gotoVolume = (p) => {
+        // G26 Codex Important #1: books.js の詳細シートと同じく、読みかけの巻で「最初から」を
+        // 選んだときだけ restart=1 を積む（未読の巻を先頭から開くのは意思表示ではない）。
+        const gotoVolume = (p, restart = false) => {
             teardown();
             // 元の一覧 hash（backHash）を次巻の reader にも引き継ぐ。多巻読みでも
             // 最終的な「戻る」は最初に開いたときの絞り込み一覧へ戻る（G17 T2）。
-            location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${p}&from=${encodeURIComponent(backHash)}`;
+            const restartQ = restart ? "&restart=1" : "";
+            location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${p}${restartQ}&from=${encodeURIComponent(backHash)}`;
         };
         if (last > 0) {
             const overlay = el("div", { class: "reader-dialog-overlay" });
@@ -961,7 +973,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             const resumeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "続きから" });
             resumeBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(last + 1); });
             const startBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "最初から" });
-            startBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(1); });
+            startBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(1, true); });
             panel.append(resumeBtn, startBtn);
             overlay.append(panel);
             overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });

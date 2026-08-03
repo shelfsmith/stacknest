@@ -63,9 +63,10 @@ struct RemotePageCacheVersionTests {
         let session = URLSession(configuration: .ephemeral)
         let client = RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "d", session: session)
         let versioned = RemoteBookContent(client: client, serverID: UUID(), libraryUUID: "u", bookID: 1,
-                                           libraryToken: nil, maxWidth: 1600, version: "etag-abc", cache: nil)
+                                           libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "etag-abc"), cache: nil)
         let unversioned = RemoteBookContent(client: client, serverID: UUID(), libraryUUID: "u", bookID: 1,
-                                             libraryToken: nil, maxWidth: 1600, cache: nil)
+                                             libraryToken: nil, maxWidth: 1600,
+                                             snapshot: .init(pageCount: 1), cache: nil)
         #expect(versioned.versionValue == "etag-abc")
         #expect(unversioned.versionValue == nil)
     }
@@ -79,11 +80,11 @@ struct RemotePageCacheVersionTests {
         let client = RemoteLibraryClient(baseURL: URL(string: "http://h:8080/")!, deviceToken: "d", session: session)
         let quoted = RemoteBookContent(client: client, serverID: UUID(), libraryUUID: "u", bookID: 1,
                                         libraryToken: nil, maxWidth: 1600,
-                                        version: "\"5-1700000000-1234-abc\"", cache: nil)
+                                        snapshot: .init(pageCount: 1, etag: "\"5-1700000000-1234-abc\""), cache: nil)
         #expect(quoted.versionValue == "5-1700000000-1234-abc")
         // クォートが無い値（後方互換・非 ETag 由来の版）はそのまま素通しされる。
         let bare = RemoteBookContent(client: client, serverID: UUID(), libraryUUID: "u", bookID: 1,
-                                      libraryToken: nil, maxWidth: 1600, version: "plain-version", cache: nil)
+                                      libraryToken: nil, maxWidth: 1600, snapshot: .init(pageCount: 1, etag: "plain-version"), cache: nil)
         #expect(bare.versionValue == "plain-version")
     }
 
