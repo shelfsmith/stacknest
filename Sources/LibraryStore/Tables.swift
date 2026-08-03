@@ -341,6 +341,29 @@ enum Tables {
 
     static let createIndexBookSeries = "CREATE INDEX IF NOT EXISTS idx_book_series ON book(series)"
 
+    // MARK: - v18 migrations (Phase G27a: book integrity scan results)
+
+    /// v18 — 整合性検査の結果（Phase G27a）。1 冊 1 行。
+    /// 結果を永続化することで、一覧を再スキャンなしで何度でも開ける。
+    static let createBookIntegrityTable = """
+        CREATE TABLE IF NOT EXISTS book_integrity (
+            book_id         INTEGER PRIMARY KEY REFERENCES book(id) ON DELETE CASCADE,
+            status          TEXT    NOT NULL,
+            method          TEXT    NOT NULL,
+            checked_at      INTEGER NOT NULL,
+            file_size       INTEGER,
+            file_mtime      REAL,
+            entry_count     INTEGER,
+            bad_entries     TEXT,
+            prev_status     TEXT,
+            prev_checked_at INTEGER
+        )
+        """
+
+    static let createBookIntegrityStatusIndex = """
+        CREATE INDEX IF NOT EXISTS book_integrity_status ON book_integrity(status)
+        """
+
     // MARK: - v17 migrations (G17 T6a: distinguish explicit spread saves from progress-only rows)
 
     /// Adds `spread_explicit INTEGER NOT NULL DEFAULT 0` to `book_viewer_state` if not already

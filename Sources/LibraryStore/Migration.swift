@@ -60,6 +60,9 @@ enum Migration {
 
         // v17 — add spread_explicit to book_viewer_state (G17 T6a), idempotent.
         try migrateV17AddSpreadExplicitIfNeeded(db: db)
+
+        // v18 — 整合性検査の結果テーブル（Phase G27a）、冪等。
+        try migrateV18AddIntegrityTableIfNeeded(db: db)
     }
 
     /// Adds `thumbnails_directory_path TEXT` to import_meta if it's not already present.
@@ -306,5 +309,13 @@ enum Migration {
             // 昇格で失われない（progress-only 行＝DEFAULT 一致 のみ 0 のまま＝漏れ修正を維持）。
             try db.execute(sql: Tables.migrateV17BackfillSpreadExplicit)
         }
+    }
+
+    // MARK: - v18: book integrity scan results (Phase G27a)
+
+    /// `book_integrity` テーブルと status インデックスを作る（無ければ）。
+    private static func migrateV18AddIntegrityTableIfNeeded(db: GRDB.Database) throws {
+        try db.execute(sql: Tables.createBookIntegrityTable)
+        try db.execute(sql: Tables.createBookIntegrityStatusIndex)
     }
 }
