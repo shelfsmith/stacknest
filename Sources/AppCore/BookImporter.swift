@@ -74,10 +74,19 @@ public struct BookImporter: Sendable {
             do {
                 // 1. page count を確定 + PDF fallback で cover data を取得 (画像 first hit 優先)。
                 var pageCount = 0
+                // G26 Import gate fixup: 打ち切り読みから出た pageCount は DB に書かない
+                // (TruncatedReadPolicy — viewer 側と同じ規則を import 経路にも適用)。
+                // truncated == true のとき countImageEntries は必ず count > 0 を返す
+                // (0 件なら count() 内部で throw する) ので、下の PDF fallback 分岐
+                // (pageCount == 0 が条件) とは排他的 — フラグを PDF 側で上書きする必要はない。
+                var pageCountTruncated = false
                 var coverDataOverride: Data? = nil
                 let archiveExtractor = ArchiveAdapter.coverExtractor(for: url)
                 if let extractor = archiveExtractor {
-                    pageCount = (try? await extractor.countImageEntries(in: url)) ?? 0
+                    if let counted = try? await extractor.countImageEntries(in: url) {
+                        pageCount = counted.count
+                        pageCountTruncated = counted.truncated
+                    }
                     if pageCount == 0,
                        let pdfData = try? await extractor.extractFirstPDFData(in: url) {
                         // archive 内 PDF fallback: 一時ファイルに展開 → PDFBookContent
@@ -135,8 +144,10 @@ public struct BookImporter: Sendable {
                 let id = try insertBookRecord(for: url, bookType: bookType)
                 result.addedIDs.append(id)
 
-                if pageCount > 0 {
-                    try? database.updateBookPages(id: id, newPages: pageCount)
+                if let pagesToWrite = TruncatedReadPolicy.pageCountToWrite(
+                    livePageCount: pageCount, truncated: pageCountTruncated
+                ) {
+                    try? database.updateBookPages(id: id, newPages: pagesToWrite)
                 }
 
                 // 4. stale thumbnail を掃除してから cover 書き出し

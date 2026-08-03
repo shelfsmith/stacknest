@@ -180,4 +180,16 @@ extension DamagedArchiveTests {
             _ = try await LibarchiveCoverExtractor().listImageEntries(in: url)
         }
     }
+
+    // G26 Import gate fixup: countImageEntries は listImageEntries と同じ打ち切り意味論を持つこと。
+    // BookImporter が countImageEntries の truncated を見て DB 書き込みを止めるための前提。
+    @Test func countImageEntriesReportsTruncationOnDamagedArchive() async throws {
+        let url = try Self.writeTemp(Self.makeDamagedZip())
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let result = try await LibarchiveCoverExtractor().countImageEntries(in: url)
+        #expect(result.count > 0)
+        #expect(result.count < 6)
+        #expect(result.truncated == true)
+    }
 }
