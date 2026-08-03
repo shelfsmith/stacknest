@@ -215,7 +215,12 @@ public struct PlaylistRow: Sendable, Equatable, Identifiable {
 }
 
 public final class Database: @unchecked Sendable {
-    private var queue: DatabaseQueue?
+    // internal (not private): Database+Integrity.swift (and any future same-module
+    // Database+*.swift extension file) needs direct access to the queue. `private`
+    // in Swift is scoped to the declaring *file*, so extensions in other files within
+    // this same module cannot see a `private` member — this must stay `internal`,
+    // not `public`, so it remains invisible outside the LibraryStore module.
+    var queue: DatabaseQueue?
     public private(set) var isOpen: Bool = false
 
     /// Seconds in one day. Used for all date-cutoff arithmetic
