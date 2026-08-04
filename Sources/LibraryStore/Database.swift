@@ -215,12 +215,15 @@ public struct PlaylistRow: Sendable, Equatable, Identifiable {
 }
 
 public final class Database: @unchecked Sendable {
-    // internal (not private): Database+Integrity.swift (and any future same-module
-    // Database+*.swift extension file) needs direct access to the queue. `private`
-    // in Swift is scoped to the declaring *file*, so extensions in other files within
-    // this same module cannot see a `private` member — this must stay `internal`,
-    // not `public`, so it remains invisible outside the LibraryStore module.
-    var queue: DatabaseQueue?
+    // Read is internal, write stays file-scoped: Database+Integrity.swift (and any future
+    // same-module Database+*.swift extension file) only ever reads the queue (`guard let q =
+    // queue`), never assigns it. `private` in Swift is scoped to the declaring *file*, so a
+    // plain `private var` would hide the read from those extensions too — but a plain internal
+    // `var` would let any file in this module reassign `queue` directly, which would desync it
+    // from `isOpen` (only `init` and `close()`, both in this file, are allowed to write `queue`,
+    // and `close()` always pairs `queue = nil` with `isOpen = false`). `private(set)` gives
+    // module-wide read access while keeping the setter private to this file.
+    private(set) var queue: DatabaseQueue?
     public private(set) var isOpen: Bool = false
 
     /// Seconds in one day. Used for all date-cutoff arithmetic
