@@ -15,7 +15,8 @@ struct Stacknest: ParsableCommand {
                       Detail.self, Facets.self, Shelves.self, Me.self,
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
                       ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self,
-                      Grant.self, Stamp.self, StampDefinitions.self, Label.self]
+                      Grant.self, Stamp.self, StampDefinitions.self, Label.self,
+                      Integrity.self]
     )
 }
 
@@ -768,6 +769,49 @@ struct Dedup: ParsableCommand {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         print(String(data: try client.dedup(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - integrity グループ（整合性検査・G27a）
+
+struct Integrity: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "integrity", abstract: "蔵書の整合性を検査する",
+        subcommands: [IntegrityScanCmd.self, IntegrityStatusCmd.self, IntegrityListCmd.self])
+}
+
+struct IntegrityScanCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "scan", abstract: "pages 未取得の本を開いて分類する（簡易チェック）")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.integrityScan(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+
+struct IntegrityStatusCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "status", abstract: "検査済/未検査/破損/劣化の件数を表示する")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.integritySummary(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+
+struct IntegrityListCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "list", abstract: "指定した状態の本を一覧する")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "ok / damaged / empty / missing / unsupported（既定: damaged）")
+    var status: String = "damaged"
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.integrityList(uuid: lib.id, status: status), encoding: .utf8) ?? "")
     } }
 }
 

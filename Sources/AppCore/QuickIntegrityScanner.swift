@@ -112,3 +112,30 @@ public enum QuickIntegrityScanner {
                                pagesUpdated: pagesUpdated, persistenceFailures: persistenceFailures)
     }
 }
+
+extension QuickIntegrityScanner {
+    /// 本番用の I/O 実装。列挙は既存の extractor に委ねる。
+    ///
+    /// **archive と folder で extractor が異なる**ため、URL がディレクトリかどうかで振り分ける
+    /// （`CoverRefresher` / `BookContent` が archive/folder を dispatch する方法に合わせた）。
+    public static func liveDependencies(
+        archiveExtractor: any CoverImageExtractor,
+        folderExtractor: any CoverImageExtractor
+    ) -> Dependencies {
+        Dependencies(
+            categoryOf: { BookCategory.classify(path: $0) },
+            fileExists: { FileManager.default.fileExists(atPath: $0) },
+            statFile: { Database.statFile($0) },
+            probe: { url in
+                let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+                let extractor = isDir ? folderExtractor : archiveExtractor
+                do {
+                    let listing = try await extractor.listImageEntries(in: url)
+                    return .enumerated(count: listing.names.count, truncated: listing.truncated)
+                } catch {
+                    return .failed(reason: String(describing: error))
+                }
+            },
+            now: { Int64(Date().timeIntervalSince1970) })
+    }
+}

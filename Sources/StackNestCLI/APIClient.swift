@@ -219,6 +219,24 @@ struct APIClient {
         try request(makeURL("/libraries/\(uuid)/duplicates/scan"), method: "POST")
     }
 
+    // MARK: - 整合性検査（G27a）
+
+    /// POST /api/v1/libraries/{uuid}/integrity/scan → JSON Data（IntegrityScanReply）
+    func integrityScan(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/integrity/scan"), method: "POST")
+    }
+
+    /// GET /api/v1/libraries/{uuid}/integrity/summary → JSON Data（IntegritySummaryReply）
+    func integritySummary(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/integrity/summary"))
+    }
+
+    /// GET /api/v1/libraries/{uuid}/integrity/list?status=… → JSON Data（IntegrityListReply）
+    func integrityList(uuid: String, status: String) throws -> Data {
+        let enc = status.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? status
+        return try request(makeURL("/libraries/\(uuid)/integrity/list?status=\(enc)"))
+    }
+
     // MARK: - グラント CRUD（admin）
 
     /// GET /api/v1/grants → JSON Data（[GrantDTO]）
