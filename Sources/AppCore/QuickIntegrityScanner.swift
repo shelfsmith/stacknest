@@ -136,9 +136,34 @@ extension QuickIntegrityScanner {
                     let listing = try await extractor.listImageEntries(in: url)
                     return .enumerated(count: listing.names.count, truncated: listing.truncated)
                 } catch {
-                    return .failed(reason: String(describing: error))
+                    return .failed(reason: probeFailureReason(for: error))
                 }
             },
             now: { Int64(Date().timeIntervalSince1970) })
+    }
+
+    /// probe (`listImageEntries`) が throw したエラーを、badEntries に安全に書ける
+    /// reason 文字列へ変換する。
+    ///
+    /// この reason は `book_integrity.bad_entries` に永続化され、read tier トークンでも
+    /// `GET .../integrity/list` からそのまま返る（path を秘匿する filename 化と同じ規約が
+    /// ここにも及ぶ）。`ArchiveAdapterError` の両ケースは絶対パスの `URL` を保持しているため、
+    /// **URL を含めず** 診断に有用な部分（reason 文字列 / ケース種別）だけを取り出す。
+    /// 実機 smoke（G27a）で `archiveUnreadable` の `String(describing:)` がそのまま
+    /// `file:///Volumes/...` を含んだ reason を書き出していた実例がある。
+    ///
+    /// `ArchiveAdapterError` 以外の型は `String(describing:)` に頼らない ―― 任意の `Error` が
+    /// 独自の `CustomStringConvertible`/`description` で path 等の機微情報を埋め込んでいる
+    /// 可能性を否定できないため、型名のみの bounded な文字列に留める。
+    static func probeFailureReason(for error: Error) -> String {
+        if let archiveError = error as? ArchiveAdapterError {
+            switch archiveError {
+            case .archiveUnreadable(_, let reason):
+                return "archive unreadable: \(reason)"
+            case .noImageEntry:
+                return "no image entry found"
+            }
+        }
+        return "probe failed: \(type(of: error))"
     }
 }

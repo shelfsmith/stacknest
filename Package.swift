@@ -125,7 +125,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AppCoreTests",
-            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI"],
+            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI", "ArchiveAdapter"],
             path: "Tests/AppCoreTests",
             resources: [.copy("PDFFixtures")]
         ),
