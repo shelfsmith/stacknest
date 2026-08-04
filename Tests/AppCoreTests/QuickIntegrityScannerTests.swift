@@ -3,6 +3,7 @@ import Testing
 import Foundation
 @testable import AppCore
 @testable import LibraryStore
+import ArchiveAdapter
 
 @Suite("quick integrity scan (G27a)")
 struct QuickIntegrityScannerTests {
@@ -189,5 +190,64 @@ struct QuickIntegrityScannerTests {
         let rec = try #require(try db.integrityRecord(bookID: 1))
         #expect(rec.status == .damaged)
         #expect(rec.prevStatus == .empty)
+    }
+
+    // MARK: - Smoke fix: probeFailureReason は badEntries に path を書かない
+
+    private static let leakyURL = URL(fileURLWithPath: "/Volumes/ecomic/(成年コミック) [雑誌] 2015年11月号.zip")
+
+    @Test("archiveUnreadable は reason だけを残し、URL を含めない")
+    func archiveUnreadableReasonExcludesURL() {
+        let error = ArchiveAdapterError.archiveUnreadable(Self.leakyURL, reason: "Unrecognized archive format")
+        let reason = QuickIntegrityScanner.probeFailureReason(for: error)
+
+        #expect(reason.contains("Unrecognized archive format"))
+        #expect(!reason.contains("/Volumes"))
+        #expect(!reason.contains("file://"))
+        #expect(!reason.contains(Self.leakyURL.path))
+    }
+
+    @Test("noImageEntry は固定メッセージになり、URL を含めない")
+    func noImageEntryReasonExcludesURL() {
+        let error = ArchiveAdapterError.noImageEntry(Self.leakyURL)
+        let reason = QuickIntegrityScanner.probeFailureReason(for: error)
+
+        #expect(!reason.isEmpty)
+        #expect(!reason.contains("/Volumes"))
+        #expect(!reason.contains("file://"))
+        #expect(!reason.contains(Self.leakyURL.path))
+    }
+
+    /// 任意の Error（`ArchiveAdapterError` 以外）は `String(describing:)` を経由させない ――
+    /// path を埋め込んだカスタム description を持つ Error が来ても、型名だけの bounded な
+    /// 文字列に留まることを確認する。
+    @Test("未知のエラー型は String(describing:) にフォールバックせず型名のみ返す")
+    func unknownErrorTypeDoesNotLeakDescription() {
+        struct LeakyError: Error, CustomStringConvertible {
+            var description: String { "failed reading file:///Volumes/ecomic/secret.zip" }
+        }
+
+        let reason = QuickIntegrityScanner.probeFailureReason(for: LeakyError())
+
+        #expect(!reason.contains("/Volumes"))
+        #expect(!reason.contains("file://"))
+        #expect(reason.contains("LeakyError"))
+    }
+
+    @Test("probe(.failed) 経由の scan でも badEntries に URL が残らないことを end-to-end で確認する")
+    func scanBadEntriesNeverContainsURL() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "leaky", path: "/lib/leaky.zip"))
+
+        let error = ArchiveAdapterError.archiveUnreadable(Self.leakyURL, reason: "Unrecognized archive format")
+        _ = try await QuickIntegrityScanner.scan(
+            database: db,
+            deps: deps(probe: { _ in .failed(reason: QuickIntegrityScanner.probeFailureReason(for: error)) }))
+
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        for entry in rec.badEntries {
+            #expect(!entry.contains("/Volumes"))
+            #expect(!entry.contains("file://"))
+        }
     }
 }
