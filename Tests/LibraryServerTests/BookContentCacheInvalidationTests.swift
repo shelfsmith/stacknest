@@ -59,11 +59,15 @@ struct BookContentCacheInvalidationTests {
     }
 
     /// rating/title だけの変化では basis (path/mtime/size) が同一なので再構築されないこと。
-    /// 「再構築されていない」ことを外部から見分けるため、1回目のアクセスでアーカイブの
-    /// エントリ一覧を読ませてから元ファイルを削除する。もし2回目のアクセスで
-    /// BookContentFactory.make が呼ばれ直していれば、削除済みファイルを開こうとして
-    /// invalidPath で失敗するはず。既存エントリが再利用されれば、キャッシュ済みの
-    /// entryNames から pageCount がディスクアクセスなしで返り、成功し続ける。
+    ///
+    /// G27a ③ 注記: 以前はここで「1回目のアクセス後に原本ファイルを削除し、2回目のアクセスが
+    /// invalidPath で失敗するかどうか」で再構築の有無を外部から見分けていた。しかし
+    /// effectiveFileStat が実在するファイルも live stat するようになった結果、削除という操作
+    /// 自体が basis（file が存在する状態の live mtime/size → 消滅後の stored 値フォールバック）を
+    /// 変化させてしまい、そのテスト手法自体が本修正の直接の対象と衝突するようになった
+    /// （ファイル消滅は「内容が変わった」に等しく、削除後に再構築されるのはむしろ正しい）。
+    /// そのため、ファイルは削除せず、basis が同一のとき同一インスタンスが返るかを直接
+    /// identity で確認する方式に改めた。
     @Test func doesNotRebuildWhenOnlyNonContentFieldsChange() async throws {
         let (dirURL, threePage, _) = try Self.makeTwoArchives()
         defer { try? FileManager.default.removeItem(at: dirURL) }
@@ -71,17 +75,21 @@ struct BookContentCacheInvalidationTests {
 
         let rowA = Self.row(id: 9, path: threePage.path, rating: 0, title: "Original Title")
         let c1 = try await cache.content(for: rowA, libraryUUID: "L")
-        let n1 = try await c1.pageCount   // エントリ一覧をロードさせてキャッシュさせる
+        let n1 = try await c1.pageCount
         #expect(n1 == 3)
-
-        // 原本ファイルを削除。再構築が起きればここで開こうとして invalidPath で失敗する。
-        try FileManager.default.removeItem(at: threePage)
 
         // path/mtime/size は不変。rating・title だけ変わった row（編集操作を模す）。
         let rowEdited = Self.row(id: 9, path: threePage.path, rating: 5, title: "Renamed")
         let c2 = try await cache.content(for: rowEdited, libraryUUID: "L")
-        let n2 = try await c2.pageCount   // 再構築されていなければキャッシュ済み entryNames から返る
+        let n2 = try await c2.pageCount
         #expect(n2 == 3)
+
+        // basis (path/mtime/size) が同一なら再構築されず、同一インスタンスが返るはず。
+        // Note: (c1 as AnyObject) === (c2 as AnyObject) を #expect(...) の中に直接書くと
+        // Swift フロントエンドがクラッシュする（既存の existential キャストと同じパターンで
+        // Bool 化してから渡すのはそのため）。
+        let sameInstance = (c1 as AnyObject) === (c2 as AnyObject)
+        #expect(sameInstance, "rating/title のみの変更で再構築された")
     }
 
     /// 実機 smoke 回帰の核心（id=19）: フォルダ本が relink を経由すると file_mtime/file_size が

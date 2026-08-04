@@ -6,44 +6,21 @@ import AppCore
 import Hummingbird
 import LibraryServerAPI
 
-/// row.path が**ディレクトリ**の場合は、保存済み file_mtime/file_size の有無にかかわらず
-/// 常に request 時にディレクトリ自身を stat する。それ以外（ファイル・path なし）は、
-/// file_mtime/file_size が両方揃っていればそのまま返し、揃っていなければ (nil, nil) を返す
-/// （最終レビュー Finding 1 → 実機 smoke で発覚した再発防止の追加修正）。
+/// 本の原本の mtime/size を返す。
 ///
-/// なぜディレクトリは stored 値を無視するか: file_mtime/file_size は dedup スキャン
-/// （DuplicateScanTask）でのみ書き込まれ、かつそのスキャンはディレクトリを skip する。
-/// そのため G9b archive モードのフォルダブックは import 直後、両方 nil のままで、
-/// 旧実装ではここで request 時 stat にフォールバックしていた。
-/// ところが relinkBook/applyRelinks（G4d 層1・アーカイブファイル本向け）は path 更新のたびに
-/// file_size/file_mtime を**無条件に**書き込む。フォルダブックが一度でも relink を経由すると
-/// 両方 non-nil になり、以後は「両方揃っていればそのまま返す」旧ロジックの stored-value
-/// ショートカットに恒久的に吸い込まれる。ディレクトリの mtime/size は relink 以降誰も更新しない
-/// ため、そのフォルダブックの bookETag は relink 時点の値に凍りつき、直下に子ファイルを
-/// 追加/削除/リネームしても二度と変化しない（実機 smoke で id=19 にて再現：manifest の
-/// pageCount は BookContentFactory.make を毎回呼ぶので増えるが、pages/:n は凍りついた ETag を
-/// basis にした BookContentCache から古い FolderBookContent を返し続け、新ページは 404 になる）。
-/// ディレクトリという「本当に stored 値が信用できない」対象に限って常に request 時 stat を
-/// 優先することで、relink 済みかどうかに関わらずフォルダブックの ETag が正しく追従するようにする。
-/// ファイル本（アーカイブ）は stored 値が dedup スキャンで一度計算されれば以後不変で正しいため、
-/// 従来どおり stored 値を優先し続ける（stat 値の churn で ETag が動くと全クライアントが
-/// 再ダウンロードすることになるため、ここは変えてはいけない）。
-///
-/// ディレクトリの stat が失敗した場合（NAS の一時的な不調・権限喪失・削除との競合など）は、
-/// (nil, nil) を返さず stored 値のフォールバックへ**落とす**。ここで (nil, nil) を返すと ETag が
-/// "id-0-0-hash" に崩れ、一瞬の I/O 不調だけで全クライアントがそのフォルダブックのページ
-/// キャッシュを丸ごと捨てて再ダウンロードし、復旧時にもう一度捨てることになる（レビュー Minor）。
-/// path 自体が無い／ファイルで stored 値も無い場合は従来どおり (nil, nil)（呼び出し側で 0/0）。
+/// **存在するパスは種別を問わず request 時に live stat する**（G27a ③）。
+/// 以前はディレクトリのときだけ live stat し、ファイルは DB の file_mtime/file_size に
+/// フォールバックしていた。しかしこの 2 列は contentHash 計算時にしか埋まらず、実機では
+/// 99.5% の本で NULL である。結果 `(nil, nil)` → bookETag が `<id>-0-0` に固定され、
+/// **ファイルを差し替えても ETag が変わらず古い内容が配信され続けていた。**
+/// コストは 1 リクエストあたり stat 1 回で、manifest / ページ配信の頻度なら無視できる。
 func effectiveFileStat(for row: BookRow) -> (mtime: Double?, size: Int64?) {
-    if let path = row.path {
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: path, isDirectory: &isDir), isDir.boolValue {
-            let (statSize, statMtime) = Database.statFile(path)
-            if statMtime != nil || statSize != nil {
-                return (statMtime, statSize)
-            }
-            // stat 失敗 → stored 値へフォールバック（下の分岐へ落ちる）
+    if let path = row.path, FileManager.default.fileExists(atPath: path) {
+        let (statSize, statMtime) = Database.statFile(path)
+        if statMtime != nil || statSize != nil {
+            return (statMtime, statSize)
         }
+        // stat 失敗 → stored 値へフォールバック（下の分岐へ落ちる）
     }
     if let mtime = row.fileMtime, let size = row.fileSize {
         return (mtime, size)
@@ -54,8 +31,9 @@ func effectiveFileStat(for row: BookRow) -> (mtime: Double?, size: Int64?) {
 /// 本の原本ファイルの mtime+size+path から弱 ETag を作る（spec §3.3, G4d）。
 /// path を織り込むことで、relink 直後に mtime/size が万一 nil でも etag が変わり、
 /// また異なるパスの book が "id-0-0" で衝突しない。
-/// fileMtime/fileSize は contentHash 計算時に記録される列で、未計算の本では 0 にフォールバックする
-/// （ディレクトリの場合は effectiveFileStat が request 時 stat で埋める・Finding 1）。
+/// fileMtime/fileSize は contentHash 計算時に記録される列だが、実在するパスは種別を問わず
+/// effectiveFileStat が request 時 stat で埋める（G27a ③）。stat も失敗し stored 値も無い本のみ
+/// 0 にフォールバックする。
 func bookETag(for row: BookRow) -> String {
     let (mtimeOpt, sizeOpt) = effectiveFileStat(for: row)
     let mtime = mtimeOpt ?? 0
