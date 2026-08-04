@@ -93,6 +93,16 @@ extension Database {
         return try ids.compactMap { try fetchBook(id: $0) }
     }
 
+    /// 検査時に取れた stat を書き戻す（G27a ④。実機では 99.5% が NULL のままだった）。
+    /// `pages` の書き戻しは既存の `updateBookPages(id:newPages:)`（Database.swift）を再利用する。
+    public func updateBookFileStat(id: Int, size: Int64, mtime: Double) throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            try db.execute(sql: "UPDATE book SET file_size = ?, file_mtime = ? WHERE id = ?",
+                           arguments: [size, mtime, id])
+        }
+    }
+
     private static func decodeIntegrity(_ row: Row, bookID: Int) -> IntegrityRecord {
         let statusRaw: String? = row["status"]
         let methodRaw: String? = row["method"]
