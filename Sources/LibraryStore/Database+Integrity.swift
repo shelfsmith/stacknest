@@ -8,7 +8,11 @@ extension Database {
     /// **既存行があれば、その status / checked_at を prev_* に退避してから上書きする。**
     /// 呼び出し側は prev_* を詰めなくてよい。1 世代だけ保持する。
     public func upsertIntegrity(_ record: IntegrityRecord) throws {
-        guard let q = queue else { return }
+        // Fix5: この 2 メソッドは G27a で新設されたもの。黙って return すると、走査の
+        // 途中でライブラリが閉じられても呼び出し側（QuickIntegrityScanner）は成功したと
+        // 誤認し `persistenceFailures: 0` のまま何も書けていない結果を返してしまう。
+        // 既存の updateBookPages 等（他フェーズ由来の同種ガード）はスコープ外＝据え置き。
+        guard let q = queue else { throw DatabaseError.libraryClosed }
         let badJSON = (try? JSONEncoder().encode(record.badEntries))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         try q.write { db in
@@ -96,7 +100,8 @@ extension Database {
     /// 検査時に取れた stat を書き戻す（G27a ④。実機では 99.5% が NULL のままだった）。
     /// `pages` の書き戻しは既存の `updateBookPages(id:newPages:)`（Database.swift）を再利用する。
     public func updateBookFileStat(id: Int, size: Int64, mtime: Double) throws {
-        guard let q = queue else { return }
+        // Fix5: 上の upsertIntegrity と同じ理由で throw する（scope: この 2 メソッドのみ）。
+        guard let q = queue else { throw DatabaseError.libraryClosed }
         try q.write { db in
             try db.execute(sql: "UPDATE book SET file_size = ?, file_mtime = ? WHERE id = ?",
                            arguments: [size, mtime, id])

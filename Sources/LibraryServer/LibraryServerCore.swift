@@ -1490,7 +1490,11 @@ public struct LibraryServerCore: Sendable {
                 throw HTTPError(.badRequest, message: "unknown integrity status: \(raw)")
             }
             let items = try lib.db.integrityRecords(status: status).map { book, rec in
-                IntegrityItemDTO(bookID: book.id, title: book.title, path: book.path,
+                // Critical fix: path をそのまま返すとディレクトリ構成が read tier トークンにも
+                // 漏れる（このエンドポイントは requireEdit していない）。他の場所と同じ redaction
+                // 規約（DTOs.swift の path 秘匿コメント参照）に合わせ、basename だけを返す。
+                IntegrityItemDTO(bookID: book.id, title: book.title,
+                                 filename: book.path.map { ($0 as NSString).lastPathComponent },
                                  status: rec.status.rawValue, checkedAt: rec.checkedAt,
                                  entryCount: rec.entryCount, badEntries: rec.badEntries,
                                  degraded: rec.isDegraded)
@@ -1498,7 +1502,7 @@ public struct LibraryServerCore: Sendable {
             return IntegrityListReply(items: items)
         }
 
-        api.post("libraries/:lib/integrity/scan") { request, context in
+        api.post("libraries/:lib/integrity/scan") { [self] request, context in
             try context.requireEdit()
             let lib = try await resolver.resolveLibrary(request, context)
             let report = try await QuickIntegrityScanner.scan(
@@ -1506,6 +1510,16 @@ public struct LibraryServerCore: Sendable {
                 deps: QuickIntegrityScanner.liveDependencies(
                     archiveExtractor: LibarchiveCoverExtractor(),
                     folderExtractor: FolderCoverExtractor()))
+            // Important fix: 他の ~20 個の変更系ルートと違い、この経路だけ通知が無く、
+            // book.pages/file_size を書いても開いている GUI ウィンドウ・SSE クライアントは
+            // 再読込するまで空欄のまま残っていた。ページ数はメタデータ単位の変更ではなく
+            // 候補全体（最大で「pages 未取得」の本すべて）への一括書き込みなので、
+            // stamp 一括適用（1 冊ずつ notifyBookChanged）ではなく、既存行を一括で入れ替える
+            // 一括操作（books 一括追加 / restore 等）と同じ構造レベルの notifyStructureChanged
+            // を選ぶ（永続化に 1 件でも成功していれば通知する）。
+            if report.scanned > report.persistenceFailures {
+                notifyStructureChanged(lib.uuid)
+            }
             return IntegrityScanReply(
                 scanned: report.scanned,
                 ok: report.byStatus[.ok] ?? 0,

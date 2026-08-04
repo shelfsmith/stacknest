@@ -33,7 +33,12 @@ public enum QuickIntegrityCheck {
         }
     }
 
-    public static func classify(category: BookCategory, exists: Bool, probe: QuickProbe?) -> Outcome {
+    /// - Parameter fileSize: 呼び出し側が事前に stat したファイルサイズ（`exists` が true のときのみ
+    ///   意味を持つ）。`.image` の分類にのみ使う ―― 0 バイトや stat 失敗（nil）の単独画像を
+    ///   「開かずに確定できる 1 ページ」として誤って ok にしないため（Fix4: これをしないと
+    ///   `pages` が 1 で書き込まれ、`pages IS NULL OR pages = 0` の次回候補から永久に外れる）。
+    public static func classify(category: BookCategory, exists: Bool, probe: QuickProbe?,
+                                fileSize: Int64? = nil) -> Outcome {
         guard exists else { return Outcome(status: .missing, pageCount: nil) }
 
         switch category {
@@ -41,7 +46,14 @@ public enum QuickIntegrityCheck {
             // 動画・EPUB/テキスト/PDF は本フェーズの検査対象外。
             return Outcome(status: .unsupported, pageCount: nil)
         case .image:
-            // 単独画像は列挙不要で 1 ページと確定できる。
+            // 単独画像は列挙不要で 1 ページと確定できる ―― ただしサイズが確認できたときだけ。
+            // 0 バイト（切り詰め/破損でよくある）や stat 失敗（nil）は「健康な1ページ」として
+            // 記録してはいけない。archive/folder と違って image には probe による検証が無いため、
+            // ここがこのファイルを検証する唯一の機会になる。
+            guard let fileSize, fileSize > 0 else {
+                return Outcome(status: .damaged, pageCount: nil,
+                              reason: "image file size is zero or unknown")
+            }
             return Outcome(status: .ok, pageCount: 1)
         case .archive, .folder:
             guard let probe else {
