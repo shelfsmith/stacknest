@@ -1079,70 +1079,6 @@ extension NSAlert {
     }
 }
 
-// MARK: - QuitEventHandling
-
-/// G27a Task7: 施錠中の解錠シート（`.sheet(isPresented: .constant(true))`、
-/// `LibraryWindowContainer.contentView` 参照）はユーザー操作では絶対に閉じないよう
-/// 意図的に定数バインディングにしている。ところが AppKit は「添付シート
-/// （`NSWindow.attachedSheet != nil`）が残っている間は `-[NSApplication terminate:]` 自体が
-/// 何もせず戻る」という既定の安全策を持っており、`osascript … quit` はこれを検知した
-/// 既定の quit AppleEvent ハンドラによって **`applicationShouldTerminate` にすら到達せず**
-/// 即座に `userCanceledErr(-128)` を返す。実測（scratchpad の最小 AppKit 再現アプリ、
-/// `beginSheet` で恒常的にシートを添付した状態で `tell application … to quit` を送信）で確認:
-///   - 添付シートあり・既定ハンドラのまま → osascript は 0.4 秒未満で -128、ログに
-///     `applicationShouldTerminate` の呼び出しは一切現れない（タイムアウトではなく即時拒否）。
-///   - 添付シートありのまま独自ハンドラから `NSApp.terminate(nil)` を直接呼んでも、
-///     プロセスは終了しない（osascript 自体はエラーなし＝0 を返すが `pgrep` にプロセスが残る）。
-///   - 独自ハンドラで `endSheet` を呼んでから `terminate(nil)` すると、初めて
-///     `applicationShouldTerminate` / `applicationWillTerminate` が呼ばれプロセスが終了する。
-/// つまり本当のスタール地点は AppKit 組み込みの quit AppleEvent ハンドラ（および
-/// `terminate:` 内部の添付シートチェック）であり、本アプリの `applicationShouldTerminate`
-/// （常に `.terminateNow`）はそこへ到達すらしていなかった。
-///
-/// **解決方針**: quit AppleEvent の既定ハンドラをこちらで上書きし、実際に終了する直前にだけ
-/// 添付中の全シートを能動的に `endSheet` してから改めて `terminate` する。これにより:
-///   - ユーザー操作（Esc・閉じるボタン・クリックアウト・⌘W 等）ではシートは一切閉じない
-///     （`isPresented` は依然として `.constant(true)` のまま — この経路はそもそも
-///     ユーザー操作からは呼ばれない。呼ばれるのは quit AppleEvent を受けたときだけ）。
-///   - 終了は「庫を閉じて安全にプロセスを畳む」動作そのものなので、内容が露出することはない
-///     （シートを閉じた直後にプロセス自体が終了する）。
-///   - ⌘Q・Dock 右クリック終了は AppleEvent を経由せず `terminate:` を直接呼ぶため、
-///     この上書きの影響を受けず従来どおり動作する。
-///
-/// **ログアウト／再起動／システム終了との関係**: macOS はログアウト・再起動・シャットダウン時にも
-/// 各アプリへ**同じ** `kCoreEventClass`/`kAEQuitApplication` イベントを送る（`keyAEQuitReason`
-/// パラメータで理由を区別するだけで、イベントクラス／ID 自体は通常の quit と共通）。したがって
-/// この上書きはログアウト等の経路も必ず通る。**現状は無害以上（既存のバグを直す側）**:
-/// 添付シートが残っている間は、上書き前の**既定ハンドラでも**同じ理由でログアウト等が
-/// `-128` で弾かれていた（今回直した quit の停止と同一原因）。以下の2点で「終了を拒否する権利」
-/// は保持している（弱めていない）:
-///   1. `applicationShouldTerminate` は素通りせず必ず呼ぶ（`NSApp.terminate(nil)` 経由）。
-///      現状は常に `.terminateNow` だが、将来 `.terminateCancel` 分岐が増えても
-///      その判断はそのまま尊重される（本フローが判断を横取りすることはない）。
-///   2. `.terminateCancel`（またはそれに準じて `terminate(nil)` が同期的に終了しなかった場合）は
-///      `reply` に `userCanceledErr(-128)` を明示的に書き戻す（`handleQuitAppleEvent` 末尾）。
-///      これにより OS 側（ログアウト／再起動シーケンサや osascript）には「このアプリは終了を
-///      拒否した」が正しく伝わる — 実測（scratchpad の最小再現アプリで `applicationShouldTerminate`
-///      を `.terminateCancel` に差し替え）で、`reply` 書き戻しありだと osascript が既定ハンドラと
-///      同じ `-128` を受け取りプロセスも生存し続けることを確認済み。書き戻さなければ
-///      osascript には成功したように見えてしまう（プロセスは生きているのに）ため、これは省略不可。
-/// **未対応の限界**（現状のコードには影響しない）: `.terminateLater`（非同期の終了保留）は
-/// このアプリで一度も使われておらず、上書き後もその経路の AppleEvent 応答は実装していない。
-/// 将来 `.terminateLater` を使うなら、この Apple Event ハンドラ側にも対応する保留・後日返信の
-/// 実装が別途必要になる。
-enum QuitEventHandling {
-    /// 渡されたウィンドウ群のうち、シートが添付されている（`attachedSheet != nil`）ものを
-    /// すべて `endSheet` で終了させる。添付が無いウィンドウは無視する（no-op、クラッシュしない）。
-    @MainActor
-    static func endAllAttachedSheets(in windows: [NSWindow]) {
-        for window in windows {
-            if let sheet = window.attachedSheet {
-                window.endSheet(sheet)
-            }
-        }
-    }
-}
-
 // MARK: - StackNestAppDelegate
 
 @MainActor
@@ -1154,36 +1090,6 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     static var hasLaunchURL = false
     /// C-④a: 終了処理中フラグ。終了時に窓が閉じても open-set から削除しない（開いていた庫を復元対象に残す）。
     static var isTerminating = false
-
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        // G27a Task7: AppKit が既定の quit AppleEvent ハンドラを登録する前にこちらで上書きする。
-        // 詳細な根拠は QuitEventHandling のコメント参照。
-        NSAppleEventManager.shared().setEventHandler(
-            self,
-            andSelector: #selector(handleQuitAppleEvent(_:withReplyEvent:)),
-            forEventClass: AEEventClass(kCoreEventClass),
-            andEventID: AEEventID(kAEQuitApplication))
-    }
-
-    /// `osascript -e 'tell application "StackNest" to quit'`・ログアウト／再起動／システム終了時に
-    /// OS から送られる quit AppleEvent を、すべてここで受ける（⌘Q やメニュー「終了」は AppleEvent を
-    /// 経由せず `terminate:` を直接呼ぶため、ここは通らない＝影響を受けない）。添付中の全シート
-    /// （施錠中の解錠シートを含む）を終了させてから改めて terminate することで、AppKit 既定の
-    /// 「添付シートがある間は terminate が何もしない」制約を回避する。
-    ///
-    /// `NSApp.terminate(nil)` が同期的にプロセスを終了させた場合、この関数の残りは実行されない
-    /// （実測で確認済み — QuitEventHandling のコメント参照）。**逆に、この関数の続きが実行される
-    /// ということは、終了しなかった**（`applicationShouldTerminate` が `.terminateNow` 以外を
-    /// 返した）という意味なので、既定ハンドラと同じく `reply` に `userCanceledErr` を書き戻し、
-    /// 呼び出し元（osascript・OS のログアウト等シーケンサ）へ「終了を拒否した」ことを正しく伝える。
-    @objc private func handleQuitAppleEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
-        Self.logger.info("handleQuitAppleEvent: quit AppleEvent received, ending attached sheets before terminate")
-        QuitEventHandling.endAllAttachedSheets(in: NSApp.windows)
-        NSApp.terminate(nil)
-        // 到達した = terminate は完了しなかった（.terminateCancel 等）。呼び出し元へ拒否を伝える。
-        Self.logger.info("handleQuitAppleEvent: terminate did not complete synchronously — replying userCanceled")
-        reply.setParam(NSAppleEventDescriptor(int32: -128), forKeyword: keyErrorNumber)
-    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 4.2c-9 (#5): StackNest はウィンドウタブを使わないため標準タブバーを無効化する
