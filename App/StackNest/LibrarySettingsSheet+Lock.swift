@@ -85,6 +85,47 @@ extension LibrarySettingsSheet {
             .padding(20)
             .frame(width: 360)
         }
+        .sheet(isPresented: $confirmingChangeLock) {
+            // G27a Task6: パスワード変更の確認シート。confirmingDisableLock と同じ見た目・流儀
+            // （SecureField 1 個＋エラー文言＋キャンセル/実行の 2 ボタン）で新しい作法を発明しない。
+            VStack(alignment: .leading, spacing: 12) {
+                Text("パスワードを変更するには現在のパスワードを入力してください")
+                    .font(.body)
+                // 重要な既存の性質: この保存処理はロック以外の設定を先に永続化してからロックを
+                // 処理する。ここでキャンセル/失敗しても他タブの変更は既に保存済みなので、
+                // 利用者が混乱しないよう明示する。
+                Text("他のタブの変更は既に保存済みです。ここではロックの変更のみ行います。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                SecureField("現在のパスワード", text: $changeLockPasswordInput)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 280)
+                    .onSubmit { confirmChangeLock() }
+
+                if let err = changeLockError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack {
+                    Button("キャンセル") {
+                        changeLockPasswordInput = ""
+                        changeLockError = nil
+                        confirmingChangeLock = false
+                    }
+                    Spacer()
+                    Button("変更") {
+                        confirmChangeLock()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(changeLockPasswordInput.isEmpty)
+                }
+            }
+            .padding(20)
+            .frame(width: 360)
+        }
     }
 
     func biometricStatusLabel(canEval: Bool, kind: BiometryKind) -> String {
@@ -134,5 +175,35 @@ extension LibrarySettingsSheet {
             disableLockPassword = ""
             disableLockError = "パスワードが違います"
         }
+    }
+
+    /// G27a Task6: 変更確認シートの実処理。confirmDisableLock() と同じ流儀
+    /// （検証 → 成功なら実処理・失敗ならシートを閉じずエラー表示のみ）。
+    /// 検証は `lockChangeIsAuthorized`（純粋関数・LibraryLock.verify を経由＝定数時間比較）に委ねる。
+    /// **不許可のときは settings.setLock を一切呼ばない**（else 分岐は return するだけで
+    /// 書き込み経路に触れない — 「拒否された」だけでなく DB が変わらないことの根拠）。
+    func confirmChangeLock() {
+        guard let hash = settings.lockPasswordHash,
+              let salt = settings.lockPasswordSalt else {
+            // hash/salt が無いのに confirm sheet が出る状況は想定外 — fallback で sheet 閉じる
+            confirmingChangeLock = false
+            return
+        }
+        guard Self.lockChangeIsAuthorized(existingHash: hash, existingSalt: salt,
+                                          currentPasswordInput: changeLockPasswordInput) else {
+            // 間違い: 入力欄クリア + error 表示（シートは開いたまま再試行できる）
+            changeLockPasswordInput = ""
+            changeLockError = "パスワードが違います"
+            return
+        }
+        changeLockPasswordInput = ""
+        changeLockError = nil
+        confirmingChangeLock = false
+        // 実際の書き込みは applyNewLock（新規設定と共有）に委ねる。失敗時は
+        // applyNewLock がアラート表示済み・ウォッチャー再構成済みなので、ここでは
+        // シートを閉じずに抜けるだけで良い。
+        guard applyNewLock(isChange: true) else { return }
+        appState?.reloadFolderWatcher()
+        dismiss()
     }
 }

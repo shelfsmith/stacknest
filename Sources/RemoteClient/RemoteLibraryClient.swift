@@ -636,17 +636,31 @@ public struct RemoteLibraryClient: Sendable {
         return try decode(ImportConfigDTO.self, data)
     }
 
-    /// POST lock — ライブラリにパスワードロックを設定する（RW/admin）。
-    public func setLock(password: String, libraryUUID: String, libraryToken: String?) async throws {
-        let body = try JSONEncoder().encode(LockRequest(password: password))
+    /// POST lock — ライブラリにパスワードロックを設定・変更する（RW/admin）。
+    /// G27a Task6: `currentPassword` は既存ロックの**変更時のみ必須**（サーバが既存ハッシュの
+    /// 有無で判定する。新規設定時は nil で良い）。誤り/未指定で既存ロックを変更しようとすると
+    /// サーバは 403 を返す（`RemoteClientError.forbidden`）。
+    public func setLock(password: String, currentPassword: String? = nil,
+                        libraryUUID: String, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(LockRequest(password: password, currentPassword: currentPassword))
         let url = makeURL("libraries/\(libraryUUID)/lock")
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
 
     /// DELETE lock — ライブラリのパスワードロックを解除する（RW/admin）。
-    public func clearLock(libraryUUID: String, libraryToken: String?) async throws {
+    /// G27a Task6: `currentPassword` は既存ロックがある場合のみ必須。サーバは DELETE でも
+    /// body(JSON) を読む（`shelves/:id/books` の DELETE と同じ作法・
+    /// `Sources/LibraryServer/LibraryServerCore.swift` の lock ルート参照）。nil のときは
+    /// ボディ自体を送らない（サーバは空ボディを「現パスワード無し」として扱い、ロックが
+    /// 無い庫への旧クライアントの無ボディ DELETE と後方互換を保つ）。
+    public func clearLock(currentPassword: String? = nil, libraryUUID: String, libraryToken: String?) async throws {
         let url = makeURL("libraries/\(libraryUUID)/lock")
-        _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken))
+        if let currentPassword {
+            let body = try JSONEncoder().encode(LockRemoveRequest(currentPassword: currentPassword))
+            _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken, body: body, contentType: "application/json"))
+        } else {
+            _ = try await send(request(url, method: "DELETE", libraryToken: libraryToken))
+        }
     }
 
     /// POST shelves/:id/books — 手動棚へ本を追加する（RW）。

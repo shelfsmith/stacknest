@@ -340,19 +340,35 @@ def watch_set(library: str, config: dict, *, library_token: str | None = None) -
 
 # --- ロック（lock）---
 
-def lock_set(library: str, password: str, *, library_token: str | None = None) -> None:
-    """ライブラリにパスワードロックを設定する（パスワードは stdin 経由で渡す）。"""
+def lock_set(library: str, password: str, *, current_password: str | None = None,
+            library_token: str | None = None) -> None:
+    """ライブラリにパスワードロックを設定・変更する（パスワードは stdin 経由で渡す・argv 非露出）。
+    G27a Task6: 既存ロックの変更には current_password が必須（サーバが既存ハッシュの有無で判定）。
+    新規設定時は current_password 不要。両方を stdin 経由で渡す場合は
+    「現在のパスワード\\n新しいパスワード」の2行として CLI へ渡す（1回の stdin で両方運ぶ規約）。"""
+    flags: dict[str, Any] = {"password-stdin": True}
+    if current_password is not None:
+        flags["current-password-stdin"] = True
+        stdin_payload = f"{current_password}\n{password}"
+    else:
+        stdin_payload = password
     _with_library(library, library_token,
-        lambda tok: run(build_argv("lock", sub="set", library=library,
-                                   flags={"password-stdin": True}, json_output=False),
-                        input=password, library_token=tok))
+        lambda tok: run(build_argv("lock", sub="set", library=library, flags=flags, json_output=False),
+                        input=stdin_payload, library_token=tok))
 
 
-def lock_clear(library: str, *, library_token: str | None = None) -> None:
-    """ライブラリのパスワードロックを解除する。"""
+def lock_clear(library: str, *, current_password: str | None = None,
+              library_token: str | None = None) -> None:
+    """ライブラリのパスワードロックを解除する。
+    G27a Task6: 既存ロックがある場合は current_password が必須（stdin 経由・argv 非露出）。"""
+    flags: dict[str, Any] = {}
+    stdin_payload = None
+    if current_password is not None:
+        flags["current-password-stdin"] = True
+        stdin_payload = current_password
     _with_library(library, library_token,
-        lambda tok: run(build_argv("lock", sub="clear", library=library, json_output=False),
-                        library_token=tok))
+        lambda tok: run(build_argv("lock", sub="clear", library=library, flags=flags, json_output=False),
+                        input=stdin_payload, library_token=tok))
 
 
 # --- インポート設定（import-config）---

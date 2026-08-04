@@ -1337,25 +1337,42 @@ final class RemoteLibraryState {
         return "メンテナンスの開始に失敗しました"
     }
 
-    /// ライブラリロックを設定（admin 必須）。
-    func setLibraryLock(password: String) async {
-        guard canDelete else { return }   // lock=admin
+    /// ライブラリロックを設定・変更（admin 必須）。
+    /// G27a Task6: `currentPassword` は既存ロックの変更時のみ必須（サーバが既存ハッシュの
+    /// 有無で要否を判定する）。誤り/未指定で拒否されたら 403 を「現在のパスワードが違います」
+    /// として区別する（他の失敗と混同させない）。
+    func setLibraryLock(password: String, currentPassword: String? = nil) async -> Bool {
+        guard canDelete else { return false }   // lock=admin
         do {
-            try await client.setLock(password: password, libraryUUID: libraryUUID, libraryToken: libraryToken)
+            try await client.setLock(password: password, currentPassword: currentPassword,
+                                     libraryUUID: libraryUUID, libraryToken: libraryToken)
             showEditSummary("ロックを設定しました", kind: .success)
+            return true
+        } catch RemoteClientError.forbidden {
+            errorText = "現在のパスワードが違います"
+            return false
         } catch {
             errorText = "ロックの設定に失敗しました"
+            return false
         }
     }
 
     /// ライブラリロックを解除（admin 必須）。
-    func clearLibraryLock() async {
-        guard canDelete else { return }
+    /// G27a Task6: `currentPassword` は既存ロックがある場合のみ必須。誤り/未指定は 403 で
+    /// 拒否される（「現在のパスワードが違います」として区別する）。
+    func clearLibraryLock(currentPassword: String? = nil) async -> Bool {
+        guard canDelete else { return false }
         do {
-            try await client.clearLock(libraryUUID: libraryUUID, libraryToken: libraryToken)
+            try await client.clearLock(currentPassword: currentPassword,
+                                       libraryUUID: libraryUUID, libraryToken: libraryToken)
             showEditSummary("ロックを解除しました", kind: .success)
+            return true
+        } catch RemoteClientError.forbidden {
+            errorText = "現在のパスワードが違います"
+            return false
         } catch {
             errorText = "ロックの解除に失敗しました"
+            return false
         }
     }
 

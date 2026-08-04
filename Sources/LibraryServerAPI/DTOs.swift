@@ -604,10 +604,25 @@ public struct ImportExistingRequest: Codable, Sendable {
     public init(folderID: String) { self.folderID = folderID }
 }
 
-/// ライブラリロック設定リクエスト（パスワード設定）。
+/// ライブラリロック設定リクエスト（パスワード設定・変更）。
+/// G27a Task6: `currentPassword` は既存ロックの**変更時のみ必須**（新規設定時は省略可＝nil）。
+/// サーバは既存ハッシュがあるときだけこのフィールドを検証する（無ければ従来どおり無検証で新規設定できる）。
 public struct LockRequest: Codable, Sendable {
     public var password: String
-    public init(password: String) { self.password = password }
+    public var currentPassword: String?
+    public init(password: String, currentPassword: String? = nil) {
+        self.password = password
+        self.currentPassword = currentPassword
+    }
+}
+
+/// ライブラリロック解除リクエスト（G27a Task6）。DELETE のボディとして送る — このリポジトリでは
+/// `DELETE libraries/:lib/shelves/:id/books` が既に body 付き DELETE を使っており新しい作法ではない。
+/// `currentPassword` は既存ロックがあるときだけ必須。ロックが無ければボディ自体を省略してよい
+/// （サーバは空ボディを「現パスワード無し」として扱い、後方互換を保つ）。
+public struct LockRemoveRequest: Codable, Sendable {
+    public var currentPassword: String?
+    public init(currentPassword: String? = nil) { self.currentPassword = currentPassword }
 }
 
 /// ライブラリ取り込み設定 DTO（per-library override 用。nil = グローバル既定に委譲）。

@@ -13,7 +13,10 @@ struct LibrarySettingsSheet: View {
     let bundleName: String
     let bundleURL: URL?
     var appState: AppState? = nil
-    @Environment(\.dismiss) private var dismiss
+    // G27a Task6: confirmChangeLock()（LibrarySettingsSheet+Lock.swift）から dismiss() を
+    // 呼ぶため、fileprivate ではなく internal にする（既存の private のままでは cross-file で
+    // 見えない）。
+    @Environment(\.dismiss) var dismiss
     @Environment(\.undoManager) private var undoManager
 
     @State private var formatString: String = ""
@@ -35,6 +38,11 @@ struct LibrarySettingsSheet: View {
     @State var confirmingDisableLock = false
     @State var disableLockPassword = ""
     @State var disableLockError: String? = nil
+    // G27a Task6: パスワード変更にも現パスワード確認を要求する（解除と同じ非対称性の解消）。
+    // 既存の confirmingDisableLock/disableLockPassword と同じ流儀（別 state・同じ見た目のシート）。
+    @State var confirmingChangeLock = false
+    @State var changeLockPasswordInput = ""
+    @State var changeLockError: String? = nil
 
     // Recompute metadata section state
     @State private var showRecomputeResult = false
@@ -573,37 +581,18 @@ struct LibrarySettingsSheet: View {
         } else if !passwordInput.isEmpty && passwordInput == passwordConfirm {
             // 新ハッシュで上書きする前に「新規設定 or 変更」を判定する。
             let isChange = settings.lockPasswordHash != nil
-            let salt = LibraryLock.generateSalt()
-            let hash = LibraryLock.computeHash(password: passwordInput, saltHex: salt)
-            // G25c: 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
-            // **ハッシュ代入より前に立てる**こと(後だと「施錠済み && 未解錠」が一瞬成立し、
-            // live 導出になったゲートが解錠シートを出してしまう)。
-            // G25c: salt/hash は組でまとめて書く（別々だと外部変更と交錯して不整合が残りうる）。
-            // **書き込みが成功してから**「この窓は解錠済み」と記録する。先に記録すると、
-            // 書き込み失敗時に DB に存在しないハッシュを「検証済み」として保持してしまう。
-            do {
-                try settings.setLock(hash: hash, salt: salt)
-            } catch {
-                settingsLogger.error("setLock failed: \(error.localizedDescription, privacy: .public)")
-                presentLockWriteFailure(error)
-                // 同上: ロック以外の設定は永続化済みなのでウォッチャーを再構成してから抜ける。
+            if isChange {
+                // G27a Task6: 既存ロックの変更には現パスワードの確認が必須（無検証で上書きできると、
+                // 解錠済みの端末を離席中に第三者がパスワードを差し替えて所有権を奪える）。
+                // ここまでのロック以外の設定は既に永続化済み。シートは閉じず確認シートへ進み、
+                // 実際の書き込みは confirmChangeLock() が検証成功後に行う。
+                changeLockPasswordInput = ""
+                changeLockError = nil
+                confirmingChangeLock = true
                 appState?.reloadFolderWatcher()
                 return
             }
-            // 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
-            appState?.markUnlocked(hash: hash)
-            settings.useBiometric = useBiometricInput
-            settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput), isChange=\(isChange)")
-            if useBiometricInput && !isChange {
-                // 新規設定: この Mac を即アーム（次回から生体のみで解錠。平文は保存しない＝armedHash は新ハッシュ）。
-                BiometricArming.arm(settings, hash: hash)
-            } else {
-                // パスワード変更時（isChange）または生体認証 OFF: アーム解除。
-                // 変更時は同一 Mac でも次回 1 回だけ新パスワードの再入力を求め、解錠シートの
-                // requirePassword 経路（入力成功 → armThisMachine）で再アームされる。
-                BiometricArming.disarm(settings)
-            }
-            if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
+            guard applyNewLock(isChange: false) else { return }
         } else if lockToggleOn && passwordInput.isEmpty {
             // 既存ロック保持、useBiometric だけ切替
             if useBiometricInput != settings.useBiometric {
@@ -624,6 +613,72 @@ struct LibrarySettingsSheet: View {
 
         appState?.reloadFolderWatcher()
         dismiss()
+    }
+
+    /// G27a Task6: ロック変更（既存ロックの上書き）が許可されるかを判定する純粋関数。
+    /// View の `@State` から独立している（`self` を参照しない・すべて明示引数）ため、
+    /// SwiftUI のホスティングコンテキスト外（ユニットテスト等）からも安全に呼べる。
+    /// **切り出した理由**: `LibrarySettingsSheet` を直接構築して `@State` を手動で書き換えても、
+    /// ライブビューヒエラルキーにマウントされていないと書き込みが後続のメソッド呼び出しへ
+    /// 反映されないことを実装中に実測した（SwiftUI の未サポート挙動）。判定ロジック自体を
+    /// `@State` から切り離すことでテスト可能にする。
+    ///
+    /// 既存ロックが本当に無ければ（`existingHash`・`existingSalt` の**両方**が nil）無条件に許可する
+    /// （新規設定は現パスワード不要のまま）。既存ロックがあれば `currentPasswordInput` を
+    /// `LibraryLock.verify` で検証する（定数時間比較を保つため自前比較は書かない）。
+    /// 片方だけ nil（本来 setLock/clearLock は組で書くので想定外の中間状態）はフェイルセーフに
+    /// 倒して拒否する（無条件許可の対象を「本当に未設定」だけに絞る）。
+    /// `nonisolated`: `self` にも他の MainActor 状態にも触れない純粋関数なので、
+    /// `LibrarySettingsSheet`（View）の暗黙 `@MainActor` 隔離から明示的に外す
+    /// （外さないとテストの nonisolated コンテキストからの呼び出しが Swift 6 で警告になる）。
+    nonisolated static func lockChangeIsAuthorized(existingHash: String?, existingSalt: String?,
+                                                    currentPasswordInput: String) -> Bool {
+        if existingHash == nil && existingSalt == nil { return true }
+        guard let existingHash, let existingSalt else { return false }
+        return LibraryLock.verify(password: currentPasswordInput, saltHex: existingSalt, against: existingHash)
+    }
+
+    /// 新しいロックを DB へ書き込む（新規設定・変更の両方で共有する実処理）。
+    /// `passwordInput`（ロックタブでステージ済みの新パスワード）を使う。呼び出し側は
+    /// **変更の場合、事前に現パスワードの検証を済ませてから**呼ぶこと（本関数自身は検証しない）。
+    /// `isChange` は生体アームの分岐にのみ使う（変更時は同一 Mac でも次回 1 回だけ新パスワードの
+    /// 再入力を求め、解錠シートの requirePassword 経由で再アームさせる）。
+    /// - Returns: 書き込みに成功したか。false のとき、呼び出し側はシートを閉じずに抜けること
+    ///   （presentLockWriteFailure 済み・ウォッチャーは本関数内で再構成済み）。
+    @discardableResult
+    func applyNewLock(isChange: Bool) -> Bool {
+        let salt = LibraryLock.generateSalt()
+        let hash = LibraryLock.computeHash(password: passwordInput, saltHex: salt)
+        // G25c: 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
+        // **ハッシュ代入より前に立てる**こと(後だと「施錠済み && 未解錠」が一瞬成立し、
+        // live 導出になったゲートが解錠シートを出してしまう)。
+        // G25c: salt/hash は組でまとめて書く（別々だと外部変更と交錯して不整合が残りうる）。
+        // **書き込みが成功してから**「この窓は解錠済み」と記録する。先に記録すると、
+        // 書き込み失敗時に DB に存在しないハッシュを「検証済み」として保持してしまう。
+        do {
+            try settings.setLock(hash: hash, salt: salt)
+        } catch {
+            settingsLogger.error("setLock failed: \(error.localizedDescription, privacy: .public)")
+            presentLockWriteFailure(error)
+            // 同上: ロック以外の設定は永続化済みなのでウォッチャーを再構成してから抜ける。
+            appState?.reloadFolderWatcher()
+            return false
+        }
+        // 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
+        appState?.markUnlocked(hash: hash)
+        settings.useBiometric = useBiometricInput
+        settingsLogger.info("save: setting password hash, useBiometric=\(useBiometricInput), isChange=\(isChange)")
+        if useBiometricInput && !isChange {
+            // 新規設定: この Mac を即アーム（次回から生体のみで解錠。平文は保存しない＝armedHash は新ハッシュ）。
+            BiometricArming.arm(settings, hash: hash)
+        } else {
+            // パスワード変更時（isChange）または生体認証 OFF: アーム解除。
+            // 変更時は同一 Mac でも次回 1 回だけ新パスワードの再入力を求め、解錠シートの
+            // requirePassword 経路（入力成功 → armThisMachine）で再アームされる。
+            BiometricArming.disarm(settings)
+        }
+        if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
+        return true
     }
 
     /// G25c: ロックの書き込みに失敗したことを伝える。シートは閉じない（利用者が再試行できるように）。
