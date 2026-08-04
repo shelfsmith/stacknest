@@ -1474,6 +1474,49 @@ public struct LibraryServerCore: Sendable {
             return DuplicateScanReply(exact: toDTO(g.exact), possible: toDTO(g.possible),
                                       candidateCount: candidateCount, hashedCount: hashedCount, missingCount: missingCount)
         }
+        // 整合性検査（G27a）。結果は book_integrity に永続化されるので、
+        // summary / list は再スキャンなしで何度でも呼べる。
+        api.get("libraries/:lib/integrity/summary") { request, context in
+            let lib = try await resolver.resolveLibrary(request, context)
+            let s = try lib.db.integritySummary()
+            return IntegritySummaryReply(checked: s.checked, unchecked: s.unchecked,
+                                         damaged: s.damaged, degraded: s.degraded)
+        }
+
+        api.get("libraries/:lib/integrity/list") { request, context in
+            let lib = try await resolver.resolveLibrary(request, context)
+            let raw = request.uri.queryParameters.get("status") ?? "damaged"
+            guard let status = IntegrityStatus(rawValue: raw) else {
+                throw HTTPError(.badRequest, message: "unknown integrity status: \(raw)")
+            }
+            let items = try lib.db.integrityRecords(status: status).map { book, rec in
+                IntegrityItemDTO(bookID: book.id, title: book.title, path: book.path,
+                                 status: rec.status.rawValue, checkedAt: rec.checkedAt,
+                                 entryCount: rec.entryCount, badEntries: rec.badEntries,
+                                 degraded: rec.isDegraded)
+            }
+            return IntegrityListReply(items: items)
+        }
+
+        api.post("libraries/:lib/integrity/scan") { request, context in
+            try context.requireEdit()
+            let lib = try await resolver.resolveLibrary(request, context)
+            let report = try await QuickIntegrityScanner.scan(
+                database: lib.db,
+                deps: QuickIntegrityScanner.liveDependencies(
+                    archiveExtractor: LibarchiveCoverExtractor(),
+                    folderExtractor: FolderCoverExtractor()))
+            return IntegrityScanReply(
+                scanned: report.scanned,
+                ok: report.byStatus[.ok] ?? 0,
+                damaged: report.byStatus[.damaged] ?? 0,
+                empty: report.byStatus[.empty] ?? 0,
+                missing: report.byStatus[.missing] ?? 0,
+                unsupported: report.byStatus[.unsupported] ?? 0,
+                pagesUpdated: report.pagesUpdated,
+                persistenceFailures: report.persistenceFailures)
+        }
+
         // 同一シリーズの隣接巻（次/前）。サーバは全カタログを持つので未 DL でも真の隣接巻を返す。
         // 該当なしは book == nil（常に 200）。
         api.get("libraries/:lib/books/:id/adjacent") { request, context in

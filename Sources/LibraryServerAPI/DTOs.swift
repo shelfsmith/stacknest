@@ -658,6 +658,63 @@ public struct DuplicateScanReply: Codable, Sendable {
     }
 }
 
+/// 整合性検査の集計（G27a）。
+public struct IntegritySummaryReply: Codable, Sendable {
+    public let checked: Int
+    public let unchecked: Int
+    public let damaged: Int
+    public let degraded: Int
+    public init(checked: Int, unchecked: Int, damaged: Int, degraded: Int) {
+        self.checked = checked; self.unchecked = unchecked
+        self.damaged = damaged; self.degraded = degraded
+    }
+}
+
+/// 簡易スキャンの実行結果（G27a）。
+///
+/// `persistenceFailures` は byStatus のどこにも計上されなかった（DB 書き込みに失敗した）冊数。
+/// `ok + damaged + empty + missing + unsupported + persistenceFailures == scanned` が常に成り立つ。
+public struct IntegrityScanReply: Codable, Sendable {
+    public let scanned: Int
+    public let ok: Int
+    public let damaged: Int
+    public let empty: Int
+    public let missing: Int
+    public let unsupported: Int
+    public let pagesUpdated: Int
+    public let persistenceFailures: Int
+    public init(scanned: Int, ok: Int, damaged: Int, empty: Int,
+                missing: Int, unsupported: Int, pagesUpdated: Int, persistenceFailures: Int) {
+        self.scanned = scanned; self.ok = ok; self.damaged = damaged
+        self.empty = empty; self.missing = missing
+        self.unsupported = unsupported; self.pagesUpdated = pagesUpdated
+        self.persistenceFailures = persistenceFailures
+    }
+}
+
+public struct IntegrityItemDTO: Codable, Sendable {
+    public let bookID: Int
+    public let title: String
+    public let path: String?
+    public let status: String
+    public let checkedAt: Int64
+    public let entryCount: Int?
+    public let badEntries: [String]
+    /// 前回 ok → 今回 damaged（＝ディスク上で劣化した疑い）。
+    public let degraded: Bool
+    public init(bookID: Int, title: String, path: String?, status: String,
+                checkedAt: Int64, entryCount: Int?, badEntries: [String], degraded: Bool) {
+        self.bookID = bookID; self.title = title; self.path = path
+        self.status = status; self.checkedAt = checkedAt
+        self.entryCount = entryCount; self.badEntries = badEntries; self.degraded = degraded
+    }
+}
+
+public struct IntegrityListReply: Codable, Sendable {
+    public let items: [IntegrityItemDTO]
+    public init(items: [IntegrityItemDTO]) { self.items = items }
+}
+
 // MARK: - B2b: グラント CRUD DTO
 
 /// グラント 1 件の応答 DTO（token は作成時のみ全文字列を返す・一覧は将来マスクする）。

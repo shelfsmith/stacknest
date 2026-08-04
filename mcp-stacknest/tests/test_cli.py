@@ -268,6 +268,46 @@ def test_high_level_dedup_no_sub(monkeypatch):
     assert "scan" not in captured["argv"]
 
 
+# --- 整合性検査（integrity・G27a）---
+
+def test_high_level_integrity_scan(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.integrity_scan("M")
+    assert captured["argv"][:2] == ["integrity", "scan"]
+    assert "--library" in captured["argv"] and "M" in captured["argv"]
+
+
+def test_high_level_integrity_status(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.integrity_status("M")
+    assert captured["argv"][:2] == ["integrity", "status"]
+
+
+def test_high_level_integrity_list_default_status(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.integrity_list("M")
+    assert captured["argv"][:2] == ["integrity", "list"]
+    assert "--status" in captured["argv"] and "damaged" in captured["argv"]
+
+
+def test_high_level_integrity_list_custom_status(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.integrity_list("M", status="missing")
+    assert "--status" in captured["argv"] and "missing" in captured["argv"]
+
+
 def test_high_level_lock_set_passes_stdin(monkeypatch):
     captured = {}
     def fake_run(argv, **k):

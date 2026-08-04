@@ -266,6 +266,30 @@ def stacknest_dedup_scan(library: str, library_token: str | None = None) -> Any:
     return cli.dedup_scan(library, library_token=library_token)
 
 
+# --- 整合性検査（integrity・G27a）---
+
+@mcp.tool()
+def stacknest_integrity_scan(library: str, library_token: str | None = None) -> Any:
+    """pages 未取得の本を開いて分類する簡易チェックを実行し、件数の内訳を返す。
+    結果は DB に永続化されるので、以後 stacknest_integrity_status / _list で
+    再スキャンなしに何度でも参照できる。"""
+    return cli.integrity_scan(library, library_token=library_token)
+
+
+@mcp.tool()
+def stacknest_integrity_status(library: str, library_token: str | None = None) -> Any:
+    """整合性検査の集計を返す（checked / unchecked / damaged / degraded）。
+    degraded は前回 ok が今回 damaged になった本＝ディスク上で劣化した疑い。"""
+    return cli.integrity_status(library, library_token=library_token)
+
+
+@mcp.tool()
+def stacknest_integrity_list(library: str, status: str = "damaged",
+                             library_token: str | None = None) -> Any:
+    """指定した状態の本を一覧する（ok / damaged / empty / missing / unsupported）。"""
+    return cli.integrity_list(library, status=status, library_token=library_token)
+
+
 # --- ロック解錠（unlock）---
 
 @mcp.tool()

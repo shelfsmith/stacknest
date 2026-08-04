@@ -410,6 +410,28 @@ def dedup_scan(library: str, *, library_token: str | None = None) -> Any:
         lambda tok: run(build_argv("dedup", library=library), library_token=tok)))
 
 
+# --- 整合性検査（integrity・G27a）---
+
+def integrity_scan(library: str, *, library_token: str | None = None) -> Any:
+    """pages 未取得の本を開いて分類する簡易チェックを実行し、件数の内訳を返す。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("integrity", library=library, sub="scan"), library_token=tok)))
+
+
+def integrity_status(library: str, *, library_token: str | None = None) -> Any:
+    """整合性検査の集計を返す（checked / unchecked / damaged / degraded）。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("integrity", library=library, sub="status"), library_token=tok)))
+
+
+def integrity_list(library: str, *, status: str = "damaged",
+                   library_token: str | None = None) -> Any:
+    """指定した状態の本を一覧する（ok / damaged / empty / missing / unsupported）。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("integrity", library=library, sub="list",
+                                   flags={"status": status}), library_token=tok)))
+
+
 # --- グラント CRUD（admin）---
 
 def grant_list() -> Any:
