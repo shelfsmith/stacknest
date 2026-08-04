@@ -118,6 +118,35 @@ struct QuickIntegrityScannerTests {
         #expect(try #require(db.integrityRecord(bookID: 2)).status == .ok)
     }
 
+    /// レビュー指摘: 永続化（upsertIntegrity 等）が throw すると走査全体が止まってしまう
+    /// 危険が未検証だった。`book_integrity.book_id` は `REFERENCES book(id) ON DELETE CASCADE`
+    /// かつ全接続で `PRAGMA foreign_keys = ON` なので、走査中に本が削除されると
+    /// upsertIntegrity の INSERT が FK 違反で本当に throw する（31 時間走る G27b では
+    /// 現実的に起こりうるシナリオでもある）。
+    @Test("永続化が throw しても残りの走査は続き、失敗件数が報告される")
+    func persistenceFailureDoesNotStopScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "gone-mid-scan", path: "/lib/e.zip"))
+        try db.insertBook(book(id: 2, title: "f", path: "/lib/f.zip"))
+
+        let report = try await QuickIntegrityScanner.scan(
+            database: db,
+            deps: deps(probe: { url in
+                if url.path.contains("e.zip") {
+                    // 走査中に本が削除された状況を再現する。
+                    try? db.deleteBook(id: 1)
+                }
+                return .enumerated(count: 5, truncated: false)
+            }))
+
+        #expect(report.scanned == 2, "永続化の失敗で走査が止まっている")
+        #expect(report.persistenceFailures == 1, "FK 違反による永続化失敗が検知されていない")
+        #expect(try db.integrityRecord(bookID: 1) == nil,
+                "削除された本の永続化が成功したことになっている")
+        #expect(try #require(try db.integrityRecord(bookID: 2)).status == .ok,
+                "1 冊目の失敗後、2 冊目が最後まで走査されていない")
+    }
+
     /// `var` を async クロージャの中で書き換えると Swift 6 の並行性チェックに
     /// 引っかかりうるため、`@unchecked Sendable` の収集用クラスに寄せる
     /// (brief 記載の回避策。scan の signature/挙動は変えない)。
