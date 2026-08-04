@@ -10,6 +10,10 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Stub { let status: Int; let headers: [String: String]; let body: Data }
     nonisolated(unsafe) static var stub: Stub?
     nonisolated(unsafe) static var lastRequest: URLRequest?
+    /// G27a Task6: `URLRequest.httpBody` は URLSession 経由だと内部で `httpBodyStream` に
+    /// 化けて nil になることがある（環境依存の既知の挙動）ため、`startLoading()` で
+    /// stream からも読み出して別に保持する。ボディ内容を検証したいテストはこちらを使う。
+    nonisolated(unsafe) static var lastRequestBody: Data?
     /// G4d 層2: 実リクエスト回数を数える（version 差でキャッシュがミス→本当に再取得したかの確認用）。
     /// このスイートは .serialized なので、テスト間の逐次実行下で単純カウンタとして安全に使える。
     nonisolated(unsafe) static var requestCount = 0
@@ -17,6 +21,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for r: URLRequest) -> URLRequest { r }
     override func startLoading() {
         Self.lastRequest = request
+        Self.lastRequestBody = Self.readBody(from: request)
         Self.requestCount += 1
         let s = Self.stub ?? Stub(status: 200, headers: [:], body: Data())
         let resp = HTTPURLResponse(url: request.url!, statusCode: s.status,
@@ -26,6 +31,22 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
+
+    private static func readBody(from request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4096
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let read = stream.read(&buffer, maxLength: bufferSize)
+            guard read > 0 else { break }
+            data.append(buffer, count: read)
+        }
+        return data.isEmpty ? nil : data
+    }
 }
 
 @Suite("RemoteClient (stub-backed)", .serialized)
@@ -167,6 +188,45 @@ struct StubBackedRemoteClientTests {
             try await makeClient().clearLock(libraryUUID: "U", libraryToken: nil)
             #expect(StubURLProtocol.lastRequest?.httpMethod == "DELETE")
             #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/lock") == true)
+        }
+
+        // MARK: - G27a Task6: ロック変更・解除に現在のパスワードを送る
+
+        @Test func setLockWithCurrentPasswordIncludesItInBody() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().setLock(password: "newpw", currentPassword: "oldpw", libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            let body = try #require(StubURLProtocol.lastRequestBody)
+            let decoded = try JSONDecoder().decode(LockRequest.self, from: body)
+            #expect(decoded.password == "newpw")
+            #expect(decoded.currentPassword == "oldpw")
+        }
+
+        @Test func setLockWithoutCurrentPasswordOmitsIt() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().setLock(password: "newpw", libraryUUID: "U", libraryToken: nil)
+            let body = try #require(StubURLProtocol.lastRequestBody)
+            let decoded = try JSONDecoder().decode(LockRequest.self, from: body)
+            #expect(decoded.currentPassword == nil)
+        }
+
+        /// DELETE lock with a current password sends a JSON body (this server accepts bodies on
+        /// DELETE — same convention as removeBooksFromShelf below).
+        @Test func clearLockWithCurrentPasswordSendsBody() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().clearLock(currentPassword: "oldpw", libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "DELETE")
+            let body = try #require(StubURLProtocol.lastRequestBody)
+            let decoded = try JSONDecoder().decode(LockRemoveRequest.self, from: body)
+            #expect(decoded.currentPassword == "oldpw")
+        }
+
+        /// Without a current password (e.g. the library was never locked), no body is sent —
+        /// preserving the pre-G27a wire shape for backward compatibility.
+        @Test func clearLockWithoutCurrentPasswordSendsNoBody() async throws {
+            StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())
+            try await makeClient().clearLock(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequestBody == nil)
         }
         @Test func addBooksToShelfPosts() async throws {
             StubURLProtocol.stub = .init(status: 204, headers: [:], body: Data())

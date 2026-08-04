@@ -194,19 +194,25 @@ def stacknest_watch_set(library: str, config: dict, library_token: str | None = 
 # --- ロック（lock）---
 
 @mcp.tool()
-def stacknest_lock_set(library: str, password: str, library_token: str | None = None) -> str:
-    """ライブラリにパスワードロックを設定する。
+def stacknest_lock_set(library: str, password: str, current_password: str | None = None,
+                       library_token: str | None = None) -> str:
+    """ライブラリにパスワードロックを設定・変更する。
+    既存ロックがある場合、current_password（現在のパスワード）が必須 — 誤り/未指定は拒否され、
+    ロックは変更されない。ロックが無い場合（新規設定）は current_password 不要。
     パスワードは CLI の stdin 経由で渡し、argv には一切露出しない（セキュア）。
     library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
-    cli.lock_set(library, password, library_token=library_token)
+    cli.lock_set(library, password, current_password=current_password, library_token=library_token)
     return f"lock set for library {library!r}"
 
 
 @mcp.tool()
-def stacknest_lock_clear(library: str, library_token: str | None = None) -> str:
+def stacknest_lock_clear(library: str, current_password: str | None = None,
+                         library_token: str | None = None) -> str:
     """ライブラリのパスワードロックを解除する。
+    既存ロックがある場合、current_password（現在のパスワード）が必須 — 誤り/未指定は拒否される。
+    パスワードは CLI の stdin 経由で渡し、argv には一切露出しない（セキュア）。
     library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
-    cli.lock_clear(library, library_token=library_token)
+    cli.lock_clear(library, current_password=current_password, library_token=library_token)
     return f"lock cleared for library {library!r}"
 
 

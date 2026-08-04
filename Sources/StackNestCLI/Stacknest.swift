@@ -637,33 +637,70 @@ struct Lock: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "lock", abstract: "庫ロック (admin)", subcommands: [LockSet.self, LockClear.self])
 }
 struct LockSet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "set", abstract: "パスワードロックを設定する")
+    static let configuration = CommandConfiguration(
+        commandName: "set",
+        abstract: "パスワードロックを設定・変更する（既存ロックの変更には現在のパスワードが必須）")
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "パスワード（argv に残るため自動化では --password-stdin 推奨）") var password: String?
-    @Flag(name: [.customLong("password-stdin")], help: "パスワードを標準入力から読む（argv 非露出）") var passwordStdin: Bool = false
+    @Option(name: .long, help: "新しいパスワード（argv に残るため自動化では --password-stdin 推奨）") var password: String?
+    @Flag(name: [.customLong("password-stdin")], help: "新しいパスワードを標準入力から読む（argv 非露出）") var passwordStdin: Bool = false
+    @Option(name: .long, help: "現在のパスワード（既存ロックの変更時のみ必須。新規設定時は不要。argv に残るため自動化では --current-password-stdin 推奨）")
+    var currentPassword: String?
+    @Flag(name: [.customLong("current-password-stdin")],
+          help: "現在のパスワードを標準入力から読む（argv 非露出。--password-stdin と併用時は「現在のパスワード\\n新しいパスワード」の2行として読む）")
+    var currentPasswordStdin: Bool = false
     func run() throws { try mappingAPIErrors {
+        var cur = currentPassword
         let pw: String
-        if passwordStdin {
+        if currentPasswordStdin && passwordStdin {
+            // G27a Task6: 両方を argv に出さずに渡すため、1 行目=現在のパスワード / 2 行目=新しいパスワード
+            // として標準入力から読む（既存の unlock/lock set の「stdin=パスワード全体」を単純延長）。
             let data = FileHandle.standardInput.readDataToEndOfFile()
-            pw = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        } else if let password {
-            pw = password
+            let text = String(data: data, encoding: .utf8) ?? ""
+            let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else {
+                throw ValidationError("--current-password-stdin と --password-stdin を併用する場合、標準入力に「現在のパスワード\\n新しいパスワード」の2行を渡してください")
+            }
+            cur = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            pw = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
         } else {
-            throw ValidationError("--password または --password-stdin を指定してください")
+            if currentPasswordStdin {
+                let data = FileHandle.standardInput.readDataToEndOfFile()
+                cur = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if passwordStdin {
+                let data = FileHandle.standardInput.readDataToEndOfFile()
+                pw = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            } else if let password {
+                pw = password
+            } else {
+                throw ValidationError("--password または --password-stdin を指定してください")
+            }
         }
         guard !pw.isEmpty else { throw ValidationError("パスワードが空です") }
+        if let c = cur, c.isEmpty { cur = nil }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.lockSet(uuid: lib.id, password: pw); print("ロックを設定しました")
+        try client.lockSet(uuid: lib.id, password: pw, currentPassword: cur); print("ロックを設定しました")
     } }
 }
 struct LockClear: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "clear", abstract: "ロックを解除する")
+    static let configuration = CommandConfiguration(
+        commandName: "clear", abstract: "ロックを解除する（既存ロックがある場合は現在のパスワードが必須）")
     @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "現在のパスワード（既存ロックがある場合は必須。argv に残るため自動化では --current-password-stdin 推奨）")
+    var currentPassword: String?
+    @Flag(name: [.customLong("current-password-stdin")], help: "現在のパスワードを標準入力から読む（argv 非露出）")
+    var currentPasswordStdin: Bool = false
     func run() throws { try mappingAPIErrors {
+        var cur = currentPassword
+        if currentPasswordStdin {
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            cur = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let c = cur, c.isEmpty { cur = nil }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.lockClear(uuid: lib.id); print("ロックを解除しました")
+        try client.lockClear(uuid: lib.id, currentPassword: cur); print("ロックを解除しました")
     } }
 }
 

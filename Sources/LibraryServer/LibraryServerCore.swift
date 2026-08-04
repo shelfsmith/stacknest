@@ -246,6 +246,23 @@ public struct LibraryServerCore: Sendable {
         Task { await eventHub.publish(.settingsChanged(library: uuid)) }
     }
 
+    /// G27a Task6: DELETE lock 用の任意ボディを緩く読む。
+    /// `request.decode(as:context:)` は空ボディを `DecodingError.dataCorrupted` → 400 に写像するため、
+    /// そのまま使うと「ロックが無い庫への無ボディ DELETE」という既存の後方互換な呼び方まで壊れる。
+    /// 空ボディは「現パスワード無し」（nil）として扱い、非空だが不正な JSON のときだけ 400 にする。
+    private static func decodeOptionalLockRemoveBody(
+        _ request: Request, context: LibraryRequestContext
+    ) async throws -> String? {
+        let buffer = try await request.body.collect(upTo: context.maxUploadSize)
+        guard buffer.readableBytes > 0 else { return nil }
+        let data = Data(buffer.readableBytesView)
+        do {
+            return try JSONDecoder().decode(LockRemoveRequest.self, from: data).currentPassword
+        } catch {
+            throw HTTPError(.badRequest)
+        }
+    }
+
     /// G16 Codex Medium: (libraryUUID, bookID) 単位で臨界区間を直列化するヘルパ。
     /// acquire → body 実行 → release を保証する（body が throw しても release は必ず呼ばれる。
     /// デッドロックしないよう、body の中で同じ key を再度 acquire してはいけない）。
@@ -1209,11 +1226,25 @@ public struct LibraryServerCore: Sendable {
             return HTTPResponse.Status.noContent
         }
         // A2: ライブラリロック設定（admin）。パスワードを salt+hash で DB に保存。
+        // G27a Task6: 既存ロックがある場合は変更にも現パスワードを要求する（解除と同じ扱いに揃える）。
+        // 以前は変更が無検証だったため、解錠済みの端末を離席中に第三者がパスワードを上書きし
+        // 所有権を奪えた（GUI の解除は元々パスワード必須だったのに対する非対称の脆弱性）。
         api.post("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
             let body = try await request.decode(as: LockRequest.self, context: context)
             guard !body.password.isEmpty else { throw HTTPError(.badRequest) }
+            // 既存ロックの有無は都度ライブから読む（resolver の isLocked スナップショットではなく、
+            // このリクエスト内で最新の DB 値を見る）。
+            if lib.currentLockCredential() != nil {
+                // 認証(admin bearer token)は通っているが、ロック自体の所有権証明（現パスワード）が
+                // 無い/誤っている → 403（401 ではない）。比較は LibraryLock.verifiedCredential 経由
+                // （constant-time 比較・旧形式からの遅延移行を再利用し、自前比較を書かない）。
+                guard let currentPassword = body.currentPassword, !currentPassword.isEmpty,
+                      lib.verifiedCredential(for: currentPassword) != nil else {
+                    throw HTTPError(.forbidden)
+                }
+            }
             let salt = LibraryLock.generateSalt()
             let hash = LibraryLock.computeHash(password: body.password, saltHex: salt)
             // G25c: salt と hash は**組で意味を持つ**ため単一トランザクションで書く。
@@ -1224,9 +1255,19 @@ public struct LibraryServerCore: Sendable {
             return HTTPResponse.Status.noContent
         }
         // A2: ライブラリロック解除（admin）。hash と salt を削除。
+        // G27a Task6: 既存ロックがあれば現パスワード必須（POST 変更と同じ規則）。DELETE のボディで
+        // 受け取る（body 付き DELETE は本ファイルの shelves/:id/books で既に使っている作法）。
+        // ロックが無ければボディ自体を省略でき、後方互換（旧クライアントの無ボディ DELETE）を壊さない。
         api.delete("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
+            if lib.currentLockCredential() != nil {
+                let currentPassword = try await Self.decodeOptionalLockRemoveBody(request, context: context)
+                guard let currentPassword, !currentPassword.isEmpty,
+                      lib.verifiedCredential(for: currentPassword) != nil else {
+                    throw HTTPError(.forbidden)
+                }
+            }
             // G25c: 解除も組でまとめて消す（片方だけ残る中間状態を作らない）。
             try lib.db.deleteLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])
             self.notifySettingsChanged(lib.uuid)

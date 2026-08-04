@@ -43,6 +43,10 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var passwordInput = ""
     @State private var passwordConfirm = ""
     @State private var confirmingDisableLock = false
+    // G27a Task6: ロック解除には現在のパスワードが必須（ローカル LibrarySettingsSheet+Lock の
+    // confirmingDisableLock / disableLockPassword と同じ流儀・新しい作法を発明しない）。
+    @State private var disableLockPassword = ""
+    @State private var disableLockError: String? = nil
 
     // MARK: 自動追加（監視フォルダ）— smoke b: 取り込みタブ内。importConfigLoaded でまとめてロード。
     @State private var watchConfig: WatchConfigDTO?
@@ -346,17 +350,40 @@ struct RemoteLibrarySettingsSheet: View {
             }
             .padding(8)
         }
-        .confirmationDialog(
-            "ロックを解除しますか？",
-            isPresented: $confirmingDisableLock,
-            titleVisibility: .visible
-        ) {
-            Button("解除する", role: .destructive) {
-                Task { await disableLock() }
+        .sheet(isPresented: $confirmingDisableLock) {
+            // G27a Task6: 解除には現在のパスワードが必須。ローカル LibrarySettingsSheet+Lock の
+            // confirmingDisableLock シートと同じ見た目・流儀に揃える（新しい作法を発明しない）。
+            VStack(alignment: .leading, spacing: 12) {
+                Text("ロックを解除するには現在のパスワードを入力してください")
+                    .font(.body)
+
+                SecureField("現在のパスワード", text: $disableLockPassword)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 280)
+                    .onSubmit { Task { await disableLock() } }
+
+                if let err = disableLockError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+
+                HStack {
+                    Button("キャンセル") {
+                        disableLockPassword = ""
+                        disableLockError = nil
+                        confirmingDisableLock = false
+                    }
+                    Spacer()
+                    Button("ロック解除") {
+                        Task { await disableLock() }
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(disableLockPassword.isEmpty)
+                }
             }
-            Button("キャンセル", role: .cancel) {}
-        } message: {
-            Text("このライブラリのパスワードロックを解除します。")
+            .padding(20)
+            .frame(width: 360)
         }
     }
 
@@ -369,9 +396,11 @@ struct RemoteLibrarySettingsSheet: View {
         }
         saving = true
         defer { saving = false }
-        state.errorText = nil
-        await state.setLibraryLock(password: passwordInput)
-        if state.errorText == nil {
+        errorText = nil
+        // G27a Task6: このシートはトグルが「未ロック→ロック」のときしか saveLock を呼ばない
+        // （guard 済み）ため currentPassword は不要（既存ロックの変更 UI は本シートに無い）。
+        let ok = await state.setLibraryLock(password: passwordInput)
+        if ok {
             // IMP-1 (G12b-2 whole-branch review): 現在のリモートセッションは continued 前提。
             // state.locked を立てると RemoteLibraryView の isUnlockFormShown が真になり、
             // 設定した瞬間に自分自身が解錠フォームへ落とされてしまう。
@@ -388,14 +417,18 @@ struct RemoteLibrarySettingsSheet: View {
     private func disableLock() async {
         saving = true
         defer { saving = false }
-        state.errorText = nil
-        await state.clearLibraryLock()
-        if state.errorText == nil {
+        let ok = await state.clearLibraryLock(currentPassword: disableLockPassword)
+        if ok {
             state.locked = false
             lockToggleOn = false
-            errorText = nil
-            dismiss()
+            disableLockPassword = ""
+            disableLockError = nil
+            confirmingDisableLock = false
         } else {
+            // G27a Task6: パスワード誤りはシートを閉じずに再試行させる（ローカル confirmDisableLock
+            // と同じ作法）。それ以外の失敗（通信エラー等）は下のシートの外側にも errorText を出す。
+            disableLockPassword = ""
+            disableLockError = state.errorText
             errorText = state.errorText
         }
     }

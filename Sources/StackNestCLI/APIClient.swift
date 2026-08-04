@@ -201,11 +201,20 @@ struct APIClient {
     func watchPut(uuid: String, configJSON: Data) throws -> Data {
         try request(makeURL("/libraries/\(uuid)/watch-config"), method: "PUT", body: configJSON)
     }
-    func lockSet(uuid: String, password: String) throws {
-        let body = try encoder.encode(LockRequest(password: password))
+    /// G27a Task6: `currentPassword` は既存ロックの変更時のみ必須（新規設定時は nil で良い）。
+    func lockSet(uuid: String, password: String, currentPassword: String? = nil) throws {
+        let body = try encoder.encode(LockRequest(password: password, currentPassword: currentPassword))
         _ = try request(makeURL("/libraries/\(uuid)/lock"), method: "POST", body: body)
     }
-    func lockClear(uuid: String) throws { _ = try request(makeURL("/libraries/\(uuid)/lock"), method: "DELETE") }
+    /// G27a Task6: `currentPassword` は既存ロックがある場合のみ必須。nil のときはボディ自体を
+    /// 送らない（サーバは空ボディを「現パスワード無し」として扱う＝ロックが無い庫への後方互換）。
+    func lockClear(uuid: String, currentPassword: String? = nil) throws {
+        var body: Data? = nil
+        if let currentPassword {
+            body = try encoder.encode(LockRemoveRequest(currentPassword: currentPassword))
+        }
+        _ = try request(makeURL("/libraries/\(uuid)/lock"), method: "DELETE", body: body)
+    }
     func importGet(uuid: String) throws -> Data { try request(makeURL("/libraries/\(uuid)/import-config")) }
     func importPut(uuid: String, body: ImportConfigDTO) throws -> Data {
         try request(makeURL("/libraries/\(uuid)/import-config"), method: "PUT", body: try encoder.encode(body))

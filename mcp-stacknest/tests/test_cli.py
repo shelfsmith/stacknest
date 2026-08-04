@@ -317,6 +317,51 @@ def test_high_level_lock_set_passes_stdin(monkeypatch):
     assert "--password-stdin" in captured["argv"]
     assert "--password" not in captured["argv"]
     assert captured["input"] == "secret"
+    # G27a Task6: 新規設定（current_password 省略）は --current-password-stdin を付けない。
+    assert "--current-password-stdin" not in captured["argv"]
+
+
+# --- G27a Task6: ロック変更・解除には現在のパスワードが必要 ---
+
+def test_high_level_lock_set_with_current_password_encodes_both_on_stdin(monkeypatch):
+    """current_password 指定時は --current-password-stdin も立て、stdin は
+    「現在のパスワード\\n新しいパスワード」の2行にまとめて渡す（argv 非露出のまま両方運ぶ）。"""
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; captured["input"] = k.get("input"); return ""
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.lock_set("M", "newpw", current_password="oldpw")
+    assert "--password-stdin" in captured["argv"]
+    assert "--current-password-stdin" in captured["argv"]
+    assert captured["input"] == "oldpw\nnewpw"
+    # どちらのパスワードも argv には出ない。
+    assert "oldpw" not in captured["argv"]
+    assert "newpw" not in captured["argv"]
+
+
+def test_high_level_lock_clear_without_current_password_sends_no_stdin(monkeypatch):
+    """current_password 省略時は --current-password-stdin を付けず stdin も渡さない
+    （ロックが無い庫への後方互換な無ボディ相当）。"""
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; captured["input"] = k.get("input"); return ""
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.lock_clear("M")
+    assert captured["argv"][:2] == ["lock", "clear"]
+    assert "--current-password-stdin" not in captured["argv"]
+    assert captured["input"] is None
+
+
+def test_high_level_lock_clear_with_current_password_passes_stdin(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; captured["input"] = k.get("input"); return ""
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.lock_clear("M", current_password="oldpw")
+    assert captured["argv"][:2] == ["lock", "clear"]
+    assert "--current-password-stdin" in captured["argv"]
+    assert captured["input"] == "oldpw"
+    assert "oldpw" not in captured["argv"]
 
 
 # --- env library_token 注入 / 自動再 unlock ---
