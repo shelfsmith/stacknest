@@ -42,6 +42,10 @@ struct BookETagTests {
 
         let r = row(id: 5, path: file.path, fileMtime: 100, fileSize: 50)   // stored は陳腐化した値
         let (liveSize, liveMtime) = Database.statFile(file.path)
+        // Fix6: statFile 自身が (nil, nil) に退行しても、以下の #expect は両方とも
+        // "5-0-0-h" != "5-100-50-h" のままパスしてしまう（vacuous pass）。実際に書いた
+        // 4321 バイトが返っていることをここで直接検証する。
+        #expect(liveSize == 4321, "statFile が実サイズを返していない")
         let expectedHash = String(fnv1aHash(file.path), radix: 36)
         #expect(bookETag(for: r) == "\"5-\(Int(liveMtime ?? 0))-\(liveSize ?? 0)-\(expectedHash)\"")
         // stored 値 (100/50) はもう使われないことを明示する。

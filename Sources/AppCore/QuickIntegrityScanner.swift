@@ -65,15 +65,18 @@ public enum QuickIntegrityScanner {
             let category = deps.categoryOf(path)
             let exists = !path.isEmpty && deps.fileExists(path)
 
+            // Fix4: classify の .image 分岐がサイズを見て判定できるよう、probe より前に stat する
+            // （0 バイト画像を「開かずに確定できる 1 ページ」として ok にしてしまわないため）。
+            let (size, mtime) = exists ? deps.statFile(path) : (nil, nil)
+
             var probeResult: QuickProbe?
             if exists && QuickIntegrityCheck.needsProbe(category: category) {
                 probeResult = await deps.probe(URL(fileURLWithPath: path))
             }
 
             let outcome = QuickIntegrityCheck.classify(
-                category: category, exists: exists, probe: probeResult)
+                category: category, exists: exists, probe: probeResult, fileSize: size)
 
-            let (size, mtime) = exists ? deps.statFile(path) : (nil, nil)
             let entryCount: Int? = {
                 if case .enumerated(let c, _) = probeResult { return c }
                 return outcome.pageCount

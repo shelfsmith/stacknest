@@ -23,11 +23,25 @@ struct QuickIntegrityCheckTests {
         #expect(QuickIntegrityCheck.classify(category: .text, exists: true, probe: nil).status == .unsupported)
     }
 
-    @Test("単独画像は開かずに 1 ページと確定できる")
+    @Test("単独画像はサイズが確認できれば開かずに 1 ページと確定できる")
     func singleImageIsOkWithOnePage() {
-        let out = QuickIntegrityCheck.classify(category: .image, exists: true, probe: nil)
+        let out = QuickIntegrityCheck.classify(category: .image, exists: true, probe: nil, fileSize: 1024)
         #expect(out.status == .ok)
         #expect(out.pageCount == 1)
+    }
+
+    @Test("0 バイトの単独画像は damaged で pages を確定しない(Fix4)")
+    func zeroByteImageIsDamaged() {
+        let out = QuickIntegrityCheck.classify(category: .image, exists: true, probe: nil, fileSize: 0)
+        #expect(out.status == .damaged)
+        #expect(out.pageCount == nil, "0 バイト画像を健康な1ページとして確定させてはいけない")
+    }
+
+    @Test("stat に失敗した単独画像（fileSize=nil）も damaged で pages を確定しない(Fix4)")
+    func statFailureImageIsDamaged() {
+        let out = QuickIntegrityCheck.classify(category: .image, exists: true, probe: nil, fileSize: nil)
+        #expect(out.status == .damaged)
+        #expect(out.pageCount == nil)
     }
 
     @Test("列挙できたアーカイブは ok でページ数が確定する")

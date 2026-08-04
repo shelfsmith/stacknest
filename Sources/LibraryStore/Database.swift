@@ -18,6 +18,10 @@ public enum OpenMode: Sendable {
 public enum DatabaseError: Error, Sendable {
     /// マルチ値対象外のカラムに addToBookField / clearBookField を呼んだ。
     case invalidColumn(String)
+    /// G27a Fix5: queue が nil＝ライブラリが閉じている状態で書き込みを試みた。
+    /// upsertIntegrity / updateBookFileStat はこれを黙って return せず throw する
+    /// （走査中に close されると、何も書けていないのに成功したかのような集計になってしまうため）。
+    case libraryClosed
 }
 
 public struct BookRow: Sendable, Equatable, Identifiable {

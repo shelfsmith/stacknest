@@ -51,12 +51,15 @@ struct APIClient {
     // MARK: - Sync request helpers
 
     private func request(_ url: URL, method: String = "GET",
-                         body: Data? = nil) throws -> Data {
+                         body: Data? = nil, timeout: TimeInterval? = nil) throws -> Data {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         if !endpoint.libraryToken.isEmpty {
             req.setValue(endpoint.libraryToken, forHTTPHeaderField: "X-Library-Token")
+        }
+        if let timeout {
+            req.timeoutInterval = timeout
         }
         if let body {
             req.httpBody = body
@@ -222,8 +225,12 @@ struct APIClient {
     // MARK: - 整合性検査（G27a）
 
     /// POST /api/v1/libraries/{uuid}/integrity/scan → JSON Data（IntegrityScanReply）
+    /// 実測 65 候補 ≈ 4 分（1 冊 ≈ 3.46s）。URLSession.shared の既定 60s では確実にタイムアウトし、
+    /// クライアント側が諦めてもサーバ側の走査は続くため、リトライで二重走査が起きる。
+    /// この呼び出しだけ長いタイムアウトを与える（他のリクエストの既定は変えない）。
+    /// 同期 1 リクエストで待つ形自体は既知の制約 — 非同期ジョブ化＋ポーリングは Phase G27b で検討する。
     func integrityScan(uuid: String) throws -> Data {
-        try request(makeURL("/libraries/\(uuid)/integrity/scan"), method: "POST")
+        try request(makeURL("/libraries/\(uuid)/integrity/scan"), method: "POST", timeout: 1800)
     }
 
     /// GET /api/v1/libraries/{uuid}/integrity/summary → JSON Data（IntegritySummaryReply）

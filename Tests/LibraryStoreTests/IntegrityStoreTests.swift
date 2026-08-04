@@ -131,6 +131,28 @@ struct IntegrityStoreTests {
         #expect(got.badEntries.count == IntegrityRecord.maxBadEntries)
     }
 
+    @Test("ライブラリが閉じられていると upsertIntegrity は throw する(Fix5)")
+    func upsertIntegrityThrowsWhenLibraryClosed() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.zip", pages: nil))
+        db.close()
+
+        #expect(throws: DatabaseError.self) {
+            try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 1))
+        }
+    }
+
+    @Test("ライブラリが閉じられていると updateBookFileStat は throw する(Fix5)")
+    func updateBookFileStatThrowsWhenLibraryClosed() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.zip", pages: nil))
+        db.close()
+
+        #expect(throws: DatabaseError.self) {
+            try db.updateBookFileStat(id: 1, size: 100, mtime: 1.0)
+        }
+    }
+
     @Test("migrate を 2 回呼んでも壊れない（冪等）")
     func migrationIsIdempotent() throws {
         let db = try Database.openInMemory()

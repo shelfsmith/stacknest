@@ -413,9 +413,15 @@ def dedup_scan(library: str, *, library_token: str | None = None) -> Any:
 # --- 整合性検査（integrity・G27a）---
 
 def integrity_scan(library: str, *, library_token: str | None = None) -> Any:
-    """pages 未取得の本を開いて分類する簡易チェックを実行し、件数の内訳を返す。"""
+    """pages 未取得の本を開いて分類する簡易チェックを実行し、件数の内訳を返す。
+
+    実測 65 候補 ≈ 4 分（1 冊 ≈ 3.46s）かかるため、既定の 60s タイムアウトでは確実に
+    間に合わない。この呼び出しだけ長めのタイムアウトを与える（他の呼び出しの既定は変えない）。
+    同期 1 リクエストで待つ形自体は既知の制約 — 非同期ジョブ化＋ポーリングは Phase G27b で検討する。
+    """
     return json.loads(_with_library(library, library_token,
-        lambda tok: run(build_argv("integrity", library=library, sub="scan"), library_token=tok)))
+        lambda tok: run(build_argv("integrity", library=library, sub="scan"),
+                        timeout=1800, library_token=tok)))
 
 
 def integrity_status(library: str, *, library_token: str | None = None) -> Any:

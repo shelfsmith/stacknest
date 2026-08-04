@@ -695,16 +695,18 @@ public struct IntegrityScanReply: Codable, Sendable {
 public struct IntegrityItemDTO: Codable, Sendable {
     public let bookID: Int
     public let title: String
-    public let path: String?
+    /// path は秘匿で返さないため、ファイル名（basename）だけを返す（read tier でも取得できる
+    /// エンドポイントのため、path をそのまま返すとディレクトリ構成が漏れる）。
+    public let filename: String?
     public let status: String
     public let checkedAt: Int64
     public let entryCount: Int?
     public let badEntries: [String]
     /// 前回 ok → 今回 damaged（＝ディスク上で劣化した疑い）。
     public let degraded: Bool
-    public init(bookID: Int, title: String, path: String?, status: String,
+    public init(bookID: Int, title: String, filename: String?, status: String,
                 checkedAt: Int64, entryCount: Int?, badEntries: [String], degraded: Bool) {
-        self.bookID = bookID; self.title = title; self.path = path
+        self.bookID = bookID; self.title = title; self.filename = filename
         self.status = status; self.checkedAt = checkedAt
         self.entryCount = entryCount; self.badEntries = badEntries; self.degraded = degraded
     }
