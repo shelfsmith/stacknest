@@ -9,11 +9,18 @@ public struct QuickScanReport: Sendable, Equatable {
     public let byStatus: [IntegrityStatus: Int]
     /// pages を書き戻した冊数（④ の収束量）。
     public let pagesUpdated: Int
+    /// 永続化（upsertIntegrity / updateBookPages / updateBookFileStat）が throw した冊数。
+    /// SQLite busy/locked・ディスク full・走査中の本削除（FK 違反）等で発生しうる。
+    /// この冊は byStatus にも pagesUpdated にも計上されない（実際に書けていないため）が、
+    /// 走査自体は次の本へ続行する。0 でなければ呼び出し側は再走査を検討すべき。
+    public let persistenceFailures: Int
 
-    public init(scanned: Int, byStatus: [IntegrityStatus: Int], pagesUpdated: Int) {
+    public init(scanned: Int, byStatus: [IntegrityStatus: Int], pagesUpdated: Int,
+                persistenceFailures: Int = 0) {
         self.scanned = scanned
         self.byStatus = byStatus
         self.pagesUpdated = pagesUpdated
+        self.persistenceFailures = persistenceFailures
     }
 }
 
@@ -51,6 +58,7 @@ public enum QuickIntegrityScanner {
         let candidates = try database.booksNeedingQuickCheck()
         var byStatus: [IntegrityStatus: Int] = [:]
         var pagesUpdated = 0
+        var persistenceFailures = 0
 
         for (index, book) in candidates.enumerated() {
             let path = book.path ?? ""
@@ -71,28 +79,36 @@ public enum QuickIntegrityScanner {
                 return outcome.pageCount
             }()
 
-            try database.upsertIntegrity(IntegrityRecord(
-                bookID: book.id, status: outcome.status, method: .quick,
-                checkedAt: deps.now(), fileSize: size, fileMtime: mtime,
-                entryCount: entryCount,
-                badEntries: outcome.reason.map { [$0] } ?? [],
-                prevStatus: nil, prevCheckedAt: nil))
+            // 永続化は per-book で失敗しうる（SQLite busy/locked・ディスク full・
+            // 走査中に本が削除された場合の FK 違反 等）。1 冊の失敗で走査全体を
+            // 止めない ―― do/catch で握り潰さず件数に残し、次の本へ進む。
+            do {
+                try database.upsertIntegrity(IntegrityRecord(
+                    bookID: book.id, status: outcome.status, method: .quick,
+                    checkedAt: deps.now(), fileSize: size, fileMtime: mtime,
+                    entryCount: entryCount,
+                    badEntries: outcome.reason.map { [$0] } ?? [],
+                    prevStatus: nil, prevCheckedAt: nil))
 
-            // ④: 確定できたときだけ pages を書き戻す。破損本は書かない（G26 の規則と同じ）。
-            if let pageCount = outcome.pageCount {
-                try database.updateBookPages(id: book.id, newPages: pageCount)
-                pagesUpdated += 1
-            }
-            // file_size / file_mtime も同じ機会に埋める（実機で 99.5% が NULL だったのを解消）。
-            if let size, let mtime {
-                try database.updateBookFileStat(id: book.id, size: size, mtime: mtime)
+                // ④: 確定できたときだけ pages を書き戻す。破損本は書かない（G26 の規則と同じ）。
+                if let pageCount = outcome.pageCount {
+                    try database.updateBookPages(id: book.id, newPages: pageCount)
+                    pagesUpdated += 1
+                }
+                // file_size / file_mtime も同じ機会に埋める（実機で 99.5% が NULL だったのを解消）。
+                if let size, let mtime {
+                    try database.updateBookFileStat(id: book.id, size: size, mtime: mtime)
+                }
+
+                byStatus[outcome.status, default: 0] += 1
+            } catch {
+                persistenceFailures += 1
             }
 
-            byStatus[outcome.status, default: 0] += 1
             progress?(index + 1, candidates.count)
         }
 
         return QuickScanReport(scanned: candidates.count, byStatus: byStatus,
-                               pagesUpdated: pagesUpdated)
+                               pagesUpdated: pagesUpdated, persistenceFailures: persistenceFailures)
     }
 }
