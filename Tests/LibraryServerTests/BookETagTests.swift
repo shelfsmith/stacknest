@@ -29,20 +29,23 @@ struct BookETagTests {
         #expect(bookETag(for: a) == bookETag(for: b))
     }
 
-    // churn ガード（レビュー Minor）: **実在するファイル**で、stored 値が実際の stat 値と
-    // わざと食い違っていても、ファイルなら stored 値がそのまま使われる。
-    // 「ディレクトリなら live stat」の分岐を誤って実在パス全般へ広げると、この期待が崩れて
-    // ETag が動く＝全クライアントがページキャッシュを捨てて再ダウンロードすることになる。
-    @Test func etagUsesStoredValuesForExistingFileEvenIfRealStatDiffers() throws {
+    // G27a ③: **実在するファイル**は、stored 値が実際の stat 値と食い違っていても live stat が
+    // 優先され、stored 値は使われない。修理などでファイルを差し替えたときに ETag が追従して
+    // 古い内容の配信が止まる、というのが本修正の目的そのもの（旧実装はここで stored 値の
+    // ままにしていたため、差し替えても ETag が変わらず古い内容が配信され続けていた）。
+    @Test func etagUsesLiveStatForExistingFileEvenIfStoredValuesDiffer() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("real.cbz")
         try Data(repeating: 9, count: 4321).write(to: file)   // 実サイズ 4321
 
-        let r = row(id: 5, path: file.path, fileMtime: 100, fileSize: 50)   // stored は 100/50
+        let r = row(id: 5, path: file.path, fileMtime: 100, fileSize: 50)   // stored は陳腐化した値
+        let (liveSize, liveMtime) = Database.statFile(file.path)
         let expectedHash = String(fnv1aHash(file.path), radix: 36)
-        #expect(bookETag(for: r) == "\"5-100-50-\(expectedHash)\"")
+        #expect(bookETag(for: r) == "\"5-\(Int(liveMtime ?? 0))-\(liveSize ?? 0)-\(expectedHash)\"")
+        // stored 値 (100/50) はもう使われないことを明示する。
+        #expect(bookETag(for: r) != "\"5-100-50-\(expectedHash)\"")
     }
 
     // stat 失敗時のフォールバック（レビュー Minor）: ディレクトリとして解決できないパスでは
