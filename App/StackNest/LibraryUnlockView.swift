@@ -4,7 +4,7 @@ import AppKit
 import AppCore
 import OSLog
 
-struct LibraryUnlockSheet: View {
+struct LibraryUnlockView: View {
     let bundleURL: URL
     let bundleName: String
     let salt: String
@@ -25,7 +25,7 @@ struct LibraryUnlockSheet: View {
     let onUnlock: (String) -> Void
     let onCancel: () -> Void
     /// G23 (#8): 保存値が旧形式だったとき、新形式（PBKDF2）のハッシュを親へ渡す。
-    /// このシートは LibrarySettings を持たないため、保存は親の責務。
+    /// この View は LibrarySettings を持たないため、保存は親の責務。
     /// G25c: 引数は (この試行で照合したハッシュ, 移行後のハッシュ)。**戻り値は実際に書き戻したか。**
     /// 親は DB 層の原子的 compare-and-set（`LibrarySettings.upgradeLockHash`）で書き戻し、
     /// 検証中に差し替えられていた場合や書き込みに失敗した場合は false を返す
@@ -39,7 +39,7 @@ struct LibraryUnlockSheet: View {
     /// 生体認証は成功したが、この Mac が未アーム/パスワード変更でパスワードが必要なときに表示するヒント。
     @State private var showPasswordHint = false
 
-    private let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibraryUnlockSheet")
+    private let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibraryUnlockView")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
