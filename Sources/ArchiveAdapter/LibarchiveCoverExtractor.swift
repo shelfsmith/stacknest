@@ -177,9 +177,16 @@ public struct LibarchiveCoverExtractor: CoverImageExtractor {
                 // G26: 破損等で途中打ち切り。**それまでに集めた分を返す**。
                 // 1 件も集まっていなければ従来どおり throw する
                 // （全く読めないファイルを「0 ページの本」として黙って開かせないため）。
+                //
+                // G27a task 8: ここは open は成功した**後**の header-read ループ内での破綻な
+                // ので、`.archiveUnreadable`（open 自体が失敗＝未認識フォーマット／権限拒否等）
+                // とは別の `.enumerationFailed` で throw する。libarchive がこの段で返す文言は
+                // 破損パターンごとに全く異なり（"Damaged Zip archive" 等、固定の接頭辞を持たない）、
+                // 文字列一致で安全に分類できないため、呼び出し元（QuickIntegrityScanner）は
+                // この case を丸ごと固定の分類名に正規化する（生文字列は保持しても永続化しない）。
                 if names.isEmpty {
                     let msg = errorMessage(archive)
-                    throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "read header failed" : msg)
+                    throw ArchiveAdapterError.enumerationFailed(url, reason: msg.isEmpty ? "read header failed" : msg)
                 }
                 return ArchiveListing(names: names, truncated: true)
             }

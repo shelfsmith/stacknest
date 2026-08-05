@@ -50,8 +50,15 @@ public extension CoverImageExtractor {
 }
 
 public enum ArchiveAdapterError: Error, Equatable, Sendable {
-    /// Archive could not be opened (corrupt, unsupported format, permissions).
+    /// Archive could not be opened at all (corrupt beyond format detection, unsupported
+    /// format, permissions, missing file). No header was ever successfully read.
     case archiveUnreadable(URL, reason: String)
     /// Archive opened but no image entries found.
     case noImageEntry(URL)
+    /// Archive opened successfully, but reading entry headers broke down before a single
+    /// entry could be collected (truncated download, corrupted mid-stream). Kept distinct
+    /// from `archiveUnreadable` because the two failure stages need to stay distinguishable
+    /// for diagnostics (G27a task 8 / Codex review) without relying on libarchive's raw
+    /// message text, which varies per corruption pattern and can't be pattern-matched safely.
+    case enumerationFailed(URL, reason: String)
 }
