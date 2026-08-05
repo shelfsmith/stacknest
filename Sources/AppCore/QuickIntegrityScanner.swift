@@ -147,23 +147,56 @@ extension QuickIntegrityScanner {
     ///
     /// この reason は `book_integrity.bad_entries` に永続化され、read tier トークンでも
     /// `GET .../integrity/list` からそのまま返る（path を秘匿する filename 化と同じ規約が
-    /// ここにも及ぶ）。`ArchiveAdapterError` の両ケースは絶対パスの `URL` を保持しているため、
-    /// **URL を含めず** 診断に有用な部分（reason 文字列 / ケース種別）だけを取り出す。
+    /// ここにも及ぶ）。`ArchiveAdapterError` の全ケースは絶対パスの `URL` を保持しているため、
+    /// **URL を含めず** 診断に有用な部分（ケース種別 / 正規化した分類名）だけを取り出す。
     /// 実機 smoke（G27a）で `archiveUnreadable` の `String(describing:)` がそのまま
     /// `file:///Volumes/...` を含んだ reason を書き出していた実例がある。
     ///
-    /// `ArchiveAdapterError` 以外の型は `String(describing:)` に頼らない ―― 任意の `Error` が
-    /// 独自の `CustomStringConvertible`/`description` で path 等の機微情報を埋め込んでいる
-    /// 可能性を否定できないため、型名のみの bounded な文字列に留める。
+    /// **G27a task 8（Codex High #2）**: 上の smoke fix は `.archiveUnreadable` の `reason` 文字列
+    /// （libarchive `archive_error_string()` の生文字列）を URL 抜きでそのまま通していたが、
+    /// 権限拒否・ファイル不在では **その reason 自体に絶対パスが埋め込まれる**
+    /// （実測: `Failed to open '/tmp/g27a-errs/noperm.zip'`）。1 ケース（"Unrecognized archive
+    /// format"＝path を含まない）だけを見て「塞いだ」と判断したのが今回の見落としの原因だった。
+    /// そこで **libarchive の生文字列は理由を問わず一切永続化しない** ―― `classifyOpenFailure`
+    /// で固定の分類名へ正規化し、原文は捨てる。
     static func probeFailureReason(for error: Error) -> String {
         if let archiveError = error as? ArchiveAdapterError {
             switch archiveError {
             case .archiveUnreadable(_, let reason):
-                return "archive unreadable: \(reason)"
+                return "archive unreadable: \(classifyOpenFailure(reason))"
+            case .enumerationFailed:
+                // header-read ループ内での破綻。libarchive の文言は破損パターンごとに
+                // 全く異なり（"Damaged Zip archive" 等）安全に分類できないため、
+                // reason の中身は一切見ずに固定文言のみを返す。
+                return "archive read truncated"
             case .noImageEntry:
                 return "no image entry found"
             }
         }
         return "probe failed: \(type(of: error))"
+    }
+
+    /// `.archiveUnreadable` の reason（open 自体が失敗した段の libarchive 生文字列、または
+    /// 本実装自身が使う英語リテラル）を、パスを含まない固定分類へ正規化する。
+    ///
+    /// 実測（controller, 2026-08-06・libarchive 直叩き）:
+    /// - `Unrecognized archive format`（中身がアーカイブでない／ランダムバイト列／0 バイト）→ path なし
+    /// - `Failed to open '<絶対パス>'`（権限拒否／ファイル不在）→ **path あり**
+    ///
+    /// 未知の文言（将来 libarchive のメッセージが変わった場合を含む）は「それ以外」に落ちるだけで、
+    /// 原文を返すことは決してない。
+    static func classifyOpenFailure(_ raw: String) -> String {
+        if raw.hasPrefix("Failed to open") {
+            return "could not open archive"
+        }
+        if raw.contains("Unrecognized archive format") {
+            return "unrecognized archive format"
+        }
+        // 本実装自身が open 段の throw で使う英語リテラル（FolderCoverExtractor 含む）。
+        // libarchive の生文字列ではないので path は含まれないが、分類は揃えておく。
+        if raw == "archive_read_new failed" || raw == "open failed" || raw == "not a directory" {
+            return "could not open archive"
+        }
+        return "unexpected archive read failure"
     }
 }
