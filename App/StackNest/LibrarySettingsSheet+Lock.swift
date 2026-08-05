@@ -150,8 +150,18 @@ extension LibrarySettingsSheet {
             // 正しい password: クリア実行
             // G25c: salt/hash は組でまとめて消す。書き込みの成功を後続処理の前提にする
             // （失敗を握り潰すと DB にロックが残ったまま UI だけ解除済みになる）。
+            // G27a task 8: 無条件削除ではなく、検証に使った `hash` を条件にした compare-and-set。
+            // 検証と削除の間に他者（別プロセス・リモート HTTP クライアント）がロックを変更/解除して
+            // いれば false が返り、DB は変更されない（TOCTOU を閉じる）。
             do {
-                try settings.clearLock()
+                guard try settings.clearLock(expectedHash: hash) else {
+                    let alert = NSAlert()
+                    alert.messageText = "ロックを解除できませんでした"
+                    alert.informativeText = "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。"
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                    return
+                }
             } catch {
                 let alert = NSAlert()
                 alert.messageText = "ロックを解除できませんでした"
@@ -202,7 +212,8 @@ extension LibrarySettingsSheet {
         // 実際の書き込みは applyNewLock（新規設定と共有）に委ねる。失敗時は
         // applyNewLock がアラート表示済み・ウォッチャー再構成済みなので、ここでは
         // シートを閉じずに抜けるだけで良い。
-        guard applyNewLock(isChange: true) else { return }
+        // G27a task 8: 検証に使った `hash`（上の guard で読んだ値）を compare-and-set の条件にする。
+        guard applyNewLock(isChange: true, expectedHash: hash) else { return }
         appState?.reloadFolderWatcher()
         dismiss()
     }
