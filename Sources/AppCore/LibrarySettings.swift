@@ -650,21 +650,56 @@ public final class LibrarySettings {
     /// G25c: ロックの salt と hash を**単一トランザクション**で設定する（新規施錠・パスワード変更）。
     /// 別々に書くと `salt B + hash A` のような不整合が残り、どのパスワードでも解錠できない庫になりうる。
     /// メモリ値は書き込み成功後に永続化を抑止して揃える（didSet の二重書き込みを避ける）。
-    public func setLock(hash: String, salt: String) throws {
-        try database.setLibrarySettings([Self.lockHashKey: hash, Self.lockSaltKey: salt])
-        syncingFromDatabase {
-            lockPasswordHash = hash
-            lockPasswordSalt = salt
+    ///
+    /// **G27a task 8（Codex High #1・TOCTOU）**: 以前は無条件 UPSERT だった。現パスワードの検証と
+    /// 書き込みが分離していたため、①攻撃者が旧パスワードで検証を通す → ②正規利用者が先に変更 →
+    /// ③攻撃者の書き込みが後から着地して正規の変更を上書き、という compare-and-set 抜けの窓があった。
+    /// 今は `expectedHash` を条件にした DB 側 compare-and-set（`Database.compareAndSetLibrarySettings`）
+    /// に委ねる ―― 読み・検証・置換が単一トランザクションになり、③の書き込みは条件不一致で弾かれる。
+    ///
+    /// - Parameter expectedHash: 書き込み時点で DB 上にあるべき hash。**新規施錠**（今ロックが無い）
+    ///   は `nil` を渡す（「hash キーがまだ存在しない」ことを条件にする＝二重の同時「新規施錠」の race
+    ///   防止）。**パスワード変更**は検証に使った hash を渡す。サーバ側で `verifiedCredential(for:)` を
+    ///   経由した場合は、その**返り値**（遅延 PBKDF2 移行が起きていればその移行後の hash）を渡すこと ――
+    ///   移行はこの呼び出しと同じ「検証した本人」が起こした正当な値更新なので、移行前の hash を条件に
+    ///   すると移行直後の変更が毎回「他者に変更された」と誤判定されてしまう。
+    /// - Returns: 実際に書けたか。false は「検証に使った資格情報が既に古い（他者が変更/解除した）」
+    ///   ―― この場合 DB は一切変更されていない。呼び出し側はエラーとして扱ってよい。
+    @discardableResult
+    public func setLock(hash: String, salt: String, expectedHash: String?) throws -> Bool {
+        let applied = try database.compareAndSetLibrarySettings(
+            conditionKey: Self.lockHashKey, expectedValue: expectedHash,
+            newValues: [Self.lockHashKey: hash, Self.lockSaltKey: salt])
+        if applied {
+            syncingFromDatabase {
+                lockPasswordHash = hash
+                lockPasswordSalt = salt
+            }
+        } else {
+            // 期待値と食い違った＝外部が既に変更/解除していた。メモリを現況へ揃える。
+            reloadLockSettings()
         }
+        return applied
     }
 
     /// G25c: ロックを解除する（salt と hash を単一トランザクションで削除）。
-    public func clearLock() throws {
-        try database.deleteLibrarySettings(keys: [Self.lockHashKey, Self.lockSaltKey])
-        syncingFromDatabase {
-            lockPasswordHash = nil
-            lockPasswordSalt = nil
+    /// G27a task 8: 上記と同じ理由で compare-and-set にする。`expectedHash` は検証に使った hash
+    /// （またはサーバ側なら `verifiedCredential(for:)` の返り値）。
+    /// - Returns: 実際に消せたか。false は「検証に使った資格情報が既に古い」―― DB は変更されていない。
+    @discardableResult
+    public func clearLock(expectedHash: String) throws -> Bool {
+        let applied = try database.compareAndDeleteLibrarySettings(
+            conditionKey: Self.lockHashKey, expectedValue: expectedHash,
+            keysToDelete: [Self.lockHashKey, Self.lockSaltKey])
+        if applied {
+            syncingFromDatabase {
+                lockPasswordHash = nil
+                lockPasswordSalt = nil
+            }
+        } else {
+            reloadLockSettings()
         }
+        return applied
     }
 
     /// G25c: #8 の遅延ハッシュ移行を**原子的に**書き戻す。

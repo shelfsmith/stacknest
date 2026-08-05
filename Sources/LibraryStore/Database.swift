@@ -1525,6 +1525,51 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// G27a task 8 (Codex High #1): 複数キーを**単一トランザクション**で、`conditionKey` の
+    /// 現在値を条件とした compare-and-set で書く。ロックの salt+hash のように「pair 全体を
+    /// 新値に差し替えるが、整合性の判定は hash 1 本で行う」ケース向け。
+    ///
+    /// 読み（現在値の確認）と書き（新値の INSERT/UPDATE）を `queue.write` の**同一トランザクション**
+    /// 内で行うため、確認と書き込みの間に他の書き込みが割り込む隙が無い（compareAndSetLibrarySetting
+    /// と同じ不可分性）。
+    /// - `expectedValue` が `nil` の場合は「`conditionKey` がまだ存在しない」ことを条件にする
+    ///   （新規作成時の race 防止 — 二重の同時「新規施錠」がどちらも無検証で通ってしまうのを防ぐ）。
+    /// - Returns: 条件が一致し実際に書けたか。不一致なら false（DB は一切変更されない）。
+    public func compareAndSetLibrarySettings(conditionKey: String, expectedValue: String?,
+                                             newValues: [String: String]) throws -> Bool {
+        guard let q = queue, !newValues.isEmpty else { return false }
+        return try q.write { db in
+            let current = try String.fetchOne(
+                db, sql: "SELECT value FROM library_settings WHERE key = ?", arguments: [conditionKey])
+            guard current == expectedValue else { return false }
+            for (key, value) in newValues {
+                try db.execute(
+                    sql: "INSERT INTO library_settings (key, value) VALUES (?, ?) "
+                       + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    arguments: [key, value]
+                )
+            }
+            return true
+        }
+    }
+
+    /// 上記の削除版。`conditionKey` の現在値が `expectedValue` と一致するときだけ
+    /// `keysToDelete` を全て単一トランザクションで削除する。
+    /// - Returns: 条件が一致し実際に削除したか。不一致なら false（DB は一切変更されない）。
+    public func compareAndDeleteLibrarySettings(conditionKey: String, expectedValue: String,
+                                                keysToDelete: [String]) throws -> Bool {
+        guard let q = queue, !keysToDelete.isEmpty else { return false }
+        return try q.write { db in
+            let current = try String.fetchOne(
+                db, sql: "SELECT value FROM library_settings WHERE key = ?", arguments: [conditionKey])
+            guard current == expectedValue else { return false }
+            for key in keysToDelete {
+                try db.execute(sql: "DELETE FROM library_settings WHERE key = ?", arguments: [key])
+            }
+            return true
+        }
+    }
+
     public func setLibrarySetting(key: String, value: String) throws {
         guard let q = queue else { return }
         try q.write { db in

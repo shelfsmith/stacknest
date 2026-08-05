@@ -1229,6 +1229,14 @@ public struct LibraryServerCore: Sendable {
         // G27a Task6: 既存ロックがある場合は変更にも現パスワードを要求する（解除と同じ扱いに揃える）。
         // 以前は変更が無検証だったため、解錠済みの端末を離席中に第三者がパスワードを上書きし
         // 所有権を奪えた（GUI の解除は元々パスワード必須だったのに対する非対称の脆弱性）。
+        // G27a task 8 (Codex High #1・TOCTOU): 以前は「検証してから無条件で書く」の 2 段が
+        // 分離しており、①攻撃者が旧パスワードで検証を通す → ②正規利用者が先に変更 →
+        // ③攻撃者の書き込みが後から着地して正規の変更を上書き、という compare-and-set 抜けの
+        // 窓があった。今は `verifiedCredential(for:)` が返す**照合した credential 世代**
+        // （遅延 PBKDF2 移行が起きていればその移行後の hash）を条件にした DB 側 compare-and-set
+        // （`Database.compareAndSetLibrarySettings`）へ書き込みを委ねる。移行後の hash を条件に
+        // 使うのは、移行自体が「この検証を起こした本人」による正当な値更新であり、移行前の hash を
+        // 条件にすると移行直後の書き込みが毎回「他者に変更された」と誤判定されてしまうため。
         api.post("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
@@ -1236,21 +1244,33 @@ public struct LibraryServerCore: Sendable {
             guard !body.password.isEmpty else { throw HTTPError(.badRequest) }
             // 既存ロックの有無は都度ライブから読む（resolver の isLocked スナップショットではなく、
             // このリクエスト内で最新の DB 値を見る）。
+            let expectedHash: String?
             if lib.currentLockCredential() != nil {
                 // 認証(admin bearer token)は通っているが、ロック自体の所有権証明（現パスワード）が
                 // 無い/誤っている → 403（401 ではない）。比較は LibraryLock.verifiedCredential 経由
                 // （constant-time 比較・旧形式からの遅延移行を再利用し、自前比較を書かない）。
                 guard let currentPassword = body.currentPassword, !currentPassword.isEmpty,
-                      lib.verifiedCredential(for: currentPassword) != nil else {
+                      let verified = lib.verifiedCredential(for: currentPassword) else {
                     throw HTTPError(.forbidden)
                 }
+                expectedHash = verified
+            } else {
+                // 新規施錠: 「hash キーがまだ存在しない」ことを条件にする
+                // （二重の同時「新規施錠」の race 防止）。
+                expectedHash = nil
             }
             let salt = LibraryLock.generateSalt()
             let hash = LibraryLock.computeHash(password: body.password, saltHex: salt)
             // G25c: salt と hash は**組で意味を持つ**ため単一トランザクションで書く。
             // 別々に書くと同時実行や外部変更と交錯して `salt B + hash A` が残り、
             // どのパスワードでも解錠できない庫になりうる。
-            try lib.db.setLibrarySettings(["lock_password_salt": salt, "lock_password_hash": hash])
+            let applied = try lib.db.compareAndSetLibrarySettings(
+                conditionKey: "lock_password_hash", expectedValue: expectedHash,
+                newValues: ["lock_password_salt": salt, "lock_password_hash": hash])
+            guard applied else {
+                // 検証に使った資格情報（または「未施錠」という前提）が既に古い。DB は未変更。
+                throw HTTPError(.conflict)
+            }
             self.notifySettingsChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }
@@ -1258,18 +1278,28 @@ public struct LibraryServerCore: Sendable {
         // G27a Task6: 既存ロックがあれば現パスワード必須（POST 変更と同じ規則）。DELETE のボディで
         // 受け取る（body 付き DELETE は本ファイルの shelves/:id/books で既に使っている作法）。
         // ロックが無ければボディ自体を省略でき、後方互換（旧クライアントの無ボディ DELETE）を壊さない。
+        // G27a task 8: 同上、compare-and-set に載せ替え（TOCTOU を閉じる）。
         api.delete("libraries/:lib/lock") { [self] request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
-            if lib.currentLockCredential() != nil {
-                let currentPassword = try await Self.decodeOptionalLockRemoveBody(request, context: context)
-                guard let currentPassword, !currentPassword.isEmpty,
-                      lib.verifiedCredential(for: currentPassword) != nil else {
-                    throw HTTPError(.forbidden)
-                }
+            guard lib.currentLockCredential() != nil else {
+                // ロックが無い: 消す物が無いので no-op 成功（旧クライアントの無ボディ DELETE と互換）。
+                self.notifySettingsChanged(lib.uuid)
+                return HTTPResponse.Status.noContent
+            }
+            let currentPassword = try await Self.decodeOptionalLockRemoveBody(request, context: context)
+            guard let currentPassword, !currentPassword.isEmpty,
+                  let verified = lib.verifiedCredential(for: currentPassword) else {
+                throw HTTPError(.forbidden)
             }
             // G25c: 解除も組でまとめて消す（片方だけ残る中間状態を作らない）。
-            try lib.db.deleteLibrarySettings(keys: ["lock_password_hash", "lock_password_salt"])
+            let applied = try lib.db.compareAndDeleteLibrarySettings(
+                conditionKey: "lock_password_hash", expectedValue: verified,
+                keysToDelete: ["lock_password_hash", "lock_password_salt"])
+            guard applied else {
+                // 検証に使った資格情報が既に古い（他者が同時に変更/解除した）。DB は未変更。
+                throw HTTPError(.conflict)
+            }
             self.notifySettingsChanged(lib.uuid)
             return HTTPResponse.Status.noContent
         }

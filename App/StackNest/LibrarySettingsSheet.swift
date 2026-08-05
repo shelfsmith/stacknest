@@ -8,6 +8,15 @@ import OSLog
 
 private let settingsLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettingsSheet")
 
+/// G27a task 8: `LibrarySettings.setLock`/`clearLock` の compare-and-set が期待値不一致で
+/// false を返したとき（＝検証に使った資格情報が既に古い＝他者が同時に変更/解除した）に使う
+/// 表示用エラー。DB エラーとは区別したメッセージを出すためだけの薄いラッパ。
+private struct LockConflictError: LocalizedError {
+    var errorDescription: String? {
+        "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。"
+    }
+}
+
 struct LibrarySettingsSheet: View {
     @Bindable var settings: LibrarySettings
     let bundleName: String
@@ -565,15 +574,28 @@ struct LibrarySettingsSheet: View {
             // G25c: salt/hash は組でまとめて消す（片方だけ残る中間状態を作らない）。
             // **書き込みの成功を後続の状態変更の前提にする** — 失敗を握り潰すと、UI 上は解除できたのに
             // DB にはロックが残り、生体設定と Keychain だけ消えた不整合になる。
-            do {
-                try settings.clearLock()
-            } catch {
-                settingsLogger.error("clearLock failed: \(error.localizedDescription, privacy: .public)")
-                presentLockWriteFailure(error)
-                // ロック以外の設定はここより前で永続化済み。ウォッチャーだけ取り残さないよう
-                // 成功時と同じく再構成してから抜ける（シートは閉じない＝再試行できる）。
-                appState?.reloadFolderWatcher()
-                return
+            //
+            // G27a task 8: 実際にロックが存在するときだけ compare-and-set で消す（存在しなければ
+            // 消す物が無いので呼ばない）。`expectedHash` はこの時点でメモリにある hash ―― トグルを
+            // 通した変更（confirmDisableLock 経由）はパスワード確認込みで既にメモリを揃えているので、
+            // ここで再度パスワードを求める必要はない。外部が同時にロックを変更/解除していた場合だけ
+            // CAS が不一致で弾く（DB は変更されない）。
+            if let currentHash = settings.lockPasswordHash {
+                do {
+                    guard try settings.clearLock(expectedHash: currentHash) else {
+                        settingsLogger.error("clearLock rejected: expected hash is stale (concurrent change)")
+                        presentLockWriteFailure(LockConflictError())
+                        appState?.reloadFolderWatcher()
+                        return
+                    }
+                } catch {
+                    settingsLogger.error("clearLock failed: \(error.localizedDescription, privacy: .public)")
+                    presentLockWriteFailure(error)
+                    // ロック以外の設定はここより前で永続化済み。ウォッチャーだけ取り残さないよう
+                    // 成功時と同じく再構成してから抜ける（シートは閉じない＝再試行できる）。
+                    appState?.reloadFolderWatcher()
+                    return
+                }
             }
             settings.useBiometric = false
             BiometricArming.disarm(settings)
@@ -592,7 +614,8 @@ struct LibrarySettingsSheet: View {
                 appState?.reloadFolderWatcher()
                 return
             }
-            guard applyNewLock(isChange: false) else { return }
+            // 新規施錠: 「hash キーがまだ存在しない」ことを条件にする（G27a task 8）。
+            guard applyNewLock(isChange: false, expectedHash: nil) else { return }
         } else if lockToggleOn && passwordInput.isEmpty {
             // 既存ロック保持、useBiometric だけ切替
             if useBiometricInput != settings.useBiometric {
@@ -643,10 +666,12 @@ struct LibrarySettingsSheet: View {
     /// **変更の場合、事前に現パスワードの検証を済ませてから**呼ぶこと（本関数自身は検証しない）。
     /// `isChange` は生体アームの分岐にのみ使う（変更時は同一 Mac でも次回 1 回だけ新パスワードの
     /// 再入力を求め、解錠シートの requirePassword 経由で再アームさせる）。
+    /// - Parameter expectedHash: 書き込み時点で DB 上にあるべき hash（G27a task 8・compare-and-set）。
+    ///   新規施錠は `nil`（「まだ存在しない」ことを条件にする）。変更は呼び出し側が検証に使った hash。
     /// - Returns: 書き込みに成功したか。false のとき、呼び出し側はシートを閉じずに抜けること
     ///   （presentLockWriteFailure 済み・ウォッチャーは本関数内で再構成済み）。
     @discardableResult
-    func applyNewLock(isChange: Bool) -> Bool {
+    func applyNewLock(isChange: Bool, expectedHash: String?) -> Bool {
         let salt = LibraryLock.generateSalt()
         let hash = LibraryLock.computeHash(password: passwordInput, saltHex: salt)
         // G25c: 設定シートでの施錠は「本人がパスワードを知っている証明」とみなし、この窓は解錠済みとする。
@@ -656,7 +681,13 @@ struct LibrarySettingsSheet: View {
         // **書き込みが成功してから**「この窓は解錠済み」と記録する。先に記録すると、
         // 書き込み失敗時に DB に存在しないハッシュを「検証済み」として保持してしまう。
         do {
-            try settings.setLock(hash: hash, salt: salt)
+            guard try settings.setLock(hash: hash, salt: salt, expectedHash: expectedHash) else {
+                // G27a task 8: 検証に使った資格情報（または「未施錠」という前提）が既に古い。
+                settingsLogger.error("setLock rejected: expected hash is stale (concurrent change)")
+                presentLockWriteFailure(LockConflictError())
+                appState?.reloadFolderWatcher()
+                return false
+            }
         } catch {
             settingsLogger.error("setLock failed: \(error.localizedDescription, privacy: .public)")
             presentLockWriteFailure(error)
