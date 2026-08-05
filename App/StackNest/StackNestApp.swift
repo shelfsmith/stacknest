@@ -409,8 +409,9 @@ struct LibraryWindowContainer: View {
     @State private var error: Error?
     @State private var hasLoaded = false
     @State private var frameObserver: WindowFrameObserver?
-    /// Q3-2-v3: sheet 表示中は NSApp.keyWindow が sheet panel を指すため、
-    /// host window への直接参照を保持して cancel 時に確実に close する。
+    /// Q3-2-v3: host window への直接参照を保持して cancel 時に確実に close する
+    /// （G27c で解錠 UI を .sheet からウィンドウ内描画へ移した後も、直接参照経由の
+    /// close は変える理由が無いため踏襲）。
     @State private var hostWindow: NSWindow?
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
@@ -457,8 +458,8 @@ struct LibraryWindowContainer: View {
                 if let oldURL {
                     appState?.closeBundle()
                     // G25b-1r/G25c: 旧 AppState を残したまま openBundleIfNeeded() の await を待つと、
-                    // その間だけ旧庫の状態で解錠シートの判定が走る。appState を nil にすると
-                    // contentView は ProgressView に落ちるため、幽霊解錠シートは生じない。
+                    // その間だけ旧庫の状態で解錠画面の判定が走る。appState を nil にすると
+                    // contentView は ProgressView に落ちるため、幽霊解錠画面は生じない。
                     // （G25b-1r では旧 @State 変数も併せて落としていたが、G25c で廃止したため不要になった。）
                     appState = nil
                     LibraryOpenLockManager.shared.release(bundleURL: oldURL)
@@ -488,58 +489,59 @@ struct LibraryWindowContainer: View {
             // G25c: 庫を開いた時点で固定される @State ではなく、現在のロック状態から都度導出する。
             // これにより開いた後に施錠された場合（設定シート／CLI・MCP／共有サーバ経由）も追従する。
             if appState.needsUnlock {
-                Color.clear
-                    .sheet(isPresented: .constant(true)) {
-                        let settings = appState.librarySettings
-                        LibraryUnlockSheet(
-                            bundleURL: bundleURL!,
-                            bundleName: bundleURL?.deletingPathExtension().lastPathComponent ?? "Library",
-                            salt: settings?.lockPasswordSalt ?? "",
-                            hash: settings?.lockPasswordHash ?? "",
-                            useBiometric: settings?.useBiometric ?? false,
-                            armedHash: { BiometricArming.armedHash(for: settings) },
-                            armThisMachine: { verifiedHash in
-                                // G25c: 現在値ではなく**検証したハッシュ**でアームする。
-                                BiometricArming.arm(settings, hash: verifiedHash)
-                                // 2.6g 以前の plaintext Keychain item を除去（one-shot、no-throw）
-                                if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
-                            },
-                            onUnlock: { verifiedHash in
-                                // G25c: 記録するのは**実際に検証が通ったハッシュ**（現在値ではない）。
-                                // 生体認証のプロンプト表示中に外部からパスワードが差し替えられた場合、
-                                // 記録値と現在値が食い違い isUnlocked は false のままになる＝素通りしない。
-                                appState.markUnlocked(hash: verifiedHash)
-                                // G25b-1r: ⌘⇧O が積んだ保留 resume を解錠成功後に開く（1 回だけ）。
-                                // isUnlocked を立てた直後はまだ解錠シートが表示中で、その最中に
-                                // ビューア窓を開くとシート解除と競合しうる。同ファイルの onCancel が
-                                // 同じ理由で main.async を使っているのに倣い、1 tick 遅らせる。
-                                DispatchQueue.main.async {
-                                    appState.consumePendingResume()
-                                }
-                            },
-                            onCancel: {
-                                if let url = bundleURL {
-                                    LibraryOpenLockManager.shared.release(bundleURL: url)
-                                    OpenLibraryRegistry.shared.unregister(url)
-                                }
-                                // Q3-2-v3: sheet 表示中は NSApp.keyWindow が sheet panel を指すため
-                                // host window を直接 close する。これにより sheet 自動再 attach を防ぐ。
-                                // hostWindow が nil の場合のみ keyWindow へフォールバック。
-                                DispatchQueue.main.async {
-                                    (hostWindow ?? NSApp.keyWindow)?.close()
-                                }
-                            },
-                            // G23 (#8): 旧形式（生 SHA-256）のハッシュを PBKDF2 形式へ移行する。
-                            // lockPasswordHash は didSet で DB へ永続化される。この代入は
-                            // armThisMachine より前に走るため、再アーム時の armedHash も新形式になる。
-                            onUpgradeHash: { verifiedAgainst, upgraded in
-                                // G25c: DB 層の原子的 compare-and-set に委ねる（メモリ比較では
-                                // 別プロセス／別 Mac による差し替えを検出できず、外部設定の新パスワードを
-                                // 巻き戻してしまう）。戻り値は**実際に DB を更新したか**。
-                                settings?.upgradeLockHash(verifiedAgainst: verifiedAgainst, to: upgraded) ?? false
-                            }
-                        )
+                // G27c: シート添付中は AppKit が terminate: を実行できず ⌘Q/quit が -128 で
+                // 失敗する不具合の原因だったため、.sheet をやめてウィンドウ本体に直接描く
+                // （RemoteLibraryView.unlockForm と同じ形）。フォーム自体は幅固定のまま、
+                // 外側の .frame(minWidth:minHeight:) が既定の中央寄せで囲む。
+                let settings = appState.librarySettings
+                LibraryUnlockView(
+                    bundleURL: bundleURL!,
+                    bundleName: bundleURL?.deletingPathExtension().lastPathComponent ?? "Library",
+                    salt: settings?.lockPasswordSalt ?? "",
+                    hash: settings?.lockPasswordHash ?? "",
+                    useBiometric: settings?.useBiometric ?? false,
+                    armedHash: { BiometricArming.armedHash(for: settings) },
+                    armThisMachine: { verifiedHash in
+                        // G25c: 現在値ではなく**検証したハッシュ**でアームする。
+                        BiometricArming.arm(settings, hash: verifiedHash)
+                        // 2.6g 以前の plaintext Keychain item を除去（one-shot、no-throw）
+                        if let url = bundleURL { LibraryLock.purgeLegacyKeychainItem(bundleURL: url) }
+                    },
+                    onUnlock: { verifiedHash in
+                        // G25c: 記録するのは**実際に検証が通ったハッシュ**（現在値ではない）。
+                        // 生体認証のプロンプト表示中に外部からパスワードが差し替えられた場合、
+                        // 記録値と現在値が食い違い isUnlocked は false のままになる＝素通りしない。
+                        appState.markUnlocked(hash: verifiedHash)
+                        // G25b-1r: ⌘⇧O が積んだ保留 resume を解錠成功後に開く（1 回だけ）。
+                        // isUnlocked を立てた直後はまだ解錠画面が表示中で、その最中に
+                        // ビューア窓を開くと表示切り替えと競合しうる。同ファイルの onCancel が
+                        // 同じ理由で main.async を使っているのに倣い、1 tick 遅らせる。
+                        DispatchQueue.main.async {
+                            appState.consumePendingResume()
+                        }
+                    },
+                    onCancel: {
+                        if let url = bundleURL {
+                            LibraryOpenLockManager.shared.release(bundleURL: url)
+                            OpenLibraryRegistry.shared.unregister(url)
+                        }
+                        // G27c: インライン化により NSApp.keyWindow は常にこの host window を
+                        // 指すが、既存の直接参照経由の close は変えずに踏襲する。
+                        DispatchQueue.main.async {
+                            (hostWindow ?? NSApp.keyWindow)?.close()
+                        }
+                    },
+                    // G23 (#8): 旧形式（生 SHA-256）のハッシュを PBKDF2 形式へ移行する。
+                    // lockPasswordHash は didSet で DB へ永続化される。この代入は
+                    // armThisMachine より前に走るため、再アーム時の armedHash も新形式になる。
+                    onUpgradeHash: { verifiedAgainst, upgraded in
+                        // G25c: DB 層の原子的 compare-and-set に委ねる（メモリ比較では
+                        // 別プロセス／別 Mac による差し替えを検出できず、外部設定の新パスワードを
+                        // 巻き戻してしまう）。戻り値は**実際に DB を更新したか**。
+                        settings?.upgradeLockHash(verifiedAgainst: verifiedAgainst, to: upgraded) ?? false
                     }
+                )
+                .frame(minWidth: 720, minHeight: 480)
             } else {
             NavigationSplitView {
                 SidebarView(appState: appState)
@@ -678,7 +680,7 @@ struct LibraryWindowContainer: View {
             // 「施錠されていない」は含めない（＝庫を開いた時点では常に false）。
             // 未施錠を true で表すと、開いた後に施錠された場合（設定シート／CLI・MCP／共有サーバ経由）に
             // 「解錠していないのに解錠済み」になり、⌘⇧O がロックを迂回する。
-            // G25c: 解錠シートの表示条件も AppState.needsUnlock から都度導出するため、
+            // G25c: 解錠画面の表示条件も AppState.needsUnlock から都度導出するため、
             // ここで表示用のフラグを別に持つ必要はない（施錠の有無は librarySettings が正）。
             state.markUnlocked(hash: nil)
         } catch {
