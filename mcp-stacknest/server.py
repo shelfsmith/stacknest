@@ -404,5 +404,26 @@ def stacknest_label_set(library: str, settings: dict, library_token: str | None 
     return cli.label_set(library, settings, library_token=library_token)
 
 
+# --- ライブラリ開閉（ローカル制御専用・G27b Task7）---
+
+@mcp.tool()
+def stacknest_library_open(path: str) -> Any:
+    """パスを指定してライブラリウィンドウを開く（ウィンドウが無いライブラリを headless で操作可能にする）。
+    既にそのパスが開いていれば新規ウィンドウは開かず、既存の uuid をそのまま返す。
+    施錠庫でも開ける（解錠画面が表示された状態で開く。以後の操作には stacknest_unlock が必要）。
+    存在しない/非対応パスはエラーになる。
+    **ローカル制御専用** ―― StackNest 起動中の同一 Mac からのみ動作し、共有サーバ経由では使えない。"""
+    return cli.library_open(path)
+
+
+@mcp.tool()
+def stacknest_library_close(uuid: str) -> str:
+    """uuid を指定してライブラリウィンドウを閉じる。uuid は stacknest_libraries や
+    stacknest_library_open の戻り値で確認する。
+    **ローカル制御専用** ―― StackNest 起動中の同一 Mac からのみ動作し、共有サーバ経由では使えない。"""
+    cli.library_close(uuid)
+    return f"closed library {uuid}"
+
+
 if __name__ == "__main__":
     mcp.run()

@@ -58,6 +58,20 @@ public struct LibraryServerConfig: Sendable {
     /// （実運用の他インスタンスの temp を誤って掃除しかねない）。実サーバ起動経路
     /// （ServerController.start / LocalControlController.startIfEnabled）だけが true を渡す。
     public var sweepRuntimeTempOnStartup: Bool
+    /// G27b Task7: `/local/libraries/open` `/local/libraries/close` ルートを登録するかどうか。
+    /// 任意パスを開ける API は実質的なファイルシステム探索になるため、**既定は false**。
+    /// true にできるのは `LocalControlController`（127.0.0.1 専用）だけ — `ServerController`
+    /// （共有サーバ）は絶対に true にしないこと。これがルートの有無そのものを分ける唯一のゲートで、
+    /// フラグが false の buildApplication() はこのルートを一切登録しない（tier 判定より手前の防御・
+    /// 共有サーバ側では 404 になる）。
+    public var enableLocalLibraryControl: Bool
+    /// 庫を「開く」実装（App 層が注入）。既存の GUI ウィンドウ経路（openWindow）に乗せるため、
+    /// 実装はロック取得・初回起動・状態復元をすべて App 層に委ねる。戻り値は開いた（または既に
+    /// 開いていた）庫の UUID。失敗は `LocalLibraryControlError` を投げること（App 層は Hummingbird
+    /// を知らなくて済むよう、ルートハンドラ側でこれを HTTPError にマップする）。
+    public var openLibrary: (@Sendable (URL) async throws -> String)?
+    /// 庫を「閉じる」実装（App 層が注入）。該当 UUID のウィンドウを閉じる。
+    public var closeLibrary: (@Sendable (String) async throws -> Void)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -73,7 +87,10 @@ public struct LibraryServerConfig: Sendable {
                 grantsProvider: (@Sendable () -> [Grant])? = nil,
                 grantRepository: (any GrantRepository)? = nil,
                 onScanNowRequested: (@Sendable (String) -> Void)? = nil,
-                sweepRuntimeTempOnStartup: Bool = false) {
+                sweepRuntimeTempOnStartup: Bool = false,
+                enableLocalLibraryControl: Bool = false,
+                openLibrary: (@Sendable (URL) async throws -> String)? = nil,
+                closeLibrary: (@Sendable (String) async throws -> Void)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -90,7 +107,24 @@ public struct LibraryServerConfig: Sendable {
         self.grantRepository = grantRepository
         self.onScanNowRequested = onScanNowRequested
         self.sweepRuntimeTempOnStartup = sweepRuntimeTempOnStartup
+        self.enableLocalLibraryControl = enableLocalLibraryControl
+        self.openLibrary = openLibrary
+        self.closeLibrary = closeLibrary
     }
+}
+
+/// G27b Task7: ローカル制御のライブラリ開閉クロージャ（`LibraryServerConfig.openLibrary` /
+/// `closeLibrary`）が投げるエラー。App 層は Hummingbird 型を知らずに済み、
+/// LibraryServerCore 側のルートハンドラがこれを適切な HTTPError にマップする。
+public enum LocalLibraryControlError: Error, Sendable {
+    /// 指定パスが存在しない、またはライブラリバンドルとして妥当でない。
+    case invalidPath(String)
+    /// close で指定した UUID の庫が（このプロセス内で）開いていない。
+    case notFound
+    /// open 後、庫のロード完了（AppState 登録）を待ったがタイムアウトした。
+    case timeout
+    /// アプリの起動が完了しておらず openWindow を呼べる状態にない（起動直後の極めて短い窓）。
+    case bridgeUnavailable
 }
 
 /// LibraryServer 共通の RequestContext。JSON の Date を ISO8601 に固定する
@@ -1923,6 +1957,51 @@ public struct LibraryServerCore: Sendable {
             headers[.cacheControl] = "no-cache"
             headers[.connection] = "keep-alive"
             return Response(status: .ok, headers: headers, body: .init(asyncSequence: frames))
+        }
+        // G27b Task7: ローカル制御専用のライブラリ開閉（127.0.0.1 限定・共有サーバには絶対に出さない）。
+        //
+        // 任意パスを開ける API は実質的なファイルシステム探索になる。既存の `api`（/api/v1）group には
+        // **絶対に**混ぜず、独立した `local` group として、config.enableLocalLibraryControl が true の
+        // ときだけ登録する。ServerController（共有サーバ）はこのフラグを立てないため、buildApplication()
+        // はこのブロック自体を実行せず、ルートが router に一切存在しない ―― 共有サーバ側では
+        // BearerAuthMiddleware の 401/403 にすら到達せず 404 になる（ルート不在が唯一かつ最終的な
+        // ゲート。tier チェックだけに頼らない ―― 将来 tier 昇格の穴が空いても共有サーバには出ない）。
+        //
+        // 認証自体は多層防御として api group と同じ BearerAuthMiddleware（adminTier）を適用する
+        // （LocalControlController は adminTier: true で構成しているため、提示した RW トークンが
+        // そのまま admin として扱われる・grants CRUD と同じ扱い）。
+        if config.enableLocalLibraryControl {
+            let local = router.group("local")
+                .add(middleware: BearerAuthMiddleware(token: config.token, editToken: config.editToken, adminTier: config.adminTier, grantsProvider: effectiveGrantsProvider, sessionTokenStore: sessionTokenStore))
+            local.post("libraries/open") { [openLibrary = config.openLibrary] request, context in
+                try context.requireAdmin()
+                guard let openLibrary else { throw HTTPError(.notImplemented) }
+                let body = try await request.decode(as: OpenLibraryRequest.self, context: context)
+                do {
+                    let uuid = try await openLibrary(URL(fileURLWithPath: body.path))
+                    return OpenLibraryReply(uuid: uuid)
+                } catch let e as LocalLibraryControlError {
+                    switch e {
+                    case .invalidPath: throw HTTPError(.badRequest)
+                    case .notFound: throw HTTPError(.notFound)
+                    case .timeout, .bridgeUnavailable: throw HTTPError(.internalServerError)
+                    }
+                }
+            }
+            local.post("libraries/close") { [closeLibrary = config.closeLibrary] request, context in
+                try context.requireAdmin()
+                guard let closeLibrary else { throw HTTPError(.notImplemented) }
+                let body = try await request.decode(as: CloseLibraryRequest.self, context: context)
+                do {
+                    try await closeLibrary(body.uuid)
+                } catch let e as LocalLibraryControlError {
+                    switch e {
+                    case .notFound: throw HTTPError(.notFound)
+                    case .invalidPath, .timeout, .bridgeUnavailable: throw HTTPError(.badRequest)
+                    }
+                }
+                return HTTPResponse.Status.noContent
+            }
         }
         // 静的 Web クライアント配信（認証不要 — ペアリング前にアプリ本体を読み込むため）。
         // FileMiddleware はルート未一致（.notFound）時のフォールバックとして働く: ルータ直登録

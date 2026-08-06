@@ -322,4 +322,23 @@ struct APIClient {
     func labelPut(uuid: String, json: Data) throws -> Data {
         try request(makeURL("/libraries/\(uuid)/label-settings"), method: "PUT", body: json)
     }
+
+    // MARK: - ライブラリ開閉（ローカル制御専用・G27b Task7）
+    //
+    // /api/v1 配下ではなく /local 配下（apiBase を経由しない）。共有サーバにはこのルート自体が
+    // 存在しない（LibraryServerConfig.enableLocalLibraryControl は LocalControlController だけが true）。
+
+    /// POST /local/libraries/open {path} → JSON Data（OpenLibraryReply）
+    func openLibrary(path: String) throws -> Data {
+        let body = try encoder.encode(OpenLibraryRequest(path: path))
+        let url = URL(string: endpoint.baseURL + "/local/libraries/open")!
+        return try request(url, method: "POST", body: body)
+    }
+
+    /// POST /local/libraries/close {uuid} → 204
+    func closeLibrary(uuid: String) throws {
+        let body = try encoder.encode(CloseLibraryRequest(uuid: uuid))
+        let url = URL(string: endpoint.baseURL + "/local/libraries/close")!
+        _ = try request(url, method: "POST", body: body)
+    }
 }

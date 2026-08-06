@@ -50,6 +50,7 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
                limit: int | None = None, preset: str | None = None, trash: bool = False,
                paths: list[str] | None = None, ids: list[int] | None = None,
                book_id: int | None = None, field: str | None = None,
+               text: str | None = None,
                fields: dict[str, Any] | None = None,
                json_output: bool = True,
                sub: str | None = None,
@@ -98,6 +99,8 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
         positionals.append(str(book_id))
     if field is not None:
         positionals.append(field)
+    if text is not None:
+        positionals.append(text)
     if ids:
         positionals += [str(i) for i in ids]
     if paths:
@@ -557,3 +560,20 @@ def label_set(library: str, settings: dict, *, library_token: str | None = None)
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("label", sub="set", library=library,
                                    flags={"settings-json": json.dumps(settings)}), library_token=tok)))
+
+
+# --- ライブラリ開閉（ローカル制御専用・G27b Task7）---
+#
+# サーバ側は /local/libraries/open,close を 127.0.0.1 のローカル制御にのみ持つ（共有サーバに
+# --url で繋いだ CLI では 404 になる）。ここは _with_library（ロック庫の自動再解錠）を使わない
+# ―― これから開く/閉じる庫は library_token 前提の対象ではない（open は対象がまだ無い、
+# close は uuid 指定でありそもそもロック解錠の話ではない）。
+
+def library_open(path: str) -> Any:
+    """パスを指定してライブラリウィンドウを開く（既に開いていれば新規ウィンドウを開かず既存 uuid を返す）。"""
+    return json.loads(run(build_argv("library", sub="open", paths=[path])))
+
+
+def library_close(uuid: str) -> None:
+    """uuid を指定してライブラリウィンドウを閉じる。"""
+    run(build_argv("library", sub="close", text=uuid, json_output=False))

@@ -906,3 +906,23 @@ public struct GrantUpdateRequest: Codable, Sendable {
         self.label = label; self.tier = tier; self.scope = scope
     }
 }
+
+// MARK: - G27b Task7: ローカル制御専用のライブラリ開閉（127.0.0.1 限定・共有サーバには出さない）
+
+/// POST /local/libraries/open のリクエストボディ。path はローカルファイルシステム上の絶対パス。
+public struct OpenLibraryRequest: Codable, Sendable {
+    public var path: String
+    public init(path: String) { self.path = path }
+}
+
+/// POST /local/libraries/open の応答。開いた（または既に開いていた）ライブラリの UUID。
+public struct OpenLibraryReply: Codable, Sendable {
+    public var uuid: String
+    public init(uuid: String) { self.uuid = uuid }
+}
+
+/// POST /local/libraries/close のリクエストボディ。
+public struct CloseLibraryRequest: Codable, Sendable {
+    public var uuid: String
+    public init(uuid: String) { self.uuid = uuid }
+}
