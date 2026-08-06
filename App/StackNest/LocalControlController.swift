@@ -131,23 +131,84 @@ final class LocalControlController {
 
     // MARK: - G27b Task7: ローカル制御からのライブラリ開閉
 
+    /// レビュー修正（G27b Task7 fixup）: 同一パスへの同時 open 要求の直列化。
+    ///
+    /// `openLibrary(at:)` はウィンドウが実際に開き `AppState` が `activeInstances` に現れるまで
+    /// 最大 2.5s、50ms 刻みで `await Task.sleep` する。その await のたびに MainActor を手放すため、
+    /// 待っている間に**同じパスへの 2 本目の open 要求**が来ると、まだ `activeInstances` に
+    /// 現れていない（＝「既に開いている」判定に引っかからない）ため `openWindowAction` を
+    /// もう一度呼んでしまう。
+    ///
+    /// 実害の調査結果（Codex レビュー指摘への回答）: **2 つ目の `AppState`・DB・FolderWatcher が
+    /// 実際に生成されることは無い。** `LibraryWindowContainer.openBundleIfNeeded()` は
+    /// `OpenLibraryRegistry.shared.register(bundleURL)` の判定 → `AppState` 生成 → `openBundle()`
+    /// （DB open・`finishOpening()` 内の `activeInstances.add(self)` と `reloadFolderWatcher()` を含む）
+    /// まで**内部に `await` を一切含まない**（`register`/`acquire` は同期メソッド、`openBundle()` は
+    /// 非 async の `throws` 関数）。Swift の協調スケジューリングでは、suspension point の無い
+    /// MainActor 上のコードは他の MainActor Task に横入りされない——つまり 2 つのウィンドウが両方
+    /// `.onAppear` で `openBundleIfNeeded()` を起動しても、片方が `register()` から
+    /// `reloadFolderWatcher()` まで**丸ごと 1 つの atomic 単位**として先に完走し、
+    /// もう一方は起動した時点で必ず `register() == false` を見て `AppState` を作る前に
+    /// `dismiss()` する。したがって DB 二重書き込み・監視フォルダの二重取込・二重バックアップは
+    /// 起こり得ない——実害はウィンドウが一瞬多重に生成されて畳まれる「ちらつき」のみ。
+    ///
+    /// とはいえ、この安全性は `openBundleIfNeeded()` 側の実装詳細（内部に await が無いこと）に
+    /// 暗黙に依存しており壊れやすいため、ここでも同時 open を明示的に直列化する
+    /// ―― 2 本目以降は `openWindowAction` を呼ばず、進行中の 1 本目の結果（Task）を待って
+    /// 同じ uuid を返す。
+    ///
+    /// キーは `standardizedFileURL.path`。`AppState.bundleURL` との一致判定・
+    /// `OpenLibraryRegistry` の正規化と同じ基準に揃えている（symlink 解決はしない）。
+    /// これ以上厳密な正規化（`resolvingSymlinksInPath()` 等）をここだけに入れると、
+    /// 「直列化はされるが `OpenLibraryRegistry` は別物として扱う」という新たな不整合を生むため、
+    /// 既存の正規化粒度に意図的に合わせている。
+    private static var inFlightOpens: [String: Task<String, Error>] = [:]
+
+    /// テスト専用の注入フック。非 nil ならウィンドウ実体・`WindowBridge` を経由せずこの closure を
+    /// 呼ぶ。本番は常に nil。実 `NSWindow` を作れない App-target テストから、`inFlightOpens` による
+    /// 直列化ロジック（同一パスへの同時 open が「ウィンドウを開く」動作を 1 回しか起こさないこと）
+    /// だけを検証するための唯一の注入点（`App/StackNestTests/LocalControlControllerOpenSerializationTests.swift`）。
+    static var testOpenWindowHook: ((URL) -> Void)?
+
     /// `POST /local/libraries/open` の実装。既存の GUI ウィンドウ経路（openWindow(value:)）に乗せる
     /// ―― こうすることでロック取得（LibraryOpenLockManager）・初回起動・ウィンドウ再利用・状態復元が
     /// すべて既存のコードパス（StackNestApp.swift の LibraryWindowContainer）で処理される。
     /// 施錠庫でもここでは何もしない（解錠画面が出るだけ・G27c でインライン化済みのためアプリは終了可能）。
     ///
     /// 既に開いている庫（AppState.activeInstances に bundleURL が一致する状態がある）なら、
-    /// 新規ウィンドウを開かずその UUID をそのまま返す。
+    /// 新規ウィンドウを開かずその UUID をそのまま返す。同一パスへの同時呼び出しは直列化する
+    /// （`inFlightOpens` を参照）。
     @MainActor
     static func openLibrary(at url: URL) async throws -> String {
         let standardized = url.standardizedFileURL
+        let key = standardized.path
 
         if let existing = AppState.activeInstances.allObjects.first(where: {
-            $0.bundleURL.standardizedFileURL.path == standardized.path
+            $0.bundleURL.standardizedFileURL.path == key
         }), let settings = existing.librarySettings {
             return settings.ensureLibraryUUID()
         }
 
+        // 同じパスへの open が既に進行中なら、新規ウィンドウは開かずその結果を待つ。
+        // ここから inFlightOpens への読み書きは await を挟まないため、2 本の呼び出しが
+        // 「同時」に来ても片方が必ず先に Task を登録し終えてからもう片方が参照する
+        // （MainActor 上の非 suspending なコードは横入りされない）。
+        if let inFlight = inFlightOpens[key] {
+            return try await inFlight.value
+        }
+
+        let task = Task<String, Error> { @MainActor in
+            defer { inFlightOpens[key] = nil }   // 成功・失敗・タイムアウトいずれでも必ず解放する
+            return try await Self.performOpen(at: standardized)
+        }
+        inFlightOpens[key] = task
+        return try await task.value
+    }
+
+    /// `openLibrary(at:)` の直列化ラッパから 1 回だけ呼ばれる実体。
+    /// パス検証 → openWindowAction → AppState 登録待ちポーリングを行う。
+    @MainActor
+    private static func performOpen(at standardized: URL) async throws -> String {
         // ウィンドウを開く前にパスの妥当性を確認する（不正パスで空ウィンドウを開いてから
         // 失敗させない ―― 「存在しない/非対応パスはクリーンに失敗する」という要件のため）。
         do {
@@ -156,16 +217,21 @@ final class LocalControlController {
             throw LocalLibraryControlError.invalidPath(standardized.path)
         }
 
-        guard let openWindowAction = WindowBridge.shared.openWindowAction else {
-            // Bridge ウィンドウのマウント前（起動直後のごく短い window）。
-            throw LocalLibraryControlError.bridgeUnavailable
+        if let testHook = Self.testOpenWindowHook {
+            testHook(standardized)
+        } else {
+            guard let openWindowAction = WindowBridge.shared.openWindowAction else {
+                // Bridge ウィンドウのマウント前（起動直後のごく短い window）。
+                throw LocalLibraryControlError.bridgeUnavailable
+            }
+            openWindowAction(value: standardized)
         }
-        openWindowAction(value: standardized)
 
         // AppState の生成・librarySettings のロードは非同期
         // （LibraryWindowContainer.openBundleIfNeeded → AppState.openBundle）。
-        // LibraryWindowContainer 自身も librarySettings 到達を最大 2.5s ポーリングしているのに倣う。
-        for _ in 0..<100 {
+        // LibraryWindowContainer 自身も librarySettings 到達を最大 50 回 × 50ms = 2.5s ポーリングして
+        // いるのに倣う（同じ待ち幅に揃える）。
+        for _ in 0..<50 {
             if let match = AppState.activeInstances.allObjects.first(where: {
                 $0.bundleURL.standardizedFileURL.path == standardized.path
             }), let settings = match.librarySettings {
