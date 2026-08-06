@@ -12,13 +12,18 @@ import AppCore
 @Suite("maintenance endpoints (G12b-3a)", .serialized)
 struct MaintenanceEndpointTests {
 
-    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false,
-                          onScanNowRequested: (@Sendable (String) -> Void)? = nil) -> some ApplicationProtocol {
+    private func makeCore(fixture: TestLibraryFixture, adminTier: Bool = false,
+                           onScanNowRequested: (@Sendable (String) -> Void)? = nil) -> LibraryServerCore {
         LibraryServerCore(
             config: .init(port: 0, token: "R", editToken: "W", adminTier: adminTier,
                           onScanNowRequested: onScanNowRequested),
             dataSource: StaticLibraryDataSource(libraries: [fixture.servedLibrary()])
-        ).buildApplication()
+        )
+    }
+
+    private func makeApp(fixture: TestLibraryFixture, adminTier: Bool = false,
+                          onScanNowRequested: (@Sendable (String) -> Void)? = nil) -> some ApplicationProtocol {
+        makeCore(fixture: fixture, adminTier: adminTier, onScanNowRequested: onScanNowRequested).buildApplication()
     }
 
     /// GET /integrity-check: 新規 DB は healthy==true, rows==["ok"]。edit トークンは 403。
@@ -141,13 +146,16 @@ struct MaintenanceEndpointTests {
         let fx = try TestLibraryFixture(name: "MtAdmin", bookCount: 3)
         defer { fx.cleanup() }
         let lib = fx.servedLibrary()
-        let app = makeApp(fixture: fx, adminTier: true)
-        try await app.test(.router) { client in
+        let core = makeCore(fixture: fx, adminTier: true)
+        try await core.buildApplication().test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/libraries/\(lib.uuid)/maintenance/complete-metadata",
                 method: .post, headers: [.authorization: "Bearer W"]
             ) { resp in #expect(resp.status == .accepted) }
         }
+        // 実ジョブが fixture の DB に触れ続けているので、完走を確定的に確認してから
+        // defer の cleanup() へ進む（複数 target と同じ Task.sleep の当てずっぽうにしない）。
+        try await waitForMaintenanceJobToFinish(registry: core.maintenanceRegistry, library: lib.uuid)
     }
 
     /// POST /maintenance/compress-covers: edit トークンは 403。
@@ -169,13 +177,16 @@ struct MaintenanceEndpointTests {
         let fx = try TestLibraryFixture(name: "CcAdmin", bookCount: 3)
         defer { fx.cleanup() }
         let lib = fx.servedLibrary()
-        let app = makeApp(fixture: fx, adminTier: true)
-        try await app.test(.router) { client in
+        let core = makeCore(fixture: fx, adminTier: true)
+        try await core.buildApplication().test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/libraries/\(lib.uuid)/maintenance/compress-covers",
                 method: .post, headers: [.authorization: "Bearer W"]
             ) { resp in #expect(resp.status == .accepted) }
         }
+        // 実ジョブが fixture の DB/表紙ファイルに触れ続けているので、完走を確定的に確認してから
+        // defer の cleanup() へ進む（Task.sleep の当てずっぽうにしない）。
+        try await waitForMaintenanceJobToFinish(registry: core.maintenanceRegistry, library: lib.uuid)
     }
 
     /// POST /maintenance/cancel: edit トークンは 403。
