@@ -1436,6 +1436,18 @@ public struct LibraryServerCore: Sendable {
             await self.maintenanceRegistry.cancel(library: lib.uuid)
             return HTTPResponse.Status.noContent
         }
+        // G27b: メンテナンス進捗の問い合わせ（隣接する maintenance ルートと同じ admin 権限）。
+        // 31 時間規模のフルスキャンを CLI から SSE を張らずに確認できるようにする。
+        api.get("libraries/:lib/maintenance/status") { request, context in
+            try context.requireAdmin()
+            let lib = try await resolver.resolveLibrary(request, context)
+            guard let status = await self.maintenanceRegistry.status(library: lib.uuid) else {
+                return MaintenanceStatusReply(running: false)
+            }
+            return MaintenanceStatusReply(
+                running: true, job: status.job, done: status.done, total: status.total,
+                startedAt: Int64(status.startedAt.timeIntervalSince1970))
+        }
         // G14: リモートサイドバーの安定件数（ライブラリ総数・最近件数）。scope 非依存。read で可。
         api.get("libraries/:lib/counts") { request, context in
             let lib = try await resolver.resolveLibrary(request, context)

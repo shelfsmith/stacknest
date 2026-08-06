@@ -34,3 +34,4 @@ extension IntegrityCheckDTO: ResponseEncodable {}
 extension PresetSetDTO: ResponseEncodable {}
 extension BookRestoreDTO: ResponseEncodable {}
 extension RestoreResultDTO: ResponseEncodable {}
+extension MaintenanceStatusReply: ResponseEncodable {}

@@ -768,6 +768,22 @@ public struct LibraryCountsDTO: Codable, Sendable {
     }
 }
 
+// MARK: - G27b: メンテナンス進捗照会
+
+/// GET libraries/:lib/maintenance/status 応答。31 時間規模のフルスキャンなど長時間ジョブを、
+/// SSE を張り続けずに問い合わせられるようにする（registry が保持する最新進捗をそのまま運ぶ）。
+public struct MaintenanceStatusReply: Codable, Sendable, Equatable {
+    public var running: Bool
+    public var job: String?
+    public var done: Int?
+    public var total: Int?
+    /// epoch 秒。実行中でなければ nil。
+    public var startedAt: Int64?
+    public init(running: Bool, job: String? = nil, done: Int? = nil, total: Int? = nil, startedAt: Int64? = nil) {
+        self.running = running; self.job = job; self.done = done; self.total = total; self.startedAt = startedAt
+    }
+}
+
 // MARK: - G12b-3c: リモート命名プリセット集合 GET/PUT
 
 /// 命名プリセット集合＋既定 id（GET/PUT libraries/:lib/presets 用）。
