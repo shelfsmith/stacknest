@@ -74,6 +74,72 @@ struct MaintenanceJobStatusTests {
         #expect(status == nil)
     }
 
+    /// レビュー指摘の回帰: A 完了直後に同一 library で B が start された場合、A の
+    /// 遅延 progress（finish(A) より後にこの actor 上で実行される最後の progress(...)）が
+    /// statuses[l] を B から A へ**取り違えて上書き**しないこと。
+    ///
+    /// `Task.sleep` による祈りではなく、A の `progress` クロージャを外へ捕捉して**呼ばずに**
+    /// run(A) を return させる（→ finish(A) が確実に先に完了する）→ B を start する→
+    /// その後で**明示的に**捕捉した A の progress を呼んで「遅れて届いた A の通知」を再現する、
+    /// という順序を onFinished/onProgress コールバック駆動の AsyncGate で強制する。
+    @Test func staleProgressFromFinishedJobDoesNotOverwriteNewerJob() async throws {
+        nonisolated(unsafe) var capturedProgressA: (@Sendable (Int, Int) -> Void)?
+        let aFinished = AsyncGate()
+        let lateProgressDelivered = AsyncGate()
+
+        let reg = MaintenanceJobRegistry(
+            onProgress: { l, j, d, t in
+                if l == "L", j == "A", d == 3, t == 3 {
+                    Task { await lateProgressDelivered.open() }
+                }
+            },
+            onFinished: { l, j, _, _ in
+                if l == "L", j == "A" {
+                    Task { await aFinished.open() }
+                }
+            }
+        )
+
+        // ジョブ A: progress は「呼ばずに」参照だけ外へ捕捉し、即 return する
+        // （= すぐ finish(A) が走る。まだ捕捉した progress は一度も呼んでいない）。
+        let startedA = await reg.start(library: "L", job: "A") { progress, _ in
+            capturedProgressA = progress
+            return 1
+        }
+        #expect(startedA == true)
+        // onFinished(A) の発火を待つ = finish(A) 完了（running/statuses から A が消えたこと）を
+        // 確定させる。同じ Task 内で capturedProgressA の代入 → run 完了 → finish の順に
+        // 実行されるため、ここまで来れば代入は必ず完了している。
+        await aFinished.wait()
+        let progressA = try #require(capturedProgressA)
+        let idleAfterAFinished = await reg.status(library: "L")
+        #expect(idleAfterAFinished == nil)
+
+        // ジョブ B を同一 library で start する（A は finish 済みなので busy にならない）。
+        let bGate = AsyncGate()
+        let startedB = await reg.start(library: "L", job: "B") { _, _ in
+            await bGate.wait()
+            return 5
+        }
+        #expect(startedB == true)
+        let statusAfterBStart = await reg.status(library: "L")
+        #expect(statusAfterBStart?.job == "B")
+
+        // ここで「保留していた A の遅延 progress」を明示的に解放する（finish(A) 後・B 実行中）。
+        // ジョブ単位でガードしていなければ、この呼び出しが statuses["L"] を
+        // job:"A", done:3, total:3 へ取り違えて上書きしてしまう。
+        progressA(3, 3)
+        await lateProgressDelivered.wait()
+
+        let statusAfterLateProgress = await reg.status(library: "L")
+        #expect(statusAfterLateProgress?.job == "B")
+        #expect(statusAfterLateProgress?.done == 0)
+        #expect(statusAfterLateProgress?.total == 0)
+
+        await bGate.open()
+        try await Task.sleep(for: .milliseconds(50))
+    }
+
     /// 回帰: 実行中に 2 本目の start を呼ぶと引き続き busy(false)。既存の SSE
     /// progress/finished コールバックも status 追跡の追加後に変わらず発火する
     /// （complete-metadata / compress-covers が依存している契約）。
