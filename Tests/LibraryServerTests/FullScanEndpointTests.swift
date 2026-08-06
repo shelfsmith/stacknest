@@ -47,6 +47,9 @@ struct FullScanEndpointTests {
             let status = try await postFullScan(client, uuid: lib.uuid, mode: "unchecked")
             #expect(status == .accepted)
         }
+        // 実ジョブがバックグラウンドで fixture の DB に触れ続けているので、
+        // 確実に完走してから defer の cleanup() へ進む（Task.sleep の当てずっぽうにしない）。
+        try await waitForMaintenanceJobToFinish(registry: core.maintenanceRegistry, library: lib.uuid)
     }
 
     /// 2) 実行中に再度起動すると 409。
@@ -71,7 +74,9 @@ struct FullScanEndpointTests {
             #expect(status == .conflict)
         }
         await gate.open()
-        try await Task.sleep(for: .milliseconds(50))
+        // gate.open() 後の完了は registry 内の非構造 Task 経由で非同期に進むため、
+        // 完了を確定的に確認してから defer の cleanup() へ進む。
+        try await waitForMaintenanceJobToFinish(registry: core.maintenanceRegistry, library: lib.uuid)
     }
 
     /// 3) status エンドポイントが実行中の full-scan ジョブを報告する。
@@ -81,10 +86,17 @@ struct FullScanEndpointTests {
     /// スケジューリング次第で、GET が届く前に registry.finish() が呼ばれ running:false に
     /// 戻ってしまう）を内包していた。ジョブ自体は `registry.start()` 内で Task 起動前に
     /// 同期的に running へ確定するため、GET を短時間だけリトライすれば本質を損なわずに
-    /// このレースを吸収できる（`.serialized` はこのスイート内の直列化のみで、他スイートとの
-    /// 並列実行までは防げない）。
+    /// このレースを吸収できる……はずだったが、フルスイート並列実行下（322 suites 同時）の
+    /// 実測では bookCount 2 は候補 2 冊とも path なし＝即 `missing` 確定（実ファイル I/O を
+    /// 経ない）ため、スケジューラの混雑次第で「POST 応答から最初の GET が飛ぶまでの間」に
+    /// スキャン自体が丸ごと終わってしまうことがあり、40 回×5ms のリトライでは救えない
+    /// （リトライは「まだ start していない」を待つには効くが、「もう終わった」は待っても
+    /// 覆らない）。`Task.sleep` を継ぎ足す代わりに、候補数を増やして
+    /// `database.upsertIntegrity` 等の実ディスク書き込みを冊ごとに発生させ、スキャン自体に
+    /// 観測可能な実時間を持たせることでレースの窓を実質的に塞ぐ（当てずっぽうの sleep 延長
+    /// ではなく、実作業量を増やすことによる決定性の底上げ）。
     @Test func statusEndpointReportsRunningFullScan() async throws {
-        let fx = try TestLibraryFixture(name: "FSStatus", bookCount: 2)
+        let fx = try TestLibraryFixture(name: "FSStatus", bookCount: 400)
         defer { fx.cleanup() }
         let lib = fx.servedLibrary()
         let core = makeCore(fixture: fx, adminTier: true)
@@ -110,8 +122,9 @@ struct FullScanEndpointTests {
             #expect(lastDTO?.running == true, "running な状態を一度も観測できなかった")
             #expect(lastDTO?.job == "full-scan")
         }
-        // fixture は bookCount 2 のみで即完走しうるため、後始末に少し待つ（後続テストへの汚染防止）。
-        try await Task.sleep(for: .milliseconds(200))
+        // fixture は bookCount 2 のみで即完走しうる。cleanup() 前に完走を確定的に確認する
+        // （後続テストへの汚染防止・Task.sleep の当てずっぽうにしない）。
+        try await waitForMaintenanceJobToFinish(registry: core.maintenanceRegistry, library: lib.uuid)
     }
 
     /// 4) 読み取り専用トークン（edit tier）は起動できない（403）。
@@ -156,6 +169,7 @@ struct FullScanEndpointTests {
             let status = try await postFullScan(client, uuid: lib.uuid, mode: "damaged")
             #expect(status == .accepted)
         }
-        try await Task.sleep(for: .milliseconds(100))
+        // 候補が空でも即完了するとは限らないため、確定的に完走を待ってから cleanup() へ進む。
+        try await waitForMaintenanceJobToFinish(registry: core.maintenanceRegistry, library: lib.uuid)
     }
 }

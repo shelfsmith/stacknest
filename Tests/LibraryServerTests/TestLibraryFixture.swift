@@ -1,11 +1,38 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import Testing
 import LibraryStore
 import StackroomFormat
 import AppCore
 import ImageIO
 import UniformTypeIdentifiers
 @testable import LibraryServer
+
+/// レジストリの実行中ジョブが終わるまで待つ（テスト後始末専用ヘルパ）。
+///
+/// full-scan / complete-metadata / compress-covers は `MaintenanceJobRegistry.start` が
+/// 起動するバックグラウンド Task が `run` クロージャの中で fixture の DB・ファイルへ
+/// 直接触れ続ける。テスト側が `defer { fx.cleanup() }` で fixture ディレクトリを消すのは
+/// 「ジョブが終わっただろう」という `Task.sleep` の当てずっぽうに頼ってはならない ――
+/// ジョブがまだ走っている間に消すと、消えたディレクトリ/DB に対してジョブが書き込みを
+/// 試みて失敗する（テスト本体には紐付かない Task 上の失敗なので、どのテストが落ちたのか
+/// 分からない「2 issues」という形でだけ suite 全体に現れる）。
+/// `MaintenanceJobRegistry.status(library:)` は `run` クロージャが実際に return した後にだけ
+/// nil に戻る（`start` 実装参照）ので、これが nil になるまで待てば「ジョブがもうこの
+/// fixture に触れていない」ことを確定的に確認できる。
+func waitForMaintenanceJobToFinish(
+    registry: MaintenanceJobRegistry, library: String,
+    timeout: Duration = .seconds(10)
+) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while await registry.status(library: library) != nil {
+        if ContinuousClock.now >= deadline {
+            Issue.record("maintenance job for library \(library) did not finish within \(timeout) (teardown wait timed out)")
+            return
+        }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+}
 
 /// 一時ライブラリバンドル + 任意冊数のダミー本を生成するテストヘルパ。
 /// Database の open/migrate/insert は LibraryStore の実公開 API
