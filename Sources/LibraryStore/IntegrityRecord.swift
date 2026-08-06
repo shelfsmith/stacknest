@@ -56,6 +56,24 @@ public struct IntegrityRecord: Sendable, Equatable {
     public var isDegraded: Bool { prevStatus == .ok && status == .damaged }
 }
 
+/// 詳細スキャン（CRC 検証）の対象範囲（spec §4.3・Phase G27b）。
+///
+/// `Database.booksNeedingFullCheck(mode:)` が消費する。この enum が `LibraryStore` に
+/// あるのは、`AppCore`（`FullIntegrityScanner`）が `LibraryStore` に依存する一方向の
+/// 依存関係のため — `Database` の拡張がこの型を要求するには、この型自身が
+/// `Database` と同じモジュールに無ければならない。
+public enum FullScanMode: Sendable, Equatable, CaseIterable {
+    /// 既定。`book_integrity` に `method='full'` の行が無い本が対象（中断からの再開・差分）。
+    /// アーカイブ以外（動画・PDF・単独画像・フォルダ）もここでは候補に含まれる —
+    /// スキャナ側がカテゴリを見て `unsupported` を書き、次回以降の候補から外す。
+    case uncheckedOnly
+    /// 全件を `checked_at`／既存の `method` を無視して再検査する。
+    /// ビット腐敗（サイズ・mtime を変えない劣化）を検出できる唯一の手段（spec §4.1/§4.3）。
+    case all
+    /// 前回 `status='damaged'` だった本のみ（修復後の確認）。method は問わない。
+    case damagedOnly
+}
+
 /// 一覧シート／CLI が出す集計。
 public struct IntegritySummary: Sendable, Equatable {
     public let checked: Int      // book_integrity に行がある本
