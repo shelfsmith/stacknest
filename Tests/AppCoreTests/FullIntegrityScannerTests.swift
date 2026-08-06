@@ -166,6 +166,91 @@ struct FullIntegrityScannerTests {
                 "unsupported も method='full' で書かないと .uncheckedOnly から外れない")
     }
 
+    // MARK: - レビュー修正: 非アーカイブを無条件 unsupported にすると既知の破損が消える
+
+    /// Task 2 レビュー（Important）の再現テスト。G27a の quick スキャンは 0 バイト画像を
+    /// `damaged` と記録する（`QuickIntegrityCheck.swift` の意図的な fail-safe）。この本は
+    /// `method='full'` の行を持たないため `.uncheckedOnly` の候補に普通に入る ―― full スキャンが
+    /// 非アーカイブを無条件で `unsupported` に書き換えると、CRC を見てもいないのに破損が
+    /// 「検査対象外」として一覧・件数から消える。修正後は `QuickIntegrityCheck.classify` と
+    /// 同じ判定（サイズ 0/不明 → damaged）を通すため `damaged` のまま残るはず。
+    @Test("0 バイト画像は damaged のまま(.uncheckedOnly で消えない・回帰防止)")
+    func zeroByteImageStaysDamagedUnderUncheckedOnly() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "zero-byte", path: "/lib/zero.jpg"))
+        // G27a の quick スキャン相当: 0 バイト画像を damaged として先に記録しておく。
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: 0, fileMtime: nil, entryCount: nil,
+            badEntries: ["image file size is zero or unknown"],
+            prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .uncheckedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("image を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .image },
+            statFile: { _ in (0, 111.0) }))
+
+        #expect(report.byStatus[.damaged] == 1, "0 バイト画像が unsupported に化けている")
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged, "既知の破損が unsupported で消されている")
+        #expect(rec.method == .full)
+        #expect(try #require(db.fetchBook(id: 1)).pages == nil,
+                "破損した画像に pages を確定させてはいけない")
+    }
+
+    /// 同じ再現を `.damagedOnly` でも確認する ―― こちらも brief どおり method を問わず
+    /// `status='damaged'` の本を候補にするため、同じ本が同様に消えてはいけない。
+    @Test("0 バイト画像は damaged のまま(.damagedOnly で消えない・回帰防止)")
+    func zeroByteImageStaysDamagedUnderDamagedOnly() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "zero-byte", path: "/lib/zero.jpg"))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: 0, fileMtime: nil, entryCount: nil,
+            badEntries: ["image file size is zero or unknown"],
+            prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .damagedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("image を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .image },
+            statFile: { _ in (0, 111.0) }))
+
+        #expect(report.byStatus[.damaged] == 1)
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged, "既知の破損が unsupported で消されている")
+        #expect(rec.method == .full)
+    }
+
+    /// 健全な単独画像（サイズ > 0）は ok・pages=1 が full スキャンでも成立すること
+    /// （damaged 側だけでなく ok 側の判定も classify() 経由で正しく動くことの確認）。
+    @Test("サイズが確認できる単独画像は full スキャンでも ok・pages=1 になる")
+    func nonZeroByteImageIsOkUnderFullScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "fine", path: "/lib/fine.jpg"))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db,
+            deps: deps(verify: { _, _ in
+                Issue.record("image を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .image },
+            statFile: { _ in (2048, 111.0) }))
+
+        #expect(report.byStatus[.ok] == 1)
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .ok)
+        #expect(try #require(db.fetchBook(id: 1)).pages == 1)
+    }
+
     // MARK: - 3. 中断
 
     /// `var` を async クロージャの中で書き換えると Swift 6 の並行性チェックに
