@@ -90,9 +90,31 @@ public enum FullIntegrityScanner {
 
             if !exists {
                 status = .missing
-            } else if category != .archive {
-                // CRC を持つのはアーカイブだけ（spec §4.2）。動画・PDF・単独画像・フォルダは
-                // ここで unsupported を書く ―― 書かないと .uncheckedOnly に毎回残り続ける。
+            } else if category == .video || category == .text {
+                // CRC を持つのはアーカイブだけ（spec §4.2）。動画・PDF/テキストは
+                // classify() と同じく無条件で unsupported（method='full' で書く ―― でないと
+                // .uncheckedOnly に毎回残り続ける）。
+                status = .unsupported
+            } else if category == .image {
+                // Task 2 レビュー（Important）: 単独画像を無条件で unsupported にすると、
+                // G27a の quick スキャンが 0 バイト画像に付けた damaged（QuickIntegrityCheck.swift
+                // の意図的な fail-safe）を、CRC を見ずに黙って消してしまう ―― G27a が
+                // 「pages を確定させて候補から永久に外す」形で避けた失敗を、今度は status
+                // 経由で再現することになる。full スキャンにも CRC 抜きで判定できる範囲の
+                // 真実（ファイルサイズ）はあるので、QuickIntegrityCheck.classify をそのまま
+                // 再利用する（probe は image 分岐では使われないので nil でよい）。
+                let outcome = QuickIntegrityCheck.classify(
+                    category: .image, exists: true, probe: nil, fileSize: size)
+                status = outcome.status
+                pageCount = outcome.pageCount
+                if let reason = outcome.reason { badEntries = [reason] }
+            } else if category == .folder {
+                // フォルダの実体検証（列挙）は quick スキャンの担当。full スキャンは CRC
+                // 専任で、フォルダを検証する手段（probe）を持たない。classify(probe: nil) は
+                // アーカイブ/フォルダ分岐で「probe not performed」を damaged として返すため
+                // ここでは呼べない（検証もせず壊れた判定にする方が有害）。現状は unsupported
+                // のまま ―― quick が既に damaged と判定したフォルダを full スキャンが
+                // 上書きしてしまう可能性は残っており、task-2-report.md に申し送る。
                 status = .unsupported
             } else {
                 do {
