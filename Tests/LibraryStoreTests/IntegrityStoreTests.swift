@@ -120,6 +120,25 @@ struct IntegrityStoreTests {
         #expect(ids == [1, 2])
     }
 
+    @Test("最終検査時刻は book_integrity 全体の checked_at 最大値")
+    func lastCheckedAtIsMaxAcrossAllRows() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "a", path: "/tmp/a.zip", pages: nil))
+        try db.insertBook(book(id: 2, title: "b", path: "/tmp/b.zip", pages: nil))
+
+        #expect(try db.integrityLastCheckedAt() == nil, "1 件も無ければ nil")
+
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 100))
+        #expect(try db.integrityLastCheckedAt() == 100)
+
+        try db.upsertIntegrity(record(bookID: 2, status: .damaged, checkedAt: 300))
+        #expect(try db.integrityLastCheckedAt() == 300, "damaged の行も対象に含む（status を問わない）")
+
+        // 1 の再検査で checked_at が更新されても、まだ 2 の 300 の方が新しい。
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 150))
+        #expect(try db.integrityLastCheckedAt() == 300)
+    }
+
     @Test("bad_entries は上限で切り詰められる")
     func badEntriesAreCapped() throws {
         let db = try setupDB()

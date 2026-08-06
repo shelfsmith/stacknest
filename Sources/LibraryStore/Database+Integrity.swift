@@ -73,6 +73,18 @@ extension Database {
         }
     }
 
+    /// 直近の検査時刻（`book_integrity` 全体の `checked_at` 最大値）。1 件も無ければ nil。
+    ///
+    /// G27b Task 6: 整合性チェックウィンドウの「最終検査」表示用。`integrityRecords(status:)` は
+    /// status ごとに `fetchBook(id:)` を N 回呼ぶため全 status を走査してここに使うと 5,000 件規模で
+    /// N+1 になる。ここは集計のみの単発クエリで、件数に関わらず軽量。
+    public func integrityLastCheckedAt() throws -> Int64? {
+        guard let q = queue else { return nil }
+        return try q.read { db in
+            try Int64.fetchOne(db, sql: "SELECT MAX(checked_at) FROM book_integrity")
+        }
+    }
+
     /// 指定 status の本と検査結果を返す（一覧用）。
     public func integrityRecords(status: IntegrityStatus) throws -> [(BookRow, IntegrityRecord)] {
         guard let q = queue else { return [] }
