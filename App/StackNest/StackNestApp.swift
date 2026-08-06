@@ -133,6 +133,22 @@ struct StackNestApp: App {
             }
         }
 
+        // Phase G27b Task 6: 整合性チェックウィンドウ — File メニュー「整合性チェック…」から
+        // openWindow(id:"integrity-check", value:) で開く。庫ごとに独立ウィンドウ（RemoteLibraryRef と
+        // 同じ「値型キーの WindowGroup」パターン）。**シートではない** — フルスキャンは spec 上
+        // 最大約 31 時間かかりうり、AppKit は添付シートがある間 terminate: を実行しないため、
+        // シートにすると進捗表示中ずっとアプリを終了できなくなる（G27c で実証済み。詳細は
+        // IntegrityWindow.swift 冒頭コメント）。
+        WindowGroup(id: "integrity-check", for: IntegrityCheckRef.self) { $ref in
+            if let ref {
+                IntegrityWindowContainer(ref: ref)
+            }
+        }
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
+        .commandsRemoved()
+        .restorationBehavior(.disabled)
+
         // 設定 window — Settings scene の代替。
         // shared singleton を参照することで Settings での変更が LibraryWindow 側の
         // HelperLauncher にも即時反映される (= app 再起動不要)。
@@ -749,6 +765,9 @@ struct FileCommands: Commands {
     let openWindow: OpenWindowAction
     // 4.2c-9: 設定/削除系をアクティブウィンドウ（ローカル/リモート）でルーティング・無効化する。
     @FocusedValue(\.browserCommandTarget) private var target
+    // G27b Task 6: 整合性チェックウィンドウを開くには bundleURL が要る。BrowserCommandTarget には
+    // 無いため、WindowCommands と同じ AppState の FocusedValue を別途取る（ローカル庫のみ非 nil）。
+    @FocusedValue(\.appState) private var appState
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -839,6 +858,16 @@ struct FileCommands: Commands {
 
             Button("リンク切れを検出…") {
                 NotificationCenter.default.post(name: .detectBrokenLinks, object: nil)
+            }
+            .disabled(!(target?.canManageLocalFiles ?? false))
+
+            // G27b Task 6: 整合性チェックウィンドウ（独立ウィンドウ、シートではない — 上の
+            // WindowGroup(id: "integrity-check") 参照）。ローカル庫の DB を直接読むためリモートでは
+            // 無効化する（他の canManageLocalFiles ゲート項目と同じ理由）。
+            Button("整合性チェック…") {
+                if let url = appState?.bundleURL {
+                    openWindow(id: "integrity-check", value: IntegrityCheckRef(bundleURL: url))
+                }
             }
             .disabled(!(target?.canManageLocalFiles ?? false))
 
