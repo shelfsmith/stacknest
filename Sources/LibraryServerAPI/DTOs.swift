@@ -784,6 +784,14 @@ public struct MaintenanceStatusReply: Codable, Sendable, Equatable {
     }
 }
 
+/// POST libraries/:lib/integrity/full-scan の起動リクエスト（Phase G27b Task 5）。
+/// `mode` は "unchecked" / "all" / "damaged" のいずれか。不明な値はサーバが 400 で拒否する
+/// （既定値へ黙って落とさない — CLI/MCP の指定ミスを気づかせるため）。
+public struct FullScanStartRequest: Codable, Sendable, Equatable {
+    public var mode: String
+    public init(mode: String) { self.mode = mode }
+}
+
 // MARK: - G12b-3c: リモート命名プリセット集合 GET/PUT
 
 /// 命名プリセット集合＋既定 id（GET/PUT libraries/:lib/presets 用）。

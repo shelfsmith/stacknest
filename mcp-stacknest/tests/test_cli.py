@@ -308,6 +308,50 @@ def test_high_level_integrity_list_custom_status(monkeypatch):
     assert "--status" in captured["argv"] and "missing" in captured["argv"]
 
 
+# --- フル CRC スキャン（非同期ジョブ・G27b Task5）---
+
+def test_high_level_integrity_full_scan_default_mode(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "フルスキャン（mode=unchecked）を開始しました。"
+    monkeypatch.setattr(cli, "run", fake_run)
+    out = cli.integrity_full_scan("M")
+    assert captured["argv"][:2] == ["integrity", "full-scan"]
+    assert "--mode" in captured["argv"] and "unchecked" in captured["argv"]
+    # JSON ではなく CLI の案内メッセージをそのまま返す（サーバ応答は 202/409 のみでボディを持たない）。
+    assert "開始しました" in out
+
+
+def test_high_level_integrity_full_scan_custom_mode(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "ok"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.integrity_full_scan("M", mode="all")
+    assert "--mode" in captured["argv"] and "all" in captured["argv"]
+
+
+def test_high_level_integrity_job_status(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv
+        return json.dumps({"running": True, "job": "full-scan", "done": 4, "total": 10})
+    monkeypatch.setattr(cli, "run", fake_run)
+    out = cli.integrity_job_status("M")
+    assert captured["argv"][:2] == ["integrity", "job-status"]
+    assert out == {"running": True, "job": "full-scan", "done": 4, "total": 10}
+
+
+def test_high_level_integrity_cancel(monkeypatch):
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "中断リクエストを送信しました。"
+    monkeypatch.setattr(cli, "run", fake_run)
+    out = cli.integrity_cancel("M")
+    assert captured["argv"][:2] == ["integrity", "cancel"]
+    assert "中断" in out
+
+
 def test_high_level_lock_set_passes_stdin(monkeypatch):
     captured = {}
     def fake_run(argv, **k):

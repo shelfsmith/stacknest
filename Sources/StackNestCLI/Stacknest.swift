@@ -814,7 +814,8 @@ struct Dedup: ParsableCommand {
 struct Integrity: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "integrity", abstract: "蔵書の整合性を検査する",
-        subcommands: [IntegrityScanCmd.self, IntegrityStatusCmd.self, IntegrityListCmd.self])
+        subcommands: [IntegrityScanCmd.self, IntegrityStatusCmd.self, IntegrityListCmd.self,
+                      IntegrityFullScanCmd.self, IntegrityJobStatusCmd.self, IntegrityCancelCmd.self])
 }
 
 struct IntegrityScanCmd: ParsableCommand {
@@ -849,6 +850,73 @@ struct IntegrityListCmd: ParsableCommand {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         print(String(data: try client.integrityList(uuid: lib.id, status: status), encoding: .utf8) ?? "")
+    } }
+}
+
+// MARK: - full-scan（G27b Task5・非同期ジョブ）
+//
+// ★重要: 実測 4.464 秒/冊・22,880 冊規模で約 31 時間かかる。このコマンドは **完走を待たない**
+// （--wait 相当のオプションは意図的に用意しない ―― 用意すれば確実にタイムアウトする）。
+// 「投げて 202 を確認して抜ける」だけを行い、進捗は job-status、中断は cancel で行う。
+
+/// --mode に渡せる値（サーバの unchecked/all/damaged と 1:1）。
+private let fullScanValidModes = ["unchecked", "all", "damaged"]
+
+struct IntegrityFullScanCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "full-scan",
+        abstract: "全冊 CRC 検証を非同期ジョブとして開始する（数千冊規模で数十時間かかりうる・完走は待たない）")
+    @OptionGroup var common: CommonOptions
+    @Option(name: .long, help: "unchecked（既定・未検査のみ）/ all（全件再検査）/ damaged（前回破損のみ再検査）")
+    var mode: String = "unchecked"
+
+    func run() throws {
+        guard fullScanValidModes.contains(mode) else {
+            fputs("エラー: --mode は unchecked/all/damaged のいずれかです（指定値: \(mode)）\n", stderr)
+            throw ExitCode(2)
+        }
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            do {
+                _ = try client.startFullScan(uuid: lib.id, mode: mode)
+            } catch APIError.http(409) {
+                print("既に実行中のメンテナンスジョブがあります。`stacknest-cli integrity job-status` で状況を確認してください。")
+                return
+            }
+            print("""
+            フルスキャン（mode=\(mode)）を開始しました。バックグラウンドジョブとして動作します。
+            実測値: 約 4.5 秒/冊 ―― 蔵書規模によっては数十時間（例: 22,880 冊で約 31 時間）かかります。
+            このコマンドは完走を待たずに終了しました。進捗・中断は以下で行ってください:
+              進捗確認: stacknest-cli integrity job-status
+              中断:     stacknest-cli integrity cancel
+            """)
+        }
+    }
+}
+
+struct IntegrityJobStatusCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "job-status",
+        abstract: "実行中のメンテナンスジョブ（full-scan 含む）の進捗を表示する")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        print(String(data: try client.maintenanceStatus(uuid: lib.id), encoding: .utf8) ?? "")
+    } }
+}
+
+struct IntegrityCancelCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "cancel",
+        abstract: "実行中のメンテナンスジョブ（full-scan 含む）を中断する（実行中ジョブが無ければ no-op）")
+    @OptionGroup var common: CommonOptions
+    func run() throws { try mappingAPIErrors {
+        let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
+        let lib = try resolveLibrary(client: client, libArg: common.library)
+        try client.maintenanceCancel(uuid: lib.id)
+        print("中断リクエストを送信しました。")
     } }
 }
 

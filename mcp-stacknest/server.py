@@ -296,6 +296,37 @@ def stacknest_integrity_list(library: str, status: str = "damaged",
     return cli.integrity_list(library, status=status, library_token=library_token)
 
 
+# --- フル CRC スキャン（非同期ジョブ・G27b）---
+
+@mcp.tool()
+def stacknest_integrity_full_scan(library: str, mode: str = "unchecked",
+                                  library_token: str | None = None) -> str:
+    """全冊 CRC 検証をバックグラウンドジョブとして開始する（stacknest_integrity_scan の
+    簡易チェックと違い、アーカイブ全エントリの CRC を検証する詳細版）。
+    実測値: 約 4.5 秒/冊 ―― 蔵書規模によっては数十時間かかる（例: 22,880 冊で約 31 時間）。
+    **このツールは起動（または「既に実行中」）を確認したらすぐ返り、完走は待たない。**
+    進捗は stacknest_integrity_job_status で確認し、必要なら stacknest_integrity_cancel で中断する。
+    mode: "unchecked"（既定・未検査のみ）/ "all"（全件を再検査。ビット腐敗検出に必要）/
+    "damaged"（前回 damaged だった本のみ再検査。修復後の確認向け）。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.integrity_full_scan(library, mode=mode, library_token=library_token)
+
+
+@mcp.tool()
+def stacknest_integrity_job_status(library: str, library_token: str | None = None) -> Any:
+    """実行中のメンテナンスジョブ（full-scan・complete-metadata・compress-covers 等）の
+    進捗を返す。running/job/done/total/startedAt を含み、実行中でなければ running=false のみ。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.integrity_job_status(library, library_token=library_token)
+
+
+@mcp.tool()
+def stacknest_integrity_cancel(library: str, library_token: str | None = None) -> str:
+    """実行中のメンテナンスジョブ（full-scan 含む）を中断する。実行中ジョブが無ければ no-op。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.integrity_cancel(library, library_token=library_token)
+
+
 # --- ロック解錠（unlock）---
 
 @mcp.tool()
