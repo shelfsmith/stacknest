@@ -454,6 +454,38 @@ def integrity_list(library: str, *, status: str = "damaged",
                                    flags={"status": status}), library_token=tok)))
 
 
+# --- フル CRC スキャン（非同期ジョブ・G27b Task5）---
+#
+# 実測 4.464 秒/冊・22,880 冊規模で約 31 時間かかる。integrity_scan（簡易チェック）と違い
+# サーバ側は非同期ジョブとして開始するだけなので、ここでは長いタイムアウトを与えない
+# （既定 60s のままでよい — CLI 自体が起動確認したらすぐ返る設計のため）。
+
+def integrity_full_scan(library: str, *, mode: str = "unchecked",
+                        library_token: str | None = None) -> str:
+    """全冊 CRC 検証をバックグラウンドジョブとして開始する。CLI の案内メッセージ
+    （起動できた／既に実行中だった、のいずれか）をそのまま stdout 文字列として返す
+    （JSON ではない ―― サーバ応答は 202/409 のみでボディを持たないため）。"""
+    return _with_library(library, library_token,
+        lambda tok: run(build_argv("integrity", library=library, sub="full-scan",
+                                   flags={"mode": mode}), library_token=tok))
+
+
+def integrity_job_status(library: str, *, library_token: str | None = None) -> Any:
+    """実行中のメンテナンスジョブ（full-scan・complete-metadata・compress-covers 等、
+    すべて同じジョブレジストリを共有）の進捗を返す。running/job/done/total/startedAt。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("integrity", library=library, sub="job-status"),
+                        library_token=tok)))
+
+
+def integrity_cancel(library: str, *, library_token: str | None = None) -> str:
+    """実行中のメンテナンスジョブ（full-scan 含む）を中断する。実行中ジョブが無ければ no-op。
+    full-scan 専用の中断コマンドは無い（既存の maintenance/cancel を共用する）。"""
+    return _with_library(library, library_token,
+        lambda tok: run(build_argv("integrity", library=library, sub="cancel"),
+                        library_token=tok))
+
+
 # --- グラント CRUD（admin）---
 
 def grant_list() -> Any:

@@ -263,6 +263,18 @@ public struct LibraryServerCore: Sendable {
         }
     }
 
+    /// G27b Task5: full-scan 起動リクエストの mode 文字列を `FullScanMode` に写像する。
+    /// 未知の値は 400 で拒否する（`.uncheckedOnly` へ黙って落とすと、CLI/MCP の指定ミスに
+    /// 気づけないまま 31 時間の走査が始まってしまう）。
+    private static func parseFullScanMode(_ raw: String) throws -> FullScanMode {
+        switch raw {
+        case "unchecked": return .uncheckedOnly
+        case "all": return .all
+        case "damaged": return .damagedOnly
+        default: throw HTTPError(.badRequest, message: "mode は unchecked/all/damaged のいずれかです（受信: \(raw)）")
+        }
+    }
+
     /// G16 Codex Medium: (libraryUUID, bookID) 単位で臨界区間を直列化するヘルパ。
     /// acquire → body 実行 → release を保証する（body が throw しても release は必ず呼ばれる。
     /// デッドロックしないよう、body の中で同じ key を再度 acquire してはいけない）。
@@ -1447,6 +1459,32 @@ public struct LibraryServerCore: Sendable {
             return MaintenanceStatusReply(
                 running: true, job: status.job, done: status.done, total: status.total,
                 startedAt: Int64(status.startedAt.timeIntervalSince1970))
+        }
+        // G27b Task5: フル CRC スキャン（31 時間規模）を非同期ジョブとして起動する。
+        // complete-metadata/compress-covers と同じ形（同じ maintenanceRegistry・同じ admin 権限・
+        // 202/409 の使い分け）を踏襲する ―― ここだけ別のジョブ機構やロールを発明しない。
+        // 進捗・中断は既存の GET maintenance/status・POST maintenance/cancel をそのまま使う
+        // （full-scan 専用の状態確認/中断エンドポイントは追加しない）。
+        api.post("libraries/:lib/integrity/full-scan") { request, context in
+            try context.requireAdmin()
+            let lib = try await resolver.resolveLibrary(request, context)
+            let dto = try await request.decode(as: FullScanStartRequest.self, context: context)
+            let mode = try Self.parseFullScanMode(dto.mode)
+            let started = await self.maintenanceRegistry.start(library: lib.uuid, job: "full-scan") { progress, isCancelled in
+                // `isCancelled` は registry の run クロージャ引数として非 escaping で渡ってくるが、
+                // FullIntegrityScanner.scan の isCancelled は @escaping（内部で保持しつつ冊単位・
+                // エントリ単位の両方で繰り返し呼ぶため）。ここで scan を呼び終えるまでの間しか
+                // 実際には使わない（scan が return する前に呼び出しは終わる）ので、
+                // withoutActuallyEscaping で安全にブリッジする。
+                try await withoutActuallyEscaping(isCancelled) { escapableIsCancelled in
+                    let report = try await FullIntegrityScanner.scan(
+                        database: lib.db, mode: mode, deps: FullIntegrityScanner.liveDependencies(),
+                        progress: { d, t in progress(d, t) },
+                        isCancelled: escapableIsCancelled)
+                    return report.scanned
+                }
+            }
+            return started ? HTTPResponse.Status.accepted : HTTPResponse.Status.conflict
         }
         // G14: リモートサイドバーの安定件数（ライブラリ総数・最近件数）。scope 非依存。read で可。
         api.get("libraries/:lib/counts") { request, context in

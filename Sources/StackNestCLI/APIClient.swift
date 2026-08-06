@@ -253,6 +253,34 @@ struct APIClient {
         return try request(makeURL("/libraries/\(uuid)/integrity/list?status=\(enc)"))
     }
 
+    // MARK: - フル CRC スキャン（非同期ジョブ・G27b Task5）
+    //
+    // 実測 4.464 秒/冊・22,880 冊規模で約 31 時間かかる。integrityScan（簡易チェック）と違い
+    // 「サーバ側は非同期ジョブとして開始・クライアントは 202 を確認したらすぐ返る」設計にする
+    // ―― タイムアウトを延ばして待つやり方はここでは通用しない（確実にタイムアウトする）。
+
+    /// POST /api/v1/libraries/{uuid}/integrity/full-scan {mode} → 202（起動受理）。
+    /// 実行中に再度呼ぶとサーバは 409 を返す（`APIError.http(status: 409)` として throw される。
+    /// 呼び出し側で明示的にハンドルすること）。
+    @discardableResult
+    func startFullScan(uuid: String, mode: String) throws -> Data {
+        let body = try encoder.encode(FullScanStartRequest(mode: mode))
+        return try request(makeURL("/libraries/\(uuid)/integrity/full-scan"), method: "POST", body: body)
+    }
+
+    /// GET /api/v1/libraries/{uuid}/maintenance/status → JSON Data（MaintenanceStatusReply）
+    /// full-scan に限らず complete-metadata/compress-covers も同じ registry を共有するため、
+    /// このエンドポイントは「今その庫で走っているジョブ全般」の状態を返す。
+    func maintenanceStatus(uuid: String) throws -> Data {
+        try request(makeURL("/libraries/\(uuid)/maintenance/status"))
+    }
+
+    /// POST /api/v1/libraries/{uuid}/maintenance/cancel → 204（実行中ジョブが無くても no-op で 204）。
+    /// full-scan 専用の中断エンドポイントは無い ―― 既存のこのエンドポイントをそのまま使う。
+    func maintenanceCancel(uuid: String) throws {
+        _ = try request(makeURL("/libraries/\(uuid)/maintenance/cancel"), method: "POST")
+    }
+
     // MARK: - グラント CRUD（admin）
 
     /// GET /api/v1/grants → JSON Data（[GrantDTO]）
