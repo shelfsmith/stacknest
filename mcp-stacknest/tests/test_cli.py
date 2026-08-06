@@ -78,6 +78,39 @@ def test_libraries_parses_json(monkeypatch):
     assert result[0]["name"] == "Manga"
 
 
+# --- ライブラリ開閉（ローカル制御専用・G27b Task7）---
+
+def test_build_argv_library_open_uses_paths_positional():
+    argv = cli.build_argv("library", sub="open", paths=["/Volumes/Lib/Manga.stacknestlib"])
+    assert argv[:2] == ["library", "open"]
+    assert argv[-1] == "/Volumes/Lib/Manga.stacknestlib"
+    assert "--json" in argv
+
+
+def test_build_argv_library_close_uses_text_positional_no_json():
+    argv = cli.build_argv("library", sub="close", text="some-uuid", json_output=False)
+    assert argv == ["library", "close", "--", "some-uuid"]
+
+
+def test_library_open_parses_json(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = json.dumps({"uuid": "abc-123"})
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    result = cli.library_open("/tmp/MyLib.stacknestlib")
+    assert result["uuid"] == "abc-123"
+
+
+def test_library_close_runs_without_json(monkeypatch):
+    class FakeProc:
+        returncode = 0
+        stdout = "closed\n"
+        stderr = ""
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, **k: FakeProc())
+    cli.library_close("abc-123")  # 例外が出なければ OK（戻り値は無い）
+
+
 def test_add_partial_failure_returns_reply_not_raise(monkeypatch):
     # exit 1（一部 failed）でも reply を返す＝addedIDs を構造化結果として扱える（Option A）
     class FakeProc:

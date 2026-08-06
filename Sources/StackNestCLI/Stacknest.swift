@@ -16,7 +16,7 @@ struct Stacknest: ParsableCommand {
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
                       ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self,
                       Grant.self, Stamp.self, StampDefinitions.self, Label.self,
-                      Integrity.self]
+                      Integrity.self, Library.self]
     )
 }
 
@@ -918,6 +918,58 @@ struct IntegrityCancelCmd: ParsableCommand {
         try client.maintenanceCancel(uuid: lib.id)
         print("中断リクエストを送信しました。")
     } }
+}
+
+// MARK: - library グループ（ローカル制御専用・G27b Task7）
+//
+// 任意パスを開ける API は実質的なファイルシステム探索になるため、サーバ側は 127.0.0.1 の
+// ローカル制御にのみこのルートを持つ（共有サーバへ --url で繋いだ場合は 404 になる）。
+
+struct Library: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "library", abstract: "ライブラリを開閉する（ローカル制御専用・共有サーバでは使えない）",
+        subcommands: [LibraryOpen.self, LibraryClose.self])
+}
+struct LibraryOpen: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "open",
+        abstract: "パスを指定してライブラリウィンドウを開く（既に開いていれば既存の UUID を返す）")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "開くライブラリバンドルの絶対パス") var path: String
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            // CLI の CWD を基準に相対パスを絶対パスへ変換する（add と同じ規約）。
+            let absolutePath = URL(fileURLWithPath: path).standardizedFileURL.path
+            let data = try client.openLibrary(path: absolutePath)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let decoder = JSONDecoder()
+            let reply = try decoder.decode(OpenLibraryReply.self, from: data)
+            // uuid のみ出力（`STACKNEST_UUID=$(stacknest-cli library open ...)` のように受けられる）。
+            print(reply.uuid)
+        }
+    }
+}
+struct LibraryClose: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "close",
+        abstract: "UUID を指定してライブラリウィンドウを閉じる")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "閉じるライブラリの UUID（stacknest-cli libraries で確認）") var uuid: String
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            try client.closeLibrary(uuid: uuid)
+            if !common.json {
+                print("閉じました (uuid=\(uuid))")
+            }
+        }
+    }
 }
 
 // MARK: - grant グループ（admin）
