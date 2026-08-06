@@ -46,6 +46,13 @@ public enum ArchiveIntegrityVerifier {
     /// 1MB スクラッチバッファ。読んだ内容は破棄する（CRC 検証だけが目的で、データそのものは不要）。
     private static let bufferSize = 1 << 20
 
+    /// `archive_entry.h` の `AE_IFDIR`（= POSIX `S_IFDIR`, 0o040000）と同じ値。
+    /// マクロは `((__LA_MODE_T)0040000)` という入れ子キャスト式で定義されており、
+    /// Clang importer がこの形を Swift 定数として取り込めない（実測: `AE_IFDIR` は
+    /// `import Carchive` 後も "cannot find in scope"）。`archive_entry_filetype` の
+    /// 戻り値型 `mode_t` に対して同じ値をここで再定義して比較する。
+    private static let entryFileTypeDirectory: mode_t = 0o040000
+
     /// アーカイブを開き、ディレクトリ以外の全エントリを実際に読んで CRC を検証する。
     ///
     /// - `isCancelled` は **エントリ単位** で確認する（1 冊 ~5 秒。冊単位のチェックでは
@@ -106,7 +113,13 @@ public enum ArchiveIntegrityVerifier {
                 continue
             }
             let name = String(cString: cName)
-            if name.hasSuffix("/") {
+            // ディレクトリ判定は entry の filetype を正とする（ZIP は名前に "/" を付けるが、
+            // RAR はディレクトリでも末尾 "/" を付けない実測がある。名前規約だけに頼ると
+            // RAR のディレクトリエントリが「データを読むべきエントリ」としてすり抜け、
+            // archive_read_data が負値を返して誤って badEntries=破損扱いになる）。
+            // hasSuffix は filetype が未確定な場合の保険として残す。
+            let isDirectory = archive_entry_filetype(entry) == Self.entryFileTypeDirectory || name.hasSuffix("/")
+            if isDirectory {
                 // ディレクトリエントリにはデータが無い。skip して次へ。
                 archive_read_data_skip(archive)
                 continue
