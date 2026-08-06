@@ -12,14 +12,24 @@ public struct FullScanReport: Sendable, Equatable {
     /// 本削除による FK 違反等）。この冊は scanned にも byStatus にも計上されない。
     public let persistenceFailures: Int
     /// `isCancelled` により走査が完走せず打ち切られたか。
+    ///
+    /// G27b 最終レビュー Fix3: ライブラリが走査中に閉じられた場合（`DatabaseError.libraryClosed`）も
+    /// ここに含める。以後の全冊が同じ理由で失敗し続けるだけの空回りを続けず、打ち切って
+    /// `cancelled: true` として終える（詳細は `scan` 内のコメント参照）。
     public let cancelled: Bool
+    /// G27b 最終レビュー Fix5: ライブラリの実体（バンドル/ボリューム）自体が到達不能なため
+    /// `missing` を書かずにスキップした冊数。NAS/外付けドライブの一時スリープ等、個々の本が
+    /// 消えたわけではない可能性が高いケース（詳細は `scan` 内のコメント参照）。
+    public let volumeUnavailableSkips: Int
 
     public init(scanned: Int, byStatus: [IntegrityStatus: Int],
-                persistenceFailures: Int = 0, cancelled: Bool = false) {
+                persistenceFailures: Int = 0, cancelled: Bool = false,
+                volumeUnavailableSkips: Int = 0) {
         self.scanned = scanned
         self.byStatus = byStatus
         self.persistenceFailures = persistenceFailures
         self.cancelled = cancelled
+        self.volumeUnavailableSkips = volumeUnavailableSkips
     }
 }
 
@@ -37,17 +47,23 @@ public enum FullIntegrityScanner {
         public let statFile: @Sendable (String) -> (Int64?, Double?)
         public let verify: @Sendable (URL, @escaping @Sendable () async -> Bool) async throws -> ArchiveVerifyResult
         public let now: @Sendable () -> Int64
+        /// G27b 最終レビュー Fix5: ライブラリ自体（バンドル/ボリューム）が現在も到達可能かどうか。
+        /// `fileExists` が個々の本の 1 ファイルを見るのに対し、こちらはライブラリ全体の生死を見る。
+        /// 既定は常に true（既存の全テスト・呼び出しはこの分岐に入らない）。
+        public let libraryReachable: @Sendable () -> Bool
 
         public init(categoryOf: @escaping @Sendable (String) -> BookCategory,
                     fileExists: @escaping @Sendable (String) -> Bool,
                     statFile: @escaping @Sendable (String) -> (Int64?, Double?),
                     verify: @escaping @Sendable (URL, @escaping @Sendable () async -> Bool) async throws -> ArchiveVerifyResult,
-                    now: @escaping @Sendable () -> Int64) {
+                    now: @escaping @Sendable () -> Int64,
+                    libraryReachable: @escaping @Sendable () -> Bool = { true }) {
             self.categoryOf = categoryOf
             self.fileExists = fileExists
             self.statFile = statFile
             self.verify = verify
             self.now = now
+            self.libraryReachable = libraryReachable
         }
     }
 
@@ -71,6 +87,7 @@ public enum FullIntegrityScanner {
         var persistenceFailures = 0
         var scanned = 0
         var cancelled = false
+        var volumeUnavailableSkips = 0
 
         for (index, book) in candidates.enumerated() {
             if await isCancelled() {
@@ -81,6 +98,24 @@ public enum FullIntegrityScanner {
             let path = book.path ?? ""
             let category = deps.categoryOf(path)
             let exists = !path.isEmpty && deps.fileExists(path)
+
+            // G27b 最終レビュー Fix5: `!exists` は「この 1 冊が消えた」だけでなく「ボリューム
+            // 自体が一時的に落ちている（NAS/外付けドライブのスリープ・SMB 再接続中 等）」でも
+            // 起こる。後者を前者として `missing` を書いてしまうと、確定した既存の判定
+            // （ok/damaged いずれも）を「実は消えていた」で上書きし、`.uncheckedOnly` の
+            // 次回対象からも外れてしまう ―― 数分のドロップアウトが数千冊分の既存判定を
+            // 恒久的に破壊しうる（既に一度直した「劣化を上書きする」不具合と同じクラス）。
+            // ライブラリ自体（バンドル/ボリューム）も同時に到達不能なら、これは「本が消えた」
+            // ではなく「マウント側の問題」と判断し、この 1 冊は何も書かずスキップする
+            // （中断はしない ―― マウントが数分で復帰すれば以降の本は通常どおり検査が続く。
+            // isCancelled() は毎冊の先頭で確認しているので、恒久的な障害でもユーザーは
+            // いつでも中断できる）。
+            if !exists && !deps.libraryReachable() {
+                volumeUnavailableSkips += 1
+                progress?(index + 1, candidates.count)
+                continue
+            }
+
             let (size, mtime) = exists ? deps.statFile(path) : (nil, nil)
 
             let status: IntegrityStatus
@@ -174,6 +209,14 @@ public enum FullIntegrityScanner {
                 }
 
                 byStatus[status, default: 0] += 1
+            } catch DatabaseError.libraryClosed {
+                // G27b 最終レビュー Fix3: ライブラリが走査の途中で閉じられた
+                // （`Database.queue == nil`）。以降の残り全冊も同じ理由で書けないだけの
+                // 空回りになる（4.5 秒/冊 × 残り数万冊を最大 31 時間かけて何も書かずに読み
+                // 続けてしまう）ので、per-book failure として数えて続行するのではなく、
+                // ここで打ち切って中断（cancelled: true）として終える。
+                cancelled = true
+                break
             } catch {
                 persistenceFailures += 1
             }
@@ -182,13 +225,19 @@ public enum FullIntegrityScanner {
         }
 
         return FullScanReport(scanned: scanned, byStatus: byStatus,
-                              persistenceFailures: persistenceFailures, cancelled: cancelled)
+                              persistenceFailures: persistenceFailures, cancelled: cancelled,
+                              volumeUnavailableSkips: volumeUnavailableSkips)
     }
 }
 
 extension FullIntegrityScanner {
     /// 本番用の I/O 実装。CRC 検証は `ArchiveIntegrityVerifier` に委ねる。
-    public static func liveDependencies() -> Dependencies {
+    ///
+    /// G27b 最終レビュー Fix5: `libraryBundleURL` はライブラリバンドル自身のパス
+    /// （例: `.../MyLibrary.stacknest`）。`!exists` になった本がある度に、この 1 パスの
+    /// 存在確認だけで「ボリューム/バンドルごと消えている」か「その本だけが本当に消えた」かを
+    /// 判別する（ファイル 1 個の stat なので走査全体のコストには効かない）。
+    public static func liveDependencies(libraryBundleURL: URL) -> Dependencies {
         Dependencies(
             categoryOf: { BookCategory.classify(path: $0) },
             fileExists: { FileManager.default.fileExists(atPath: $0) },
@@ -196,6 +245,7 @@ extension FullIntegrityScanner {
             verify: { url, isCancelled in
                 try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: isCancelled)
             },
-            now: { Int64(Date().timeIntervalSince1970) })
+            now: { Int64(Date().timeIntervalSince1970) },
+            libraryReachable: { FileManager.default.fileExists(atPath: libraryBundleURL.path) })
     }
 }

@@ -172,6 +172,67 @@ struct IntegrityStoreTests {
         }
     }
 
+    // MARK: - G27b 最終レビュー Fix1: 同じ結果の再検査で劣化証跡が消えないこと
+
+    @Test("ok→damaged→damaged と再検査しても劣化(isDegraded)は残る")
+    func rechckingSameDamagedStatusKeepsDegradedEvidence() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.zip", pages: nil))
+
+        // 1 回目: ok。2 回目: damaged（ここで劣化が成立＝prev_status='ok'）。
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 100))
+        try db.upsertIntegrity(record(bookID: 1, status: .damaged, checkedAt: 200))
+        var got = try #require(try db.integrityRecord(bookID: 1))
+        #expect(got.isDegraded, "前提: ここで劣化が成立していること")
+
+        // 3 回目: 「破損のみ再検査」相当。まだ damaged のまま ―― 同じ status への再検査で
+        // prev_status が damaged に上書きされ、劣化の証跡が消えてはいけない。
+        try db.upsertIntegrity(record(bookID: 1, status: .damaged, checkedAt: 300))
+        got = try #require(try db.integrityRecord(bookID: 1))
+        #expect(got.status == .damaged)
+        #expect(got.prevStatus == .ok, "同じ status への再検査で prev_status が上書きされている")
+        #expect(got.prevCheckedAt == 100)
+        #expect(got.isDegraded, "劣化の証跡が再検査で消えてしまっている")
+        #expect(got.checkedAt == 300, "checked_at 自体は通常どおり更新される")
+
+        let s = try db.integritySummary()
+        #expect(s.degraded == 1, "summary の劣化件数も再検査で 0 に落ちてはいけない")
+    }
+
+    @Test("ok→ok→damaged は通常どおり劣化として検出される")
+    func repeatedOkThenDamagedStillDetectsDegradation() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.zip", pages: nil))
+
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 100))
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 200))
+        try db.upsertIntegrity(record(bookID: 1, status: .damaged, checkedAt: 300))
+
+        let got = try #require(try db.integrityRecord(bookID: 1))
+        #expect(got.status == .damaged)
+        #expect(got.prevStatus == .ok, "直前の ok が退避されているべき")
+        #expect(got.prevCheckedAt == 200)
+        #expect(got.isDegraded)
+    }
+
+    @Test("damaged→ok は従来どおり劣化フラグをクリアする")
+    func damagedThenOkClearsDegradedAsBefore() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.zip", pages: nil))
+
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 100))
+        try db.upsertIntegrity(record(bookID: 1, status: .damaged, checkedAt: 200))
+        try db.upsertIntegrity(record(bookID: 1, status: .ok, checkedAt: 300))   // 修復後の再検査
+
+        let got = try #require(try db.integrityRecord(bookID: 1))
+        #expect(got.status == .ok)
+        #expect(got.prevStatus == .damaged)
+        #expect(got.isDegraded == false, "修復後は劣化フラグがクリアされる（従来どおり）")
+
+        let s = try db.integritySummary()
+        #expect(s.degraded == 0)
+    }
+
     @Test("migrate を 2 回呼んでも壊れない（冪等）")
     func migrationIsIdempotent() throws {
         let db = try Database.openInMemory()

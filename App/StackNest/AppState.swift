@@ -6,6 +6,7 @@ import StackroomFormat
 import ImageCache
 import AppCore
 import ArchiveAdapter
+import LibraryServer
 import OSLog
 
 @Observable
@@ -446,6 +447,19 @@ final class AppState {
     }
 
     func closeBundle() {
+        // G27b 最終レビュー Fix3: 走査中（整合性フルスキャン等）のライブラリを閉じると、DB の
+        // queue が nil になり、以後の永続化が全部 `DatabaseError.libraryClosed` で失敗するだけの
+        // 空回りになる（FullIntegrityScanner 側で loop-fatal として打ち切るようにしたのが本体の
+        // 修正）。ここではそれを待たず、close の入口で該当ライブラリのジョブへ即座に中断信号を
+        // 送る ―― マウント問題ではなく「ユーザーが意図的に閉じた」ケースなので、次の冊単位/
+        // エントリ単位の isCancelled() チェックで数秒〜数十秒以内に止まる。閉じる操作自体は
+        // ジョブの有無に関わらず常に許可する（31 時間規模の走査中は閉じられない、という UX は
+        // かえって使いづらい）。close はこの `AppState` の唯一の窓口（GUI の手動クローズも
+        // CLI/MCP の `closeLibrary` も `NSWindow.close()` → `.onDisappear` → ここに必ず合流する）
+        // なので、ここ 1 箇所で全ての close 経路をカバーできる。
+        if let uuid = librarySettings?.libraryUUID {
+            Task { await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid) }
+        }
         folderWatcher?.stop()
         folderWatcher = nil
         watchSummaryClearTask?.cancel()

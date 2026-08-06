@@ -244,24 +244,43 @@ public struct LibraryServerCore: Sendable {
     /// （詳細は PerBookSerializer のドキュメントコメント）。
     let patchSerializer = PerBookSerializer()
 
-    public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource) {
+    /// G27b 最終レビュー Fix2: `maintenanceRegistry` を外部から注入できるようにする。
+    ///
+    /// 既定（nil）は従来どおり construction 時に自前で 1 個作る（テスト・`ServerController` は
+    /// これでよい）。`LocalControlController` だけは、アプリプロセス生存中ずっと生き続ける
+    /// 自前の registry インスタンスを毎回同じものを渡す ―― これが CLI/MCP の HTTP ルート
+    /// （`POST .../integrity/full-scan` 等）と GUI の整合性チェックウィンドウを**同じ
+    /// registry**に揃える唯一の接続点になる（詳細は `LocalControlController.maintenanceRegistry`
+    /// のコメント参照）。注入された registry の `onProgress`/`onFinished` はその registry が
+    /// construction された時点の eventHub に固定されたまま変わらない（このコア自身の
+    /// eventHub には配線し直さない）。ローカル制御の SSE `/events` はこのアプリ内では
+    /// どこからも購読されていない（`/events` を使うのは `RemoteLibraryState` = リモート共有
+    /// クライアントのみ）ため実害はない。CLI/MCP は `GET maintenance/status` のポーリングで
+    /// 進捗を確認する設計（31 時間規模の走査で SSE を張り続けない）なので、この経路は
+    /// もともと SSE に依存していない。
+    public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource,
+                maintenanceRegistry: MaintenanceJobRegistry? = nil) {
         self.config = config
         self.dataSource = dataSource
         // G23 (#15): 施錠庫の bookChanged は bookID を落として配信する（蔵書数の概算が漏れるため）。
         self.eventHub = EventHub(isLibraryLocked: { [dataSource] uuid in
             await dataSource.servedLibraries().first(where: { $0.uuid == uuid })?.isLocked ?? false
         })
-        let eventHub = self.eventHub
-        self.maintenanceRegistry = MaintenanceJobRegistry(
-            onProgress: { lib, job, done, total in
-                Task { await eventHub.publish(.maintenanceProgress(library: lib, job: job, done: done, total: total)) }
-            },
-            onFinished: { lib, job, outcome, count in
-                Task { await eventHub.publish(.maintenanceFinished(library: lib, job: job, outcome: outcome, count: count)) }
-                // 完了で一覧/表紙を 1 回更新（compress-covers は表紙が変わる）。
-                Task { await eventHub.publish(.structureChanged(library: lib)) }
-            }
-        )
+        if let maintenanceRegistry {
+            self.maintenanceRegistry = maintenanceRegistry
+        } else {
+            let eventHub = self.eventHub
+            self.maintenanceRegistry = MaintenanceJobRegistry(
+                onProgress: { lib, job, done, total in
+                    Task { await eventHub.publish(.maintenanceProgress(library: lib, job: job, done: done, total: total)) }
+                },
+                onFinished: { lib, job, outcome, count in
+                    Task { await eventHub.publish(.maintenanceFinished(library: lib, job: job, outcome: outcome, count: count)) }
+                    // 完了で一覧/表紙を 1 回更新（compress-covers は表紙が変わる）。
+                    Task { await eventHub.publish(.structureChanged(library: lib)) }
+                }
+            )
+        }
     }
 
     /// G8a: 本のメタデータ変更を App コールバック＋EventHub の両方へ通知する（progress は除外・呼出元判断）。
@@ -1512,7 +1531,8 @@ public struct LibraryServerCore: Sendable {
                 // withoutActuallyEscaping で安全にブリッジする。
                 try await withoutActuallyEscaping(isCancelled) { escapableIsCancelled in
                     let report = try await FullIntegrityScanner.scan(
-                        database: lib.db, mode: mode, deps: FullIntegrityScanner.liveDependencies(),
+                        database: lib.db, mode: mode,
+                        deps: FullIntegrityScanner.liveDependencies(libraryBundleURL: lib.bundleURL),
                         progress: { d, t in progress(d, t) },
                         isCancelled: escapableIsCancelled)
                     return report.scanned

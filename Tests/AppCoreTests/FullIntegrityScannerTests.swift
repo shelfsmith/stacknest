@@ -27,11 +27,13 @@ struct FullIntegrityScannerTests {
         categoryOf: @escaping @Sendable (String) -> BookCategory = { _ in .archive },
         statFile: @escaping @Sendable (String) -> (Int64?, Double?) = { _ in (4096, 111.0) },
         fileExists: @escaping @Sendable (String) -> Bool = { _ in true },
-        now: @escaping @Sendable () -> Int64 = { 1_700_000_000 }
+        now: @escaping @Sendable () -> Int64 = { 1_700_000_000 },
+        libraryReachable: @escaping @Sendable () -> Bool = { true }
     ) -> FullIntegrityScanner.Dependencies {
         FullIntegrityScanner.Dependencies(
             categoryOf: categoryOf, fileExists: fileExists,
-            statFile: statFile, verify: verify, now: now)
+            statFile: statFile, verify: verify, now: now,
+            libraryReachable: libraryReachable)
     }
 
     // MARK: - 1. 正常な本
@@ -333,6 +335,95 @@ struct FullIntegrityScannerTests {
                 "削除された本の永続化が成功したことになっている")
         #expect(try #require(try db.integrityRecord(bookID: 2)).status == .ok,
                 "1 冊目の失敗後、2 冊目が最後まで走査されていない")
+    }
+
+    // MARK: - G27b 最終レビュー Fix3: ライブラリが走査中に閉じられた場合は loop-fatal
+
+    @Test("ライブラリが走査中に閉じられると、以降の全冊を空回りせず中断で終える")
+    func libraryClosedMidScanStopsAsCancelledInsteadOfLoopingFailures() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "a", path: "/lib/a.zip"))
+        try db.insertBook(book(id: 2, title: "b", path: "/lib/b.zip"))
+        try db.insertBook(book(id: 3, title: "c", path: "/lib/c.zip"))
+
+        // 1 冊目の verify の最中に「ユーザーがライブラリを閉じた」を模す（db.close() で
+        // queue が nil になり、以後の upsertIntegrity は DatabaseError.libraryClosed を throw する）。
+        let report = try await FullIntegrityScanner.scan(
+            database: db,
+            deps: deps(verify: { url, _ in
+                if url.path.contains("a.zip") { db.close() }
+                return ArchiveVerifyResult(entryCount: 1, imageCount: 1, badEntries: [], truncated: false)
+            }))
+
+        #expect(report.cancelled == true, "永続化失敗の連続ではなく中断として扱われるべき")
+        #expect(report.persistenceFailures == 0,
+                "libraryClosed は per-book failure に計上してはいけない（無限に近い空回りの温床）")
+        // 2, 3 冊目は 1 冊目の close 直後に打ち切られ、一切試みられていないこと。
+        #expect(try db.integrityRecord(bookID: 2) == nil)
+        #expect(try db.integrityRecord(bookID: 3) == nil)
+    }
+
+    // MARK: - G27b 最終レビュー Fix5: ボリューム不到達時は missing を書かずスキップする
+
+    @Test("ボリュームが到達不能な間の !exists は missing を書かずスキップする")
+    func volumeUnreachableSkipsWithoutOverwritingExistingStatus() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "was-damaged", path: "/lib/a.zip"))
+        try db.insertBook(book(id: 2, title: "was-ok", path: "/lib/b.zip"))
+        // 既存の判定（劣化検出の唯一の証跡を含む）を先に用意しておく。`upsertIntegrity` は
+        // 渡した record の prevStatus を使わず既存行から自分で退避するため、劣化の証跡
+        // （prev_status='ok'）を作るには他のテストと同じく 2 段階（ok→damaged）で積む。
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .ok, method: .full, checkedAt: 50,
+            fileSize: nil, fileMtime: nil, entryCount: nil, badEntries: [],
+            prevStatus: nil, prevCheckedAt: nil))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .full, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil, badEntries: ["x"],
+            prevStatus: nil, prevCheckedAt: nil))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 2, status: .ok, method: .full, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil, badEntries: [],
+            prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .all,
+            deps: deps(verify: { _, _ in
+                Issue.record("ボリューム不到達時に verify を呼ぼうとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            fileExists: { _ in false },       // NAS が寝ていて全冊 stat 失敗を模す
+            libraryReachable: { false }))      // バンドル自体も到達不能
+
+        #expect(report.volumeUnavailableSkips == 2)
+        #expect(report.scanned == 0, "スキップした本は scanned に数えてはいけない")
+        #expect(report.byStatus[.missing] == nil, "missing を書いてはいけない")
+
+        // 既存の判定（劣化の証跡含む）が一切変更されていないこと。
+        let rec1 = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec1.status == .damaged)
+        #expect(rec1.isDegraded, "ボリューム不到達での再走査で劣化の証跡が消えてはいけない")
+        let rec2 = try #require(try db.integrityRecord(bookID: 2))
+        #expect(rec2.status == .ok)
+    }
+
+    @Test("ライブラリ自体が到達可能なら、消えた本は従来どおり missing になる")
+    func trulyMissingBookIsStillRecordedWhenLibraryReachable() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "really-gone", path: "/lib/gone.zip"))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db,
+            deps: deps(verify: { _, _ in
+                Issue.record("不在ファイルを verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            fileExists: { _ in false },
+            libraryReachable: { true }))   // ライブラリ自体は健在＝本当にこの 1 冊が消えた
+
+        #expect(report.volumeUnavailableSkips == 0)
+        #expect(report.byStatus[.missing] == 1)
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .missing)
     }
 
     // MARK: - 5. 3 モードで対象が変わる
