@@ -15,6 +15,27 @@ final class LocalControlController {
     private var portRetries = 0
     private static let maxPortRetries = 2
 
+    /// G27b 最終レビュー Fix2: メンテナンスジョブ（整合性フルスキャン含む）の唯一の登録先。
+    ///
+    /// `LibraryServerCore` は自前で `MaintenanceJobRegistry` を作れるが（`ServerController` は
+    /// それでよい）、ローカル制御は CLI/MCP（`POST .../integrity/full-scan` 等）と GUI の
+    /// 整合性チェックウィンドウの**両方**が同じライブラリに対して起動しうる。この 1 個の
+    /// インスタンスを（a）`startIfEnabled()` が毎回同じものを `LibraryServerCore` へ注入し、
+    /// （b）`IntegrityWindow` が直接（プロセス内・HTTP を経由せず）参照することで、
+    /// 「busy 判定・進捗・中断」を単一の場所に統一する ―― これが無いと GUI が別経路で
+    /// スキャンを開始でき、CLI 側からは `running:false` に見えたまま 2 本目の 31 時間スキャンが
+    /// 同じ庫に対して走ってしまう（レビューで確認された実害）。
+    ///
+    /// `startIfEnabled()`/`stop()`/`reload()`（ローカル制御 HTTP リスナーの起動/停止）とは
+    /// **独立**に、アプリプロセスの生存中ずっと 1 個だけ存在する（ローカル自動化が OFF でも
+    /// GUI からのスキャンは登録され、ボタンの busy 判定は機能する）。onProgress/onFinished は
+    /// no-op ―― ローカル制御の SSE `/events` はこのアプリ内のどこからも購読されていない
+    /// （購読するのはリモート共有クライアントのみ。詳細は `LibraryServerCore.init` のコメント）。
+    let maintenanceRegistry = MaintenanceJobRegistry(
+        onProgress: { _, _, _, _ in },
+        onFinished: { _, _, _, _ in }
+    )
+
     func startIfEnabled() {
         guard ServerPreferences.localAutomationEnabled() else { return }
         guard !isRunning else { return }
@@ -80,7 +101,8 @@ final class LocalControlController {
             openLibrary: { url in try await Self.openLibrary(at: url) },
             closeLibrary: { uuid in try await Self.closeLibrary(uuid: uuid) }
         )
-        let core = LibraryServerCore(config: config, dataSource: AllOpenLibrariesDataSource())
+        let core = LibraryServerCore(config: config, dataSource: AllOpenLibrariesDataSource(),
+                                     maintenanceRegistry: maintenanceRegistry)
         let app = core.buildApplication()
         isRunning = true
         serverTask = Task {

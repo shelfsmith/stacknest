@@ -5,8 +5,17 @@ import GRDB
 extension Database {
     /// 検査結果を 1 冊分書く。
     ///
-    /// **既存行があれば、その status / checked_at を prev_* に退避してから上書きする。**
+    /// **既存行があれば、その status / checked_at を prev_* に退避してから上書きする —
+    /// ただし今回の status が前回と同じ（変化なし）ときは退避しない。**
     /// 呼び出し側は prev_* を詰めなくてよい。1 世代だけ保持する。
+    ///
+    /// G27b 最終レビュー Fix1（Critical）: 「変化なし」でも無条件に prev_* を今回値で
+    /// 上書きしていたため、`ok → damaged`（劣化検出）の直後に damaged のまま再検査すると
+    /// `prev_status` が `damaged` に置き換わり `isDegraded`（`prev_status == .ok`）が偽になって
+    /// しまっていた。「破損のみ再検査」（修復確認）や `--mode all` の連続実行は日常的に起こる
+    /// 操作であり、そのたびに劣化の証跡（唯一のビット腐敗の記録）が消えるのは 31 時間規模の
+    /// 全件スキャンの存在意義そのものを損なう。既存行の status が今回と同じであれば、
+    /// prev_status/prev_checked_at は既存値のまま温存する（checked_at 等それ以外は通常どおり更新）。
     public func upsertIntegrity(_ record: IntegrityRecord) throws {
         // Fix5: この 2 メソッドは G27a で新設されたもの。黙って return すると、走査の
         // 途中でライブラリが閉じられても呼び出し側（QuickIntegrityScanner）は成功したと
@@ -17,10 +26,21 @@ extension Database {
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         try q.write { db in
             let existing = try Row.fetchOne(
-                db, sql: "SELECT status, checked_at FROM book_integrity WHERE book_id = ?",
+                db, sql: "SELECT status, checked_at, prev_status, prev_checked_at FROM book_integrity WHERE book_id = ?",
                 arguments: [record.bookID])
-            let prevStatus: String? = existing?["status"]
-            let prevCheckedAt: Int64? = existing?["checked_at"]
+            let existingStatus: String? = existing?["status"]
+            // Fix1: status が変化していない（同じ結果の再検査）なら、既存の prev_* をそのまま
+            // 引き継ぐ。変化した（今回はじめて今の status になった）ときだけ、直前の状態を
+            // prev_* へ退避する ―― これが従来どおりの「1 世代だけ保持する」挙動。
+            let prevStatus: String?
+            let prevCheckedAt: Int64?
+            if existingStatus == record.status.rawValue {
+                prevStatus = existing?["prev_status"]
+                prevCheckedAt = existing?["prev_checked_at"]
+            } else {
+                prevStatus = existingStatus
+                prevCheckedAt = existing?["checked_at"]
+            }
             try db.execute(sql: """
                 INSERT INTO book_integrity
                     (book_id, status, method, checked_at, file_size, file_mtime,

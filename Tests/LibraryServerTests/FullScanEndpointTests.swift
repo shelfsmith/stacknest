@@ -75,6 +75,14 @@ struct FullScanEndpointTests {
     }
 
     /// 3) status エンドポイントが実行中の full-scan ジョブを報告する。
+    ///
+    /// G27b 最終レビュー Fix 検証時の追記: fixture が bookCount 2 のみで即完走しうるため、
+    /// もともと「POST 直後の 1 回きりの GET」はレース（フルテストスイート並列実行下の
+    /// スケジューリング次第で、GET が届く前に registry.finish() が呼ばれ running:false に
+    /// 戻ってしまう）を内包していた。ジョブ自体は `registry.start()` 内で Task 起動前に
+    /// 同期的に running へ確定するため、GET を短時間だけリトライすれば本質を損なわずに
+    /// このレースを吸収できる（`.serialized` はこのスイート内の直列化のみで、他スイートとの
+    /// 並列実行までは防げない）。
     @Test func statusEndpointReportsRunningFullScan() async throws {
         let fx = try TestLibraryFixture(name: "FSStatus", bookCount: 2)
         defer { fx.cleanup() }
@@ -85,15 +93,22 @@ struct FullScanEndpointTests {
             let postStatus = try await postFullScan(client, uuid: lib.uuid, mode: "unchecked")
             #expect(postStatus == .accepted)
 
-            try await client.execute(
-                uri: "/api/v1/libraries/\(lib.uuid)/maintenance/status",
-                method: .get, headers: [.authorization: "Bearer W"]
-            ) { resp in
-                #expect(resp.status == .ok)
-                let dto = try JSONDecoder().decode(MaintenanceStatusReply.self, from: Data(buffer: resp.body))
-                #expect(dto.running == true)
-                #expect(dto.job == "full-scan")
+            var lastDTO: MaintenanceStatusReply?
+            for attempt in 0..<40 {
+                var dto: MaintenanceStatusReply?
+                try await client.execute(
+                    uri: "/api/v1/libraries/\(lib.uuid)/maintenance/status",
+                    method: .get, headers: [.authorization: "Bearer W"]
+                ) { resp in
+                    #expect(resp.status == .ok)
+                    dto = try JSONDecoder().decode(MaintenanceStatusReply.self, from: Data(buffer: resp.body))
+                }
+                lastDTO = dto
+                if dto?.running == true { break }
+                if attempt < 39 { try await Task.sleep(for: .milliseconds(5)) }
             }
+            #expect(lastDTO?.running == true, "running な状態を一度も観測できなかった")
+            #expect(lastDTO?.job == "full-scan")
         }
         // fixture は bookCount 2 のみで即完走しうるため、後始末に少し待つ（後続テストへの汚染防止）。
         try await Task.sleep(for: .milliseconds(200))

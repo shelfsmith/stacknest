@@ -2,8 +2,8 @@
 import AppCore
 import AppKit
 import Foundation
+import LibraryServer
 import LibraryStore
-import OSLog
 import SwiftUI
 
 // Phase G27b Task 6: 整合性チェックウィンドウ。
@@ -95,53 +95,27 @@ enum IntegrityWindowLogic {
     }
 }
 
-// MARK: - IntegrityScanTask
+// MARK: - IntegrityFullScanJob
 
-/// スレッド安全なキャンセルフラグ（`CoverRegenerationTask.CoverRegenerationCancelFlag` と同じ設計）。
-/// `FullIntegrityScanner.scan` の `isCancelled` は `@Sendable () async -> Bool` で MainActor 外から
-/// 呼ばれうるため、単純な MainActor プロパティのキャプチャではなくロック付きフラグを使う。
-private final class IntegrityScanCancelFlag: @unchecked Sendable {
+/// Phase G27b Task 6 / 最終レビュー Fix2: 整合性チェックウィンドウの「full-scan」ジョブ名。
+/// CLI/MCP の HTTP ルート（`POST .../integrity/full-scan`）が `maintenanceRegistry.start` に
+/// 渡す job 名（`Sources/LibraryServer/LibraryServerCore.swift`）と**文字列として完全一致**させる
+/// こと。ここがずれると、GUI が開始したジョブを CLI の `GET maintenance/status` が別ジョブとして
+/// 見てしまい（あるいはその逆）、"同じ registry を使っているのに busy 判定が食い違う" という
+/// 一番検出しづらい形で Fix2 の意図が壊れる。
+private let integrityFullScanJobName = "full-scan"
+
+/// `MaintenanceJobRegistry.start` の `run` クロージャは `@Sendable` で戻り値は `Int`
+/// （完了件数）のみ。詳細な `FullScanReport`（byStatus 内訳・cancelled・volumeUnavailableSkips）を
+/// UI へ持ち帰るためのスレッド安全な受け渡し箱。**自分（このウィンドウ）がこのタブで開始した
+/// スキャンにのみ**使う ―― CLI/MCP など他所が開始したジョブにはこの箱が無いため、
+/// その完了は `lastReport` の詳細表示なしに `reload()` のみで反映する（brief の要求である
+/// 「進捗表示・ボタン無効化」は満たすが、完了時の内訳キャプションは自分が開始した場合のみ）。
+private final class IntegrityReportBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var value = false
-    func cancel() { lock.lock(); value = true; lock.unlock() }
-    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return value }
-}
-
-/// Phase G27b Task 6: 整合性チェックウィンドウ用の詳細スキャンタスク。
-///
-/// `DuplicateScanTask` / `CoverRegenerationTask` と同じ shape（database を保持し、cancel 可能、
-/// `onProgress` で進捗を通知する）を踏襲する。実体は CLI/MCP/HTTP と共有するコア
-/// `AppCore.FullIntegrityScanner` にそのまま委譲する（GUI 独自のスキャンロジックは持たない）。
-@MainActor
-final class IntegrityScanTask {
-    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "IntegrityScan")
-    private let database: Database
-    private let mode: FullScanMode
-    private let cancelFlag = IntegrityScanCancelFlag()
-
-    init(database: Database, mode: FullScanMode) {
-        self.database = database
-        self.mode = mode
-    }
-
-    func cancel() { cancelFlag.cancel() }
-
-    func run(onProgress: @escaping @Sendable @MainActor (Int, Int) -> Void) async -> FullScanReport {
-        do {
-            return try await FullIntegrityScanner.scan(
-                database: database,
-                mode: mode,
-                deps: FullIntegrityScanner.liveDependencies(),
-                progress: { @Sendable done, total in
-                    Task { @MainActor in onProgress(done, total) }
-                },
-                isCancelled: { [cancelFlag] in cancelFlag.isCancelled }
-            )
-        } catch {
-            Self.logger.error("IntegrityScanTask failed: \(error.localizedDescription, privacy: .public)")
-            return FullScanReport(scanned: 0, byStatus: [:], persistenceFailures: 0, cancelled: cancelFlag.isCancelled)
-        }
-    }
+    private var report: FullScanReport?
+    func set(_ r: FullScanReport) { lock.lock(); report = r; lock.unlock() }
+    func take() -> FullScanReport? { lock.lock(); defer { lock.unlock() }; return report }
 }
 
 // MARK: - IntegrityCheckRef / WindowGroup container
@@ -215,10 +189,25 @@ struct IntegrityCheckView: View {
     @State private var summary = IntegritySummary(checked: 0, unchecked: 0, damaged: 0, degraded: 0)
     @State private var lastScanAt: Date?
     @State private var rows: [(book: BookRow, record: IntegrityRecord)] = []
-    @State private var scanTask: IntegrityScanTask?
-    @State private var isScanning = false
-    @State private var progress: (done: Int, total: Int) = (0, 0)
+    // G27b 最終レビュー Fix2/Fix4: ウィンドウは `MaintenanceJobRegistry` の状態を**観測**するだけで、
+    // 自前のタスク/フラグを所有しない。`jobStatus` は「今このライブラリで走っているジョブ」を
+    // ポーリングで反映したもので、GUI が開始したかどうかを問わない（CLI/MCP・他ウィンドウが
+    // 開始したジョブも同じフィールドに映る）。これにより:
+    //   - ウィンドウを閉じてもジョブは registry 側で走り続ける（scanTask を持たないので
+    //     「唯一の参照を失って中断できなくなる」が構造的に起こらない＝Fix4）。
+    //   - 再度開けば `.onAppear` の最初のポーリングで即座に isScanning=true に復帰する。
+    @State private var jobStatus: MaintenanceJobRegistry.JobStatus?
     @State private var lastReport: FullScanReport?
+    @State private var pollTask: Task<Void, Never>?
+    /// 自分（このウィンドウ）が開始したスキャンの詳細レポート受け皿。他所が開始したジョブには
+    /// 対応する箱が無いため `lastReport` は `reload()` 相当の反映のみになる（型コメント参照）。
+    @State private var pendingReportBox: IntegrityReportBox?
+
+    private var isScanning: Bool { jobStatus != nil }
+    private var progress: (done: Int, total: Int) { (jobStatus?.done ?? 0, jobStatus?.total ?? 0) }
+    /// `AllOpenLibrariesDataSource`/`AppStateLibraryDataSource` と同じ `ensureLibraryUUID()` を使う
+    /// ―― registry のキー（library uuid 文字列）を HTTP ルートと完全に一致させるため。
+    private var libraryUUID: String? { appState?.librarySettings?.ensureLibraryUUID() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -234,15 +223,25 @@ struct IntegrityCheckView: View {
                 }
                 Spacer()
                 if isScanning {
-                    Button("中断") { scanTask?.cancel() }
+                    Button("中断") { cancelScan() }
                 }
             }
 
             if isScanning {
                 ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
-                Text("検査中… \(progress.done)/\(progress.total)")
-                    .font(.caption)
-                    .monospacedDigit()
+                if jobStatus?.job == integrityFullScanJobName {
+                    Text("検査中… \(progress.done)/\(progress.total)")
+                        .font(.caption)
+                        .monospacedDigit()
+                } else {
+                    // 同じライブラリで他のメンテナンスジョブ（表紙圧縮・メタ補完等）が実行中。
+                    // registry は庫あたり同時 1 本しか許さないため、ここのボタンも busy として
+                    // 無効化する（誤って別ジョブの done/total を「検査」として誤読させない）。
+                    Text("他のメンテナンス処理を実行中です（\(jobStatus?.job ?? "")）… \(progress.done)/\(progress.total)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
             } else if let lastReport {
                 Text(IntegrityWindowLogic.completionSummary(lastReport))
                     .font(.caption)
@@ -269,7 +268,16 @@ struct IntegrityCheckView: View {
         }
         .padding(20)
         .frame(minWidth: 640, idealWidth: 760, minHeight: 420, idealHeight: 560)
-        .onAppear { reload() }
+        .onAppear {
+            reload()
+            startObserving()
+        }
+        .onDisappear {
+            // Fix4: ここで registry のジョブを中断してはいけない ―― ウィンドウはジョブの
+            // オブザーバであってオーナーではない。閉じるのはこのビューのポーリングだけ。
+            pollTask?.cancel()
+            pollTask = nil
+        }
     }
 
     @ViewBuilder
@@ -332,6 +340,37 @@ struct IntegrityCheckView: View {
         rows = IntegrityWindowLogic.sortedForDisplay(fetched.map { (book: $0.0, record: $0.1) })
     }
 
+    // MARK: - ジョブの観測（Fix2/Fix4）
+
+    /// ウィンドウが開いている間ずっと、このライブラリの `MaintenanceJobRegistry.status(library:)`
+    /// をポーリングして `jobStatus` へ反映する。CLI/MCP・他ウィンドウが開始したジョブも含めて
+    /// 「今このライブラリで何か走っているか」を単一の真実源から取得する ―― これにより
+    /// ボタンの無効化・進捗表示は開始者を問わず常に正しい（brief の「regardless of who
+    /// started it」を満たす）。400ms 間隔は 31 時間規模の走査に対して十分高頻度かつ、
+    /// SSE を張らない設計方針（`MaintenanceJobRegistry` のコメント参照）とも整合する。
+    private func startObserving() {
+        pollTask?.cancel()
+        guard let uuid = libraryUUID else { return }
+        pollTask = Task { @MainActor in
+            var wasRunning = false
+            while !Task.isCancelled {
+                let status = await LocalControlController.shared.maintenanceRegistry.status(library: uuid)
+                jobStatus = status
+                if wasRunning, status == nil {
+                    // ジョブが終わった。自分で開始していれば box に詳細レポートが入っている。
+                    if let box = pendingReportBox, let report = box.take() {
+                        lastReport = report
+                    }
+                    pendingReportBox = nil
+                    reload()
+                }
+                wasRunning = status != nil
+                if Task.isCancelled { return }
+                try? await Task.sleep(nanoseconds: 400_000_000)
+            }
+        }
+    }
+
     // MARK: - スキャン開始/確認
 
     /// 「全件やり直し」だけは spec 上 31 時間規模になりうるため、開始前に確認する。
@@ -349,21 +388,48 @@ struct IntegrityCheckView: View {
         startScan(action)
     }
 
+    /// G27b 最終レビュー Fix2: `IntegrityScanTask` を自前で回すのではなく、CLI/MCP の
+    /// `POST .../integrity/full-scan` と同じ `LocalControlController.shared.maintenanceRegistry`
+    /// を通す（同じ job 名 `integrityFullScanJobName` で登録する）。`start` が false（他ジョブが
+    /// 同一庫で実行中）を返すことは通常ここに来る前にボタンが無効化されているため稀だが、
+    /// レースで到達しても registry が実際の多重起動を防いでくれる（自前ガードを重複させない）。
     private func startScan(_ action: IntegrityWindowLogic.ScanAction) {
-        let task = IntegrityScanTask(database: database, mode: action.mode)
-        scanTask = task
-        isScanning = true
-        progress = (0, 0)
+        guard let uuid = libraryUUID else { return }
         lastReport = nil
+        let box = IntegrityReportBox()
+        pendingReportBox = box
+        // `self`（View struct・非 Sendable）を後段の `@Sendable` クロージャへ取り込まないよう、
+        // 必要な値だけを事前にローカル定数へ写す（`database`/`bundleURL` は Sendable な値、
+        // `action` はクロージャの外側でキャプチャされるローカル引数なのでそのままでよい）。
+        let db = database
+        let libraryBundleURL = bundleURL
         Task { @MainActor in
-            let report = await task.run { done, total in
-                progress = (done, total)
+            let started = await LocalControlController.shared.maintenanceRegistry.start(
+                library: uuid, job: integrityFullScanJobName
+            ) { progress, isCancelled in
+                try await withoutActuallyEscaping(isCancelled) { escapableIsCancelled in
+                    let report = try await FullIntegrityScanner.scan(
+                        database: db, mode: action.mode,
+                        deps: FullIntegrityScanner.liveDependencies(libraryBundleURL: libraryBundleURL),
+                        progress: { d, t in progress(d, t) },
+                        isCancelled: escapableIsCancelled)
+                    box.set(report)
+                    return report.scanned
+                }
             }
-            isScanning = false
-            scanTask = nil
-            lastReport = report
-            reload()
+            if !started {
+                // busy（他ジョブが同一庫で実行中）。次のポーリングで jobStatus が反映される。
+                pendingReportBox = nil
+            } else {
+                // 次のポーリング tick を待たず、起動直後から running を即時反映する。
+                jobStatus = await LocalControlController.shared.maintenanceRegistry.status(library: uuid)
+            }
         }
+    }
+
+    private func cancelScan() {
+        guard let uuid = libraryUUID else { return }
+        Task { await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid) }
     }
 
     // MARK: - 行操作
