@@ -97,6 +97,47 @@ extension Database {
         return try ids.compactMap { try fetchBook(id: $0) }
     }
 
+    /// 詳細スキャン（CRC 検証）の候補（spec §4.3・Phase G27b）。
+    ///
+    /// **カテゴリ（アーカイブ/フォルダ/画像/動画/テキスト）でフィルタしない** ―― 判定には
+    /// `FileManager` での実 I/O（ディレクトリかどうか）が要るため、SQL 側では行えない
+    /// （`booksNeedingQuickCheck` が同じ理由でフィルタしないのと同じ判断）。判定は
+    /// `FullIntegrityScanner` が担い、アーカイブ以外は `unsupported` として書き戻すことで
+    /// 次回以降の `.uncheckedOnly` から外れる（brief にある「書かないと毎回対象に残る」の対策）。
+    public func booksNeedingFullCheck(mode: FullScanMode) throws -> [BookRow] {
+        guard let q = queue else { return [] }
+        let ids: [Int] = try q.read { db in
+            switch mode {
+            case .uncheckedOnly:
+                // method='full' の行が「無い」本 ―― method='quick' の行しか無い本（G27a の
+                // 簡易チェック済み）も、full 行が無い限りここに含まれる（この区別を落とすと
+                // 全件が対象外になる。brief が名指しした落とし穴）。
+                return try Int.fetchAll(db, sql: """
+                    SELECT book.id FROM book
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM book_integrity
+                        WHERE book_integrity.book_id = book.id AND book_integrity.method = 'full'
+                    )
+                    ORDER BY book.id
+                    """)
+            case .all:
+                // 既存の book_integrity 行を完全に無視する ―― ビット腐敗検出の唯一の手段
+                // （file_size/file_mtime は劣化を検出できないため、spec §4.1 の「全件やり直し」）。
+                return try Int.fetchAll(db, sql: "SELECT id FROM book ORDER BY id")
+            case .damagedOnly:
+                // 直近の status が damaged の本。method（quick/full どちらで damaged になったか）
+                // は問わない ―― brief の「status='damaged' の本」という文言のとおり。
+                return try Int.fetchAll(db, sql: """
+                    SELECT book.id FROM book
+                    JOIN book_integrity ON book_integrity.book_id = book.id
+                    WHERE book_integrity.status = 'damaged'
+                    ORDER BY book.id
+                    """)
+            }
+        }
+        return try ids.compactMap { try fetchBook(id: $0) }
+    }
+
     /// 検査時に取れた stat を書き戻す（G27a ④。実機では 99.5% が NULL のままだった）。
     /// `pages` の書き戻しは既存の `updateBookPages(id:newPages:)`（Database.swift）を再利用する。
     public func updateBookFileStat(id: Int, size: Int64, mtime: Double) throws {
