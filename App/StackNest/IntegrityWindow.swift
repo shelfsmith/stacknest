@@ -105,6 +105,17 @@ enum IntegrityWindowLogic {
         return context
     }
 
+    /// 進捗キャプションに付ける「最終取得」注記。`stale == true`（＝直近の `jobProgress()` 取得が
+    /// 失敗し、`jobStatus` が凍結されている）のときだけ非空文字列を返す。
+    ///
+    /// Phase G29 Task 3 fix round 3 (Minor, review 再々指摘): 接続が切れている間も凍結した
+    /// `jobStatus` の done/total をそのまま出し続けると、あたかも今も更新されているかのように
+    /// 読める。隣に出る `progressErrorText` は警告として気づかれるとは限らないため、
+    /// 数字そのものにも「最新ではないかもしれない」を明示する。
+    static func staleSuffix(stale: Bool) -> String {
+        stale ? "（最終取得の値）" : ""
+    }
+
     static func formattedDate(_ date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ja_JP")
@@ -416,15 +427,18 @@ struct IntegrityCheckView: View {
 
             if isScanning {
                 ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
+                // fix round 3 (Minor, review 再々指摘): 進捗取得が失敗中（`progressErrorText != nil`）
+                // は、凍結された done/total が最新ではない可能性を「最終取得の値」で明示する。
+                let stale = IntegrityWindowLogic.staleSuffix(stale: progressErrorText != nil)
                 if jobStatus?.isIntegrityFullScan == true {
-                    Text("検査中… \(progress.done)/\(progress.total)")
+                    Text("検査中… \(progress.done)/\(progress.total)\(stale)")
                         .font(.caption)
                         .monospacedDigit()
                 } else {
                     // 同じライブラリで他のメンテナンスジョブ（表紙圧縮・メタ補完等）が実行中。
                     // registry は庫あたり同時 1 本しか許さないため、ここのボタンも busy として
                     // 無効化する（誤って別ジョブの done/total を「検査」として誤読させない）。
-                    Text("他のメンテナンス処理を実行中です（\(jobStatus?.job ?? "")）… \(progress.done)/\(progress.total)")
+                    Text("他のメンテナンス処理を実行中です（\(jobStatus?.job ?? "")）… \(progress.done)/\(progress.total)\(stale)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -657,8 +671,20 @@ struct IntegrityCheckView: View {
         }
     }
 
+    /// Phase G29 Task 3 fix round 3 (Minor, review 再々指摘): `dataSource.cancel()` の失敗を
+    /// `startScan` と同じ扱いにする ―― 進捗取得が失敗して `isScanning` が凍結表示のまま残っている
+    /// 状況では「中断」がまさにユーザーが押したくなるボタンで、黙って何もしないままにはできない。
+    /// 同じ `scanErrorText` を使う（開始・中断はどちらも「スキャン操作」の失敗として同列に扱う）。
     private func cancelScan() {
-        Task { await dataSource.cancel() }
+        Task { @MainActor in
+            do {
+                try await dataSource.cancel()
+                scanErrorText = nil
+            } catch {
+                scanErrorText = IntegrityWindowLogic.remoteFailureMessage(
+                    for: error, context: "中断できませんでした。")
+            }
+        }
     }
 
     // MARK: - 行操作

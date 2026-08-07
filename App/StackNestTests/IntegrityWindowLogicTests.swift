@@ -111,6 +111,20 @@ struct IntegrityWindowLogicTests {
             for: RemoteClientError.offline, context: "進捗を取得できません。") == "進捗を取得できません。")
     }
 
+    // MARK: - staleSuffix（Phase G29 Task 3 fix round 3, Minor: 凍結した進捗を最新と誤読させない）
+
+    @Test("stale でなければ何も付かない")
+    func staleSuffixEmptyWhenNotStale() {
+        #expect(IntegrityWindowLogic.staleSuffix(stale: false) == "")
+    }
+
+    @Test("stale なら「最終取得の値」という注記が付く")
+    func staleSuffixMarksFrozenValue() {
+        let suffix = IntegrityWindowLogic.staleSuffix(stale: true)
+        #expect(suffix.isEmpty == false)
+        #expect(suffix.contains("最終取得"))
+    }
+
     // MARK: - summaryLine
 
     @Test("未検査（一度もスキャンしていない）の要約文言")

@@ -66,12 +66,17 @@ protocol IntegrityDataSource {
     func list(status: IntegrityStatus) async throws -> [IntegrityRow]
     /// スキャン開始。`false` は「他ジョブ実行中」（HTTP では 409）。
     func startScan(mode: FullScanMode) async throws -> Bool
-    /// 実行中ジョブの中断。
-    func cancel() async
+    /// 実行中ジョブの中断。失敗（権限不足・オフライン等）は例外を投げる ―― Phase G29 Task 3
+    /// fix round 3: `try?` で握り潰すと、進捗が取得できず凍結表示中に「中断」を押しても
+    /// 黙って何も起きない（それこそユーザーが押したくなるボタンなのに）。
+    func cancel() async throws
     /// 実行中でなければ nil。取得自体に失敗した場合（権限不足・オフライン等）は例外を投げる ――
     /// Phase G29 Task 3 fix round 2: 取得失敗を「実行中でない」の顔をさせないため
     /// （review Critical 1 の同族。`try?` で握り潰すと「進捗なし」＝安全な状態と誤読される）。
     /// 呼び出し側（`IntegrityCheckView.startObserving()`）が明示的にエラー表示する。
+    /// **ただし** admin 未満で見えないことが仕様上確定している場合（リモートの `tier < .admin`）は
+    /// 例外にせず nil を返す ―― fix round 3: 「取得に失敗した」と「そもそも見えない仕様」を
+    /// 区別しないと、read/edit 接続で常時エラーが出続ける恒久的な誤警報になる。
     func jobProgress() async throws -> IntegrityJobProgress?
     /// スキャンを開始できるか。リモートで admin 未満なら false。
     var canStartScan: Bool { get }
@@ -178,7 +183,9 @@ final class LocalIntegrityDataSource: IntegrityDataSource {
         return started
     }
 
-    func cancel() async {
+    /// ローカルの registry 中断は失敗しうる操作ではない（`throws` はプロトコル都合で付いている
+    /// だけで、実際に投げることはない）。
+    func cancel() async throws {
         guard let uuid = libraryUUID else { return }
         await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid)
     }
@@ -287,8 +294,12 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
         }
     }
 
-    func cancel() async {
-        try? await client.cancelMaintenance(libraryUUID: libraryUUID, libraryToken: libraryToken)
+    /// Phase G29 Task 3 fix round 3 (Minor, review 再々指摘): `try?` で握り潰さず投げるようにした。
+    /// 凍結された `jobStatus`（`jobProgress()` が失敗中）と組み合わさると、「中断」がまさに
+    /// ユーザーが押したくなるボタンなのに黙って何もしない、という状態になっていた。
+    /// `startScan` と同じ扱い（呼び出し側 `IntegrityCheckView.cancelScan()` が `scanErrorText` に表示）。
+    func cancel() async throws {
+        try await client.cancelMaintenance(libraryUUID: libraryUUID, libraryToken: libraryToken)
     }
 
     /// `running == false` は「今このライブラリで（このジョブ種別に限らず）何も走っていない」ので
@@ -299,7 +310,16 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     /// ネットワーク断等）はここで `try?` に握り潰さず、そのまま投げる。`maintenance/status` は
     /// admin 専用（`LibraryServerCore.swift` の `requireAdmin()`）なので、read/edit 接続は
     /// 常にここで失敗する ―― それを「実行中でない」という nil に化けさせない。
+    ///
+    /// Phase G29 Task 3 fix round 3 (Important, review 再々指摘): ↑の変更が新しい問題を作った ――
+    /// read/edit 接続は「常にここで失敗する」ため、開いた瞬間からウィンドウを閉じるまで
+    /// 「進捗を取得できません。」が消えずに出続け、隣の「管理者権限がないため…」と二重に警告する
+    /// ことになっていた。tier 不足は「取得に失敗した」のではなく「そもそも見えない仕様」なので、
+    /// HTTP を叩く前に tier を見て、admin 未満なら（例外を投げず）素直に nil を返す。
+    /// これで read/edit 接続は 400ms ごとの無駄な HTTP 呼び出しも無くなる副次効果がある。
+    /// tier が admin なのに実際には取得できない場合（オフライン等）は従来どおり投げる。
     func jobProgress() async throws -> IntegrityJobProgress? {
+        guard tier >= .admin else { return nil }
         let reply = try await client.fetchMaintenanceStatus(libraryUUID: libraryUUID, libraryToken: libraryToken)
         return Self.mapProgress(reply)
     }
