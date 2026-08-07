@@ -768,6 +768,9 @@ struct FileCommands: Commands {
     // G27b Task 6: 整合性チェックウィンドウを開くには bundleURL が要る。BrowserCommandTarget には
     // 無いため、WindowCommands と同じ AppState の FocusedValue を別途取る（ローカル庫のみ非 nil）。
     @FocusedValue(\.appState) private var appState
+    // Phase G29 Task 3: リモート庫では bundleURL の代わりに (serverID, libraryUUID) が要る。
+    // EditCommands と同じ \.remoteState の FocusedValue（RemoteLibraryView のみが非 nil）を使う。
+    @FocusedValue(\.remoteState) private var remoteState
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -861,15 +864,20 @@ struct FileCommands: Commands {
             }
             .disabled(!(target?.canManageLocalFiles ?? false))
 
-            // G27b Task 6: 整合性チェックウィンドウ（独立ウィンドウ、シートではない — 上の
-            // WindowGroup(id: "integrity-check") 参照）。ローカル庫の DB を直接読むためリモートでは
-            // 無効化する（他の canManageLocalFiles ゲート項目と同じ理由）。
+            // G27b Task 6 / Phase G29 Task 3: 整合性チェックウィンドウ（独立ウィンドウ、シートではない
+            // — 上の WindowGroup(id: "integrity-check") 参照）。破損チェックの 5 エンドポイントは
+            // すべてサーバに既存で（read/edit で閲覧・admin でスキャン開始）、`IntegrityDataSource` が
+            // ローカル/リモートを差し替えるため、`canManageLocalFiles`（rename/move/relink 専用の
+            // ゲート）はここには適用しない — リモートでも開ける。
             Button("整合性チェック…") {
                 if let url = appState?.bundleURL {
-                    openWindow(id: "integrity-check", value: IntegrityCheckRef(bundleURL: url))
+                    openWindow(id: "integrity-check", value: IntegrityCheckRef.local(bundleURL: url))
+                } else if let remoteState {
+                    openWindow(id: "integrity-check", value: IntegrityCheckRef.remote(
+                        serverID: remoteState.serverID, libraryUUID: remoteState.libraryUUID))
                 }
             }
-            .disabled(!(target?.canManageLocalFiles ?? false))
+            .disabled(appState == nil && remoteState == nil)
 
             // G12b-2 smoke: 「重複を検出…」は表示メニューではなく File メニューの
             // 「リンク切れを検出…」の下が適切（ユーザー要望）。gate はローカル/リモート共通の

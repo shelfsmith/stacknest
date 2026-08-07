@@ -2,14 +2,16 @@
 import AppCore
 import Foundation
 import LibraryServer
+import LibraryServerAPI
 import LibraryStore
+import RemoteClient
 
 // Phase G29 Task 1: 破損チェックウィンドウのデータ源を抽象化する（挙動不変のリファクタリング）。
 //
 // このファイルは機能追加ではない。`IntegrityWindow.swift` が DB と
 // `MaintenanceJobRegistry` を直接触っていた部分を、プロトコル越しに置き換えるための
 // 型を定義する。ローカル実装（`LocalIntegrityDataSource`）は既存ロジックの移設であり、
-// リモート実装は Phase G29 Task 3 が追加する。
+// リモート実装（`RemoteIntegrityDataSource`）は Phase G29 Task 3 が追加する。
 
 /// 破損チェックウィンドウ 1 行分の表示モデル。
 ///
@@ -203,3 +205,136 @@ final class LocalIntegrityDataSource: IntegrityDataSource {
 /// 可視性のみ `private` に戻した。このファイルの外（`IntegrityWindow.swift`）は
 /// `IntegrityJobProgress.isIntegrityFullScan` 経由でのみ参照する。
 private let integrityFullScanJobName = "full-scan"
+
+// MARK: - RemoteIntegrityDataSource（Phase G29 Task 3）
+
+/// リモート庫の `IntegrityDataSource` 実装。`RemoteLibraryClient`（Task 2 で追加した 4 メソッド＋
+/// 既存の `cancelMaintenance`）越しに HTTP でサーバの `book_integrity` を読み書きする。
+///
+/// - `client`/`libraryUUID`/`libraryToken` は `IntegrityWindowContainer` が
+///   `ServerConnectionStore`（`RemoteLibraryWindowContainer` と同じ解決パターン）で解決した値を
+///   そのまま受け取る（このデータ源自身は解決を行わない）。
+/// - `tier` は `/me` で解決済みの値をコンテナから受け取る固定値。ウィンドウの寿命中に
+///   グラントの tier が変わることは通常無く（変わるとすれば再接続が要る）、ローカル実装の
+///   `LocalIntegrityDataSource` が `appState` 経由で `librarySettings` を都度読みに行くのとは
+///   事情が異なる（ローカルは同一プロセス内の可変状態、こちらは解決済みの認可結果）。
+@MainActor
+final class RemoteIntegrityDataSource: IntegrityDataSource {
+    private let client: RemoteLibraryClient
+    private let libraryUUID: String
+    private let libraryToken: String?
+    private let tier: AccessTier
+
+    init(client: RemoteLibraryClient, libraryUUID: String, libraryToken: String?, tier: AccessTier) {
+        self.client = client
+        self.libraryUUID = libraryUUID
+        self.libraryToken = libraryToken
+        self.tier = tier
+    }
+
+    /// full-scan は admin 必須（サーバ側 `requireAdmin`）。summary/list は read で通る。
+    /// 数十時間かかりうるジョブを閲覧権限で起動させないための意図的な段階的縮退（spec §3.4）。
+    var canStartScan: Bool { tier >= .admin }
+    var scanUnavailableReason: String? {
+        canStartScan ? nil : "この接続には管理者権限がないため、スキャンを開始できません。"
+    }
+
+    func summary() async throws -> IntegritySummary {
+        let reply = try await client.fetchIntegritySummary(libraryUUID: libraryUUID, libraryToken: libraryToken)
+        return IntegritySummary(checked: reply.checked, unchecked: reply.unchecked,
+                                 damaged: reply.damaged, degraded: reply.degraded)
+    }
+
+    /// `integrity/summary` は最終検査時刻を運ばない（サーバを変更しないという本フェーズの制約上、
+    /// 新しいフィールドを追加できない）。素直に「取得できない」を返す — ビューは既に
+    /// `lastScanAt: Date?` を optional として扱っているため、呼び出し側の分岐を増やさずに済む。
+    func lastScanAt() async throws -> Date? { nil }
+
+    func list(status: IntegrityStatus) async throws -> [IntegrityRow] {
+        let reply = try await client.fetchIntegrityList(
+            libraryUUID: libraryUUID, status: status.rawValue, libraryToken: libraryToken)
+        return reply.items.compactMap(Self.mapRow)
+    }
+
+    /// 202=起動受理→true。409（他ジョブ実行中）は `RemoteClientError.server(409)` として投げられる
+    /// （`RemoteLibraryClient.startIntegrityFullScan` のドキュメントコメント参照）ので、ここで
+    /// `false` に写す ―― busy は失敗ではなく正常系（`LocalIntegrityDataSource.startScan` が
+    /// registry の `start` が false を返すケースと同じ扱い）。それ以外のエラーはそのまま投げる。
+    func startScan(mode: FullScanMode) async throws -> Bool {
+        do {
+            try await client.startIntegrityFullScan(libraryUUID: libraryUUID, mode: mode.wireValue, libraryToken: libraryToken)
+            return true
+        } catch RemoteClientError.server(409) {
+            return false
+        }
+    }
+
+    func cancel() async {
+        try? await client.cancelMaintenance(libraryUUID: libraryUUID, libraryToken: libraryToken)
+    }
+
+    /// `running == false` は「今このライブラリで（このジョブ種別に限らず）何も走っていない」ので
+    /// nil に写す。ローカルの `LocalControlController.shared.maintenanceRegistry.status(library:)`
+    /// が実行中ジョブが無ければ nil を返すのと同じ意味に揃える。
+    func jobProgress() async -> IntegrityJobProgress? {
+        guard let reply = try? await client.fetchMaintenanceStatus(libraryUUID: libraryUUID, libraryToken: libraryToken) else {
+            return nil
+        }
+        return Self.mapProgress(reply)
+    }
+
+    /// リモートには「自分がこのタブで開始したジョブの詳細レポートを取り出す」箱が無い
+    /// （サーバはスキャンごとの詳細 `FullScanReport` を HTTP で公開していない）。これは
+    /// Task 1 完了時点でレビュー済みの結論のとおり「未実装」ではなく「正しい答え」――
+    /// 完了直後の詳細キャプションは出ないが、`reload()` による要約/一覧の更新は
+    /// `jobProgress()` のポーリングで引き続き反映される。
+    func takeCompletionReport() -> FullScanReport? { nil }
+
+    // MARK: - 純粋な写像（HTTP を張らずにテストできるよう切り出したもの）
+
+    /// `IntegrityItemDTO` → `IntegrityRow` の写像。未知の `status` 文字列の行は nil（＝スキップ）。
+    ///
+    /// `IntegrityItemDTO.status` はサーバが `IntegrityStatus.rawValue` から書いた文字列で、通常は
+    /// 必ず既知のケースにデコードできる。ここで `IntegrityStatus(rawValue:)` が失敗するのは
+    /// 「サーバが新しいステータス種別を追加し、このクライアントがまだ知らない」という将来の
+    /// スキーマ前方互換の場合に限られる。未知値を安全な既知ケース（例: `.ok`）へ黙って倒すと、
+    /// 実際にはもっと深刻な状態の本を「正常」と誤表示しかねない。一覧はあくまで `summary()`
+    /// （サーバの一次集計）の内訳を見るための補助であり、一覧側だけが該当行を欠く方が、誤った
+    /// 安全表示より安全側に倒れる ―― よって行ごとスキップする（握り潰さない: 呼び出し側の
+    /// `compactMap` が nil を落とすだけで、例外にもログにもしないのは、summary の集計自体は
+    /// 別エンドポイントから正しく取れており致命的ではないため）。
+    static func mapRow(_ item: IntegrityItemDTO) -> IntegrityRow? {
+        guard let mappedStatus = IntegrityStatus(rawValue: item.status) else { return nil }
+        return IntegrityRow(
+            id: Int64(item.bookID),
+            title: item.title,
+            filename: item.filename,
+            // path は常に nil。HTTP DTO はパスを運ばない（サーバ機のファイルシステム上の値で、
+            // リモート機の Finder で開いても意味が無い）。ビューは path == nil で
+            // 「Finder で表示」を出し分けるため、ここで特別扱いは不要。
+            path: nil,
+            status: mappedStatus,
+            checkedAt: Date(timeIntervalSince1970: TimeInterval(item.checkedAt)),
+            entryCount: item.entryCount,
+            badEntries: item.badEntries,
+            degraded: item.degraded)
+    }
+
+    /// `MaintenanceStatusReply` → `IntegrityJobProgress?` の写像。`running == false` は nil。
+    static func mapProgress(_ reply: MaintenanceStatusReply) -> IntegrityJobProgress? {
+        guard reply.running else { return nil }
+        return IntegrityJobProgress(job: reply.job ?? "", done: reply.done ?? 0, total: reply.total ?? 0)
+    }
+}
+
+private extension FullScanMode {
+    /// `POST integrity/full-scan` の `mode` 文字列。サーバ側 `parseFullScanMode`
+    /// （`LibraryServerCore.swift`）と完全一致させること。
+    var wireValue: String {
+        switch self {
+        case .uncheckedOnly: return "unchecked"
+        case .all: return "all"
+        case .damagedOnly: return "damaged"
+        }
+    }
+}
