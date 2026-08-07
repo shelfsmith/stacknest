@@ -145,6 +145,10 @@ The build also works without it as long as Homebrew's libarchive is installed, b
 both versions with different return values, so `LibarchiveVersionTests` in `swift test` fails to
 tell you about it.
 
+That test's verdict is baked in at compile time, so a stale verdict can survive if you edit
+`vendor/` by hand (going through the script resolves it automatically). If the result makes no
+sense, rebuild with `swift package clean`.
+
 ### SPM library and CLI
 
 ```bash
