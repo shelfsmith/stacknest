@@ -869,7 +869,7 @@ struct FileCommands: Commands {
             // すべてサーバに既存で（read/edit で閲覧・admin でスキャン開始）、`IntegrityDataSource` が
             // ローカル/リモートを差し替えるため、`canManageLocalFiles`（rename/move/relink 専用の
             // ゲート）はここには適用しない — リモートでも開ける。
-            Button("整合性チェック…") {
+            Button("蔵書ファイルの破損チェック…") {
                 if let url = appState?.bundleURL {
                     openWindow(id: "integrity-check", value: IntegrityCheckRef.local(bundleURL: url))
                 } else if let remoteState {

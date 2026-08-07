@@ -367,7 +367,7 @@ struct IntegrityCheckView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("整合性チェック")
+            Text("蔵書ファイルの破損チェック")
                 .font(.title2.bold())
             // review Critical (fix round 2, Critical 1 の同族): 読み込みが失敗しているときは
             // 件数を出さない。`summary` の失敗フォールバックは「前回値を保持」（初回は全 0）なので、

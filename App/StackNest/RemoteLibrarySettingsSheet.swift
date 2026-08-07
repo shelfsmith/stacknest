@@ -513,7 +513,7 @@ struct RemoteLibrarySettingsSheet: View {
                             }
                         }
                         .disabled(general == nil)
-                        Button("整合性をチェック") {
+                        Button("データベースを検査") {
                             Task {
                                 integrityResult = await state.runIntegrityCheck()
                                 if integrityResult == nil { errorText = state.errorText }
@@ -549,7 +549,7 @@ struct RemoteLibrarySettingsSheet: View {
             general = await state.loadGeneralSettings()
             if general == nil { errorText = state.errorText }
         }
-        .alert("整合性チェック", isPresented: $showIntegrity) {
+        .alert("データベース検査結果", isPresented: $showIntegrity) {
             Button("OK") {}
         } message: {
             if let integrityResult {
