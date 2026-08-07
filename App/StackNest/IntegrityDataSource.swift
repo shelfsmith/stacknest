@@ -235,6 +235,16 @@ private let integrityFullScanJobName = "full-scan"
 
 // MARK: - RemoteIntegrityDataSource（Phase G29 Task 3）
 
+/// リモートのデータ源が「サーバの答え」ではなく**クライアント側の事情**で応えられないとき投げる。
+///
+/// 通信エラーと区別する理由: 通信エラーは「サーバに聞いたが駄目だった」だが、これは
+/// 「聞きに行く前提が崩れている」。ユーザーに促すべき操作も違う（再試行ではなく「更新」）。
+enum RemoteIntegrityUnavailable: Error {
+    /// 庫のウィンドウが閉じられ、権限を確認する術が無くなった状態。
+    /// **確認できないことを「権限が無い」「実行中でない」に化けさせないため**に投げる。
+    case permissionUnconfirmed
+}
+
 /// リモート庫の `IntegrityDataSource` 実装。`RemoteLibraryClient`（Task 2 で追加した 4 メソッド＋
 /// 既存の `cancelMaintenance`）越しに HTTP でサーバの `book_integrity` を読み書きする。
 ///
@@ -385,7 +395,18 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     /// HTTP を叩く前に tier を見て、admin 未満なら（例外を投げず）素直に nil を返す。
     /// これで read/edit 接続は 400ms ごとの無駄な HTTP 呼び出しも無くなる副次効果がある。
     /// tier が admin なのに実際には取得できない場合（オフライン等）は従来どおり投げる。
+    /// Phase G29 fix round 6 (Important, whole-branch review NEW-4): `liveStateDied` を
+    /// ここへ伝えていなかったため、**本フェーズの欠陥パターンの最後の 1 例**が残っていた ――
+    /// live state が失われると tier は「未確認」なのに `tier >= .admin` が false になり、
+    /// 「見に行けなかった」が「実行中でない」という nil に化けていた。
+    /// 実害は大きい: スキャン実行中に庫のウィンドウを閉じると（**破損チェックウィンドウを
+    /// 独立させたのは、まさに何時間も走るスキャン中に他の操作をできるようにするため**）、
+    /// 3 秒以内に進捗・「検査中…」・中断ボタンがすべて消え、
+    /// `wasRunning && status == nil` が完了分岐を発火させて、31 時間走っているジョブを
+    /// 黙って「終わった」ものとして扱ってしまう。
+    /// tier 不足（＝確認済みで見えない仕様）と、確認できない状態は区別しなければならない。
     func jobProgress() async throws -> IntegrityJobProgress? {
+        guard !liveStateDied else { throw RemoteIntegrityUnavailable.permissionUnconfirmed }
         guard tier >= .admin else { return nil }
         let reply = try await client.fetchMaintenanceStatus(libraryUUID: libraryUUID, libraryToken: libraryToken)
         return Self.mapProgress(reply)
