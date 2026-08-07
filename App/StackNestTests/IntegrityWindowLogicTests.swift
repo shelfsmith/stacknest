@@ -41,6 +41,32 @@ struct IntegrityWindowLogicTests {
         #expect(IntegrityWindowLogic.ScanAction.damagedOnly.needsConfirmation == false)
     }
 
+    // MARK: - scanButtonDisabled（Phase G29 Task 3 review fix Critical 2）
+    //
+    // `IntegrityCheckView` は実 NSWindow を作るため App テストでインスタンス化できない
+    // （ファイル冒頭のコメント参照）。ビューが実際に `.disabled(...)` へ渡す条件式そのものを
+    // ここに切り出したので、「tier ゲートがボタンの有効/無効に実際に効くか」をここで縛る。
+
+    @Test("実行中でなく tier も足りていれば有効（無効化されない）")
+    func scanButtonEnabledWhenIdleAndAuthorized() {
+        #expect(IntegrityWindowLogic.scanButtonDisabled(isScanning: false, canStartScan: true) == false)
+    }
+
+    @Test("tier が足りなければ、実行中でなくても無効")
+    func scanButtonDisabledWhenNotAuthorized() {
+        #expect(IntegrityWindowLogic.scanButtonDisabled(isScanning: false, canStartScan: false) == true)
+    }
+
+    @Test("実行中は tier が足りていても無効")
+    func scanButtonDisabledWhileScanning() {
+        #expect(IntegrityWindowLogic.scanButtonDisabled(isScanning: true, canStartScan: true) == true)
+    }
+
+    @Test("実行中かつ tier も足りない場合も無効")
+    func scanButtonDisabledWhileScanningAndNotAuthorized() {
+        #expect(IntegrityWindowLogic.scanButtonDisabled(isScanning: true, canStartScan: false) == true)
+    }
+
     // MARK: - summaryLine
 
     @Test("未検査（一度もスキャンしていない）の要約文言")

@@ -56,6 +56,19 @@ enum IntegrityWindowLogic {
         var needsConfirmation: Bool { self == .all }
     }
 
+    /// スキャン開始ボタンの無効化条件。実行中、または（リモートで tier が admin 未満などの理由で）
+    /// `canStartScan == false` のとき無効。
+    ///
+    /// Phase G29 Task 3 review fix (Critical 2): `IntegrityCheckView` は実 `NSWindow` を作るため
+    /// App テストでインスタンス化できない（測定済み: 13 passing → 0 with "Restarting after
+    /// unexpected exit"、本ファイル冒頭の `IntegrityWindowLogicTests` のコメント参照）。
+    /// ビューが実際に使う無効化条件をここへ切り出すことで、「tier ゲートがビューの有効/無効に
+    /// 実際に効いているか」をユニットテストできるようにする（`IntegrityCheckView` 側は
+    /// このメソッドを呼ぶだけの 1 行に保ち、二重の判定ロジックを持たない）。
+    static func scanButtonDisabled(isScanning: Bool, canStartScan: Bool) -> Bool {
+        isScanning || !canStartScan
+    }
+
     /// 概要行（brief: 「最終検査 / 未検査 N 冊 / 破損 N 冊 / 劣化 N 冊」）。
     static func summaryLine(summary: IntegritySummary, lastScanAt: Date?, now: Date = Date()) -> String {
         let last = lastScanAt.map(formattedDate) ?? "未検査"
@@ -121,15 +134,20 @@ enum IntegrityCheckRef: Codable, Hashable {
 /// - `.local`: 同一プロセス内で既に開いている `AppState`（`AppState.activeInstances`）から
 ///   `bundleURL` が一致するものを探す（Task 1 から変更なし）。ローカル DB を直接読むため、
 ///   Finder 表示に必要な実パスもここでのみ手に入る。
-/// - `.remote`: `RemoteLibraryWindowContainer.resolve()` と**同じ解決パターン**
-///   （`ServerConnectionStore` から接続情報を引き、新しい `RemoteLibraryClient` を作る）を使う。
-///   新しい解決の仕組みは作らない。tier は `/me` で解決し、解決できなければ fail-closed で
-///   `.read`（＝スキャン開始不可・閲覧のみ）に倒す。
+/// - `.remote`: まず `RemoteLibraryRegistry.shared.allObjects`（`ResumeLastReadCoordinator.swift:51`
+///   と同じ確立パターン、`.local` の `AppState.activeInstances` と対称）で「既に開いている
+///   ブラウズウィンドウの `RemoteLibraryState`」を探す。見つかれば `libraryToken`/`tier` を
+///   解決し直さず（施錠庫でも解錠済みトークンをそのまま使える）そのまま使う。無ければ
+///   `RemoteLibraryWindowContainer.resolve()` と同じ `ServerConnectionStore` フォールバックへ
+///   落ちる（この経路では施錠庫の `libraryToken` を持てないため、読み込みが 403 になりうる。
+///   `IntegrityCheckView.reload()` 側でエラー表示する ―― review Critical 1）。
 struct IntegrityWindowContainer: View {
     let ref: IntegrityCheckRef
+    /// Phase G29 Task 3 review fix (Minor 5): `RemoteLibraryWindowContainer` と同じく
+    /// `private let store` として保持する（メソッド内で毎回 `ServerConnectionStore()` を作らない）。
+    private let store = ServerConnectionStore()
+
     @State private var localAppState: AppState?
-    @State private var localDatabase: Database?
-    @State private var localBundleURL: URL?
     @State private var notFound = false
     /// Phase G29 Task 1 review fixup: データ源を `body` の中で毎回新規生成すると、`body` が
     /// 再評価されるたびにインスタンスの identity が変わり、ローカルではスキャン中の再評価で
@@ -141,9 +159,9 @@ struct IntegrityWindowContainer: View {
 
     var body: some View {
         Group {
-            if let dataSource {
+            if let dataSource, let payload = readyPayload {
                 IntegrityCheckView(
-                    bundleURL: localBundleURL, database: localDatabase, appState: localAppState,
+                    bundleURL: payload.bundleURL, database: payload.database, appState: payload.appState,
                     dataSource: dataSource)
             } else if notFound {
                 missingView
@@ -152,9 +170,29 @@ struct IntegrityWindowContainer: View {
                     .frame(minWidth: 400, minHeight: 300)
             }
         }
-        // ローカルは同期解決だが、リモートは `/me` の HTTP 呼び出しを伴うため `resolve()` 全体を
+        // ローカルは同期解決だが、リモートは HTTP 呼び出しを伴いうるため `resolve()` 全体を
         // async にしてある（`RemoteLibraryWindowContainer` と同じ `.task { await resolve() }`）。
         .task { await resolve() }
+    }
+
+    /// Phase G29 Task 3 review fix (Important 4): `body` 評価のたびに評価する computed property。
+    /// `.local` では `localAppState?.database`（`AppState` は `@Observable`）をここで読むことで
+    /// Observation 依存を張り直す ―― これが無いと（Task 3 で `if let appState, let database =
+    /// appState.database, let dataSource` という旧来の body ガードを崩したことで）、ウィンドウを
+    /// 開いたままローカル庫を閉じても（`AppState.close()` が `database = nil` にしても）body が
+    /// 再評価されず、閉じた `Database` を読み続けたまま「破損 0 件」を表示し続けてしまっていた
+    /// （review Important 4）。`bundleURL` も `ref` から直接取るようにし、`@State` での二重保持を
+    /// やめた（`ref` は `let` で不変なので、`.local(bundleURL:)` の値は常に最新）。
+    /// `.remote` には「ウィンドウの外側から閉じられる」という対応する概念が無いため、
+    /// `dataSource` が用意できていれば常に表示してよい。
+    private var readyPayload: (bundleURL: URL?, database: Database?, appState: AppState?)? {
+        switch ref {
+        case .local(let bundleURL):
+            guard let localAppState, let database = localAppState.database else { return nil }
+            return (bundleURL, database, localAppState)
+        case .remote:
+            return (nil, nil, nil)
+        }
     }
 
     private var missingView: some View {
@@ -189,12 +227,10 @@ struct IntegrityWindowContainer: View {
     private func resolveLocal(bundleURL: URL) {
         if let match = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundleURL.path }) {
             localAppState = match
-            localBundleURL = bundleURL
             // `AppState.finishOpening()` は `database`/`librarySettings` を同期的に設定してから
             // `activeInstances` へ登録する（`AppState.swift` 参照）ため、`activeInstances` から
             // 見つかった時点で `match.database` は必ず non-nil。
             if let database = match.database {
-                localDatabase = database
                 dataSource = LocalIntegrityDataSource(database: database, bundleURL: bundleURL, appState: match)
             }
         } else {
@@ -204,11 +240,23 @@ struct IntegrityWindowContainer: View {
 
     @MainActor
     private func resolveRemote(serverID: UUID, libraryUUID: String) async {
-        // `RemoteLibraryWindowContainer.resolve()` と同じ解決パターン: `ServerConnectionStore` から
-        // 接続情報（baseURL・デバイストークン）を引き、新しい `RemoteLibraryClient` を作る。
-        // 既に開いている庫ブラウズウィンドウの `RemoteLibraryState` を探しに行く仕組みは
-        // 別パターンになってしまうため使わない（「新しい解決の仕組みを作らない」の遵守）。
-        guard let conn = ServerConnectionStore().connection(id: serverID),
+        // review Critical 1: まず、同じ庫を既に開いているブラウズウィンドウの `RemoteLibraryState`
+        // を探す。見つかれば `libraryToken`（施錠庫の解錠済みトークン）と `tier` を解決し直さず
+        // そのまま使う ―― `/me` の追加往復も不要になる。メニュー項目は `\.remoteState` が非 nil
+        // のときしか開けない（`StackNestApp.swift`）ため、開いた瞬間は必ずこの state が生きている。
+        if let liveState = RemoteLibraryRegistry.shared.allObjects.first(where: {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID
+        }) {
+            dataSource = RemoteIntegrityDataSource(
+                client: liveState.client, libraryUUID: libraryUUID,
+                libraryToken: liveState.libraryToken, tier: liveState.tier)
+            return
+        }
+        // フォールバック: `RemoteLibraryWindowContainer.resolve()` と同じ `ServerConnectionStore`
+        // パターン（ブラウズウィンドウが無い状態で integrity ウィンドウだけが復元された場合等）。
+        // `libraryToken` を持てないため、施錠庫では `summary`/`list` が 403(libraryLocked) になりうる
+        // ―― `IntegrityCheckView.reload()` 側でエラー表示する。
+        guard let conn = store.connection(id: serverID),
               let base = URL(string: conn.baseURL) else {
             notFound = true
             return
@@ -216,9 +264,13 @@ struct IntegrityWindowContainer: View {
         let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
         // `/me` はデバイストークンの tier（grant 由来）を返す。ライブラリの施錠状態とは無関係
         // （施錠は `libraryToken` 側の話）なので、`libraryToken: nil` のままで解決できる。
-        // 失敗時は fail-closed で `.read`（閲覧のみ・スキャン開始不可）に倒す。
-        let tier = (try? await client.me(libraryToken: nil))?.tier ?? .read
-        dataSource = RemoteIntegrityDataSource(client: client, libraryUUID: libraryUUID, libraryToken: nil, tier: tier)
+        // 呼び出し自体が失敗した場合（オフライン等）は `tierResolutionFailed` を立てて渡す ――
+        // 「権限が無い」と「権限を確認できない」は原因が違うため、ビューに出す理由文言を分ける
+        // （review Minor 4）。
+        let meResult = try? await client.me(libraryToken: nil)
+        dataSource = RemoteIntegrityDataSource(
+            client: client, libraryUUID: libraryUUID, libraryToken: nil,
+            tier: meResult?.tier ?? .read, tierResolutionFailed: meResult == nil)
     }
 }
 
@@ -255,6 +307,11 @@ struct IntegrityCheckView: View {
     @State private var jobStatus: IntegrityJobProgress?
     @State private var lastReport: FullScanReport?
     @State private var pollTask: Task<Void, Never>?
+    /// Phase G29 Task 3 review fix (Critical 1): `reload()` が `summary`/`lastScanAt`/`list` の
+    /// いずれかで例外を捕まえたら、その理由をここに残す。non-nil の間は「破損している本は
+    /// ありません。」という積極的な安全宣言を出さない ―― 読めなかったことと破損が無いことは
+    /// 区別しなければならない。
+    @State private var loadErrorText: String?
 
     private var isScanning: Bool { jobStatus != nil }
     private var progress: (done: Int, total: Int) { (jobStatus?.done ?? 0, jobStatus?.total ?? 0) }
@@ -269,12 +326,33 @@ struct IntegrityCheckView: View {
             HStack {
                 ForEach(IntegrityWindowLogic.ScanAction.allCases) { action in
                     Button(action.title) { requestScan(action) }
-                        .disabled(isScanning)
+                        // review Critical 2: tier ゲートを消費する。`.disabled(isScanning)` だけでは
+                        // read/edit 接続でもボタンが有効なままで、押すと 403 が `startScan` の
+                        // `try?` に握り潰され「何も起きない」になっていた（spec §3.4・受け入れ基準 3）。
+                        // 判定そのものは `IntegrityWindowLogic.scanButtonDisabled` に切り出してあり
+                        // （テスト可能にするため）、ここはそれを呼ぶだけに保つ。
+                        .disabled(IntegrityWindowLogic.scanButtonDisabled(
+                            isScanning: isScanning, canStartScan: dataSource.canStartScan))
                 }
                 Spacer()
                 if isScanning {
                     Button("中断") { cancelScan() }
                 }
+            }
+            // review Critical 2: `.help()`（ホバーしないと見えない）ではなく、常に見える形で理由を
+            // 出す。tier が足りる（`scanUnavailableReason == nil`）間は何も出さない。
+            if let reason = dataSource.scanUnavailableReason {
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if let loadErrorText {
+                // review Critical 1: 読み込み自体が失敗している。破損 0 件/一覧空という積極的な
+                // 「安全」表示より先に、読めなかった事実を出す。
+                Label(loadErrorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
 
             if isScanning {
@@ -300,7 +378,10 @@ struct IntegrityCheckView: View {
 
             Divider()
 
-            if rows.isEmpty {
+            // review Critical 1: 「破損している本はありません。」は**読めたときだけ**出してよい
+            // 積極的な安全宣言。`loadErrorText != nil`（読み込み失敗）のときは、一覧が空でも
+            // このメッセージを出さない（読めなかっただけかもしれないため）。
+            if rows.isEmpty, loadErrorText == nil {
                 Spacer()
                 HStack {
                     Spacer()
@@ -309,7 +390,7 @@ struct IntegrityCheckView: View {
                     Spacer()
                 }
                 Spacer()
-            } else {
+            } else if !rows.isEmpty {
                 List(rows) { row in
                     rowView(row)
                 }
@@ -347,7 +428,10 @@ struct IntegrityCheckView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(row.title)
                     .fontWeight(row.degraded ? .semibold : .regular)
-                Text(row.path ?? "—")
+                // review Important 3: `filename` はリモートでも DTO の basename が入っている
+                // （`path` はローカルのみ）。`path` が無ければ `filename` にフォールバックする ――
+                // 従来は `path` しか見ておらず、リモートの全行が「タイトル＋『—』」になっていた。
+                Text(row.path ?? row.filename ?? "—")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -394,16 +478,43 @@ struct IntegrityCheckView: View {
 
     /// Phase G29 Task 1: `database` 直読みから `dataSource` 経由の呼び出しへ変更（挙動不変）。
     /// フォールバックの規律（要約は失敗時に前回値を保持・最終検査日時は失敗/未検査で nil・
-    /// 一覧は失敗時に空配列）は変えていない。
+    /// 一覧は失敗時に空配列）は変えていない ―― 各フィールドの fallback は元のまま個別に保持しつつ、
+    /// Phase G29 Task 3 review fix (Critical 1) で「例外が起きたこと」自体は `loadErrorText` に
+    /// 記録するようにした。以前は 3 つとも `try?` で握り潰しており、施錠リモート庫を
+    /// `libraryToken` 無しで開くと `RemoteClientError.libraryLocked`（403）が消え、
+    /// 「検査済み 0 件・破損 0 件」＋「破損している本はありません。」という**積極的な**
+    /// 誤った安全宣言になっていた。
     private func reload() async {
-        summary = (try? await dataSource.summary()) ?? summary
-        if let value = try? await dataSource.lastScanAt() {
-            lastScanAt = value
-        } else {
-            lastScanAt = nil
+        var encounteredError: Error?
+        do {
+            summary = try await dataSource.summary()
+        } catch {
+            encounteredError = error   // summary は前回値を保持（フォールバック不変）
         }
-        let fetched = (try? await dataSource.list(status: .damaged)) ?? []
-        rows = IntegrityWindowLogic.sortedForDisplay(fetched)
+        do {
+            lastScanAt = try await dataSource.lastScanAt()
+        } catch {
+            encounteredError = encounteredError ?? error
+            lastScanAt = nil   // フォールバック不変
+        }
+        do {
+            rows = IntegrityWindowLogic.sortedForDisplay(try await dataSource.list(status: .damaged))
+        } catch {
+            encounteredError = encounteredError ?? error
+            rows = []   // フォールバック不変
+        }
+        loadErrorText = encounteredError.map(Self.loadErrorMessage(for:))
+    }
+
+    /// review Critical 1: `RemoteClientError.libraryLocked` は「施錠されていて未解錠」という
+    /// 一級市民のケース（`RemoteClientError.swift:19-23` のコメント参照）なので専用の文言を出す。
+    /// それ以外は汎用の失敗文言（読み込み失敗の原因はネットワーク断・タイムアウト等さまざまで、
+    /// ここで種類ごとに出し分ける必要はない ―― 「読めなかった」ことが伝われば十分）。
+    private static func loadErrorMessage(for error: Error) -> String {
+        if case RemoteClientError.libraryLocked = error {
+            return "この庫は施錠されています。庫のウィンドウで解錠してください。"
+        }
+        return "読み込みに失敗しました。"
     }
 
     // MARK: - ジョブの観測（Fix2/Fix4）

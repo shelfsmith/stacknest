@@ -117,4 +117,44 @@ struct RemoteIntegrityDataSourceTests {
         #expect(source.canStartScan == true)
         #expect(source.scanUnavailableReason == nil)
     }
+
+    // MARK: - tierResolutionFailed（review Minor 4: 「権限不足」と「権限を確認できない」を区別）
+
+    @Test("tier 解決に失敗した場合は、権限不足とは違う理由が出る")
+    func tierResolutionFailureGetsADistinctReason() {
+        let source = RemoteIntegrityDataSource(
+            client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .read,
+            tierResolutionFailed: true)
+        #expect(source.canStartScan == false)
+        let reason = source.scanUnavailableReason
+        #expect(reason != nil)
+        #expect(reason?.contains("接続できない") == true)
+    }
+
+    @Test("tier 解決に成功していれば（admin 未満でも）権限不足の理由が出る")
+    func normalTierShortfallReasonDiffersFromResolutionFailure() {
+        let source = RemoteIntegrityDataSource(
+            client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .read,
+            tierResolutionFailed: false)
+        #expect(source.scanUnavailableReason?.contains("管理者権限") == true)
+        #expect(source.scanUnavailableReason?.contains("接続できない") == false)
+    }
+
+    @Test("admin tier では tierResolutionFailed が true でも開始できる（tier 自体は解決済み優先経路のため通常両立しないが、フラグ単体の意味を縛る）")
+    func tierResolutionFailedDoesNotOverrideAnAlreadyAuthorizedTier() {
+        let source = RemoteIntegrityDataSource(
+            client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .admin,
+            tierResolutionFailed: true)
+        #expect(source.canStartScan == true)
+        #expect(source.scanUnavailableReason == nil)
+    }
+
+    // MARK: - FullScanMode.wireValue（review Minor 2: サーバの parseFullScanMode と 1 文字でもずれると壊れる）
+
+    @Test("FullScanMode の wire 文字列はサーバの parseFullScanMode と一致する")
+    func fullScanModeWireValuesMatchServer() {
+        #expect(FullScanMode.uncheckedOnly.wireValue == "unchecked")
+        #expect(FullScanMode.all.wireValue == "all")
+        #expect(FullScanMode.damagedOnly.wireValue == "damaged")
+    }
 }

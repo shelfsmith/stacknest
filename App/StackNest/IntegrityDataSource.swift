@@ -211,11 +211,14 @@ private let integrityFullScanJobName = "full-scan"
 /// リモート庫の `IntegrityDataSource` 実装。`RemoteLibraryClient`（Task 2 で追加した 4 メソッド＋
 /// 既存の `cancelMaintenance`）越しに HTTP でサーバの `book_integrity` を読み書きする。
 ///
-/// - `client`/`libraryUUID`/`libraryToken` は `IntegrityWindowContainer` が
-///   `ServerConnectionStore`（`RemoteLibraryWindowContainer` と同じ解決パターン）で解決した値を
-///   そのまま受け取る（このデータ源自身は解決を行わない）。
-/// - `tier` は `/me` で解決済みの値をコンテナから受け取る固定値。ウィンドウの寿命中に
-///   グラントの tier が変わることは通常無く（変わるとすれば再接続が要る）、ローカル実装の
+/// - `client`/`libraryUUID`/`libraryToken`/`tier` は `IntegrityWindowContainer.resolveRemote` が
+///   解決した値をそのまま受け取る（このデータ源自身は解決を行わない）。優先経路は
+///   `RemoteLibraryRegistry` に既に開いている `RemoteLibraryState` を見つけてその
+///   `libraryToken`/`tier` を再利用する（施錠庫でも解錠済みトークンをそのまま使える。
+///   review Critical 1）。見つからないときのみ `ServerConnectionStore` フォールバックで
+///   `libraryToken: nil`・`/me` 解決の `tier` になる。
+/// - `tier` はコンテナが解決済みの値を渡す固定値。ウィンドウの寿命中にグラントの tier が
+///   変わることは通常無く（変わるとすれば再接続が要る）、ローカル実装の
 ///   `LocalIntegrityDataSource` が `appState` 経由で `librarySettings` を都度読みに行くのとは
 ///   事情が異なる（ローカルは同一プロセス内の可変状態、こちらは解決済みの認可結果）。
 @MainActor
@@ -224,19 +227,29 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     private let libraryUUID: String
     private let libraryToken: String?
     private let tier: AccessTier
+    /// review Minor 4: `ServerConnectionStore` フォールバック経路で `/me` 自体が失敗した
+    /// （オフライン等）場合に true。「権限が足りない」と「権限を確認できない」は原因が違うため、
+    /// `scanUnavailableReason` の文言を分けるためだけに使う。
+    private let tierResolutionFailed: Bool
 
-    init(client: RemoteLibraryClient, libraryUUID: String, libraryToken: String?, tier: AccessTier) {
+    init(client: RemoteLibraryClient, libraryUUID: String, libraryToken: String?, tier: AccessTier,
+         tierResolutionFailed: Bool = false) {
         self.client = client
         self.libraryUUID = libraryUUID
         self.libraryToken = libraryToken
         self.tier = tier
+        self.tierResolutionFailed = tierResolutionFailed
     }
 
     /// full-scan は admin 必須（サーバ側 `requireAdmin`）。summary/list は read で通る。
     /// 数十時間かかりうるジョブを閲覧権限で起動させないための意図的な段階的縮退（spec §3.4）。
     var canStartScan: Bool { tier >= .admin }
     var scanUnavailableReason: String? {
-        canStartScan ? nil : "この接続には管理者権限がないため、スキャンを開始できません。"
+        guard !canStartScan else { return nil }
+        if tierResolutionFailed {
+            return "サーバに接続できないため、権限を確認できません。"
+        }
+        return "この接続には管理者権限がないため、スキャンを開始できません。"
     }
 
     func summary() async throws -> IntegritySummary {
@@ -303,6 +316,13 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     /// 安全表示より安全側に倒れる ―― よって行ごとスキップする（握り潰さない: 呼び出し側の
     /// `compactMap` が nil を落とすだけで、例外にもログにもしないのは、summary の集計自体は
     /// 別エンドポイントから正しく取れており致命的ではないため）。
+    ///
+    /// review Minor 3: 現状のサーバ実装では `list(status:)` が `status.rawValue`（＝クライアントが
+    /// 既に知る既知値）をクエリに渡し、サーバは**その status の行だけ**を返す
+    /// （`LibraryServerCore.swift` の `integrity/list` ハンドラ）。したがって戻ってくる全行の
+    /// `status` は実際には常に既知値で、この分岐は現状到達不能。それでも残すのは、将来サーバが
+    /// 新しいステータス種別を追加したとき（クライアント側の対応漏れ）に無言で誤表示させない
+    /// ための前方互換の防御として価値があるため。
     static func mapRow(_ item: IntegrityItemDTO) -> IntegrityRow? {
         guard let mappedStatus = IntegrityStatus(rawValue: item.status) else { return nil }
         return IntegrityRow(
@@ -327,7 +347,10 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     }
 }
 
-private extension FullScanMode {
+// review Minor 2: 「2 台目の実機でしか落ちない」種類のコード（サーバ側の文字列と 1 文字でも
+// ずれると 400 になる）なので、`private` のままテスト不可にはしない。internal にして
+// `RemoteIntegrityDataSourceTests` から直接固定する。
+extension FullScanMode {
     /// `POST integrity/full-scan` の `mode` 文字列。サーバ側 `parseFullScanMode`
     /// （`LibraryServerCore.swift`）と完全一致させること。
     var wireValue: String {
