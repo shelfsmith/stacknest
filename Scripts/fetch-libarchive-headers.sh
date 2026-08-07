@@ -34,17 +34,28 @@ BACKUP_DIR="$CARCHIVE_DIR/vendor.old.$$"
 
 HEADERS=(archive.h archive_entry.h)
 
-# 版一致テストのソース。vendor/ を差し替えても SwiftPM はこのテストターゲットを
-# 再コンパイルしないため（`__has_include` の解決先が変わったことを依存グラフが追えない）、
+# 版一致テストのソースと、C シムのヘッダ。
+# vendor/ を差し替えても SwiftPM はテストターゲットを再コンパイルしないため
+# （`__has_include` の解決先が変わったことを依存グラフが追えない）、
 # 古い ARCHIVE_VERSION_NUMBER が焼き付いたまま前回の判定を返し続ける。
-# 2026-08-07 に実測: vendor/ を戻しても ModuleCache を消しても失敗のまま、
-# このファイルを touch して初めて PASS になった。
-# 判定を最新にするため、スクリプトが「vendor/ は正しい」と結論づけた時点で必ず touch する。
+# 判定を最新にするため、スクリプトが「vendor/ は正しい」と結論づけた時点で両方を touch する。
 VERSION_TEST_SRC="$REPO_ROOT/Tests/ArchiveAdapterTests/LibarchiveVersionTests.swift"
+CARCHIVE_HEADER="$CARCHIVE_DIR/Carchive.h"
 
 # テストの再コンパイルを促す。テスト未作成の環境でも失敗させない。
+#
+# **両方を touch する必要がある**（2026-08-07 のブランチ全体レビューが実測）:
+#  - Swift ソースだけ touch → Swift は再コンパイルされるが、Carchive の Clang PCM は
+#    無効化されない。**vendor/ が新しく「現れる」場合**（＝新規クローンの bootstrap 経路。
+#    .build が vendor/ 無しで作られている）、PCM が Homebrew のヘッダのまま残り、
+#    テストは古い値を報告し続ける。利用者はメッセージどおりのコマンドを実行し、
+#    スクリプトは成功と言い、テストは赤のまま ―― 打つ手が無くなる。
+#  - Carchive.h だけ touch → Swift ソースが再コンパイルされないので判定が更新されない。
+# ヘッダ内容を「その場で書き換えた」場合は PCM が自力で無効化されるため Swift ソースだけで
+# 足りてしまい、この欠落は見えない。ディレクトリが出現する経路でのみ露見する。
 touch_version_test() {
     [[ -f "$VERSION_TEST_SRC" ]] && touch "$VERSION_TEST_SRC"
+    [[ -f "$CARCHIVE_HEADER" ]] && touch "$CARCHIVE_HEADER"
     return 0
 }
 
@@ -118,15 +129,27 @@ RUNTIME_PATCH=$((RUNTIME_VERSION % 1000))
 RUNTIME_TAG="v${RUNTIME_MAJOR}.${RUNTIME_MINOR}.${RUNTIME_PATCH}"
 
 # --- 2. 既に一致していれば何もしない（冪等） -----------------------------------
-if [[ -f "$VENDOR_DIR/archive.h" ]]; then
-    EXISTING_VERSION="$(version_number_from_header "$VENDOR_DIR/archive.h" || true)"
-    if [[ "$EXISTING_VERSION" == "$RUNTIME_VERSION" ]]; then
-        # ヘッダは変えないが、テストが古い判定のまま失敗している可能性があるので touch する。
-        # （これが無いと「テストが失敗 → スクリプト実行 → 『既に一致』 → まだ失敗」で行き詰まる）
-        touch_version_test
-        echo "vendor/ のヘッダは既に実行時ライブラリ（${RUNTIME_TAG} / ${RUNTIME_VERSION}）と一致しています。何もしません。"
-        exit 0
+# 配置時と同じく**両方のヘッダ**を見る。片方だけ一致している中途半端な vendor/ を
+# 「既に一致」と見なして放置しないため（実効値は archive_entry.h 側が決める）。
+ALL_EXISTING_MATCH=1
+for header in "${HEADERS[@]}"; do
+    if [[ ! -f "${VENDOR_DIR}/${header}" ]]; then
+        ALL_EXISTING_MATCH=0
+        break
     fi
+    EXISTING_VERSION="$(version_number_from_header "${VENDOR_DIR}/${header}" || true)"
+    if [[ "$EXISTING_VERSION" != "$RUNTIME_VERSION" ]]; then
+        ALL_EXISTING_MATCH=0
+        break
+    fi
+done
+
+if [[ "$ALL_EXISTING_MATCH" -eq 1 ]]; then
+    # ヘッダは変えないが、テストが古い判定のまま失敗している可能性があるので touch する。
+    # （これが無いと「テストが失敗 → スクリプト実行 → 『既に一致』 → まだ失敗」で行き詰まる）
+    touch_version_test
+    echo "vendor/ のヘッダは既に実行時ライブラリ（${RUNTIME_TAG} / ${RUNTIME_VERSION}）と一致しています。何もしません。"
+    exit 0
 fi
 
 # --- 3. 取得する（STAGING_DIR へ。vendor/ にはまだ触れない） --------------------
@@ -135,7 +158,9 @@ rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 
 for header in "${HEADERS[@]}"; do
-    if ! curl -fsSL "${BASE_URL}/${header}" -o "${STAGING_DIR}/${header}"; then
+    # --max-time / --retry: 応答しないプロキシで無限に待たない（既定では待ち続ける）。
+    if ! curl -fsSL --connect-timeout 10 --max-time 60 --retry 2 \
+        "${BASE_URL}/${header}" -o "${STAGING_DIR}/${header}"; then
         # NOTE: bash 3.2（macOS 標準 /bin/bash）は「$var」の直後に区切りなしで
         # マルチバイト文字（全角括弧など）が続くと変数名の切り出しを誤ることがある。
         # 必ず ${var} の波括弧形式を使い、変数展開の直後に全角記号を置かない。
@@ -144,13 +169,21 @@ for header in "${HEADERS[@]}"; do
 done
 
 # --- 4. 検証してから配置する ----------------------------------------------------
-FETCHED_VERSION="$(version_number_from_header "$STAGING_DIR/archive.h" || true)"
-if [[ -z "$FETCHED_VERSION" ]]; then
-    fail "取得した archive.h から ARCHIVE_VERSION_NUMBER を読み取れませんでした。既存の vendor/ は変更していません。"
-fi
-if [[ "$FETCHED_VERSION" != "$RUNTIME_VERSION" ]]; then
-    fail "取得したヘッダのバージョン（${FETCHED_VERSION}）が検出した実行時バージョン（${RUNTIME_VERSION}）と一致しません。既存の vendor/ は変更していません。"
-fi
+# **両方のヘッダを検証する**: ARCHIVE_VERSION_NUMBER は archive.h だけでなく
+# archive_entry.h でも定義されており、Carchive.h が後から include する archive_entry.h の
+# 値が実効値になる。archive.h だけ検証していると、2 回の curl が別バージョンを掴んだ場合に
+# 「実効値を一度も検証していない vendor/」を黙って配置してしまう
+# （libarchive 側の -Wmacro-redefined 警告は module Carchive [system] が抑止するため
+# コンパイル時にも気付けない）。
+for header in "${HEADERS[@]}"; do
+    FETCHED_VERSION="$(version_number_from_header "${STAGING_DIR}/${header}" || true)"
+    if [[ -z "$FETCHED_VERSION" ]]; then
+        fail "取得した ${header} から ARCHIVE_VERSION_NUMBER を読み取れませんでした。既存の vendor/ は変更していません。"
+    fi
+    if [[ "$FETCHED_VERSION" != "$RUNTIME_VERSION" ]]; then
+        fail "取得した ${header} のバージョン（${FETCHED_VERSION}）が検出した実行時バージョン（${RUNTIME_VERSION}）と一致しません。既存の vendor/ は変更していません。"
+    fi
+done
 
 # ここまで来て初めて vendor/ を書き換える。既存 vendor/ を退避してから STAGING_DIR を
 # 一度の mv（= 同一ファイルシステム内なら atomic な rename）で vendor/ に据える。
