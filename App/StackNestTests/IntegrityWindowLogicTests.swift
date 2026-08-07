@@ -3,6 +3,7 @@ import Testing
 import Foundation
 import AppCore
 import LibraryStore
+import RemoteClient
 @testable import StackNest
 
 /// `IntegrityWindowLogic` の純関数テスト（Phase G27b Task 6）。
@@ -65,6 +66,49 @@ struct IntegrityWindowLogicTests {
     @Test("実行中かつ tier も足りない場合も無効")
     func scanButtonDisabledWhileScanningAndNotAuthorized() {
         #expect(IntegrityWindowLogic.scanButtonDisabled(isScanning: true, canStartScan: false) == true)
+    }
+
+    // MARK: - summaryLineText（Phase G29 Task 3 fix round 2, Critical: 破損 0 件を偽装しない）
+    //
+    // 実際にビューが描画するのはこの関数の戻り値であって `summaryLine` 単体ではない
+    // （`IntegrityCheckView.body` は `summaryLineText(...)` の結果が nil なら何も描画しない）。
+    // 「読み込み失敗のときに件数を出さない」という配線そのものをここで縛る。
+
+    @Test("読み込みエラーが無ければ summaryLine と同じ文字列を返す")
+    func summaryLineTextReturnsLineWhenNoError() {
+        let summary = IntegritySummary(checked: 90, unchecked: 10, damaged: 3, degraded: 1)
+        let text = IntegrityWindowLogic.summaryLineText(summary: summary, lastScanAt: nil, loadErrorText: nil)
+        #expect(text == IntegrityWindowLogic.summaryLine(summary: summary, lastScanAt: nil))
+    }
+
+    @Test("読み込みエラーがあれば、件数が全 0 のフォールバック値でも nil を返す（描画しない）")
+    func summaryLineTextSuppressedWhenLoadFailed() {
+        // reload() のフォールバック規律どおり、失敗時の summary は初回だと全 0 になる。
+        // その状態でエラーが立っているとき、summaryLineText は「破損 0 冊」を出してはいけない。
+        let zeroSummary = IntegritySummary(checked: 0, unchecked: 0, damaged: 0, degraded: 0)
+        let text = IntegrityWindowLogic.summaryLineText(
+            summary: zeroSummary, lastScanAt: nil, loadErrorText: "この庫は施錠されています。")
+        #expect(text == nil)
+    }
+
+    // MARK: - remoteFailureMessage（Phase G29 Task 3 fix round 2: reload/startScan/jobProgress 共通）
+
+    @Test("libraryLocked は専用の文言になる（呼び出し側の context は使われない）")
+    func remoteFailureMessageForLibraryLocked() {
+        let message = IntegrityWindowLogic.remoteFailureMessage(
+            for: RemoteClientError.libraryLocked, context: "読み込みに失敗しました。")
+        #expect(message.contains("施錠"))
+        #expect(!message.contains("読み込みに失敗しました"))
+    }
+
+    @Test("libraryLocked 以外は呼び出し側の context をそのまま使う")
+    func remoteFailureMessageForOtherErrorsUsesContext() {
+        #expect(IntegrityWindowLogic.remoteFailureMessage(
+            for: RemoteClientError.server(403), context: "読み込みに失敗しました。") == "読み込みに失敗しました。")
+        #expect(IntegrityWindowLogic.remoteFailureMessage(
+            for: RemoteClientError.server(403), context: "スキャンを開始できませんでした。") == "スキャンを開始できませんでした。")
+        #expect(IntegrityWindowLogic.remoteFailureMessage(
+            for: RemoteClientError.offline, context: "進捗を取得できません。") == "進捗を取得できません。")
     }
 
     // MARK: - summaryLine
