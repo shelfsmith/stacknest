@@ -60,6 +60,12 @@ test-fixtures/private/
 App/build/
 dist/
 
+# G28: Apple の実行時ライブラリと同じ版の libarchive ヘッダ（Scripts/fetch-libarchive-headers.sh が取得）。
+# vendor.new.*/vendor.old.* は同スクリプトが差し替え中にだけ使う作業ディレクトリ（中断時の残骸に備える）。
+Sources/ArchiveAdapter/Carchive/vendor/
+Sources/ArchiveAdapter/Carchive/vendor.new.*/
+Sources/ArchiveAdapter/Carchive/vendor.old.*/
+
 # Superpowers brainstorming companion (ephemeral mockups)
 .superpowers/
 
