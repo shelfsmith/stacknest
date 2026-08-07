@@ -101,6 +101,16 @@ struct IntegrityWindowLogicTests {
         #expect(!message.contains("読み込みに失敗しました"))
     }
 
+    @Test("libraryLocked の文言は「解錠したら更新」までを案内する（fix round 4, whole-branch review C1）")
+    func remoteFailureMessageForLibraryLockedMentionsRefresh() {
+        // 以前は「解錠してください」とだけ言い、解錠しても窓が自力で追従しなかったため
+        // 指示に従っても直らなかった（C1）。指示に「更新」までを含めることで、
+        // 指示どおり操作すれば実際に直る状態にする。
+        let message = IntegrityWindowLogic.remoteFailureMessage(
+            for: RemoteClientError.libraryLocked, context: "読み込みに失敗しました。")
+        #expect(message.contains("更新"))
+    }
+
     @Test("libraryLocked 以外は呼び出し側の context をそのまま使う")
     func remoteFailureMessageForOtherErrorsUsesContext() {
         #expect(IntegrityWindowLogic.remoteFailureMessage(
@@ -147,6 +157,49 @@ struct IntegrityWindowLogicTests {
         #expect(line.contains("未検査 10 冊"))
         #expect(line.contains("破損 3 冊"))
         #expect(line.contains("劣化 1 冊"))
+    }
+
+    // MARK: - lastScanText / lastScanAtIsKnown（Phase G29 Task 3 fix round 4, Important 1）
+    //
+    // whole-branch review: `lastScanAt == nil` は「取得できない」（リモート）と「一度もしていない」
+    // （ローカルで未検査）の両方で起きるが、ビューの語彙では nil は後者を意味していた。
+    // フルスキャン済みのリモート庫でも「最終検査: 未検査　破損 3 冊」という自己矛盾になっていた。
+
+    @Test("isKnown が false なら nil は「不明」（未検査とは言わない）")
+    func lastScanTextUnknownIsNotNeverScanned() {
+        let text = IntegrityWindowLogic.lastScanText(nil, isKnown: false)
+        #expect(text.contains("不明"))
+        #expect(!text.contains("未検査"))
+    }
+
+    @Test("isKnown が true なら従来どおり nil は「未検査」")
+    func lastScanTextKnownNilIsNeverScanned() {
+        #expect(IntegrityWindowLogic.lastScanText(nil, isKnown: true) == "未検査")
+    }
+
+    @Test("isKnown が true で日時があれば、その日時を表示する（従来どおり）")
+    func lastScanTextKnownWithDateFormats() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(IntegrityWindowLogic.lastScanText(date, isKnown: true) == IntegrityWindowLogic.formattedDate(date))
+    }
+
+    @Test("フルスキャン済み（破損あり）のリモート庫でも要約行は『未検査』と断言しない")
+    func summaryLineDoesNotClaimNeverScannedWhenRemoteUnknown() {
+        // レビューが指摘した具体例の再現: リモートで検査済み/破損/劣化が非ゼロなのに
+        // lastScanAt が取得できない（isKnown: false）ケース。
+        let summary = IntegritySummary(checked: 90, unchecked: 10, damaged: 3, degraded: 1)
+        let line = IntegrityWindowLogic.summaryLine(summary: summary, lastScanAt: nil, lastScanAtIsKnown: false)
+        #expect(!line.contains("最終検査: 未検査"), "「不明」であって「未検査」ではない")
+        #expect(line.contains("最終検査: 不明"))
+        #expect(line.contains("破損 3 冊"))
+    }
+
+    @Test("summaryLineText も lastScanAtIsKnown をそのまま summaryLine へ渡す")
+    func summaryLineTextPassesThroughLastScanAtIsKnown() {
+        let summary = IntegritySummary(checked: 0, unchecked: 0, damaged: 0, degraded: 0)
+        let text = IntegrityWindowLogic.summaryLineText(
+            summary: summary, lastScanAt: nil, lastScanAtIsKnown: false, loadErrorText: nil)
+        #expect(text?.contains("最終検査: 不明") == true)
     }
 
     // MARK: - completionSummary

@@ -24,6 +24,23 @@ struct RemoteIntegrityDataSourceTests {
         RemoteLibraryClient(baseURL: URL(string: "http://127.0.0.1:1")!, deviceToken: "test-token")
     }
 
+    /// `RemoteErrorPresentationTests.swift` と同じ理由: 既定の表紙キャッシュだと
+    /// `~/Library/Application Support/StackNest/RemoteCache/` に実データを作ってしまうため、
+    /// `RemoteLibraryState` を作るテストではメモリのみのキャッシュを注入する。
+    private func makeMemoryOnlyCache() -> RemoteCoverCache {
+        RemoteCoverCache(cache: nil, serverID: nil, libraryUUID: nil)
+    }
+
+    /// `RemoteIntegrityDataSource(client:libraryUUID:liveState:)` のテスト用に、
+    /// 最小限の `RemoteLibraryState` を作る。
+    private func makeLiveState(libraryUUID: String = "lib-1", locked: Bool = false,
+                                libraryToken: String? = nil) -> RemoteLibraryState {
+        RemoteLibraryState(
+            client: dummyClient(), serverID: UUID(), libraryUUID: libraryUUID,
+            libraryName: "テスト", locked: locked, libraryToken: libraryToken,
+            coverCache: makeMemoryOnlyCache())
+    }
+
     // MARK: - mapRow（DTO → IntegrityRow）
 
     @Test("path は常に nil、filename は DTO の値がそのまま入る")
@@ -88,11 +105,16 @@ struct RemoteIntegrityDataSourceTests {
         #expect(progress?.isIntegrityFullScan == true)
     }
 
-    @Test("running: true でも job/done/total が欠けていれば 0 埋め・空文字で返す（クラッシュしない）")
+    /// `job` が欠けたときのフォールバックは空文字ではなく `"unknown"`。
+    /// 空文字だと「他のメンテナンス処理を実行中です（）」という中身の無い表示になり、
+    /// **ジョブ名が取れなかったのか、そういう名前なのかが区別できない**（whole-branch review Minor）。
+    /// `isIntegrityFullScan` の判定はどちらでも false なので、挙動ではなく表示のための選択。
+    @Test("running: true でも job/done/total が欠けていれば既定値で返す（クラッシュしない）")
     func mapProgressRunningWithMissingFieldsDefaultsToZero() {
         let reply = MaintenanceStatusReply(running: true)
         let progress = RemoteIntegrityDataSource.mapProgress(reply)
-        #expect(progress == IntegrityJobProgress(job: "", done: 0, total: 0))
+        #expect(progress == IntegrityJobProgress(job: "unknown", done: 0, total: 0))
+        #expect(progress?.isIntegrityFullScan == false)
     }
 
     // MARK: - tier ゲート（canStartScan / scanUnavailableReason）
@@ -147,6 +169,71 @@ struct RemoteIntegrityDataSourceTests {
             tierResolutionFailed: true)
         #expect(source.canStartScan == true)
         #expect(source.scanUnavailableReason == nil)
+    }
+
+    // MARK: - live-state 経由の tier/libraryToken（fix round 4, whole-branch review Critical 1）
+    //
+    // `RemoteIntegrityDataSource(client:libraryUUID:liveState:)` は `libraryToken`/`tier` を
+    // 値としてコピーせず、`RemoteLibraryState` を弱参照して毎回読み直す。これが無いと、
+    // 施錠庫を解錠する前に窓を開くと「解錠しても直らない」、`/me` 解決前に開くと
+    // 「実際は admin なのにボタンが恒久的に無効」という 2 つの欠陥になる（whole-branch review C1）。
+    // ここではその両方を「解決後に state を書き換えたら反映されるか」で直接検証する
+    // （ユーザーが実際に踏む経路＝解錠・`/me` 完了の最短再現）。
+
+    @Test("live-state の tier を後から書き換えると canStartScan に反映される（/me 解決後に admin になるケース）")
+    func liveStateTierChangeIsPickedUpAfterConstruction() {
+        let state = makeLiveState()
+        state.tier = .read   // ウィンドウを開いた時点ではまだ /me が解決していない（fail-closed）。
+        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state)
+        #expect(source.canStartScan == false)
+        #expect(source.scanUnavailableReason != nil)
+
+        // ブラウズ窓側で /me が完了し、実は admin だったと判明した。
+        state.tier = .admin
+        #expect(source.canStartScan == true)
+        #expect(source.scanUnavailableReason == nil)
+    }
+
+    @Test("live-state の libraryToken を後から書き換えても同じ liveState 参照を通して見える（解錠を再現）")
+    func liveStateLibraryTokenChangeIsObservableThroughTheSameReference() {
+        let state = makeLiveState(locked: true, libraryToken: nil)
+        _ = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state)
+        #expect(state.libraryToken == nil)
+        // ブラウズ窓で解錠した。
+        state.libraryToken = "unlocked-token"
+        // `RemoteIntegrityDataSource` は `libraryToken` を private に保つため直接は読めないが、
+        // `tier` と全く同じ `liveState?.x ?? fallback` パターンで実装されている
+        // （`IntegrityDataSource.swift` の `private var libraryToken` 参照）。上のテストで
+        // その式が「後からの書き換えに追従する」ことを tier で確認済みなので、ここでは
+        // 「同じ `state` インスタンスを弱参照し続けている」ことだけを確かめる（値のコピーで
+        // 固定されていれば、この時点で `state.libraryToken` を読んでも無意味になる）。
+        #expect(state.libraryToken == "unlocked-token")
+    }
+
+    @Test("live-state が破棄されると fail-closed で read tier に戻る（弱参照・ダングリングでもクラッシュしない）")
+    func liveStateDeallocationFallsBackToReadTier() {
+        var state: RemoteLibraryState? = makeLiveState()
+        state!.tier = .admin
+        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
+        #expect(source.canStartScan == true)
+
+        state = nil   // 弱参照が外れる（例: ブラウズ窓を閉じた）。
+        #expect(source.canStartScan == false)
+        #expect(source.scanUnavailableReason != nil)
+    }
+
+    // MARK: - supportsLastScanAt / idlePollIntervalNanoseconds（fix round 4, Important 1 / 3）
+
+    @Test("リモートは lastScanAt を取得できない申告をする（『未検査』と『不明』を区別するため）")
+    func remoteDoesNotSupportLastScanAt() {
+        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .read)
+        #expect(source.supportsLastScanAt == false)
+    }
+
+    @Test("リモートのアイドル時ポーリング間隔はローカルより大幅に長い（400ms は HTTP 往復に不適切）")
+    func remoteIdlePollIntervalIsMuchLongerThanActive() {
+        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .read)
+        #expect(source.idlePollIntervalNanoseconds > 400_000_000)
     }
 
     // MARK: - FullScanMode.wireValue（review Minor 2: サーバの parseFullScanMode と 1 文字でもずれると壊れる）

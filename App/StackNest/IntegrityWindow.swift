@@ -69,9 +69,24 @@ enum IntegrityWindowLogic {
         isScanning || !canStartScan
     }
 
+    /// 「最終検査」欄の文言。`isKnown == false` は「そもそも取得できない」（リモート）ケースで、
+    /// 「未検査」（一度も検査していない、という既知の事実）とは区別する。
+    ///
+    /// Phase G29 Task 3 fix round 4 (Important 1, whole-branch review): `lastScanAt == nil` は
+    /// これまで無条件に「未検査」と表示していたが、リモートでは `integrity/summary` が最終検査
+    /// 時刻を運ばないため常に nil ―― フルスキャン済みのリモート庫でも「最終検査: 未検査
+    /// 破損 3 冊」という自己矛盾した断言になっていた。「取得できない」と「一度もしていない」は
+    /// 別の答えなので、`isKnown` で分岐する。
+    static func lastScanText(_ lastScanAt: Date?, isKnown: Bool) -> String {
+        guard isKnown else { return "不明（リモートでは取得できません）" }
+        return lastScanAt.map(formattedDate) ?? "未検査"
+    }
+
     /// 概要行（brief: 「最終検査 / 未検査 N 冊 / 破損 N 冊 / 劣化 N 冊」）。
-    static func summaryLine(summary: IntegritySummary, lastScanAt: Date?, now: Date = Date()) -> String {
-        let last = lastScanAt.map(formattedDate) ?? "未検査"
+    static func summaryLine(
+        summary: IntegritySummary, lastScanAt: Date?, lastScanAtIsKnown: Bool = true, now: Date = Date()
+    ) -> String {
+        let last = lastScanText(lastScanAt, isKnown: lastScanAtIsKnown)
         return "最終検査: \(last)　未検査 \(summary.unchecked) 冊　破損 \(summary.damaged) 冊　劣化 \(summary.degraded) 冊"
     }
 
@@ -83,9 +98,11 @@ enum IntegrityWindowLogic {
     /// 施錠庫でエラーラベルのすぐ上に「破損 0 冊」という**読めなかったことについての積極的な
     /// 安全宣言**が出てしまう（Critical 1 で一覧側は直したが、この行は直っていなかった）。
     /// 「破損している本はありません。」を `loadErrorText == nil` のときだけ出す判断と対にする。
-    static func summaryLineText(summary: IntegritySummary, lastScanAt: Date?, loadErrorText: String?) -> String? {
+    static func summaryLineText(
+        summary: IntegritySummary, lastScanAt: Date?, lastScanAtIsKnown: Bool = true, loadErrorText: String?
+    ) -> String? {
         guard loadErrorText == nil else { return nil }
-        return summaryLine(summary: summary, lastScanAt: lastScanAt)
+        return summaryLine(summary: summary, lastScanAt: lastScanAt, lastScanAtIsKnown: lastScanAtIsKnown)
     }
 
     /// リモートエラーの表示文言。`RemoteClientError.libraryLocked` は「施錠されていて未解錠」という
@@ -98,9 +115,15 @@ enum IntegrityWindowLogic {
     /// App テストでインスタンス化できない制約があるので、ビューが実際に呼ぶこの関数を
     /// `IntegrityWindowLogic`（既に `NSWindow` を作らない純ロジック置き場）に置き、
     /// テスト対象そのものにする。
+    ///
+    /// Phase G29 Task 3 fix round 4 (whole-branch review C1): 施錠メッセージに「解錠後は更新」を
+    /// 明示するよう追記した。以前は「解錠してください」とだけ言っていたが、`RemoteIntegrityDataSource`
+    /// が値をスナップショットしていたため解錠しても窓が自力で追従せず、**指示に従っても直らない**
+    /// 状態だった。live-state 化（fix round 4）で次の読み込みは新しいトークンを使うようになった
+    /// ため、「更新を押す」までを指示に含めることで、指示どおりに操作すれば実際に直るようにする。
     static func remoteFailureMessage(for error: Error, context: String) -> String {
         if case RemoteClientError.libraryLocked = error {
-            return "この庫は施錠されています。庫のウィンドウで解錠してください。"
+            return "この庫は施錠されています。庫のウィンドウで解錠してから「更新」を押してください。"
         }
         return context
     }
@@ -281,16 +304,17 @@ struct IntegrityWindowContainer: View {
 
     @MainActor
     private func resolveRemote(serverID: UUID, libraryUUID: String) async {
-        // review Critical 1: まず、同じ庫を既に開いているブラウズウィンドウの `RemoteLibraryState`
-        // を探す。見つかれば `libraryToken`（施錠庫の解錠済みトークン）と `tier` を解決し直さず
-        // そのまま使う ―― `/me` の追加往復も不要になる。メニュー項目は `\.remoteState` が非 nil
-        // のときしか開けない（`StackNestApp.swift`）ため、開いた瞬間は必ずこの state が生きている。
+        // review Critical 1 → fix round 4 (whole-branch review C1): まず、同じ庫を既に開いている
+        // ブラウズウィンドウの `RemoteLibraryState` を探す。見つかればその state を弱参照で
+        // `RemoteIntegrityDataSource` に渡す ―― `libraryToken`/`tier` を値としてコピーしない
+        // （fix round 3 まではここでスナップショットしていたため、解錠しても `/me` が完了しても
+        // 窓に反映されなかった）。メニュー項目は `\.remoteState` が非 nil のときしか開けない
+        // （`StackNestApp.swift`）ため、開いた瞬間は必ずこの state が生きている。
         if let liveState = RemoteLibraryRegistry.shared.allObjects.first(where: {
             $0.serverID == serverID && $0.libraryUUID == libraryUUID
         }) {
             dataSource = RemoteIntegrityDataSource(
-                client: liveState.client, libraryUUID: libraryUUID,
-                libraryToken: liveState.libraryToken, tier: liveState.tier)
+                client: liveState.client, libraryUUID: libraryUUID, liveState: liveState)
             return
         }
         // フォールバック: `RemoteLibraryWindowContainer.resolve()` と同じ `ServerConnectionStore`
@@ -361,19 +385,56 @@ struct IntegrityCheckView: View {
     /// 取得自体が失敗したら、その理由をここに残す。`jobStatus` は直前の値を保持したまま
     /// （＝「止まった」と勝手に判定しない）、取得できていないことを別途表示する。
     @State private var progressErrorText: String?
+    /// Phase G29 Task 3 fix round 4 (whole-branch review C1): `dataSource.canStartScan`/
+    /// `scanUnavailableReason` を body で直接読まず、`@State` にコピーしてポーリングのたびに
+    /// 更新する。`dataSource` は `@Observable` ではない protocol 型なので、body 内で直接読んでも
+    /// SwiftUI は「あとで値が変わったら再描画する」依存を張れない ―― リモートの `tier` は
+    /// 解錠・`/me` 完了で後から変わりうる（`RemoteIntegrityDataSource` が live-state を弱参照する
+    /// ように直した）ため、その変化を実際に画面へ反映するにはこの `@State` コピーが要る。
+    /// 初期値は `init` で `dataSource` から同期的に読む（ネットワークを伴わない）。
+    @State private var canStartScan: Bool
+    @State private var scanUnavailableReason: String?
+
+    /// `canStartScan`/`scanUnavailableReason` の初期値を `dataSource` から同期的に読むためだけの
+    /// 明示的な `init`（`@State` の initial value は宣言時の定数式にできないため）。
+    init(bundleURL: URL?, database: Database?, appState: AppState? = nil, dataSource: IntegrityDataSource) {
+        self.bundleURL = bundleURL
+        self.database = database
+        self.appState = appState
+        self.dataSource = dataSource
+        _canStartScan = State(initialValue: dataSource.canStartScan)
+        _scanUnavailableReason = State(initialValue: dataSource.scanUnavailableReason)
+    }
 
     private var isScanning: Bool { jobStatus != nil }
     private var progress: (done: Int, total: Int) { (jobStatus?.done ?? 0, jobStatus?.total ?? 0) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("蔵書ファイルの破損チェック")
-                .font(.title2.bold())
+            HStack {
+                Text("蔵書ファイルの破損チェック")
+                    .font(.title2.bold())
+                Spacer()
+                // fix round 4 (whole-branch review C1 / I2): 手動更新。施錠庫を解錠した後・
+                // 他の接続がスキャンを完了させた後に、この窓が自力で復帰する導線が無かった
+                // （閉じて開き直す以外に手段が無かった）。⌘R で `reload()` と権限表示の両方を
+                // 即座にやり直す。
+                Button {
+                    refresh()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("更新（解錠・権限確定・他の接続によるスキャン完了を反映します）")
+                .keyboardShortcut("r", modifiers: .command)
+            }
             // review Critical (fix round 2, Critical 1 の同族): 読み込みが失敗しているときは
             // 件数を出さない。`summary` の失敗フォールバックは「前回値を保持」（初回は全 0）なので、
             // 無条件描画するとエラー表示の真上に「破損 0 冊」という偽の安全宣言が出てしまっていた。
+            // fix round 4 (Important 1): `lastScanAtIsKnown` にデータ源の申告を渡し、
+            // リモートでは「未検査」ではなく「不明」と出す。
             if let line = IntegrityWindowLogic.summaryLineText(
-                summary: summary, lastScanAt: lastScanAt, loadErrorText: loadErrorText) {
+                summary: summary, lastScanAt: lastScanAt,
+                lastScanAtIsKnown: dataSource.supportsLastScanAt, loadErrorText: loadErrorText) {
                 Text(line)
                     .foregroundStyle(.secondary)
             }
@@ -385,9 +446,11 @@ struct IntegrityCheckView: View {
                         // read/edit 接続でもボタンが有効なままで、押すと 403 が `startScan` の
                         // `try?` に握り潰され「何も起きない」になっていた（spec §3.4・受け入れ基準 3）。
                         // 判定そのものは `IntegrityWindowLogic.scanButtonDisabled` に切り出してあり
-                        // （テスト可能にするため）、ここはそれを呼ぶだけに保つ。
+                        // （テスト可能にするため）、ここはそれを呼ぶだけに保つ。fix round 4: 直接
+                        // `dataSource.canStartScan` を読まず、ポーリングで更新される `@State` を使う
+                        // （tier の変化を実際に再描画へ反映するため。上のコメント参照）。
                         .disabled(IntegrityWindowLogic.scanButtonDisabled(
-                            isScanning: isScanning, canStartScan: dataSource.canStartScan))
+                            isScanning: isScanning, canStartScan: canStartScan))
                 }
                 Spacer()
                 if isScanning {
@@ -396,7 +459,7 @@ struct IntegrityCheckView: View {
             }
             // review Critical 2: `.help()`（ホバーしないと見えない）ではなく、常に見える形で理由を
             // 出す。tier が足りる（`scanUnavailableReason == nil`）間は何も出さない。
-            if let reason = dataSource.scanUnavailableReason {
+            if let reason = scanUnavailableReason {
                 Text(reason)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -577,8 +640,23 @@ struct IntegrityCheckView: View {
             rows = []   // フォールバック不変
         }
         loadErrorText = encounteredError.map {
-            IntegrityWindowLogic.remoteFailureMessage(for: $0, context: "読み込みに失敗しました。")
+            // fix round 4 (whole-branch review C1): 施錠メッセージに復帰手段（更新ボタン）を
+            // 明示する。以前は「解錠してください」とだけ言い、解錠しても窓が自力で追従しなかった
+            // ため、指示に従っても直らなかった。live-state 化（`RemoteIntegrityDataSource`）で
+            // 次の `reload()` は新しいトークンを使うようになったが、それを呼ぶ手段（更新ボタン）が
+            // あることも伝える。
+            IntegrityWindowLogic.remoteFailureMessage(
+                for: $0, context: "読み込みに失敗しました。")
         }
+    }
+
+    /// fix round 4 (whole-branch review C1 / I2): 手動更新。`reload()` に加えて
+    /// `canStartScan`/`scanUnavailableReason` の `@State` コピーも同期的に更新する
+    /// （`dataSource` の tier は live-state 経由で既に最新なので、ここは読み直すだけでよい）。
+    private func refresh() {
+        canStartScan = dataSource.canStartScan
+        scanUnavailableReason = dataSource.scanUnavailableReason
+        Task { @MainActor in await reload() }
     }
 
     // MARK: - ジョブの観測（Fix2/Fix4）
@@ -586,15 +664,30 @@ struct IntegrityCheckView: View {
     /// ウィンドウが開いている間ずっと、`dataSource.jobProgress()` をポーリングして `jobStatus`
     /// へ反映する。CLI/MCP・他ウィンドウが開始したジョブも含めて「今このライブラリで何か
     /// 走っているか」を単一の真実源から取得する ―― これによりボタンの無効化・進捗表示は
-    /// 開始者を問わず常に正しい（brief の「regardless of who started it」を満たす）。400ms
-    /// 間隔は 31 時間規模の走査に対して十分高頻度かつ、SSE を張らない設計方針
-    /// （`MaintenanceJobRegistry` のコメント参照）とも整合する（Phase G29 Task 1: ポーリング先が
-    /// registry 直読みから `dataSource` 越しに変わっただけで、ループの構造・間隔は変えていない）。
+    /// 開始者を問わず常に正しい（brief の「regardless of who started it」を満たす）。
+    /// （Phase G29 Task 1: ポーリング先が registry 直読みから `dataSource` 越しに変わっただけで、
+    /// ループの構造は変えていない。）
     ///
     /// Phase G29 Task 3 fix round 2 (Minor, Critical 1 の同族): `jobProgress()` は
     /// 取得失敗（権限不足・ネットワーク断等）で例外を投げるようになった（`IntegrityDataSource.swift`）。
     /// 失敗を「実行中でない」（nil）に化けさせず、`jobStatus` は直前の値を保持したまま
     /// `progressErrorText` を立てて理由を見せる。成功したら毎回クリアする。
+    ///
+    /// Phase G29 Task 3 fix round 4 (whole-branch review):
+    /// - **Important 3**: 400ms は元々ローカルの in-process registry 呼び出し用の値で、
+    ///   リモートの HTTP 往復には高すぎた（ジョブ非実行時でも 2.5 req/s、サーバ側は毎回
+    ///   メインアクタへホップする）。`dataSource.idlePollIntervalNanoseconds` を使い、
+    ///   実行中は高頻度、アイドル時はデータ源ごとの間隔（ローカルは同じ・リモートは大幅に長い）に
+    ///   落とす。
+    /// - **C1（tier の遅延反映）**: 毎 tick `canStartScan`/`scanUnavailableReason` の `@State`
+    ///   コピーも読み直す。ネットワークを伴わない同期読み取りなので、間隔を落としても実害は
+    ///   小さい。これにより「開いた時点では tier 未解決／未解錠だった」窓も、ブラウズ窓側の
+    ///   解錠・`/me` 完了を数秒以内に追いかける。
+    /// - **Minor（`scanErrorText` の自動クリア）**: ジョブが実際に実行中だと判明したら
+    ///   `scanErrorText` をクリアする。202 の応答だけ失われて実際は起動していた場合、
+    ///   進捗バーの隣に「開始できませんでした」が残り続けるのを防ぐ。
+    private static let activePollIntervalNanoseconds: UInt64 = 400_000_000
+
     private func startObserving() {
         pollTask?.cancel()
         pollTask = Task { @MainActor in
@@ -604,6 +697,11 @@ struct IntegrityCheckView: View {
                     let status = try await dataSource.jobProgress()
                     jobStatus = status
                     progressErrorText = nil
+                    if status != nil {
+                        // ジョブが実際に走っていることが確認できた。「開始できませんでした」
+                        // という以前の警告があれば、もう正しくない（fix round 4, Minor）。
+                        scanErrorText = nil
+                    }
                     if wasRunning, status == nil {
                         // ジョブが終わった。自分で開始していれば box に詳細レポートが入っている。
                         if let report = dataSource.takeCompletionReport() {
@@ -618,8 +716,13 @@ struct IntegrityCheckView: View {
                     progressErrorText = IntegrityWindowLogic.remoteFailureMessage(
                         for: error, context: "進捗を取得できません。")
                 }
+                // fix round 4 (C1): tier は live-state 経由で変わりうるので、jobProgress の成否に
+                // かかわらず毎 tick 読み直す。
+                canStartScan = dataSource.canStartScan
+                scanUnavailableReason = dataSource.scanUnavailableReason
                 if Task.isCancelled { return }
-                try? await Task.sleep(nanoseconds: 400_000_000)
+                let interval = wasRunning ? Self.activePollIntervalNanoseconds : dataSource.idlePollIntervalNanoseconds
+                try? await Task.sleep(nanoseconds: interval)
             }
         }
     }

@@ -366,9 +366,14 @@ struct LibrarySettingsSheet: View {
         let rows = (try? db.integrityCheck()) ?? ["(エラー)"]
         let healthy = rows == ["ok"]
         let alert = NSAlert()
+        // fix round 4 (Minor, whole-branch review): 「整合性」は本フェーズで蔵書ファイルの
+        // 破損チェックの語彙として使われるようになったため、DB 検査（このボタンは既に
+        // 「データベースを検査」に改名済み）側の文言からも紛らわしい単語を落とす。
+        // リモート版の同機能（`RemoteLibrarySettingsSheet.swift` の alert title「データベース検査結果」）
+        // と揃えた。
         alert.messageText = healthy
             ? "問題は見つかりませんでした"
-            : "整合性の問題が見つかりました"
+            : "データベースに問題が見つかりました"
         // 正常時は SQLite の "ok" 行をそのまま見せない（メッセージで十分）。
         alert.informativeText = healthy ? "" : rows.prefix(20).joined(separator: "\n")
         alert.runModal()
