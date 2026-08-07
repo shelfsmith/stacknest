@@ -750,6 +750,41 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, timeout: 30))
     }
 
+    // MARK: - G29: 蔵書ファイルの破損チェック
+
+    /// GET integrity/summary — 破損チェックの件数要約（read 可）。
+    public func fetchIntegritySummary(libraryUUID: String, libraryToken: String?) async throws -> IntegritySummaryReply {
+        let url = makeURL("libraries/\(libraryUUID)/integrity/summary")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(IntegritySummaryReply.self, data)
+    }
+
+    /// GET integrity/list — 指定状態の一覧（read 可）。DTO は `path` を持たない
+    /// （サーバが basename に redact している）。
+    public func fetchIntegrityList(libraryUUID: String, status: String, libraryToken: String?) async throws -> IntegrityListReply {
+        let url = makeURL("libraries/\(libraryUUID)/integrity/list", query: [URLQueryItem(name: "status", value: status)])
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(IntegrityListReply.self, data)
+    }
+
+    /// POST integrity/full-scan — 詳細スキャンを起動する（admin）。202=起動受理（ジョブは非同期）。
+    /// 409=他ジョブ実行中で `RemoteClientError.server(409)` を投げる（`startCompleteMetadata` /
+    /// `startCompressCovers` と同じ規約 — 呼び出し側 state 層が 409 を「実行中」表示に解釈する。
+    /// 追加 case は設けない＝YAGNI）。
+    public func startIntegrityFullScan(libraryUUID: String, mode: String, libraryToken: String?) async throws {
+        let url = makeURL("libraries/\(libraryUUID)/integrity/full-scan")
+        let body = try JSONEncoder().encode(FullScanStartRequest(mode: mode))
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken,
+                                   body: body, contentType: "application/json", timeout: 30))
+    }
+
+    /// GET maintenance/status — 実行中ジョブの進捗。
+    public func fetchMaintenanceStatus(libraryUUID: String, libraryToken: String?) async throws -> MaintenanceStatusReply {
+        let url = makeURL("libraries/\(libraryUUID)/maintenance/status")
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try decode(MaintenanceStatusReply.self, data)
+    }
+
     // MARK: - G12b-2c: 監視フォルダ設定
 
     /// GET watch-config — 監視フォルダ設定＋プリセット一覧（R 可）。

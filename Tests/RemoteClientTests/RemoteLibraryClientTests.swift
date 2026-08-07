@@ -319,6 +319,62 @@ struct StubBackedRemoteClientTests {
             #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/maintenance/cancel") == true)
         }
 
+        // MARK: - G29: 蔵書ファイルの破損チェック
+
+        @Test func fetchIntegritySummaryDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(IntegritySummaryReply(checked: 10, unchecked: 2, damaged: 1, degraded: 0)))
+            let dto = try await makeClient().fetchIntegritySummary(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/integrity/summary") == true)
+            #expect(dto.checked == 10)
+            #expect(dto.unchecked == 2)
+            #expect(dto.damaged == 1)
+            #expect(dto.degraded == 0)
+        }
+
+        @Test func fetchIntegrityListSendsStatusQueryAndDecodes() async throws {
+            let item = IntegrityItemDTO(bookID: 5, title: "T", filename: "a.zip", status: "damaged",
+                                        checkedAt: 1_700_000_000, entryCount: 3, badEntries: ["a"], degraded: true)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: try enc().encode(IntegrityListReply(items: [item])))
+            let dto = try await makeClient().fetchIntegrityList(libraryUUID: "U", status: "damaged", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            let comps = URLComponents(url: StubURLProtocol.lastRequest!.url!, resolvingAgainstBaseURL: false)!
+            #expect(comps.path == "/api/v1/libraries/U/integrity/list")
+            #expect((comps.queryItems ?? []).first(where: { $0.name == "status" })?.value == "damaged")
+            #expect(dto.items.first?.bookID == 5)
+            #expect(dto.items.first?.filename == "a.zip")
+            #expect(dto.items.first?.degraded == true)
+        }
+
+        @Test func startIntegrityFullScanSendsModeInBody() async throws {
+            StubURLProtocol.stub = .init(status: 202, headers: [:], body: Data())
+            try await makeClient().startIntegrityFullScan(libraryUUID: "U", mode: "unchecked", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/integrity/full-scan") == true)
+            let body = try #require(StubURLProtocol.lastRequestBody)
+            let decoded = try JSONDecoder().decode(FullScanStartRequest.self, from: body)
+            #expect(decoded.mode == "unchecked")
+        }
+
+        @Test func startIntegrityFullScanBusyThrowsServer409() async throws {
+            StubURLProtocol.stub = .init(status: 409, headers: [:], body: Data())
+            await #expect(throws: RemoteClientError.server(409)) {
+                try await makeClient().startIntegrityFullScan(libraryUUID: "U", mode: "all", libraryToken: nil)
+            }
+        }
+
+        @Test func fetchMaintenanceStatusDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(MaintenanceStatusReply(running: true, job: "integrityFullScan", done: 3, total: 10, startedAt: 1_700_000_000)))
+            let dto = try await makeClient().fetchMaintenanceStatus(libraryUUID: "U", libraryToken: nil)
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "GET")
+            #expect(StubURLProtocol.lastRequest?.url?.path.hasSuffix("/libraries/U/maintenance/status") == true)
+            #expect(dto.running == true)
+            #expect(dto.done == 3)
+            #expect(dto.total == 10)
+        }
+
         // MARK: - G12b-2c: 監視フォルダ設定
 
         @Test func fetchWatchConfigDecodes() async throws {
