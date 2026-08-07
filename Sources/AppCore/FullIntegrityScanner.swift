@@ -122,18 +122,24 @@ public enum FullIntegrityScanner {
             var pageCount: Int?
             var entryCount: Int?
             var badEntries: [String] = []
-            // Codex 事前レビュー Blocker1: フォルダで、かつ既存の book_integrity 行がある場合だけ
-            // 立てる。下の永続化ブロックをまるごとスキップし、既存の判定（quick スキャンが
-            // 付けた damaged を含む）に一切触れない。
-            var skipPersistenceForUnassessableFolder = false
+            // G27b Codex 2nd review Fix1/2: full スキャンが実際には評価できないカテゴリ
+            // （folder/video/text — CRC を持たない・列挙する手段がない）は、すべて同じ規律
+            // 「既存の判定（quick スキャンが付けた damaged を含む）を絶対に上書きしない」に従う。
+            // 下の永続化ブロックでは分岐せず、共通の原子的パス（insertIntegrityIfAbsent）へ流す。
+            // 逆に archive（CRC で評価）・image（サイズで評価）は本当に評価しているので、
+            // 従来どおり無条件の upsertIntegrity で書く。
+            let isUnassessableCategory: Bool
 
             if !exists {
                 status = .missing
+                isUnassessableCategory = false
             } else if category == .video || category == .text {
                 // CRC を持つのはアーカイブだけ（spec §4.2）。動画・PDF/テキストは
                 // classify() と同じく無条件で unsupported（method='full' で書く ―― でないと
-                // .uncheckedOnly に毎回残り続ける）。
+                // .uncheckedOnly に毎回残り続ける）。ただし「無条件で書く」は書き込みの値の話で、
+                // 書き込みの可否は folder と同じく既存行の有無に従う（下記 isUnassessableCategory）。
                 status = .unsupported
+                isUnassessableCategory = true
             } else if category == .image {
                 // Task 2 レビュー（Important）: 単独画像を無条件で unsupported にすると、
                 // G27a の quick スキャンが 0 バイト画像に付けた damaged（QuickIntegrityCheck.swift
@@ -147,34 +153,28 @@ public enum FullIntegrityScanner {
                 status = outcome.status
                 pageCount = outcome.pageCount
                 if let reason = outcome.reason { badEntries = [reason] }
+                isUnassessableCategory = false
             } else if category == .folder {
                 // フォルダの実体検証（列挙）は quick スキャンの担当。full スキャンは CRC
                 // 専任で、フォルダを検証する手段（probe）を持たない。classify(probe: nil) は
                 // アーカイブ/フォルダ分岐で「probe not performed」を damaged として返すため
                 // ここでは呼べない（検証もせず壊れた判定にする方が有害）。
                 //
-                // Codex 事前レビュー Blocker1: 内部レビューは「現行 2 ライブラリにはフォルダ本が
-                // 0 冊」を根拠にこの分岐を deferred にしたが、それは今日のデータの事実であって
-                // コードの安全性の話ではない。既存の book_integrity 行があるなら（典型的には
-                // quick スキャンが列挙失敗/打ち切りで damaged を付けた行）、full スキャンは
-                // それを評価する手段を持たないので**一切書かない**（checked_at のローテーション
-                // も含めて完全に不干渉）。既存行が無いときだけ unsupported を新規に書く ――
-                // そうしないと .uncheckedOnly が永遠にこの本を対象に残し続けてしまう。
+                // Codex 事前レビュー Blocker1 → G27b Codex 2nd review Fix1: 内部レビューは
+                // 「現行 2 ライブラリにはフォルダ本が 0 冊」を根拠にこの分岐を deferred にしたが、
+                // それは今日のデータの事実であってコードの安全性の話ではない。既存の
+                // book_integrity 行があるなら（典型的には quick スキャンが列挙失敗/打ち切りで
+                // damaged を付けた行）、full スキャンはそれを評価する手段を持たないので
+                // **一切書かない**（checked_at のローテーションも含めて完全に不干渉）。
+                // 既存行が無いときだけ unsupported を新規に書く ―― そうしないと
+                // .uncheckedOnly が永遠にこの本を対象に残し続けてしまう。
                 //
-                // 有無の確認自体が失敗した場合（DB エラー）は安全側に倒し、「既存行あり」と
-                // 同じ扱い＝書かない。ここで unsupported を書いてしまうと、確認できなかった
-                // だけなのに既存の damaged を握りつぶすリスクを負うため。
-                let hasExistingRecord: Bool
-                do {
-                    hasExistingRecord = try database.integrityRecord(bookID: book.id) != nil
-                } catch {
-                    hasExistingRecord = true
-                }
-                status = .unsupported // 書く場合の値。skip 時は使われない。
-                if hasExistingRecord {
-                    skipPersistenceForUnassessableFolder = true
-                }
+                // 有無の確認と書き込みは、下の共通パス（isUnassessableCategory）が単一の
+                // INSERT OR IGNORE で原子的に行う（video/text と同じ）。
+                status = .unsupported
+                isUnassessableCategory = true
             } else {
+                isUnassessableCategory = false
                 do {
                     let result = try await deps.verify(URL(fileURLWithPath: path), isCancelled)
                     entryCount = result.entryCount
@@ -213,12 +213,35 @@ public enum FullIntegrityScanner {
             // 試みた数。中断で break した本はここに到達しないため含まれない）。
             scanned += 1
 
-            // Blocker1: 評価不能なフォルダで既存行がある場合は、ここで一切書かずに次の本へ
-            // 進む（upsertIntegrity も updateBookPages/updateBookFileStat も呼ばない ―― prev_*
-            // のローテーションも checked_at の更新も一切発生させない）。byStatus には計上しない
-            // （この回で判定を下したわけではないため、実際には触っていない status を報告に
-            // 混ぜない）。
-            if skipPersistenceForUnassessableFolder {
+            // G27b Codex 2nd review Fix1/2: 評価不能カテゴリ（folder/video/text）は、単一の
+            // INSERT OR IGNORE（`insertIntegrityIfAbsent`）で「既存行があれば一切触らない／
+            // 無ければ unsupported を新規に書く」を原子的に行う。read-then-write の窓が無いため、
+            // quick スキャン（同期エンドポイント。1 ライブラリ 1 ジョブのガード対象外）が同じ本に
+            // 割り込んで damaged を書いても、どちらが先着しても既存の判定を失わない。
+            if isUnassessableCategory {
+                do {
+                    let inserted = try database.insertIntegrityIfAbsent(IntegrityRecord(
+                        bookID: book.id, status: status, method: .full,
+                        checkedAt: deps.now(), fileSize: size, fileMtime: mtime,
+                        entryCount: nil, badEntries: [],
+                        prevStatus: nil, prevCheckedAt: nil))
+                    if inserted {
+                        // 新規挿入できた（＝既存行が無かった）ときだけ stat を書き戻し、
+                        // 集計に含める。既存行があり insert が no-op だった場合は、
+                        // 旧 folder 分岐の規律どおり checked_at のローテーションも含めて
+                        // 完全に不干渉のまま次の本へ進む（byStatus にも計上しない ―― この回で
+                        // 判定を下したわけではないため）。
+                        if let size, let mtime {
+                            try database.updateBookFileStat(id: book.id, size: size, mtime: mtime)
+                        }
+                        byStatus[status, default: 0] += 1
+                    }
+                } catch DatabaseError.libraryClosed {
+                    cancelled = true
+                    break
+                } catch {
+                    persistenceFailures += 1
+                }
                 progress?(index + 1, candidates.count)
                 continue
             }

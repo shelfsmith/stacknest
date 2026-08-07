@@ -132,8 +132,12 @@ final class ServerController {
         // 対して共有サーバ経由とローカル経由の 2 本のフルスキャンが並走できてしまい、
         // 一方が確定させた `damaged` を他方の遅れた `ok` が上書きしうる（詳細は
         // `SharedMaintenanceRegistry` のコメント参照）。
+        // Codex 2nd review Fix3: `maintenanceEventFanout` も併せて注入する ―― これが無いと
+        // このコア（ネットワーク共有。`/events` は他機の `RemoteLibraryState` が実際に購読する）
+        // の eventHub へ進捗/完了 SSE が一切配信されない回帰になる。
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource(),
-                                     maintenanceRegistry: maintenanceRegistry)
+                                     maintenanceRegistry: maintenanceRegistry,
+                                     maintenanceEventFanout: SharedMaintenanceRegistry.fanout)
         self.runningCore = core
         let app = core.buildApplication()
         isRunning = true

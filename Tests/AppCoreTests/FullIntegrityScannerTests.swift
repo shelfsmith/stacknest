@@ -334,6 +334,108 @@ struct FullIntegrityScannerTests {
         #expect(rec.method == .full, "既存行が無い場合は method='full' で書かないと候補から外れない")
     }
 
+    // MARK: - G27b Codex 2nd review Fix1/2: video/text も folder と同じ規律で守る
+
+    /// Fix2 の本命回帰テスト。旧実装は video/text を無条件の `upsertIntegrity` へ流していたため、
+    /// quick スキャン（同期エンドポイント。1 ライブラリ 1 ジョブのガード対象外）が付けた
+    /// damaged を、この本が「試みた」冊数に入る過程で無条件に unsupported へ書き換えていた。
+    /// 修正後は folder と同じ原子的パスを通るため、既存の damaged は 3 モードいずれでも残る。
+    @Test("既存行がある damaged video は .uncheckedOnly でも unsupported に上書きされない")
+    func damagedVideoWithExistingRowSurvivesUncheckedOnlyFullScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "movie", path: "/lib/movie.mp4"))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil,
+            badEntries: ["probe failed"], prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .uncheckedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("video を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .video }))
+
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged, "quick スキャンの damaged を full スキャンが上書きしている")
+        #expect(rec.method == .quick, "書き込みが一切起きていないなら method も quick のまま")
+        #expect(rec.checkedAt == 100, "checked_at が更新されている＝何か書いてしまっている")
+        #expect(report.byStatus[.unsupported] == nil, "この本を unsupported として計上してはいけない")
+        #expect(report.scanned == 1, "試みた冊数には数えるが、書き込みは起きていない")
+    }
+
+    @Test("既存行がある damaged video は .all でも unsupported に上書きされない")
+    func damagedVideoWithExistingRowSurvivesAllModeFullScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "movie", path: "/lib/movie.mp4"))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil,
+            badEntries: ["probe failed"], prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .all,
+            deps: deps(verify: { _, _ in
+                Issue.record("video を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .video }))
+
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged)
+        #expect(rec.method == .quick)
+        #expect(rec.checkedAt == 100)
+        #expect(report.byStatus[.unsupported] == nil)
+    }
+
+    @Test("既存行がある damaged text(PDF等) は .damagedOnly でも unsupported に上書きされない")
+    func damagedTextWithExistingRowSurvivesDamagedOnlyFullScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "novel", path: "/lib/novel.pdf"))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil,
+            badEntries: ["probe failed"], prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .damagedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("text を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .text }))
+
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged)
+        #expect(rec.method == .quick)
+        #expect(rec.checkedAt == 100)
+        #expect(report.byStatus[.unsupported] == nil)
+    }
+
+    /// 既存行が無い場合は従来どおり unsupported が新規に書かれる（folder と対称）。
+    @Test("既存行が無い video は unsupported が新規に記録され file_size も書き戻される")
+    func videoWithoutExistingRowGetsUnsupportedAndBackfillsStat() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "movie", path: "/lib/movie.mp4"))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .uncheckedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("video を verify しようとした")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .video },
+            statFile: { _ in (8192, 222.0) }))
+
+        #expect(report.byStatus[.unsupported] == 1)
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .unsupported)
+        #expect(rec.method == .full, "既存行が無い場合は method='full' で書かないと候補から外れない")
+        #expect(try #require(db.fetchBook(id: 1)).fileSize == 8192,
+                "新規挿入できた場合は file_size も書き戻されるべき（従来の video 挙動）")
+    }
+
     // MARK: - 3. 中断
 
     /// `var` を async クロージャの中で書き換えると Swift 6 の並行性チェックに

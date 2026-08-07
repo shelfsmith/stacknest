@@ -20,8 +20,9 @@ struct IntegrityStoreTests {
     }
 
     private func record(bookID: Int, status: IntegrityStatus, checkedAt: Int64,
+                        method: IntegrityMethod = .quick,
                         entryCount: Int? = nil, badEntries: [String] = []) -> IntegrityRecord {
-        IntegrityRecord(bookID: bookID, status: status, method: .quick, checkedAt: checkedAt,
+        IntegrityRecord(bookID: bookID, status: status, method: method, checkedAt: checkedAt,
                         fileSize: nil, fileMtime: nil, entryCount: entryCount,
                         badEntries: badEntries, prevStatus: nil, prevCheckedAt: nil)
     }
@@ -73,6 +74,83 @@ struct IntegrityStoreTests {
         #expect(got.prevStatus == .empty)
         #expect(got.prevCheckedAt == 200)
         #expect(got.isDegraded == false, "直前が empty なので劣化ではない")
+    }
+
+    // MARK: - G27b Codex 2nd review Fix1/2: 原子的な「既存行が無ければ書く」
+
+    /// full スキャンが評価できないカテゴリ（folder/video/text）専用の atomic insert。
+    /// 素直な「既存行が無ければ新規に書く」の基本ケース。
+    @Test("insertIntegrityIfAbsent: 既存行が無ければ新規に書き true を返す")
+    func insertIfAbsentInsertsWhenNoExistingRow() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.mp4", pages: nil))
+
+        let inserted = try db.insertIntegrityIfAbsent(
+            record(bookID: 1, status: .unsupported, checkedAt: 100, method: .full))
+        #expect(inserted == true)
+
+        let got = try #require(try db.integrityRecord(bookID: 1))
+        #expect(got.status == .unsupported)
+        #expect(got.method == .full)
+        #expect(got.checkedAt == 100)
+    }
+
+    /// 本命: 既存行がある（quick スキャンが damaged を付けた）場合は一切変更せず false を返す。
+    /// これが Fix1/2 の直接の回帰テスト ―― 修正前の「読んでから書く」2 段階実装だと、
+    /// この単一メソッド自体は存在せず（folder だけが手書きの read-then-write でこの規律を
+    /// 再現していた）、video/text は本テストが検証する不変条件を一切守れていなかった。
+    @Test("insertIntegrityIfAbsent: 既存行があれば一切変更せず false を返す")
+    func insertIfAbsentNoOpsWhenExistingRowPresent() throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.mp4", pages: nil))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil,
+            badEntries: ["enumeration truncated"], prevStatus: nil, prevCheckedAt: nil))
+
+        let inserted = try db.insertIntegrityIfAbsent(
+            record(bookID: 1, status: .unsupported, checkedAt: 999, method: .full))
+        #expect(inserted == false, "既存行があるのに挿入できたことになっている")
+
+        let got = try #require(try db.integrityRecord(bookID: 1))
+        #expect(got.status == .damaged, "既存の damaged が unsupported に書き換わっている")
+        #expect(got.method == .quick, "method が更新されている＝何か書いてしまっている")
+        #expect(got.checkedAt == 100, "checked_at が更新されている＝何か書いてしまっている")
+    }
+
+    /// 原子性そのものの検証。単一の INSERT OR IGNORE 文で完結するため、複数の呼び出しを
+    /// 同時に投げても「片方だけが勝ち、負けた側は相手の行に一切触らない」という結果にしか
+    /// なりえない（read-then-write なら、両方が「行が無い」を読んでから両方が書こうとする
+    /// 窓ができ、片方の判定がもう片方の insert で消される可能性がある）。
+    /// GRDB の DatabaseQueue は書き込みを直列化するため真の同時実行は起きないが、
+    /// 「複数回呼んでも 1 回しか挿入は成功せず、成立した行の値がどちらか一方のものと
+    /// 完全に一致し続ける（中間状態が存在しない）」ことを検証する。
+    @Test("insertIntegrityIfAbsent: 並行呼び出しでも挿入は 1 回だけ成立する")
+    func insertIfAbsentIsAtomicUnderConcurrentCallers() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "t", path: "/tmp/x.mp4", pages: nil))
+
+        let results = try await withThrowingTaskGroup(of: Bool.self) { group in
+            for i in 0..<8 {
+                group.addTask {
+                    try db.insertIntegrityIfAbsent(IntegrityRecord(
+                        bookID: 1, status: .unsupported, method: .full,
+                        checkedAt: Int64(i), fileSize: nil, fileMtime: nil,
+                        entryCount: nil, badEntries: [],
+                        prevStatus: nil, prevCheckedAt: nil))
+                }
+            }
+            var collected: [Bool] = []
+            for try await r in group { collected.append(r) }
+            return collected
+        }
+
+        #expect(results.filter { $0 }.count == 1, "挿入に成功したのは 1 回だけであるべき")
+        // 最終状態は「勝った 1 回」の checked_at のどれかと完全一致する（中間状態が無い）。
+        let got = try #require(try db.integrityRecord(bookID: 1))
+        #expect((0..<8).contains(Int(got.checkedAt)))
+        #expect(got.status == .unsupported)
+        #expect(got.method == .full)
     }
 
     @Test("summary が検査済/未検査/破損/劣化を数える")
