@@ -42,6 +42,11 @@ struct IntegrityJobProgress: Equatable, Sendable {
     let job: String
     let done: Int
     let total: Int
+
+    /// Phase G29 Task 1 review fixup: `integrityFullScanJobName` を `private` に戻すため、
+    /// 文字列比較そのものをこの型（＝定数と同じファイル）に閉じ込める。ビュー側は生の文字列定数に
+    /// 触れず、この bool だけを見る。
+    var isIntegrityFullScan: Bool { job == integrityFullScanJobName }
 }
 
 /// 破損チェックウィンドウのデータ源。
@@ -193,4 +198,8 @@ final class LocalIntegrityDataSource: IntegrityDataSource {
 /// こと。ここがずれると、GUI が開始したジョブを CLI の `GET maintenance/status` が別ジョブとして
 /// 見てしまい（あるいはその逆）、"同じ registry を使っているのに busy 判定が食い違う" という
 /// 一番検出しづらい形で Fix2 の意図が壊れる。（`IntegrityWindow.swift` から挙動不変で移設）
-let integrityFullScanJobName = "full-scan"
+///
+/// Phase G29 Task 1 review fixup: 値はそのまま（HTTP ルートと一致させる必要があるため改名しない）、
+/// 可視性のみ `private` に戻した。このファイルの外（`IntegrityWindow.swift`）は
+/// `IntegrityJobProgress.isIntegrityFullScan` 経由でのみ参照する。
+private let integrityFullScanJobName = "full-scan"
