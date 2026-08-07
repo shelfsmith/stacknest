@@ -10,14 +10,22 @@ struct LibarchiveVersionTests {
     /// これにより **App ターゲットのテストからも同じ判定ができる**（`Carchive` は product では
     /// ないため App からは import できない）。
     ///
-    /// **限界（2026-08-07 実測）**: `ARCHIVE_VERSION_NUMBER` はコンパイル時に焼き付くが、
-    /// SwiftPM は `vendor/` の有無が変わってもこのターゲットを再コンパイルしない
+    /// **限界（2026-08-07 実測、G30 で機構を更新）**: `ARCHIVE_VERSION_NUMBER` はコンパイル時に
+    /// 焼き付くが、SwiftPM は `vendor/` の有無が変わっても関連ターゲットを再コンパイルしない
     /// （`__has_include` の解決先の変化を依存グラフが追えないため）。
     /// 実際に `vendor/` を退避しても本テストは **古い PASS を返し続けた**
     /// （ModuleCache を消しても変わらず、ソースを touch して初めて正しくなった）。
-    /// そのため `Scripts/fetch-libarchive-headers.sh` は判定を確定させた時点で
-    /// `Carchive.h` とテストソースを touch する。クリーンビルドの結果は常に正しいが、
-    /// **インクリメンタルビルドでは最後にコンパイルされた時点の判定**である点に注意。
+    ///
+    /// G30 で判定の実値は `Sources/ArchiveAdapter/LibarchiveVersion.swift` の**1 箇所だけ**に
+    /// 焼き付くようになった（本テストはそこから読むだけで自身では計算しない）。
+    /// そのため陳腐化しうる箇所は「値の計算元（`LibarchiveVersion.swift`）」と
+    /// 「Carchive の Clang PCM（`Carchive.h`）」の 2 つに絞られ、
+    /// `Scripts/fetch-libarchive-headers.sh` は判定を確定させた時点でこの 2 つを touch する
+    /// （**このテストファイル自身は touch 対象ではない** ―― 2026-08-08 実測: `Carchive.h` と
+    /// このファイルだけを touch し `LibarchiveVersion.swift` を touch しない場合、判定は
+    /// 古いまま更新されなかった）。クリーンビルドの結果は常に正しいが、
+    /// **インクリメンタルビルドでは `LibarchiveVersion.swift` が最後にコンパイルされた時点の
+    /// 判定**である点に注意。
     ///
     /// **本テストの挙動を手で確かめるときの落とし穴**: `ARCHIVE_VERSION_NUMBER` は
     /// `archive.h` だけでなく **`archive_entry.h` でも定義されている**（libarchive 3.7.4 では
