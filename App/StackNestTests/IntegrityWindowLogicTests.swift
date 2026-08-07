@@ -16,19 +16,13 @@ import LibraryStore
 /// 「ウィンドウ固有」のロジック（要約文言・表示順・完了メッセージ・ボタン→モードの対応）だけを扱う。
 @Suite("IntegrityWindowLogic (G27b Task 6)")
 struct IntegrityWindowLogicTests {
-    private func book(id: Int, title: String) -> BookRow {
-        // デフォルト引数は他の引数（id）を参照できないため、path は常に本体側で id から組み立てる。
-        BookRow(id: id, title: title, author: nil, genre: nil, path: "/tmp/\(id).zip",
-                dateAdded: Date(), playDate: nil, bookType: 0, fileType: 0, pages: nil,
-                rating: 0, unseen: false, keywordA: nil, keywordB: nil,
-                keywordC: nil, neta: nil, memo: nil)
-    }
-
-    private func record(bookID: Int, status: IntegrityStatus, checkedAt: Int64,
-                        prevStatus: IntegrityStatus? = nil) -> IntegrityRecord {
-        IntegrityRecord(bookID: bookID, status: status, method: .full, checkedAt: checkedAt,
-                        fileSize: nil, fileMtime: nil, entryCount: nil, badEntries: [],
-                        prevStatus: prevStatus, prevCheckedAt: nil)
+    // Phase G29 Task 1: `sortedForDisplay` の引数が `(book: BookRow, record: IntegrityRecord)` の
+    // タプルから `IntegrityRow` に変わったため、テストのフィクスチャもそれに合わせる。
+    // 並び替え条件（劣化優先 → 検査が新しい順 → タイトル順）自体は変わっていない。
+    private func row(id: Int64, title: String, checkedAt: Int64 = 0, degraded: Bool = false) -> IntegrityRow {
+        IntegrityRow(id: id, title: title, filename: "\(id).zip", path: "/tmp/\(id).zip",
+                     status: .damaged, checkedAt: Date(timeIntervalSince1970: TimeInterval(checkedAt)),
+                     entryCount: nil, badEntries: [], degraded: degraded)
     }
 
     // MARK: - ScanAction → FullScanMode
@@ -105,32 +99,32 @@ struct IntegrityWindowLogicTests {
 
     @Test("劣化行が非劣化行より先頭に来る")
     func degradedRowsSortFirst() {
-        let rows: [(book: BookRow, record: IntegrityRecord)] = [
-            (book(id: 1, title: "Zoo"), record(bookID: 1, status: .damaged, checkedAt: 100)),
-            (book(id: 2, title: "Apple"), record(bookID: 2, status: .damaged, checkedAt: 200, prevStatus: .ok)),
+        let rows: [IntegrityRow] = [
+            row(id: 1, title: "Zoo", checkedAt: 100, degraded: false),
+            row(id: 2, title: "Apple", checkedAt: 200, degraded: true),
         ]
         let sorted = IntegrityWindowLogic.sortedForDisplay(rows)
-        #expect(sorted.first?.book.id == 2, "劣化（prevStatus=ok→damaged）が先頭に来るべき")
-        #expect(sorted.first?.record.isDegraded == true)
+        #expect(sorted.first?.id == 2, "劣化（prevStatus=ok→damaged）が先頭に来るべき")
+        #expect(sorted.first?.degraded == true)
     }
 
     @Test("劣化どうしは検査が新しい順")
     func degradedRowsSortByMostRecentFirst() {
-        let rows: [(book: BookRow, record: IntegrityRecord)] = [
-            (book(id: 1, title: "Old"), record(bookID: 1, status: .damaged, checkedAt: 100, prevStatus: .ok)),
-            (book(id: 2, title: "New"), record(bookID: 2, status: .damaged, checkedAt: 300, prevStatus: .ok)),
+        let rows: [IntegrityRow] = [
+            row(id: 1, title: "Old", checkedAt: 100, degraded: true),
+            row(id: 2, title: "New", checkedAt: 300, degraded: true),
         ]
         let sorted = IntegrityWindowLogic.sortedForDisplay(rows)
-        #expect(sorted.map(\.book.id) == [2, 1])
+        #expect(sorted.map(\.id) == [2, 1])
     }
 
     @Test("非劣化どうしはタイトルの辞書順")
     func nonDegradedRowsSortByTitle() {
-        let rows: [(book: BookRow, record: IntegrityRecord)] = [
-            (book(id: 1, title: "Zebra"), record(bookID: 1, status: .damaged, checkedAt: 100)),
-            (book(id: 2, title: "Apple"), record(bookID: 2, status: .damaged, checkedAt: 200)),
+        let rows: [IntegrityRow] = [
+            row(id: 1, title: "Zebra", checkedAt: 100, degraded: false),
+            row(id: 2, title: "Apple", checkedAt: 200, degraded: false),
         ]
         let sorted = IntegrityWindowLogic.sortedForDisplay(rows)
-        #expect(sorted.map(\.book.id) == [2, 1])
+        #expect(sorted.map(\.id) == [2, 1])
     }
 }

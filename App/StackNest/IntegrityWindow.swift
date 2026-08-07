@@ -2,7 +2,6 @@
 import AppCore
 import AppKit
 import Foundation
-import LibraryServer
 import LibraryStore
 import SwiftUI
 
@@ -84,38 +83,20 @@ enum IntegrityWindowLogic {
     /// 一覧の表示順: 劣化（前回 ok → 今回 damaged）を先頭に、劣化どうしは検査が新しい順。
     /// それ以外はタイトル順。「今回悪化した本」をスクロールなしで見つけられるようにするための
     /// ウィンドウ固有の並び替えロジック（`Database.integrityRecords` 自体はタイトル順で返す）。
-    static func sortedForDisplay(
-        _ rows: [(book: BookRow, record: IntegrityRecord)]
-    ) -> [(book: BookRow, record: IntegrityRecord)] {
+    ///
+    /// Phase G29 Task 1: `(book: BookRow, record: IntegrityRecord)` タプルから `IntegrityRow` へ
+    /// 引数の型が変わった（データ源をローカル/リモートで差し替えられるようにするための「形の変更」
+    /// ―― リモートの `IntegrityItemDTO` には `BookRow`/`IntegrityRecord` 自体が存在しないため）。
+    /// 並び替えの判定条件そのもの（劣化優先 → 検査が新しい順 → タイトル順）は変えていない。
+    static func sortedForDisplay(_ rows: [IntegrityRow]) -> [IntegrityRow] {
         rows.sorted { a, b in
-            if a.record.isDegraded != b.record.isDegraded { return a.record.isDegraded }
-            if a.record.isDegraded { return a.record.checkedAt > b.record.checkedAt }
-            return a.book.title.localizedStandardCompare(b.book.title) == .orderedAscending
+            if a.degraded != b.degraded { return a.degraded }
+            if a.degraded {
+                return (a.checkedAt ?? .distantPast) > (b.checkedAt ?? .distantPast)
+            }
+            return a.title.localizedStandardCompare(b.title) == .orderedAscending
         }
     }
-}
-
-// MARK: - IntegrityFullScanJob
-
-/// Phase G27b Task 6 / 最終レビュー Fix2: 整合性チェックウィンドウの「full-scan」ジョブ名。
-/// CLI/MCP の HTTP ルート（`POST .../integrity/full-scan`）が `maintenanceRegistry.start` に
-/// 渡す job 名（`Sources/LibraryServer/LibraryServerCore.swift`）と**文字列として完全一致**させる
-/// こと。ここがずれると、GUI が開始したジョブを CLI の `GET maintenance/status` が別ジョブとして
-/// 見てしまい（あるいはその逆）、"同じ registry を使っているのに busy 判定が食い違う" という
-/// 一番検出しづらい形で Fix2 の意図が壊れる。
-private let integrityFullScanJobName = "full-scan"
-
-/// `MaintenanceJobRegistry.start` の `run` クロージャは `@Sendable` で戻り値は `Int`
-/// （完了件数）のみ。詳細な `FullScanReport`（byStatus 内訳・cancelled・volumeUnavailableSkips）を
-/// UI へ持ち帰るためのスレッド安全な受け渡し箱。**自分（このウィンドウ）がこのタブで開始した
-/// スキャンにのみ**使う ―― CLI/MCP など他所が開始したジョブにはこの箱が無いため、
-/// その完了は `lastReport` の詳細表示なしに `reload()` のみで反映する（brief の要求である
-/// 「進捗表示・ボタン無効化」は満たすが、完了時の内訳キャプションは自分が開始した場合のみ）。
-private final class IntegrityReportBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var report: FullScanReport?
-    func set(_ r: FullScanReport) { lock.lock(); report = r; lock.unlock() }
-    func take() -> FullScanReport? { lock.lock(); defer { lock.unlock() }; return report }
 }
 
 // MARK: - IntegrityCheckRef / WindowGroup container
@@ -144,7 +125,9 @@ struct IntegrityWindowContainer: View {
     var body: some View {
         Group {
             if let appState, let database = appState.database {
-                IntegrityCheckView(bundleURL: ref.bundleURL, database: database, appState: appState)
+                IntegrityCheckView(
+                    bundleURL: ref.bundleURL, database: database, appState: appState,
+                    dataSource: LocalIntegrityDataSource(database: database, bundleURL: ref.bundleURL, appState: appState))
             } else if notFound {
                 missingView
             } else {
@@ -185,10 +168,14 @@ struct IntegrityCheckView: View {
     let bundleURL: URL
     let database: Database
     var appState: AppState?
+    /// Phase G29 Task 1: 破損チェックウィンドウのデータ源。ローカル庫は `LocalIntegrityDataSource`
+    /// （DB と registry を直接触る、挙動不変の移設）。relink/delete/Finder 表示は引き続き
+    /// `database`/`bundleURL` を直接使う（このプロトコルのスコープ外）。
+    let dataSource: IntegrityDataSource
 
     @State private var summary = IntegritySummary(checked: 0, unchecked: 0, damaged: 0, degraded: 0)
     @State private var lastScanAt: Date?
-    @State private var rows: [(book: BookRow, record: IntegrityRecord)] = []
+    @State private var rows: [IntegrityRow] = []
     // G27b 最終レビュー Fix2/Fix4: ウィンドウは `MaintenanceJobRegistry` の状態を**観測**するだけで、
     // 自前のタスク/フラグを所有しない。`jobStatus` は「今このライブラリで走っているジョブ」を
     // ポーリングで反映したもので、GUI が開始したかどうかを問わない（CLI/MCP・他ウィンドウが
@@ -196,18 +183,15 @@ struct IntegrityCheckView: View {
     //   - ウィンドウを閉じてもジョブは registry 側で走り続ける（scanTask を持たないので
     //     「唯一の参照を失って中断できなくなる」が構造的に起こらない＝Fix4）。
     //   - 再度開けば `.onAppear` の最初のポーリングで即座に isScanning=true に復帰する。
-    @State private var jobStatus: MaintenanceJobRegistry.JobStatus?
+    // Phase G29 Task 1: 型を `MaintenanceJobRegistry.JobStatus?` から `IntegrityJobProgress?`
+    // （データ源プロトコルの戻り値型）へ変更。ポーリング先が registry 直読みからプロトコル
+    // 越しの `dataSource.jobProgress()` に変わっただけで、意味・使われ方は変えていない。
+    @State private var jobStatus: IntegrityJobProgress?
     @State private var lastReport: FullScanReport?
     @State private var pollTask: Task<Void, Never>?
-    /// 自分（このウィンドウ）が開始したスキャンの詳細レポート受け皿。他所が開始したジョブには
-    /// 対応する箱が無いため `lastReport` は `reload()` 相当の反映のみになる（型コメント参照）。
-    @State private var pendingReportBox: IntegrityReportBox?
 
     private var isScanning: Bool { jobStatus != nil }
     private var progress: (done: Int, total: Int) { (jobStatus?.done ?? 0, jobStatus?.total ?? 0) }
-    /// `AllOpenLibrariesDataSource`/`AppStateLibraryDataSource` と同じ `ensureLibraryUUID()` を使う
-    /// ―― registry のキー（library uuid 文字列）を HTTP ルートと完全に一致させるため。
-    private var libraryUUID: String? { appState?.librarySettings?.ensureLibraryUUID() }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -260,8 +244,8 @@ struct IntegrityCheckView: View {
                 }
                 Spacer()
             } else {
-                List(rows, id: \.book.id) { entry in
-                    rowView(entry)
+                List(rows) { row in
+                    rowView(row)
                 }
                 .listStyle(.inset)
             }
@@ -269,7 +253,7 @@ struct IntegrityCheckView: View {
         .padding(20)
         .frame(minWidth: 640, idealWidth: 760, minHeight: 420, idealHeight: 560)
         .onAppear {
-            reload()
+            Task { @MainActor in await reload() }
             startObserving()
         }
         .onDisappear {
@@ -281,30 +265,30 @@ struct IntegrityCheckView: View {
     }
 
     @ViewBuilder
-    private func rowView(_ entry: (book: BookRow, record: IntegrityRecord)) -> some View {
+    private func rowView(_ row: IntegrityRow) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            if entry.record.isDegraded {
+            if row.degraded {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
                     .help("劣化: 前回は正常だった本が壊れています（ビット腐敗の疑い）")
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(entry.book.title)
-                    .fontWeight(entry.record.isDegraded ? .semibold : .regular)
-                Text(entry.book.path ?? "—")
+                Text(row.title)
+                    .fontWeight(row.degraded ? .semibold : .regular)
+                Text(row.path ?? "—")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                if !entry.record.badEntries.isEmpty {
-                    Text(entry.record.badEntries.prefix(3).joined(separator: ", "))
+                if !row.badEntries.isEmpty {
+                    Text(row.badEntries.prefix(3).joined(separator: ", "))
                         .font(.caption2)
                         .foregroundStyle(.orange)
                         .lineLimit(1)
                 }
             }
             Spacer()
-            if entry.record.isDegraded {
+            if row.degraded {
                 Text("劣化")
                     .font(.caption.bold())
                     .foregroundStyle(.white)
@@ -313,10 +297,12 @@ struct IntegrityCheckView: View {
                     .background(Color.red, in: Capsule())
             }
             Menu {
-                Button("Finder で表示") { revealInFinder(entry.book) }
-                    .disabled(entry.book.path == nil)
-                Button("再リンク…") { relink(entry.book) }
-                Button("ライブラリから削除", role: .destructive) { delete(entry.book) }
+                // Phase G29 Task 1: リモートでは `row.path` が nil になるため無効化する
+                // （brief: 「Finder で表示」ボタンは path == nil で出し分ける）。
+                Button("Finder で表示") { revealInFinder(row) }
+                    .disabled(row.path == nil)
+                Button("再リンク…") { relink(row) }
+                Button("ライブラリから削除", role: .destructive) { delete(row) }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -324,45 +310,47 @@ struct IntegrityCheckView: View {
             .frame(width: 28)
         }
         .padding(.vertical, 4)
-        .listRowBackground(entry.record.isDegraded ? Color.red.opacity(0.12) : Color.clear)
+        .listRowBackground(row.degraded ? Color.red.opacity(0.12) : Color.clear)
     }
 
     // MARK: - データ読み込み
 
-    private func reload() {
-        summary = (try? database.integritySummary()) ?? summary
-        if let unix = try? database.integrityLastCheckedAt() {
-            lastScanAt = Date(timeIntervalSince1970: TimeInterval(unix))
+    /// Phase G29 Task 1: `database` 直読みから `dataSource` 経由の呼び出しへ変更（挙動不変）。
+    /// フォールバックの規律（要約は失敗時に前回値を保持・最終検査日時は失敗/未検査で nil・
+    /// 一覧は失敗時に空配列）は変えていない。
+    private func reload() async {
+        summary = (try? await dataSource.summary()) ?? summary
+        if let value = try? await dataSource.lastScanAt() {
+            lastScanAt = value
         } else {
             lastScanAt = nil
         }
-        let fetched = (try? database.integrityRecords(status: .damaged)) ?? []
-        rows = IntegrityWindowLogic.sortedForDisplay(fetched.map { (book: $0.0, record: $0.1) })
+        let fetched = (try? await dataSource.list(status: .damaged)) ?? []
+        rows = IntegrityWindowLogic.sortedForDisplay(fetched)
     }
 
     // MARK: - ジョブの観測（Fix2/Fix4）
 
-    /// ウィンドウが開いている間ずっと、このライブラリの `MaintenanceJobRegistry.status(library:)`
-    /// をポーリングして `jobStatus` へ反映する。CLI/MCP・他ウィンドウが開始したジョブも含めて
-    /// 「今このライブラリで何か走っているか」を単一の真実源から取得する ―― これにより
-    /// ボタンの無効化・進捗表示は開始者を問わず常に正しい（brief の「regardless of who
-    /// started it」を満たす）。400ms 間隔は 31 時間規模の走査に対して十分高頻度かつ、
-    /// SSE を張らない設計方針（`MaintenanceJobRegistry` のコメント参照）とも整合する。
+    /// ウィンドウが開いている間ずっと、`dataSource.jobProgress()` をポーリングして `jobStatus`
+    /// へ反映する。CLI/MCP・他ウィンドウが開始したジョブも含めて「今このライブラリで何か
+    /// 走っているか」を単一の真実源から取得する ―― これによりボタンの無効化・進捗表示は
+    /// 開始者を問わず常に正しい（brief の「regardless of who started it」を満たす）。400ms
+    /// 間隔は 31 時間規模の走査に対して十分高頻度かつ、SSE を張らない設計方針
+    /// （`MaintenanceJobRegistry` のコメント参照）とも整合する（Phase G29 Task 1: ポーリング先が
+    /// registry 直読みから `dataSource` 越しに変わっただけで、ループの構造・間隔は変えていない）。
     private func startObserving() {
         pollTask?.cancel()
-        guard let uuid = libraryUUID else { return }
         pollTask = Task { @MainActor in
             var wasRunning = false
             while !Task.isCancelled {
-                let status = await LocalControlController.shared.maintenanceRegistry.status(library: uuid)
+                let status = await dataSource.jobProgress()
                 jobStatus = status
                 if wasRunning, status == nil {
                     // ジョブが終わった。自分で開始していれば box に詳細レポートが入っている。
-                    if let box = pendingReportBox, let report = box.take() {
+                    if let report = dataSource.takeCompletionReport() {
                         lastReport = report
                     }
-                    pendingReportBox = nil
-                    reload()
+                    await reload()
                 }
                 wasRunning = status != nil
                 if Task.isCancelled { return }
@@ -389,71 +377,48 @@ struct IntegrityCheckView: View {
     }
 
     /// G27b 最終レビュー Fix2: `IntegrityScanTask` を自前で回すのではなく、CLI/MCP の
-    /// `POST .../integrity/full-scan` と同じ `LocalControlController.shared.maintenanceRegistry`
-    /// を通す（同じ job 名 `integrityFullScanJobName` で登録する）。`start` が false（他ジョブが
-    /// 同一庫で実行中）を返すことは通常ここに来る前にボタンが無効化されているため稀だが、
-    /// レースで到達しても registry が実際の多重起動を防いでくれる（自前ガードを重複させない）。
+    /// `POST .../integrity/full-scan` と同じ registry を通す `dataSource.startScan(mode:)` を呼ぶ
+    /// （Phase G29 Task 1: registry 呼び出し自体は `LocalIntegrityDataSource` に移設。ここでは
+    /// 「開始後すぐ jobStatus を反映する」までの手順を変えていない）。
     private func startScan(_ action: IntegrityWindowLogic.ScanAction) {
-        guard let uuid = libraryUUID else { return }
         lastReport = nil
-        let box = IntegrityReportBox()
-        pendingReportBox = box
-        // `self`（View struct・非 Sendable）を後段の `@Sendable` クロージャへ取り込まないよう、
-        // 必要な値だけを事前にローカル定数へ写す（`database`/`bundleURL` は Sendable な値、
-        // `action` はクロージャの外側でキャプチャされるローカル引数なのでそのままでよい）。
-        let db = database
-        let libraryBundleURL = bundleURL
         Task { @MainActor in
-            let started = await LocalControlController.shared.maintenanceRegistry.start(
-                library: uuid, job: integrityFullScanJobName
-            ) { progress, isCancelled in
-                try await withoutActuallyEscaping(isCancelled) { escapableIsCancelled in
-                    let report = try await FullIntegrityScanner.scan(
-                        database: db, mode: action.mode,
-                        deps: FullIntegrityScanner.liveDependencies(libraryBundleURL: libraryBundleURL),
-                        progress: { d, t in progress(d, t) },
-                        isCancelled: escapableIsCancelled)
-                    box.set(report)
-                    return report.scanned
-                }
-            }
-            if !started {
-                // busy（他ジョブが同一庫で実行中）。次のポーリングで jobStatus が反映される。
-                pendingReportBox = nil
-            } else {
+            let started = (try? await dataSource.startScan(mode: action.mode)) ?? false
+            if started {
                 // 次のポーリング tick を待たず、起動直後から running を即時反映する。
-                jobStatus = await LocalControlController.shared.maintenanceRegistry.status(library: uuid)
+                jobStatus = await dataSource.jobProgress()
             }
+            // started == false（busy）のときは何もしない。次のポーリングで jobStatus が反映される。
         }
     }
 
     private func cancelScan() {
-        guard let uuid = libraryUUID else { return }
-        Task { await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid) }
+        Task { await dataSource.cancel() }
     }
 
     // MARK: - 行操作
 
-    private func revealInFinder(_ book: BookRow) {
-        guard let path = book.path else { return }
+    private func revealInFinder(_ row: IntegrityRow) {
+        guard let path = row.path else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
     }
 
-    private func relink(_ book: BookRow) {
+    private func relink(_ row: IntegrityRow) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = false
-        panel.message = String(localized: "「\(book.title)」にリンクするファイルを選択してください。")
-        if let path = book.path {
+        panel.message = String(localized: "「\(row.title)」にリンクするファイルを選択してください。")
+        if let path = row.path {
             panel.directoryURL = URL(fileURLWithPath: path).deletingLastPathComponent()
         }
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        let bookID = Int(row.id)
         do {
-            try database.relinkBook(id: book.id, newPath: url.path(percentEncoded: false))
-            reload()
+            try database.relinkBook(id: bookID, newPath: url.path(percentEncoded: false))
+            Task { @MainActor in await reload() }
             if let appState {
-                Task { await appState.refreshCoverAndPageCount(afterRelinkOf: book.id, refreshUI: true) }
+                Task { await appState.refreshCoverAndPageCount(afterRelinkOf: bookID, refreshUI: true) }
             }
         } catch {
             let a = NSAlert()
@@ -463,15 +428,15 @@ struct IntegrityCheckView: View {
         }
     }
 
-    private func delete(_ book: BookRow) {
+    private func delete(_ row: IntegrityRow) {
         BookDeleteCommand.deleteFromLibrary(
-            bookIDs: [book.id],
+            bookIDs: [Int(row.id)],
             database: database,
             bundleURL: bundleURL,
             appState: appState,
             undoManager: appState?.undoManager,
             confirm: true
         )
-        reload()
+        Task { @MainActor in await reload() }
     }
 }
