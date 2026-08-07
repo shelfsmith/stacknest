@@ -75,6 +75,36 @@ enum IntegrityWindowLogic {
         return "最終検査: \(last)　未検査 \(summary.unchecked) 冊　破損 \(summary.damaged) 冊　劣化 \(summary.degraded) 冊"
     }
 
+    /// `summaryLine` を表示してよいかどうかの判定込みの版。`loadErrorText != nil`（読み込み失敗）
+    /// のときは nil を返し、呼び出し側は何も表示しない。
+    ///
+    /// Phase G29 Task 3 fix round 2 (Critical, review 再指摘): `summary` の失敗フォールバックは
+    /// 「前回値を保持」で、初回読み込みでは `IntegritySummary(0,0,0,0)`。これを無条件に描画すると、
+    /// 施錠庫でエラーラベルのすぐ上に「破損 0 冊」という**読めなかったことについての積極的な
+    /// 安全宣言**が出てしまう（Critical 1 で一覧側は直したが、この行は直っていなかった）。
+    /// 「破損している本はありません。」を `loadErrorText == nil` のときだけ出す判断と対にする。
+    static func summaryLineText(summary: IntegritySummary, lastScanAt: Date?, loadErrorText: String?) -> String? {
+        guard loadErrorText == nil else { return nil }
+        return summaryLine(summary: summary, lastScanAt: lastScanAt)
+    }
+
+    /// リモートエラーの表示文言。`RemoteClientError.libraryLocked` は「施錠されていて未解錠」という
+    /// 一級市民のケース（`RemoteClientError.swift:19-23` のコメント参照）なので専用の文言、
+    /// それ以外は呼び出し側が渡す文脈依存の汎用文言（「読み込みに失敗しました。」
+    /// 「スキャンを開始できませんでした。」等）を使う。
+    ///
+    /// Phase G29 Task 3 fix round 2: `reload()`（読み込み失敗）と `startScan()`（開始失敗）の
+    /// 両方から使う共通ヘルパとして切り出した。`IntegrityCheckView` は実 NSWindow を作るため
+    /// App テストでインスタンス化できない制約があるので、ビューが実際に呼ぶこの関数を
+    /// `IntegrityWindowLogic`（既に `NSWindow` を作らない純ロジック置き場）に置き、
+    /// テスト対象そのものにする。
+    static func remoteFailureMessage(for error: Error, context: String) -> String {
+        if case RemoteClientError.libraryLocked = error {
+            return "この庫は施錠されています。庫のウィンドウで解錠してください。"
+        }
+        return context
+    }
+
     static func formattedDate(_ date: Date) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "ja_JP")
@@ -309,9 +339,17 @@ struct IntegrityCheckView: View {
     @State private var pollTask: Task<Void, Never>?
     /// Phase G29 Task 3 review fix (Critical 1): `reload()` が `summary`/`lastScanAt`/`list` の
     /// いずれかで例外を捕まえたら、その理由をここに残す。non-nil の間は「破損している本は
-    /// ありません。」という積極的な安全宣言を出さない ―― 読めなかったことと破損が無いことは
-    /// 区別しなければならない。
+    /// ありません。」という積極的な安全宣言も、要約行の件数も出さない ―― 読めなかったことと
+    /// 破損が無いことは区別しなければならない（fix round 2 で要約行にも適用）。
     @State private var loadErrorText: String?
+    /// Phase G29 Task 3 fix round 2 (Critical, review 再指摘・同族): `startScan()` が busy（409→false）
+    /// ではない例外を捕まえたら、その理由をここに残す。busy は正常系（次のポーリングで反映）だが、
+    /// 403 等は「開始に失敗した」という別の状態であり、黙って何も起きないことにしてはいけない。
+    @State private var scanErrorText: String?
+    /// Phase G29 Task 3 fix round 2 (Minor, review 再指摘・同族): `dataSource.jobProgress()` の
+    /// 取得自体が失敗したら、その理由をここに残す。`jobStatus` は直前の値を保持したまま
+    /// （＝「止まった」と勝手に判定しない）、取得できていないことを別途表示する。
+    @State private var progressErrorText: String?
 
     private var isScanning: Bool { jobStatus != nil }
     private var progress: (done: Int, total: Int) { (jobStatus?.done ?? 0, jobStatus?.total ?? 0) }
@@ -320,8 +358,14 @@ struct IntegrityCheckView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("整合性チェック")
                 .font(.title2.bold())
-            Text(IntegrityWindowLogic.summaryLine(summary: summary, lastScanAt: lastScanAt))
-                .foregroundStyle(.secondary)
+            // review Critical (fix round 2, Critical 1 の同族): 読み込みが失敗しているときは
+            // 件数を出さない。`summary` の失敗フォールバックは「前回値を保持」（初回は全 0）なので、
+            // 無条件描画するとエラー表示の真上に「破損 0 冊」という偽の安全宣言が出てしまっていた。
+            if let line = IntegrityWindowLogic.summaryLineText(
+                summary: summary, lastScanAt: lastScanAt, loadErrorText: loadErrorText) {
+                Text(line)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack {
                 ForEach(IntegrityWindowLogic.ScanAction.allCases) { action in
@@ -351,6 +395,21 @@ struct IntegrityCheckView: View {
                 // review Critical 1: 読み込み自体が失敗している。破損 0 件/一覧空という積極的な
                 // 「安全」表示より先に、読めなかった事実を出す。
                 Label(loadErrorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            if let scanErrorText {
+                // fix round 2 (Critical, Critical 1 の同族): スキャン開始が busy 以外の理由で
+                // 失敗した（例: 施錠庫に admin トークンで、ブラウズウィンドウ無しの
+                // ServerConnectionStore フォールバック経路から到達）。
+                Label(scanErrorText, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+            if let progressErrorText {
+                // fix round 2 (Minor, Critical 1 の同族): 進捗の取得自体に失敗している。
+                // 直前の `jobStatus` は保持したままなので、それが最新ではない可能性を明示する。
+                Label(progressErrorText, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -503,18 +562,9 @@ struct IntegrityCheckView: View {
             encounteredError = encounteredError ?? error
             rows = []   // フォールバック不変
         }
-        loadErrorText = encounteredError.map(Self.loadErrorMessage(for:))
-    }
-
-    /// review Critical 1: `RemoteClientError.libraryLocked` は「施錠されていて未解錠」という
-    /// 一級市民のケース（`RemoteClientError.swift:19-23` のコメント参照）なので専用の文言を出す。
-    /// それ以外は汎用の失敗文言（読み込み失敗の原因はネットワーク断・タイムアウト等さまざまで、
-    /// ここで種類ごとに出し分ける必要はない ―― 「読めなかった」ことが伝われば十分）。
-    private static func loadErrorMessage(for error: Error) -> String {
-        if case RemoteClientError.libraryLocked = error {
-            return "この庫は施錠されています。庫のウィンドウで解錠してください。"
+        loadErrorText = encounteredError.map {
+            IntegrityWindowLogic.remoteFailureMessage(for: $0, context: "読み込みに失敗しました。")
         }
-        return "読み込みに失敗しました。"
     }
 
     // MARK: - ジョブの観測（Fix2/Fix4）
@@ -526,21 +576,34 @@ struct IntegrityCheckView: View {
     /// 間隔は 31 時間規模の走査に対して十分高頻度かつ、SSE を張らない設計方針
     /// （`MaintenanceJobRegistry` のコメント参照）とも整合する（Phase G29 Task 1: ポーリング先が
     /// registry 直読みから `dataSource` 越しに変わっただけで、ループの構造・間隔は変えていない）。
+    ///
+    /// Phase G29 Task 3 fix round 2 (Minor, Critical 1 の同族): `jobProgress()` は
+    /// 取得失敗（権限不足・ネットワーク断等）で例外を投げるようになった（`IntegrityDataSource.swift`）。
+    /// 失敗を「実行中でない」（nil）に化けさせず、`jobStatus` は直前の値を保持したまま
+    /// `progressErrorText` を立てて理由を見せる。成功したら毎回クリアする。
     private func startObserving() {
         pollTask?.cancel()
         pollTask = Task { @MainActor in
             var wasRunning = false
             while !Task.isCancelled {
-                let status = await dataSource.jobProgress()
-                jobStatus = status
-                if wasRunning, status == nil {
-                    // ジョブが終わった。自分で開始していれば box に詳細レポートが入っている。
-                    if let report = dataSource.takeCompletionReport() {
-                        lastReport = report
+                do {
+                    let status = try await dataSource.jobProgress()
+                    jobStatus = status
+                    progressErrorText = nil
+                    if wasRunning, status == nil {
+                        // ジョブが終わった。自分で開始していれば box に詳細レポートが入っている。
+                        if let report = dataSource.takeCompletionReport() {
+                            lastReport = report
+                        }
+                        await reload()
                     }
-                    await reload()
+                    wasRunning = status != nil
+                } catch {
+                    // `jobStatus`/`wasRunning` は前回値のまま ―― 「取得できていない」を
+                    // 「止まった」と混同しない。
+                    progressErrorText = IntegrityWindowLogic.remoteFailureMessage(
+                        for: error, context: "進捗を取得できません。")
                 }
-                wasRunning = status != nil
                 if Task.isCancelled { return }
                 try? await Task.sleep(nanoseconds: 400_000_000)
             }
@@ -568,15 +631,29 @@ struct IntegrityCheckView: View {
     /// `POST .../integrity/full-scan` と同じ registry を通す `dataSource.startScan(mode:)` を呼ぶ
     /// （Phase G29 Task 1: registry 呼び出し自体は `LocalIntegrityDataSource` に移設。ここでは
     /// 「開始後すぐ jobStatus を反映する」までの手順を変えていない）。
+    ///
+    /// Phase G29 Task 3 fix round 2 (Critical, review 再指摘・Critical 1 の同族):
+    /// `dataSource.startScan(mode:)` は busy（409）を `false` として返すのが正常系だが、
+    /// それ以外の失敗（403 施錠・権限不足等）は例外として投げる。従来の `try?` は両方を
+    /// 一様に「何も起きない」に潰していた ―― busy はそのまま静かに次のポーリングへ委ねるが、
+    /// それ以外は `scanErrorText` を立てて理由を見せる。
     private func startScan(_ action: IntegrityWindowLogic.ScanAction) {
         lastReport = nil
+        scanErrorText = nil
         Task { @MainActor in
-            let started = (try? await dataSource.startScan(mode: action.mode)) ?? false
-            if started {
-                // 次のポーリング tick を待たず、起動直後から running を即時反映する。
-                jobStatus = await dataSource.jobProgress()
+            do {
+                let started = try await dataSource.startScan(mode: action.mode)
+                if started {
+                    // 次のポーリング tick を待たず、起動直後から running を即時反映する。
+                    // ここでの取得失敗は無視してよい（`try?`）―― 400ms 後の `startObserving()`
+                    // のポーリングが同じ失敗を検出し `progressErrorText` を立てる。
+                    jobStatus = try? await dataSource.jobProgress()
+                }
+                // started == false（busy）のときは何もしない。次のポーリングで jobStatus が反映される。
+            } catch {
+                scanErrorText = IntegrityWindowLogic.remoteFailureMessage(
+                    for: error, context: "スキャンを開始できませんでした。")
             }
-            // started == false（busy）のときは何もしない。次のポーリングで jobStatus が反映される。
         }
     }
 

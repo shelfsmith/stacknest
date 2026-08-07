@@ -68,8 +68,11 @@ protocol IntegrityDataSource {
     func startScan(mode: FullScanMode) async throws -> Bool
     /// 実行中ジョブの中断。
     func cancel() async
-    /// 実行中でなければ nil。
-    func jobProgress() async -> IntegrityJobProgress?
+    /// 実行中でなければ nil。取得自体に失敗した場合（権限不足・オフライン等）は例外を投げる ――
+    /// Phase G29 Task 3 fix round 2: 取得失敗を「実行中でない」の顔をさせないため
+    /// （review Critical 1 の同族。`try?` で握り潰すと「進捗なし」＝安全な状態と誤読される）。
+    /// 呼び出し側（`IntegrityCheckView.startObserving()`）が明示的にエラー表示する。
+    func jobProgress() async throws -> IntegrityJobProgress?
     /// スキャンを開始できるか。リモートで admin 未満なら false。
     var canStartScan: Bool { get }
     /// `canStartScan` が false のときに表示する理由。true のときは nil。
@@ -180,7 +183,9 @@ final class LocalIntegrityDataSource: IntegrityDataSource {
         await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid)
     }
 
-    func jobProgress() async -> IntegrityJobProgress? {
+    /// ローカルの registry 読み取りは失敗しうる操作ではない（`throws` はプロトコル都合で付いている
+    /// だけで、実際に投げることはない）。
+    func jobProgress() async throws -> IntegrityJobProgress? {
         guard let uuid = libraryUUID else { return nil }
         guard let status = await LocalControlController.shared.maintenanceRegistry.status(library: uuid) else {
             return nil
@@ -289,10 +294,13 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     /// `running == false` は「今このライブラリで（このジョブ種別に限らず）何も走っていない」ので
     /// nil に写す。ローカルの `LocalControlController.shared.maintenanceRegistry.status(library:)`
     /// が実行中ジョブが無ければ nil を返すのと同じ意味に揃える。
-    func jobProgress() async -> IntegrityJobProgress? {
-        guard let reply = try? await client.fetchMaintenanceStatus(libraryUUID: libraryUUID, libraryToken: libraryToken) else {
-            return nil
-        }
+    ///
+    /// Phase G29 Task 3 fix round 2 (Minor, Critical 1 の同族): 取得自体の失敗（403/施錠・
+    /// ネットワーク断等）はここで `try?` に握り潰さず、そのまま投げる。`maintenance/status` は
+    /// admin 専用（`LibraryServerCore.swift` の `requireAdmin()`）なので、read/edit 接続は
+    /// 常にここで失敗する ―― それを「実行中でない」という nil に化けさせない。
+    func jobProgress() async throws -> IntegrityJobProgress? {
+        let reply = try await client.fetchMaintenanceStatus(libraryUUID: libraryUUID, libraryToken: libraryToken)
         return Self.mapProgress(reply)
     }
 
