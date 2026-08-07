@@ -341,7 +341,7 @@ struct LibrarySettingsSheet: View {
                 HStack {
                     Button("今すぐバックアップ") { performManualBackup() }
                         .disabled(appState?.database == nil || bundleURL == nil)
-                    Button("整合性をチェック") { performIntegrityCheck() }
+                    Button("データベースを検査") { performIntegrityCheck() }
                         .disabled(appState?.database == nil)
                     Button("バックアップフォルダを表示") { openBackupsFolder() }
                         .disabled(bundleURL == nil)

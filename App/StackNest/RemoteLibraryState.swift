@@ -1264,9 +1264,9 @@ final class RemoteLibraryState {
     func runIntegrityCheck() async -> IntegrityCheckDTO? {
         do { return try await client.checkIntegrity(libraryUUID: libraryUUID, libraryToken: libraryToken) }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "整合性チェックに失敗しました" } }()
+            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "データベースの検査に失敗しました" } }()
             return nil
-        } catch { errorText = "整合性チェックに失敗しました"; return nil }
+        } catch { errorText = "データベースの検査に失敗しました"; return nil }
     }
     @discardableResult
     func runBackupNow() async -> Bool {
