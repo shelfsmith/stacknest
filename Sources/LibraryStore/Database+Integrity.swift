@@ -63,6 +63,38 @@ extension Database {
         }
     }
 
+    /// G27b Codex 2nd review Fix1/2: `folder`/`video`/`text` のように full スキャンが実際には
+    /// 評価できないカテゴリ専用の、**原子的**な「既存行が無ければ書く」。
+    ///
+    /// 旧実装（folder のみ）は「`integrityRecord(bookID:)` で既存行の有無を読む」→
+    /// 「無ければ `upsertIntegrity` で書く」の 2 トランザクションに分かれており、その間に
+    /// G27a の quick スキャンエンドポイント（同期・`MaintenanceJobRegistry` を経由しないため
+    /// 1 ライブラリ 1 ジョブのガードの対象外）が同じ本に `damaged` を書き込める窓
+    /// （TOCTOU）があった ―― full スキャンの `unsupported` insert がそれを消してしまう。
+    /// ライブラリロックの compare-and-set 化（`compareAndSetLibrarySetting`）と同じ規律で、
+    /// 判定と書き込みを単一の `INSERT OR IGNORE` 文に閉じ込め、読んでから書くまでの窓を無くす。
+    ///
+    /// 戻り値: 実際に新規挿入したら true。既存行があり何もしなかったら false
+    /// （呼び出し側はこれを見て byStatus 等の集計に含めるかを判断する）。
+    public func insertIntegrityIfAbsent(_ record: IntegrityRecord) throws -> Bool {
+        guard let q = queue else { throw DatabaseError.libraryClosed }
+        let badJSON = (try? JSONEncoder().encode(record.badEntries))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        return try q.write { db in
+            try db.execute(sql: """
+                INSERT OR IGNORE INTO book_integrity
+                    (book_id, status, method, checked_at, file_size, file_mtime,
+                     entry_count, bad_entries, prev_status, prev_checked_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [record.bookID, record.status.rawValue, record.method.rawValue,
+                            record.checkedAt, record.fileSize, record.fileMtime,
+                            record.entryCount, badJSON, record.prevStatus?.rawValue,
+                            record.prevCheckedAt])
+            return db.changesCount == 1
+        }
+    }
+
     public func integrityRecord(bookID: Int) throws -> IntegrityRecord? {
         guard let q = queue else { return nil }
         return try q.read { (db) -> IntegrityRecord? in

@@ -95,4 +95,70 @@ struct MaintenanceRegistrySharedAcrossCoresTests {
         await gate.open()
         try await waitForMaintenanceJobToFinish(registry: registry, library: lib.uuid)
     }
+
+    /// G27b Codex 2nd review Fix3 の回帰テスト。
+    ///
+    /// **背景**: `SharedMaintenanceRegistry.shared` の `onProgress`/`onFinished` はかつて no-op
+    /// だった（「ローカル制御の `/events` は誰も購読していないから」という理屈）。しかし
+    /// `ServerController`（**ネットワーク**共有サーバ。`/events` は他機の `RemoteLibraryState` が
+    /// 実際に購読する）にも同じ no-op registry を注入するようになったことで、リモートクライアントは
+    /// `complete-metadata`/`compress-covers`/`full-scan` の進捗・完了 SSE と、完了時に流れる
+    /// `structureChanged`（`compress-covers` 後の表紙リフレッシュの引き金）を一切受け取れなく
+    /// なっていた ―― 動いていた機能をこのブランチが壊した回帰。
+    ///
+    /// ここでは `SharedMaintenanceRegistry` と同じ構図（registry の固定コールバックが
+    /// `MaintenanceEventFanout` へブロードキャストするだけ）をローカルに再現し、その registry と
+    /// fanout の両方を注入された `LibraryServerCore` が、実際に自分の `eventHub` へ
+    /// `maintenanceProgress`/`maintenanceFinished`/`structureChanged` を配信することを検証する。
+    /// 修正前（`maintenanceEventFanout` という注入経路自体が存在しない状態）では、この購読が
+    /// 一切イベントを受け取れず本テストは失敗する。
+    @Test func injectedSharedRegistryDeliversProgressAndFinishedToCoresEventHub() async throws {
+        let fx = try TestLibraryFixture(name: "SharedRegFanout", bookCount: 0)
+        defer { fx.cleanup() }
+        let lib = fx.servedLibrary()
+
+        // SharedMaintenanceRegistry.shared と同じ構図: registry のコールバックは fanout への
+        // ブロードキャストのみ。実際の配信は core が fanout に購読させるクロージャに委ねる。
+        let fanout = MaintenanceEventFanout()
+        let registry = MaintenanceJobRegistry(
+            onProgress: { l, j, d, t in fanout.broadcastProgress(l, j, d, t) },
+            onFinished: { l, j, o, c in fanout.broadcastFinished(l, j, o, c) }
+        )
+        let core = LibraryServerCore(
+            config: .init(port: 0, token: "R", editToken: "W", adminTier: true),
+            dataSource: StaticLibraryDataSource(libraries: [lib]),
+            maintenanceRegistry: registry,
+            maintenanceEventFanout: fanout)
+
+        let sub = await core.eventHub.subscribe(scope: .all)
+        var it = sub.stream.makeAsyncIterator()
+
+        // 1 発目の progress は「他に何も競合しない」状態で送るため、順序に依存せず検証できる。
+        let gate = AsyncGate()
+        let started = await registry.start(library: lib.uuid, job: "full-scan") { progress, _ in
+            progress(1, 2)
+            await gate.wait()
+            progress(2, 2)
+            return 2
+        }
+        #expect(started == true)
+        #expect(await it.next() == .maintenanceProgress(library: lib.uuid, job: "full-scan", done: 1, total: 2))
+
+        // 残り（2 発目の progress・finished・完了に伴う structureChanged）は、EventHub.publish
+        // 自身のドキュメント（複数 publish の配信順は入れ替わりうる）どおり順序を仮定せず、
+        // 3 件受け取って集合として検証する。
+        await gate.open()
+        try await waitForMaintenanceJobToFinish(registry: registry, library: lib.uuid)
+        var remaining: [LiveEvent] = []
+        for _ in 0..<3 { remaining.append(try #require(await it.next())) }
+
+        #expect(remaining.contains(.maintenanceProgress(library: lib.uuid, job: "full-scan", done: 2, total: 2)),
+                "2 発目の progress が core の eventHub に届いていない")
+        #expect(remaining.contains(.maintenanceFinished(library: lib.uuid, job: "full-scan", outcome: "done", count: 2)),
+                "完了通知が core の eventHub に届いていない")
+        #expect(remaining.contains(.structureChanged(library: lib.uuid)),
+                "完了に伴う structureChanged（表紙リフレッシュの引き金）が届いていない")
+
+        await core.eventHub.unsubscribe(sub.id)
+    }
 }

@@ -87,18 +87,32 @@ struct MaintenanceJobStatusTests {
     /// `Task.sleep` による祈りではなく、run1 の `progress` クロージャを外へ捕捉して**呼ばずに**
     /// run(run1) を return させる（→ finish(run1) が確実に先に完了する）→ run2 を start する→
     /// その後で**明示的に**捕捉した run1 の progress を呼んで「遅れて届いた run1 の通知」を
-    /// 再現する、という順序を onFinished/onProgress コールバック駆動の AsyncGate で強制する。
+    /// 再現する、という順序を onFinished コールバック駆動の AsyncGate で強制する。
+    ///
+    /// G27b Codex 事後レビュー（swift test ハング調査）で改版: run1 は run2 に **supersede**
+    /// された実行（`MaintenanceJobRegistry.activeRun[l]` が run2 のトークンで上書き済み）なので、
+    /// その遅延 progress は `emitProgress` の identity ガードで**丸ごと無視される**
+    /// （`onProgress` は一切呼ばれない ―― `MaintenanceJobRegistryTests.supersededRunsStaleProgressCallbackDoesNotFire`
+    /// と同じ契約）。旧版はここで「`onProgress` が呼ばれること」自体を待ち合わせ信号
+    /// （`lateProgressDelivered` gate）に使っていたが、この信号は正しい実装では**永遠に来ない**
+    /// ため `swift test` がハングしていた。正しい検証は「呼ばれないこと」なので、届くはずのない
+    /// コールバックを待つのではなく、進捗コールバックを recorder に記録して一定時間後に
+    /// 中身を確認する（`MaintenanceJobRegistryTests` の `ProgressRecorder` と同じ流儀）。
     @Test func staleProgressFromFinishedJobDoesNotOverwriteNewerJob() async throws {
+        final class ProgressRecorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private var calls: [(done: Int, total: Int)] = []
+            func record(_ done: Int, _ total: Int) { lock.withLock { calls.append((done, total)) } }
+            var snapshot: [(done: Int, total: Int)] { lock.withLock { calls } }
+        }
         let jobName = "full-scan"
         nonisolated(unsafe) var capturedProgressRun1: (@Sendable (Int, Int) -> Void)?
         let run1Finished = AsyncGate()
-        let lateProgressDelivered = AsyncGate()
+        let recorder = ProgressRecorder()
 
         let reg = MaintenanceJobRegistry(
             onProgress: { l, j, d, t in
-                if l == "L", j == jobName, d == 3, t == 3 {
-                    Task { await lateProgressDelivered.open() }
-                }
+                if l == "L", j == jobName { recorder.record(d, t) }
             },
             onFinished: { l, j, _, _ in
                 if l == "L", j == jobName {
@@ -138,11 +152,14 @@ struct MaintenanceJobStatusTests {
         #expect(statusAfterRun2Progress?.total == 5)
 
         // ここで「保留していた run1 の遅延 progress」を明示的に解放する（finish(run1) 後・
-        // run2 実行中）。実行トークンでガードしていなければ、ジョブ名が両方とも "full-scan" で
-        // 一致するため、この呼び出しが statuses["L"] を done:3, total:3（run1 の値）へ
-        // 取り違えて上書きしてしまう。
+        // run2 実行中・run2 のトークンが activeRun["L"] を上書き済み）。run1 は真に superseded
+        // なので、この呼び出しは onProgress を一切発火せず（recorder に (3,3) は記録されない）、
+        // statuses["L"] も書き換えない。
         progressRun1(3, 3)
-        await lateProgressDelivered.wait()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(!recorder.snapshot.contains { $0.done == 3 && $0.total == 3 },
+                "superseded な run1 の遅延 progress が onProgress を発火してしまっている: \(recorder.snapshot)")
 
         let statusAfterLateProgress = await reg.status(library: "L")
         #expect(statusAfterLateProgress?.job == jobName)

@@ -234,6 +234,11 @@ public struct LibraryServerCore: Sendable {
     /// SSE への配線は construction 時に同期的に行う（Codex review Important #1・詳細は
     /// MaintenanceJobRegistry.init のコメント参照）。
     public let maintenanceRegistry: MaintenanceJobRegistry
+    /// G27b Codex 2nd review Fix3: 注入された registry（複数 core で共有されうる）と対になる
+    /// fanout への購読ハンドル。self を解放するだけで自動的に購読解除される
+    /// （`MaintenanceEventFanout.Subscription` のドキュメント参照）。自前で registry を
+    /// 構築するケース（fanout 未注入）では常に nil。
+    private let maintenanceEventSubscription: MaintenanceEventFanout.Subscription?
     /// G16 A3 セキュリティ修正: trash-undo のファイル移動元/移動先をサーバー側でのみ記録する
     /// （クライアント供給パスを信用しない。詳細は TrashRestoreTracker のドキュメントコメント）。
     let trashTracker = TrashRestoreTracker()
@@ -244,22 +249,25 @@ public struct LibraryServerCore: Sendable {
     /// （詳細は PerBookSerializer のドキュメントコメント）。
     let patchSerializer = PerBookSerializer()
 
-    /// G27b 最終レビュー Fix2: `maintenanceRegistry` を外部から注入できるようにする。
+    /// G27b 最終レビュー Fix2 → Codex 2nd review Fix3: `maintenanceRegistry` を外部から
+    /// 注入できるようにする。
     ///
-    /// 既定（nil）は従来どおり construction 時に自前で 1 個作る（テスト・`ServerController` は
-    /// これでよい）。`LocalControlController` だけは、アプリプロセス生存中ずっと生き続ける
-    /// 自前の registry インスタンスを毎回同じものを渡す ―― これが CLI/MCP の HTTP ルート
-    /// （`POST .../integrity/full-scan` 等）と GUI の整合性チェックウィンドウを**同じ
-    /// registry**に揃える唯一の接続点になる（詳細は `LocalControlController.maintenanceRegistry`
-    /// のコメント参照）。注入された registry の `onProgress`/`onFinished` はその registry が
-    /// construction された時点の eventHub に固定されたまま変わらない（このコア自身の
-    /// eventHub には配線し直さない）。ローカル制御の SSE `/events` はこのアプリ内では
-    /// どこからも購読されていない（`/events` を使うのは `RemoteLibraryState` = リモート共有
-    /// クライアントのみ）ため実害はない。CLI/MCP は `GET maintenance/status` のポーリングで
-    /// 進捗を確認する設計（31 時間規模の走査で SSE を張り続けない）なので、この経路は
-    /// もともと SSE に依存していない。
+    /// 既定（nil）は従来どおり construction 時に自前で 1 個作り、このコア自身の `eventHub` へ
+    /// 直接配線する（テストや単独起動ではこれでよい）。`maintenanceRegistry` を注入する場合は
+    /// `maintenanceEventFanout` も併せて渡すこと ―― registry 自身のコールバックは
+    /// construction 時点で固定されており（`SharedMaintenanceRegistry` 参照）、複数の
+    /// `LibraryServerCore`（それぞれ別の `eventHub` を持つ）が同じ registry を共有する構成
+    /// （`ServerController`＝ネットワーク共有と `LocalControlController`＝CLI/MCP・GUI が
+    /// 同じ `SharedMaintenanceRegistry.shared` を注入する）では、registry のコールバックだけでは
+    /// 「どの core の eventHub に配るか」を表現できない。`maintenanceEventFanout` を渡すと、
+    /// このコアは自分の `eventHub` へ publish するクロージャを fanout に購読させる
+    /// （`MaintenanceEventFanout` のドキュメント参照）。`maintenanceRegistry` はあるのに
+    /// `maintenanceEventFanout` が無い場合は購読しない ―― 呼び出し側が SSE 配信を意図的に
+    /// 望まないケース（例: fanout を持たない ad-hoc な registry を使うテスト）に対応するため、
+    /// 既定を「配線しない」側に倒す。
     public init(config: LibraryServerConfig, dataSource: any LibraryServerDataSource,
-                maintenanceRegistry: MaintenanceJobRegistry? = nil) {
+                maintenanceRegistry: MaintenanceJobRegistry? = nil,
+                maintenanceEventFanout: MaintenanceEventFanout? = nil) {
         self.config = config
         self.dataSource = dataSource
         // G23 (#15): 施錠庫の bookChanged は bookID を落として配信する（蔵書数の概算が漏れるため）。
@@ -268,6 +276,25 @@ public struct LibraryServerCore: Sendable {
         })
         if let maintenanceRegistry {
             self.maintenanceRegistry = maintenanceRegistry
+            if let maintenanceEventFanout {
+                // クロージャは `eventHub`（class/actor 参照）だけを捕捉する。`self` を捕捉すると
+                // fanout が static シングルトンとして永続する限り struct 全体（この
+                // Subscription プロパティを含む）を生かし続けてしまい、Subscription.deinit
+                // による unsubscribe が永久に起きない循環になる（型のドキュメント参照）。
+                let hub = self.eventHub
+                self.maintenanceEventSubscription = maintenanceEventFanout.subscribe(
+                    onProgress: { [hub] lib, job, done, total in
+                        Task { await hub.publish(.maintenanceProgress(library: lib, job: job, done: done, total: total)) }
+                    },
+                    onFinished: { [hub] lib, job, outcome, count in
+                        Task { await hub.publish(.maintenanceFinished(library: lib, job: job, outcome: outcome, count: count)) }
+                        // 完了で一覧/表紙を 1 回更新（compress-covers は表紙が変わる）。
+                        Task { await hub.publish(.structureChanged(library: lib)) }
+                    }
+                )
+            } else {
+                self.maintenanceEventSubscription = nil
+            }
         } else {
             let eventHub = self.eventHub
             self.maintenanceRegistry = MaintenanceJobRegistry(
@@ -280,6 +307,7 @@ public struct LibraryServerCore: Sendable {
                     Task { await eventHub.publish(.structureChanged(library: lib)) }
                 }
             )
+            self.maintenanceEventSubscription = nil
         }
     }
 
