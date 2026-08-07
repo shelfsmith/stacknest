@@ -18,6 +18,14 @@ struct LibarchiveVersionTests {
     /// そのため `Scripts/fetch-libarchive-headers.sh` は判定を確定させた時点で本ファイルを
     /// touch する。クリーンビルドの結果は常に正しいが、**インクリメンタルビルドでは
     /// 本テストは最後にコンパイルされた時点の判定**である点に注意すること。
+    ///
+    /// **本テストの挙動を手で確かめるときの落とし穴**: `ARCHIVE_VERSION_NUMBER` は
+    /// `archive.h` だけでなく **`archive_entry.h` でも定義されている**（libarchive 3.7.4 では
+    /// 前者 37 行目・後者 31 行目）。`Carchive.h` は archive.h → archive_entry.h の順に
+    /// include するので、**後から読まれる `archive_entry.h` の値が勝つ**。
+    /// `archive.h` だけ書き換えても実効値は変わらない ―― 2026-08-07 に controller と
+    /// レビュアーが揃ってこれに引っかかり、「テストが古い値を返す」という誤った結論を出した。
+    /// 検証時は必ず両方を書き換え、`clang -E -dM ... -include Carchive.h` で実効値を確認すること。
     @Test("ヘッダと実行時ライブラリの版が一致する")
     func headerMatchesRuntime() {
         let header = ARCHIVE_VERSION_NUMBER
