@@ -2,7 +2,9 @@
 import AppCore
 import AppKit
 import Foundation
+import LibraryServerAPI
 import LibraryStore
+import RemoteClient
 import SwiftUI
 
 // Phase G27b Task 6: 整合性チェックウィンドウ。
@@ -102,38 +104,46 @@ enum IntegrityWindowLogic {
 // MARK: - IntegrityCheckRef / WindowGroup container
 
 /// 整合性チェックウィンドウを開くための値型（`WindowGroup(for:)` のキー）。
-/// ローカル庫専用のためサーバ/トークンは持たず、庫を一意に識別する `bundleURL` だけを持つ
-/// （`RemoteLibraryRef` が `serverID`/`libraryUUID` を持つのと同じ役割）。
-struct IntegrityCheckRef: Codable, Hashable {
-    let bundleURL: URL
+/// ローカル庫は `bundleURL` で、リモート庫は `RemoteLibraryRef` と同じ `(serverID, libraryUUID)` で
+/// 一意に識別する。
+///
+/// Phase G29 Task 3: 単なる `struct { bundleURL: URL }` から enum 化した。ローカル/リモートで
+/// 「庫を一意に識別する値」の形そのものが異なるため（リモートにはバンドルファイルが無い）。
+enum IntegrityCheckRef: Codable, Hashable {
+    case local(bundleURL: URL)
+    case remote(serverID: UUID, libraryUUID: String)
 }
 
-/// `IntegrityCheckRef` を解決し、対応する庫が（このプロセス内で）開いていれば
-/// `IntegrityCheckView` を表示するコンテナ。`RemoteLibraryWindowContainer` と同じ
-/// 「参照値から state を解決するコンテナ」パターンを踏襲する。
+/// `IntegrityCheckRef` を解決し、対応する庫のデータ源が用意できたら `IntegrityCheckView` を
+/// 表示するコンテナ。`RemoteLibraryWindowContainer` と同じ「参照値から state を解決するコンテナ」
+/// パターンを踏襲する。
 ///
-/// GUI はローカル DB を直接読む（brief: `IntegrityItemDTO` は `path` を持たないため、
-/// Finder 表示に必要な実パスは HTTP DTO からは得られない）。そのためリモートクライアント経由の
-/// 解決ではなく、同一プロセス内で既に開いている `AppState`（`AppState.activeInstances`）から
-/// `bundleURL` が一致するものを探す。メニュー項目自体がローカル庫のフォーカス時にしか有効化
-/// されないため（`FileCommands` の `canManageLocalFiles` ゲート）、通常はここで必ず見つかる。
+/// - `.local`: 同一プロセス内で既に開いている `AppState`（`AppState.activeInstances`）から
+///   `bundleURL` が一致するものを探す（Task 1 から変更なし）。ローカル DB を直接読むため、
+///   Finder 表示に必要な実パスもここでのみ手に入る。
+/// - `.remote`: `RemoteLibraryWindowContainer.resolve()` と**同じ解決パターン**
+///   （`ServerConnectionStore` から接続情報を引き、新しい `RemoteLibraryClient` を作る）を使う。
+///   新しい解決の仕組みは作らない。tier は `/me` で解決し、解決できなければ fail-closed で
+///   `.read`（＝スキャン開始不可・閲覧のみ）に倒す。
 struct IntegrityWindowContainer: View {
     let ref: IntegrityCheckRef
-    @State private var appState: AppState?
+    @State private var localAppState: AppState?
+    @State private var localDatabase: Database?
+    @State private var localBundleURL: URL?
     @State private var notFound = false
-    /// Phase G29 Task 1 review fixup: `LocalIntegrityDataSource` を `body` の中で毎回
-    /// 新規生成すると、`body` が再評価されるたびにインスタンスの identity が変わり、
-    /// スキャン中に再評価が起きた場合 `pendingReportBox`（自分が開始したジョブの詳細）が
-    /// 新インスタンスには無いため完了キャプションが黙って消える。`resolve()` で 1 回だけ
-    /// 生成し `@State` に保持することで、ウィンドウの寿命と identity を一致させる
-    /// （`resolve()` 自体も `appState == nil` の間しか実行しない一回性のガードを持つ）。
-    @State private var dataSource: LocalIntegrityDataSource?
+    /// Phase G29 Task 1 review fixup: データ源を `body` の中で毎回新規生成すると、`body` が
+    /// 再評価されるたびにインスタンスの identity が変わり、ローカルではスキャン中の再評価で
+    /// `pendingReportBox`（自分が開始したジョブの詳細）が新インスタンスには無いため完了
+    /// キャプションが黙って消える。`resolve()` で 1 回だけ生成し `@State` に保持することで、
+    /// ウィンドウの寿命と identity を一致させる（`resolve()` 自体も `dataSource == nil` の間しか
+    /// 実行しない一回性のガードを持つ）。
+    @State private var dataSource: IntegrityDataSource?
 
     var body: some View {
         Group {
-            if let appState, let database = appState.database, let dataSource {
+            if let dataSource {
                 IntegrityCheckView(
-                    bundleURL: ref.bundleURL, database: database, appState: appState,
+                    bundleURL: localBundleURL, database: localDatabase, appState: localAppState,
                     dataSource: dataSource)
             } else if notFound {
                 missingView
@@ -142,7 +152,9 @@ struct IntegrityWindowContainer: View {
                     .frame(minWidth: 400, minHeight: 300)
             }
         }
-        .onAppear { resolve() }
+        // ローカルは同期解決だが、リモートは `/me` の HTTP 呼び出しを伴うため `resolve()` 全体を
+        // async にしてある（`RemoteLibraryWindowContainer` と同じ `.task { await resolve() }`）。
+        .task { await resolve() }
     }
 
     private var missingView: some View {
@@ -150,26 +162,63 @@ struct IntegrityWindowContainer: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 48))
                 .foregroundStyle(.secondary)
-            Text("ライブラリが開かれていません")
+            Text(missingText)
                 .font(.headline)
         }
         .padding()
         .frame(minWidth: 400, minHeight: 300)
     }
 
-    private func resolve() {
-        guard appState == nil, notFound == false else { return }
-        if let match = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == ref.bundleURL.path }) {
-            appState = match
+    private var missingText: String {
+        switch ref {
+        case .local: return "ライブラリが開かれていません"
+        case .remote: return "サーバが見つかりません。再接続してください"
+        }
+    }
+
+    private func resolve() async {
+        guard dataSource == nil, notFound == false else { return }
+        switch ref {
+        case .local(let bundleURL):
+            resolveLocal(bundleURL: bundleURL)
+        case .remote(let serverID, let libraryUUID):
+            await resolveRemote(serverID: serverID, libraryUUID: libraryUUID)
+        }
+    }
+
+    private func resolveLocal(bundleURL: URL) {
+        if let match = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == bundleURL.path }) {
+            localAppState = match
+            localBundleURL = bundleURL
             // `AppState.finishOpening()` は `database`/`librarySettings` を同期的に設定してから
             // `activeInstances` へ登録する（`AppState.swift` 参照）ため、`activeInstances` から
             // 見つかった時点で `match.database` は必ず non-nil。
             if let database = match.database {
-                dataSource = LocalIntegrityDataSource(database: database, bundleURL: ref.bundleURL, appState: match)
+                localDatabase = database
+                dataSource = LocalIntegrityDataSource(database: database, bundleURL: bundleURL, appState: match)
             }
         } else {
             notFound = true
         }
+    }
+
+    @MainActor
+    private func resolveRemote(serverID: UUID, libraryUUID: String) async {
+        // `RemoteLibraryWindowContainer.resolve()` と同じ解決パターン: `ServerConnectionStore` から
+        // 接続情報（baseURL・デバイストークン）を引き、新しい `RemoteLibraryClient` を作る。
+        // 既に開いている庫ブラウズウィンドウの `RemoteLibraryState` を探しに行く仕組みは
+        // 別パターンになってしまうため使わない（「新しい解決の仕組みを作らない」の遵守）。
+        guard let conn = ServerConnectionStore().connection(id: serverID),
+              let base = URL(string: conn.baseURL) else {
+            notFound = true
+            return
+        }
+        let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
+        // `/me` はデバイストークンの tier（grant 由来）を返す。ライブラリの施錠状態とは無関係
+        // （施錠は `libraryToken` 側の話）なので、`libraryToken: nil` のままで解決できる。
+        // 失敗時は fail-closed で `.read`（閲覧のみ・スキャン開始不可）に倒す。
+        let tier = (try? await client.me(libraryToken: nil))?.tier ?? .read
+        dataSource = RemoteIntegrityDataSource(client: client, libraryUUID: libraryUUID, libraryToken: nil, tier: tier)
     }
 }
 
@@ -178,8 +227,12 @@ struct IntegrityWindowContainer: View {
 /// 整合性チェックウィンドウの本体。開いた時点では**スキャンを走らせず**、保存済みの結果
 /// （`Database.integritySummary()` / `integrityRecords(status:)`）を即表示する。
 struct IntegrityCheckView: View {
-    let bundleURL: URL
-    let database: Database
+    /// Phase G29 Task 3: ローカル庫のみ non-nil（リモートにはバンドルファイルが無い）。
+    let bundleURL: URL?
+    /// Phase G29 Task 3: ローカル庫のみ non-nil。relink/delete は「ローカルにしか受け側が無い」
+    /// 操作（`BrowserCommandTarget.canManageLocalFiles` と同じ理由）なので、リモートでは
+    /// `database == nil` を見て行メニューごと無効化する。
+    let database: Database?
     var appState: AppState?
     /// Phase G29 Task 1: 破損チェックウィンドウのデータ源。ローカル庫は `LocalIntegrityDataSource`
     /// （DB と registry を直接触る、挙動不変の移設）。relink/delete/Finder 表示は引き続き
@@ -320,8 +373,13 @@ struct IntegrityCheckView: View {
                 // （brief: 「Finder で表示」ボタンは path == nil で出し分ける）。
                 Button("Finder で表示") { revealInFinder(row) }
                     .disabled(row.path == nil)
+                // Phase G29 Task 3: リモートには relink/delete の受け側が無い
+                // （`BrowserCommandTarget.canManageLocalFiles` と同じ理由）ので、`database == nil`
+                // （＝リモート庫）のとき無効化する。
                 Button("再リンク…") { relink(row) }
+                    .disabled(database == nil)
                 Button("ライブラリから削除", role: .destructive) { delete(row) }
+                    .disabled(database == nil)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
@@ -423,6 +481,9 @@ struct IntegrityCheckView: View {
     }
 
     private func relink(_ row: IntegrityRow) {
+        // Phase G29 Task 3: リモートでは `database` が nil（行メニュー側で既に無効化済み。
+        // ここは到達しない経路への保険）。
+        guard let database else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -448,6 +509,9 @@ struct IntegrityCheckView: View {
     }
 
     private func delete(_ row: IntegrityRow) {
+        // Phase G29 Task 3: リモートでは `database`/`bundleURL` が nil（行メニュー側で既に
+        // 無効化済み。ここは到達しない経路への保険）。
+        guard let database, let bundleURL else { return }
         BookDeleteCommand.deleteFromLibrary(
             bookIDs: [Int(row.id)],
             database: database,
