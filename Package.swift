@@ -119,7 +119,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ArchiveAdapterTests",
-            dependencies: ["ArchiveAdapter"],
+            dependencies: ["ArchiveAdapter", "Carchive"],
             path: "Tests/ArchiveAdapterTests",
             resources: [.copy("../Fixtures")]
         ),
