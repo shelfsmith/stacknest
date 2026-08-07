@@ -38,13 +38,22 @@ HEADERS=(archive.h archive_entry.h)
 # vendor/ を差し替えても SwiftPM はテストターゲットを再コンパイルしないため
 # （`__has_include` の解決先が変わったことを依存グラフが追えない）、
 # 古い ARCHIVE_VERSION_NUMBER が焼き付いたまま前回の判定を返し続ける。
-# 判定を最新にするため、スクリプトが「vendor/ は正しい」と結論づけた時点で両方を touch する。
+# 判定を最新にするため、スクリプトが「vendor/ は正しい」と結論づけた時点で touch する。
+#
+# G30: 版の実値を計算する場所が Sources/ArchiveAdapter/LibarchiveVersion.swift に移った
+# （旧: テストソースが直接 ARCHIVE_VERSION_NUMBER を読んでいた）。テストソースだけ touch
+# しても、値を計算している側の Swift ソースが再コンパイルされなければ判定は更新されない
+# （2026-08-08 に実測: vendor/ 退避→復元→本スクリプト実行 後も、LibarchiveVersion.swift を
+# 別途 touch しない限り swift test は失敗し続けた）。そのため本スクリプトは
+# LibarchiveVersion.swift も touch 対象に含める。
 VERSION_TEST_SRC="$REPO_ROOT/Tests/ArchiveAdapterTests/LibarchiveVersionTests.swift"
+LIBARCHIVE_VERSION_SRC="$REPO_ROOT/Sources/ArchiveAdapter/LibarchiveVersion.swift"
 CARCHIVE_HEADER="$CARCHIVE_DIR/Carchive.h"
 
 # テストの再コンパイルを促す。テスト未作成の環境でも失敗させない。
 #
-# **両方を touch する必要がある**（2026-08-07 のブランチ全体レビューが実測）:
+# **Swift ソース（値の計算元・テスト双方）と Carchive.h の両方を touch する必要がある**
+# （2026-08-07 のブランチ全体レビューが実測）:
 #  - Swift ソースだけ touch → Swift は再コンパイルされるが、Carchive の Clang PCM は
 #    無効化されない。**vendor/ が新しく「現れる」場合**（＝新規クローンの bootstrap 経路。
 #    .build が vendor/ 無しで作られている）、PCM が Homebrew のヘッダのまま残り、
@@ -55,6 +64,7 @@ CARCHIVE_HEADER="$CARCHIVE_DIR/Carchive.h"
 # 足りてしまい、この欠落は見えない。ディレクトリが出現する経路でのみ露見する。
 touch_version_test() {
     [[ -f "$VERSION_TEST_SRC" ]] && touch "$VERSION_TEST_SRC"
+    [[ -f "$LIBARCHIVE_VERSION_SRC" ]] && touch "$LIBARCHIVE_VERSION_SRC"
     [[ -f "$CARCHIVE_HEADER" ]] && touch "$CARCHIVE_HEADER"
     return 0
 }
