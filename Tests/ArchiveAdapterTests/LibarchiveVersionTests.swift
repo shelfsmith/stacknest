@@ -7,8 +7,8 @@ struct LibarchiveVersionTests {
     /// コンパイルに使ったヘッダと、実際にリンクされる Apple のライブラリの版が一致すること。
     ///
     /// G30: 値は `ArchiveAdapter.LibarchiveVersion` から取る（`Carchive` を直接 import しない）。
-    /// これにより **App ターゲットのテストからも同じ判定ができる**（`Carchive` は product では
-    /// ないため App からは import できない）。
+    /// **App ターゲットのテストも同じ値を見る**ので、判定は 1 つのコンパイル単位に集約される
+    /// （理由は `LibarchiveVersion.swift` の doc コメント参照）。
     ///
     /// **限界（2026-08-07 実測、G30 で機構を更新）**: `ARCHIVE_VERSION_NUMBER` はコンパイル時に
     /// 焼き付くが、SwiftPM は `vendor/` の有無が変わっても関連ターゲットを再コンパイルしない
