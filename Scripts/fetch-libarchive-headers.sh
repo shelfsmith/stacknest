@@ -66,9 +66,23 @@ CARCHIVE_HEADER="$CARCHIVE_DIR/Carchive.h"
 #  - Carchive.h だけ touch → Swift ソースが再コンパイルされないので判定が更新されない。
 # ヘッダ内容を「その場で書き換えた」場合は PCM が自力で無効化されるため Swift ソースだけで
 # 足りてしまい、この欠落は見えない。ディレクトリが出現する経路でのみ露見する。
+# 対象が見つからないときは**黙って成功しない**。
+# `[[ -f ]] && touch` だけだと、ファイルが改名・移動されたときに no-op で正常終了し、
+# 「既に一致しています」と表示しつつテストは赤のまま＝上に書いた「打つ手が無い」状態を
+# スクリプト自身が作る（G30 Task 1 の refactor で実際に発生し、手作業の実験でしか気付けなかった）。
 touch_version_test() {
-    [[ -f "$LIBARCHIVE_VERSION_SRC" ]] && touch "$LIBARCHIVE_VERSION_SRC"
-    [[ -f "$CARCHIVE_HEADER" ]] && touch "$CARCHIVE_HEADER"
+    local missing=()
+    local f
+    for f in "$LIBARCHIVE_VERSION_SRC" "$CARCHIVE_HEADER"; do
+        if [[ -f "$f" ]]; then
+            touch "$f"
+        else
+            missing+=("$f")
+        fi
+    done
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        fail "版一致テストの判定を更新できません。次のファイルが見つかりませんでした: ${missing[*]} 。移動・改名した場合は Scripts/fetch-libarchive-headers.sh の touch_version_test を追随させてください（ヘッダ自体の配置は完了しています）。"
+    fi
     return 0
 }
 
