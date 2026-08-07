@@ -256,21 +256,27 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     private let client: RemoteLibraryClient
     private let libraryUUID: String
     private weak var liveState: RemoteLibraryState?
+    /// fix round 5 (Critical, whole-branch review — 弱参照が死んだ後の再発): live-state 経路で
+    /// 構築されたかどうか。true のときは「`liveState` が生きている間だけ tier を確認できている」
+    /// という判定にする ―― 弱参照がブラウズ窓のクローズで nil になった後も
+    /// `fallbackTier`（`.read`）を「確認済みの事実」として騙らないため。
+    private let constructedFromLiveState: Bool
     private let fallbackLibraryToken: String?
     private let fallbackTier: AccessTier
-    /// review Minor 4: `ServerConnectionStore` フォールバック経路で `/me` 自体が失敗した
-    /// （オフライン等）場合に true。「権限が足りない」と「権限を確認できない」は原因が違うため、
-    /// `scanUnavailableReason` の文言を分けるためだけに使う。
-    private let tierResolutionFailed: Bool
+    /// `ServerConnectionStore` フォールバック経路で `/me` 自体が失敗した（オフライン等）場合に true。
+    /// live-state 経路では常に false で init するが、`tierResolutionFailed`（computed）側で
+    /// `liveState == nil` を見て上書きする。
+    private let explicitTierResolutionFailed: Bool
 
     /// 優先経路: 生きている `RemoteLibraryState` を弱参照する（fix round 4, Critical 1）。
     init(client: RemoteLibraryClient, libraryUUID: String, liveState: RemoteLibraryState) {
         self.client = client
         self.libraryUUID = libraryUUID
         self.liveState = liveState
+        self.constructedFromLiveState = true
         self.fallbackLibraryToken = nil
         self.fallbackTier = .read
-        self.tierResolutionFailed = false
+        self.explicitTierResolutionFailed = false
     }
 
     /// フォールバック経路: `RemoteLibraryState` が見つからないときの固定値。
@@ -279,9 +285,10 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
         self.client = client
         self.libraryUUID = libraryUUID
         self.liveState = nil
+        self.constructedFromLiveState = false
         self.fallbackLibraryToken = libraryToken
         self.fallbackTier = tier
-        self.tierResolutionFailed = tierResolutionFailed
+        self.explicitTierResolutionFailed = tierResolutionFailed
     }
 
     /// `liveState` があれば常にそちらを優先（解錠直後・`/me` 完了直後の値を即座に反映するため、
@@ -289,16 +296,36 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     private var libraryToken: String? { liveState?.libraryToken ?? fallbackLibraryToken }
     private var tier: AccessTier { liveState?.tier ?? fallbackTier }
 
+    /// live-state 経由で構築され、かつその弱参照が死んでいるか（＝ tier をもう確認できないか）。
+    ///
+    /// fix round 5 (Critical, whole-branch review 再指摘): live-state 経路で構築されたインスタンスは、
+    /// 弱参照が生きている間しか確認できていない。ブラウズ窓が閉じて `liveState` が nil になった
+    /// 瞬間、`tier` は `fallbackTier`（`.read`）にフォールバックするが、**これは確認した事実ではない**
+    /// ―― 実際は admin かもしれない接続を「管理者権限がない」と断言してはいけない
+    /// （このバグの前身である Critical 1 とまったく同じ形。今度は弱参照が死んだ後に再発した）。
+    /// フォールバック経路（`ServerConnectionStore`／`explicitTierResolutionFailed`）は元から
+    /// `/me` の成否で判定しており、こちらとは原因が違うので文言も分ける（下記 `scanUnavailableReason`）。
+    private var liveStateDied: Bool { constructedFromLiveState && liveState == nil }
+
     var supportsLastScanAt: Bool { false }
     /// HTTP 往復のため、ジョブが無いときは大きく間隔を空ける（whole-branch review Important 3）。
     var idlePollIntervalNanoseconds: UInt64 { 3_000_000_000 }
 
     /// full-scan は admin 必須（サーバ側 `requireAdmin`）。summary/list は read で通る。
     /// 数十時間かかりうるジョブを閲覧権限で起動させないための意図的な段階的縮退（spec §3.4）。
-    var canStartScan: Bool { tier >= .admin }
+    /// `liveStateDied` の間は `fallbackTier`（`.read`）が確認済みの値ではないため開始不可にする
+    /// （fail-closed。fix round 5）。`tier >= .admin` は `liveStateDied` のとき常に `.read` なので
+    /// 実質すでに false だが、「確認できていないから止める」という理由を明示的に書いておく。
+    var canStartScan: Bool { !liveStateDied && tier >= .admin }
     var scanUnavailableReason: String? {
         guard !canStartScan else { return nil }
-        if tierResolutionFailed {
+        if liveStateDied {
+            // fix round 5: サーバへ接続できないわけではない（ブラウズ窓の参照を失っただけ）ので、
+            // フォールバック経路の「サーバに接続できないため」という文言は使わない。「更新」で
+            // 再解決すれば直る（`IntegrityWindowContainer.resolveRemoteDataSource` 参照）。
+            return "権限を確認できません。「更新」を押してください。"
+        }
+        if explicitTierResolutionFailed {
             return "サーバに接続できないため、権限を確認できません。"
         }
         return "この接続には管理者権限がないため、スキャンを開始できません。"

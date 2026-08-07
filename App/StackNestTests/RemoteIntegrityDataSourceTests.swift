@@ -210,8 +210,15 @@ struct RemoteIntegrityDataSourceTests {
         #expect(state.libraryToken == "unlocked-token")
     }
 
-    @Test("live-state が破棄されると fail-closed で read tier に戻る（弱参照・ダングリングでもクラッシュしない）")
-    func liveStateDeallocationFallsBackToReadTier() {
+    /// fix round 5 (Critical, whole-branch review 再指摘): 弱参照が死んだ後、`fallbackTier`
+    /// （`.read`）を「確認できた事実」として騙ってはいけない。以前のこのテストは
+    /// `canStartScan == false` だけを確認して「read tier に戻る」と title に書いており、
+    /// **その false な文言をテストが固定してしまっていた**（レビュー指摘）。
+    /// 正しい主張は「確認できなくなった」であって「read だと確認した」ではない ―― admin だった
+    /// 接続が弱参照切れの瞬間に「管理者権限がありません」と断言されるのは、このバグの前身である
+    /// Critical 1 と同じ形の欠陥。
+    @Test("live-state が破棄されると『確認できない』扱いになる（.read を確定事実として騙らない）")
+    func liveStateDeallocationBecomesUnconfirmedNotConfirmedRead() {
         var state: RemoteLibraryState? = makeLiveState()
         state!.tier = .admin
         let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
@@ -219,7 +226,9 @@ struct RemoteIntegrityDataSourceTests {
 
         state = nil   // 弱参照が外れる（例: ブラウズ窓を閉じた）。
         #expect(source.canStartScan == false)
-        #expect(source.scanUnavailableReason != nil)
+        // 「管理者権限がないため」（＝確認済みの事実）ではなく、「確認できない」でなければならない。
+        #expect(source.scanUnavailableReason?.contains("管理者権限がないため") == false)
+        #expect(source.scanUnavailableReason?.contains("確認できません") == true)
     }
 
     // MARK: - supportsLastScanAt / idlePollIntervalNanoseconds（fix round 4, Important 1 / 3）
