@@ -34,6 +34,20 @@ BACKUP_DIR="$CARCHIVE_DIR/vendor.old.$$"
 
 HEADERS=(archive.h archive_entry.h)
 
+# 版一致テストのソース。vendor/ を差し替えても SwiftPM はこのテストターゲットを
+# 再コンパイルしないため（`__has_include` の解決先が変わったことを依存グラフが追えない）、
+# 古い ARCHIVE_VERSION_NUMBER が焼き付いたまま前回の判定を返し続ける。
+# 2026-08-07 に実測: vendor/ を戻しても ModuleCache を消しても失敗のまま、
+# このファイルを touch して初めて PASS になった。
+# 判定を最新にするため、スクリプトが「vendor/ は正しい」と結論づけた時点で必ず touch する。
+VERSION_TEST_SRC="$REPO_ROOT/Tests/ArchiveAdapterTests/LibarchiveVersionTests.swift"
+
+# テストの再コンパイルを促す。テスト未作成の環境でも失敗させない。
+touch_version_test() {
+    [[ -f "$VERSION_TEST_SRC" ]] && touch "$VERSION_TEST_SRC"
+    return 0
+}
+
 # レビュー指摘（Critical）への対応: CARCHIVE_DIR への書き込みが恒常的に失敗する状況
 # （パーミッション喪失・ディスクフル等）では、配置の mv だけでなくロールバックの mv も
 # 同じ理由で失敗しうる。その場合に cleanup が STAGING_DIR/BACKUP_DIR を消してしまうと、
@@ -107,6 +121,9 @@ RUNTIME_TAG="v${RUNTIME_MAJOR}.${RUNTIME_MINOR}.${RUNTIME_PATCH}"
 if [[ -f "$VENDOR_DIR/archive.h" ]]; then
     EXISTING_VERSION="$(version_number_from_header "$VENDOR_DIR/archive.h" || true)"
     if [[ "$EXISTING_VERSION" == "$RUNTIME_VERSION" ]]; then
+        # ヘッダは変えないが、テストが古い判定のまま失敗している可能性があるので touch する。
+        # （これが無いと「テストが失敗 → スクリプト実行 → 『既に一致』 → まだ失敗」で行き詰まる）
+        touch_version_test
         echo "vendor/ のヘッダは既に実行時ライブラリ（${RUNTIME_TAG} / ${RUNTIME_VERSION}）と一致しています。何もしません。"
         exit 0
     fi
@@ -161,6 +178,7 @@ fi
 if mv "$STAGING_DIR" "$VENDOR_DIR"; then
     # 新配置に成功。退避した旧 vendor はもう不要。
     rm -rf "$BACKUP_DIR"
+    touch_version_test
     echo "libarchive ${RUNTIME_TAG}（${RUNTIME_VERSION}）のヘッダを vendor/ に取得しました。"
     exit 0
 fi

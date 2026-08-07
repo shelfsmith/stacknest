@@ -129,6 +129,22 @@ docs/                 -- Architecture, design notes, smoke checklists
 
 ## Build
 
+### First-time setup: fetch the libarchive headers
+
+```bash
+./Scripts/fetch-libarchive-headers.sh
+```
+
+The macOS SDK ships the libarchive **library** but **not `archive.h`**, so compilation needs
+headers from elsewhere. This script fetches headers of the **same version** as the Apple
+libarchive that is actually linked at runtime and places them in
+`Sources/ArchiveAdapter/Carchive/vendor/` (gitignored — not part of the repository).
+
+The build also works without it as long as Homebrew's libarchive is installed, but then the
+**header and runtime versions drift**. Drift can silently change behaviour in APIs that exist in
+both versions with different return values, so `LibarchiveVersionTests` in `swift test` fails to
+tell you about it.
+
 ### SPM library and CLI
 
 ```bash

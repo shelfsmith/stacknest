@@ -124,6 +124,21 @@ docs/                 -- アーキテクチャ、設計メモ、smoke checklist
 
 ## ビルド
 
+### 初回セットアップ: libarchive のヘッダを取得する
+
+```bash
+./Scripts/fetch-libarchive-headers.sh
+```
+
+macOS SDK は libarchive の**本体（dylib）は提供するが `archive.h` を提供しない**ため、
+コンパイルにはヘッダを別途用意する必要があります。このスクリプトは、実行時に実際にリンクされる
+Apple 製 libarchive と**同じバージョン**のヘッダを上流から取得し、`Sources/ArchiveAdapter/Carchive/vendor/`
+に置きます（gitignore 済み。リポジトリには含まれません）。
+
+未実行でも Homebrew の libarchive があればビルドは通りますが、**ヘッダと実行時ライブラリの
+バージョンがずれます**。ずれると「両方に存在するが戻り値が変わった API」で静かに誤動作しうるため、
+`swift test` の `LibarchiveVersionTests` が失敗して知らせます。
+
 ### SPM ライブラリと CLI
 
 ```bash
