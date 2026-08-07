@@ -86,6 +86,17 @@ protocol IntegrityDataSource {
     /// 1 回だけ取り出す。他所（CLI/MCP・別ウィンドウ）が開始したジョブや、詳細レポートの概念が
     /// ない場合（リモート）は常に nil ―― `IntegrityReportBox` の仕組み（挙動不変で移設）。
     func takeCompletionReport() -> FullScanReport?
+    /// `lastScanAt()` が意味のある答えを返せるか。false なら、その nil は「一度も検査していない」
+    /// ではなく「そもそも取得できない」という意味 ―― Phase G29 Task 3 fix round 4
+    /// (whole-branch review Important 1): リモートは `integrity/summary` が最終検査時刻を運ばない
+    /// ため常に nil を返すが、ビュー側の語彙では nil は「未検査」を意味する。両者を混同すると、
+    /// フルスキャン済みのリモート庫でも「最終検査: 未検査」という自己矛盾した断言になる。
+    var supportsLastScanAt: Bool { get }
+    /// ジョブ非実行時（アイドル時）のポーリング間隔（ナノ秒）。Phase G29 Task 3 fix round 4
+    /// (whole-branch review Important 3): 400ms はローカルの in-process registry 呼び出し用に
+    /// 選ばれた値で、ネットワーク越しの定数として妥当ではなかった（リモートは HTTP 往復のたびに
+    /// サーバのメインアクタへホップする）。ローカルはコストが無いので実行中と同じ間隔のままでよい。
+    var idlePollIntervalNanoseconds: UInt64 { get }
 }
 
 /// `MaintenanceJobRegistry.start` の `run` クロージャは `@Sendable` で戻り値は `Int`
@@ -124,6 +135,10 @@ final class LocalIntegrityDataSource: IntegrityDataSource {
 
     var canStartScan: Bool { true }
     var scanUnavailableReason: String? { nil }
+    var supportsLastScanAt: Bool { true }
+    /// in-process の registry 読み取りはコストが無いので、実行中と同じ間隔のままでよい
+    /// （`IntegrityCheckView.Self.activePollIntervalNanoseconds` と同値）。
+    var idlePollIntervalNanoseconds: UInt64 { 400_000_000 }
 
     func summary() async throws -> IntegritySummary {
         try database.integritySummary()
@@ -223,35 +238,60 @@ private let integrityFullScanJobName = "full-scan"
 /// リモート庫の `IntegrityDataSource` 実装。`RemoteLibraryClient`（Task 2 で追加した 4 メソッド＋
 /// 既存の `cancelMaintenance`）越しに HTTP でサーバの `book_integrity` を読み書きする。
 ///
-/// - `client`/`libraryUUID`/`libraryToken`/`tier` は `IntegrityWindowContainer.resolveRemote` が
-///   解決した値をそのまま受け取る（このデータ源自身は解決を行わない）。優先経路は
-///   `RemoteLibraryRegistry` に既に開いている `RemoteLibraryState` を見つけてその
-///   `libraryToken`/`tier` を再利用する（施錠庫でも解錠済みトークンをそのまま使える。
-///   review Critical 1）。見つからないときのみ `ServerConnectionStore` フォールバックで
-///   `libraryToken: nil`・`/me` 解決の `tier` になる。
-/// - `tier` はコンテナが解決済みの値を渡す固定値。ウィンドウの寿命中にグラントの tier が
-///   変わることは通常無く（変わるとすれば再接続が要る）、ローカル実装の
-///   `LocalIntegrityDataSource` が `appState` 経由で `librarySettings` を都度読みに行くのとは
-///   事情が異なる（ローカルは同一プロセス内の可変状態、こちらは解決済みの認可結果）。
+/// Phase G29 Task 3 fix round 4 (Critical, whole-branch review C1): `libraryToken`/`tier` を
+/// **値として一度だけ焼き付けるのをやめた**。以前は解決時点のスナップショットを保持していたため、
+/// 施錠庫を解錠する前に窓を開くと「施錠されています」が永久に表示され続け（解錠しても直らない）、
+/// `/me` 解決前（＝admin 判定が確定する前）に開くと実際は admin でもボタンが恒久的に無効になる
+/// という 2 つの「読めなかった値を読めた事実として断言する」欠陥があった。
+///
+/// 優先経路（`init(client:libraryUUID:liveState:)`）は、`IntegrityWindowContainer.resolveRemote` が
+/// `RemoteLibraryRegistry` から見つけた**生きている** `RemoteLibraryState` を弱参照し、
+/// `libraryToken`/`tier` を呼び出しのたびに読む。これにより解錠・`/me` 完了・再接続に追従する
+/// （`LocalIntegrityDataSource` が `appState` 経由で `librarySettings` を都度読むのと対称になった）。
+/// フォールバック経路（`init(client:libraryUUID:libraryToken:tier:tierResolutionFailed:)`）は
+/// `RemoteLibraryState` が見つからない場合（`ServerConnectionStore` 経由・実質到達不能）専用で、
+/// 固定値のまま。
 @MainActor
 final class RemoteIntegrityDataSource: IntegrityDataSource {
     private let client: RemoteLibraryClient
     private let libraryUUID: String
-    private let libraryToken: String?
-    private let tier: AccessTier
+    private weak var liveState: RemoteLibraryState?
+    private let fallbackLibraryToken: String?
+    private let fallbackTier: AccessTier
     /// review Minor 4: `ServerConnectionStore` フォールバック経路で `/me` 自体が失敗した
     /// （オフライン等）場合に true。「権限が足りない」と「権限を確認できない」は原因が違うため、
     /// `scanUnavailableReason` の文言を分けるためだけに使う。
     private let tierResolutionFailed: Bool
 
+    /// 優先経路: 生きている `RemoteLibraryState` を弱参照する（fix round 4, Critical 1）。
+    init(client: RemoteLibraryClient, libraryUUID: String, liveState: RemoteLibraryState) {
+        self.client = client
+        self.libraryUUID = libraryUUID
+        self.liveState = liveState
+        self.fallbackLibraryToken = nil
+        self.fallbackTier = .read
+        self.tierResolutionFailed = false
+    }
+
+    /// フォールバック経路: `RemoteLibraryState` が見つからないときの固定値。
     init(client: RemoteLibraryClient, libraryUUID: String, libraryToken: String?, tier: AccessTier,
          tierResolutionFailed: Bool = false) {
         self.client = client
         self.libraryUUID = libraryUUID
-        self.libraryToken = libraryToken
-        self.tier = tier
+        self.liveState = nil
+        self.fallbackLibraryToken = libraryToken
+        self.fallbackTier = tier
         self.tierResolutionFailed = tierResolutionFailed
     }
+
+    /// `liveState` があれば常にそちらを優先（解錠直後・`/me` 完了直後の値を即座に反映するため、
+    /// 値をキャッシュせず呼び出しのたびに読む）。
+    private var libraryToken: String? { liveState?.libraryToken ?? fallbackLibraryToken }
+    private var tier: AccessTier { liveState?.tier ?? fallbackTier }
+
+    var supportsLastScanAt: Bool { false }
+    /// HTTP 往復のため、ジョブが無いときは大きく間隔を空ける（whole-branch review Important 3）。
+    var idlePollIntervalNanoseconds: UInt64 { 3_000_000_000 }
 
     /// full-scan は admin 必須（サーバ側 `requireAdmin`）。summary/list は read で通る。
     /// 数十時間かかりうるジョブを閲覧権限で起動させないための意図的な段階的縮退（spec §3.4）。
@@ -369,9 +409,14 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     }
 
     /// `MaintenanceStatusReply` → `IntegrityJobProgress?` の写像。`running == false` は nil。
+    ///
+    /// review Minor 9: `job` は running=true なら現行サーバが必ず入れるため到達不能だが、
+    /// 万一 nil で来た場合に空文字だと「他のメンテナンス処理を実行中です（）」という
+    /// 中身の無い表示になる。`"unknown"` にして、少なくとも「ジョブ名が取れなかった」と
+    /// 分かる形にしておく。
     static func mapProgress(_ reply: MaintenanceStatusReply) -> IntegrityJobProgress? {
         guard reply.running else { return nil }
-        return IntegrityJobProgress(job: reply.job ?? "", done: reply.done ?? 0, total: reply.total ?? 0)
+        return IntegrityJobProgress(job: reply.job ?? "unknown", done: reply.done ?? 0, total: reply.total ?? 0)
     }
 }
 

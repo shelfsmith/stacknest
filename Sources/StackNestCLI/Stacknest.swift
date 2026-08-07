@@ -812,8 +812,10 @@ struct Dedup: ParsableCommand {
 // MARK: - integrity グループ（整合性検査・G27a）
 
 struct Integrity: ParsableCommand {
+    // fix round 4 (Minor, whole-branch review): GUI 側は Phase G29 Task 4 で
+    // 「蔵書ファイルの破損チェック」に改名済み。CLI の abstract だけ旧語彙「整合性」が残っていた。
     static let configuration = CommandConfiguration(
-        commandName: "integrity", abstract: "蔵書の整合性を検査する",
+        commandName: "integrity", abstract: "蔵書ファイルの破損を検査する",
         subcommands: [IntegrityScanCmd.self, IntegrityStatusCmd.self, IntegrityListCmd.self,
                       IntegrityFullScanCmd.self, IntegrityJobStatusCmd.self, IntegrityCancelCmd.self])
 }
