@@ -17,7 +17,12 @@ import Foundation
 ///   ジョブ A 完了直後にジョブ B が同じ library で start された場合に取り漏らす: 「A の遅延
 ///   progress」が実行される時点では `running` は（B のせいで）true のままなので通過してしまい、
 ///   `statuses[l]` を A の古い done/total で**上書き**してしまう（レビューで指摘・実テストで再現）。
-///   ジョブ名まで一致させることで、他ジョブへの取り違えを防ぐ。
+///
+///   Codex 事前レビュー（G27b post-review）: 当初の実装はジョブ**名**（`statuses[l]?.job == j`）の
+///   一致でガードしていたが、`full-scan` → cancel → `full-scan` のように**同じ名前のジョブを
+///   連続起動する**運用（実運用の smoke で実際に行う手順そのもの）では、直前ジョブと今回ジョブの
+///   名前が同じため取り違えを検出できない。`start` のたびに新規発行する一意なトークン
+///   （`activeRun`）で識別し、ジョブ名が衝突しても正しく区別する。
 public actor MaintenanceJobRegistry {
     /// `status(library:)` が返す進捗スナップショット。
     public struct JobStatus: Sendable, Equatable {
@@ -31,6 +36,10 @@ public actor MaintenanceJobRegistry {
     private var cancelledLibs: Set<String> = []
     /// G27b: library ごとの最新進捗。`running` に居る間だけ値を持つ（完了/失敗/中断で必ず消す）。
     private var statuses: [String: JobStatus] = [:]
+    /// Codex 事前レビュー: library ごとに「今 progress/finish を受理してよい実行」を一意に識別する
+    /// トークン。`start` が呼ばれるたびに新規発行し、その実行のクロージャだけが捕捉する
+    /// （ジョブ名は表示用の情報でしかなく、識別には使わない）。`running` に居る間だけ値を持つ。
+    private var activeRun: [String: UUID] = [:]
     private let onProgress: @Sendable (String, String, Int, Int) -> Void
     private let onFinished: @Sendable (String, String, String, Int) -> Void
     /// G27b: 開始時刻の取得元。テストから固定時刻を注入できるよう既定は `Date.init` を渡す。
@@ -51,24 +60,28 @@ public actor MaintenanceJobRegistry {
     }
 
     private func isCancelledLib(_ library: String) -> Bool { cancelledLibs.contains(library) }
-    private func emitProgress(_ l: String, _ j: String, _ d: Int, _ t: Int) {
+    private func emitProgress(_ l: String, _ j: String, _ token: UUID, _ d: Int, _ t: Int) {
         // progress は `Task { await self.emitProgress(...) }` という不構造 Task 経由で actor に届く
         // ため、run 完了直後の最後の progress(...) 呼び出しが finish() より後にこの actor 上で
         // 実行されることがある（run 自身は progress を待たずに return できるため）。
-        // ガードは `running.contains(l)`（庫単位）ではなく `statuses[l]?.job == j`（**ジョブ単位**）
-        // で行う必要がある — running だけを見ると、A 完了直後に同じ library で B が start された
-        // ケースで A の遅延 progress が「B のせいで running:true」を通過してしまい、statuses[l] を
-        // A の古い job 名・done/total で上書きしてしまう（ファイル冒頭コメント参照）。
-        // job 名まで一致するときだけ更新する — SSE への onProgress 転送（既存挙動）はガードせず必ず通す。
-        if statuses[l]?.job == j {
+        // ガードは `running.contains(l)`（庫単位）ではなく「今 activeRun[l] が指しているのが
+        // 自分自身の実行トークンか」（**実行単位**）で行う必要がある — running だけを見ると、
+        // A 完了直後に同じ library で B が start された場合に A の遅延 progress が「B のせいで
+        // running:true」を通過してしまい statuses[l] を A の古い done/total で上書きしてしまう
+        // （ファイル冒頭コメント参照）。ジョブ**名**での一致判定（旧実装）は、同じ名前のジョブを
+        // 連続起動する運用（`full-scan` → cancel → `full-scan`）を区別できないため、`start` の
+        // たびに新規発行する一意なトークンで識別する。
+        if activeRun[l] == token {
             let startedAt = statuses[l]?.startedAt ?? now()
             statuses[l] = JobStatus(job: j, done: d, total: t, startedAt: startedAt)
         }
         onProgress(l, j, d, t)
     }
-    private func finish(_ l: String, _ j: String, _ count: Int, failed: Bool) {
+    private func finish(_ l: String, _ j: String, _ token: UUID, _ count: Int, failed: Bool) {
         let outcome = failed ? "failed" : (cancelledLibs.contains(l) ? "cancelled" : "done")
-        running.remove(l); cancelledLibs.remove(l); statuses[l] = nil
+        if activeRun[l] == token {
+            running.remove(l); cancelledLibs.remove(l); statuses[l] = nil; activeRun[l] = nil
+        }
         onFinished(l, j, outcome, count)
     }
 
@@ -85,20 +98,25 @@ public actor MaintenanceJobRegistry {
     ) -> Bool {
         guard !running.contains(library) else { return false }
         running.insert(library); cancelledLibs.remove(library)
+        // この実行だけを識別するトークン。同じ library に対して同じ job 名で連続起動しても
+        // （`full-scan` → cancel → `full-scan` 等）、`token` は毎回新規発行されるため取り違えない
+        // （詳細はファイル冒頭コメント・emitProgress のコメント参照）。
+        let token = UUID()
+        activeRun[library] = token
         // status(library:) が start() 直後から running:true を返せるよう、Task 起動前に
         // 同期的に確定させる（コールバックを init で固定した理由と同じレース回避。上記コメント参照）。
         statuses[library] = JobStatus(job: job, done: 0, total: 0, startedAt: now())
         Task { [weak self] in
             guard let self else { return }
             let progress: @Sendable (Int, Int) -> Void = { done, total in
-                Task { await self.emitProgress(library, job, done, total) }
+                Task { await self.emitProgress(library, job, token, done, total) }
             }
             let isCancelled: @Sendable () async -> Bool = { await self.isCancelledLib(library) }
             do {
                 let count = try await run(progress, isCancelled)
-                await self.finish(library, job, count, failed: false)
+                await self.finish(library, job, token, count, failed: false)
             } catch {
-                await self.finish(library, job, 0, failed: true)
+                await self.finish(library, job, token, 0, failed: true)
             }
         }
         return true

@@ -253,6 +253,87 @@ struct FullIntegrityScannerTests {
         #expect(try #require(db.fetchBook(id: 1)).pages == 1)
     }
 
+    // MARK: - Codex 事前レビュー Blocker1: フォルダは既存の判定を上書きしない
+
+    /// フォルダの実体検証は quick スキャンの担当で、full スキャンには手段（probe）が無い。
+    /// quick スキャンが列挙失敗/打ち切りで damaged と判定済みのフォルダを、full スキャンが
+    /// 無条件 unsupported で上書きしてしまうと「known damage が silently erase される」――
+    /// 本ブランチが守る不変条件そのものに反する。修正後は既存行があれば full スキャンは
+    /// 一切書かない（.uncheckedOnly 経路）。
+    @Test("既存行がある damaged フォルダは .uncheckedOnly でも unsupported に上書きされない")
+    func damagedFolderWithExistingRowSurvivesUncheckedOnlyFullScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "folder-book", path: "/lib/folder-book"))
+        // G27a の quick スキャン相当: 列挙失敗で damaged と判定済み。
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil,
+            badEntries: ["enumeration truncated"],
+            prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .uncheckedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("フォルダを verify しようとした（フォルダに CRC 検証は無い）")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .folder }))
+
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged, "quick スキャンの damaged を full スキャンが上書きしている")
+        #expect(rec.method == .quick, "書き込みが一切起きていないなら method も quick のまま")
+        #expect(rec.checkedAt == 100, "checked_at が更新されている＝何か書いてしまっている")
+        #expect(report.byStatus[.unsupported] == nil, "この本を unsupported として計上してはいけない")
+    }
+
+    /// 同じ再現を `.damagedOnly` でも確認する ―― こちらは book_integrity を JOIN して直接
+    /// status='damaged' を候補にするため、必ずこのフォルダが選ばれる。
+    @Test("既存行がある damaged フォルダは .damagedOnly でも unsupported に上書きされない")
+    func damagedFolderWithExistingRowSurvivesDamagedOnlyFullScan() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "folder-book", path: "/lib/folder-book"))
+        try db.upsertIntegrity(IntegrityRecord(
+            bookID: 1, status: .damaged, method: .quick, checkedAt: 100,
+            fileSize: nil, fileMtime: nil, entryCount: nil,
+            badEntries: ["enumeration truncated"],
+            prevStatus: nil, prevCheckedAt: nil))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .damagedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("フォルダを verify しようとした（フォルダに CRC 検証は無い）")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .folder }))
+
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .damaged, "quick スキャンの damaged を full スキャンが上書きしている")
+        #expect(rec.method == .quick)
+        #expect(rec.checkedAt == 100)
+        #expect(report.byStatus[.unsupported] == nil)
+    }
+
+    /// 既存行が無いフォルダ（初回走査）は、従来どおり unsupported を新規に書いてよい ――
+    /// そうしないと .uncheckedOnly の候補から永久に外れない（brief の要件）。
+    @Test("既存行が無いフォルダは unsupported が新規に記録される")
+    func folderWithoutExistingRowGetsUnsupported() async throws {
+        let db = try setupDB()
+        try db.insertBook(book(id: 1, title: "new-folder-book", path: "/lib/new-folder-book"))
+
+        let report = try await FullIntegrityScanner.scan(
+            database: db, mode: .uncheckedOnly,
+            deps: deps(verify: { _, _ in
+                Issue.record("フォルダを verify しようとした（フォルダに CRC 検証は無い）")
+                return ArchiveVerifyResult(entryCount: 0, imageCount: 0, badEntries: [], truncated: false)
+            },
+            categoryOf: { _ in .folder }))
+
+        #expect(report.byStatus[.unsupported] == 1)
+        let rec = try #require(try db.integrityRecord(bookID: 1))
+        #expect(rec.status == .unsupported)
+        #expect(rec.method == .full, "既存行が無い場合は method='full' で書かないと候補から外れない")
+    }
+
     // MARK: - 3. 中断
 
     /// `var` を async クロージャの中で書き換えると Swift 6 の並行性チェックに

@@ -74,69 +74,82 @@ struct MaintenanceJobStatusTests {
         #expect(status == nil)
     }
 
-    /// レビュー指摘の回帰: A 完了直後に同一 library で B が start された場合、A の
-    /// 遅延 progress（finish(A) より後にこの actor 上で実行される最後の progress(...)）が
-    /// statuses[l] を B から A へ**取り違えて上書き**しないこと。
+    /// レビュー指摘の回帰: run1 完了直後に同一 library で run2 が start された場合、run1 の
+    /// 遅延 progress（finish(run1) より後にこの actor 上で実行される最後の progress(...)）が
+    /// statuses[l] を run2 から run1 へ**取り違えて上書き**しないこと。
     ///
-    /// `Task.sleep` による祈りではなく、A の `progress` クロージャを外へ捕捉して**呼ばずに**
-    /// run(A) を return させる（→ finish(A) が確実に先に完了する）→ B を start する→
-    /// その後で**明示的に**捕捉した A の progress を呼んで「遅れて届いた A の通知」を再現する、
-    /// という順序を onFinished/onProgress コールバック駆動の AsyncGate で強制する。
+    /// **両方の run に同じ job 名（"full-scan"）を使う** ―― これが実運用（`full-scan` → cancel →
+    /// `full-scan` の smoke 手順そのもの）であり、かつ Codex 事前レビューが指摘したとおり、
+    /// ジョブ**名**で識別するガード（旧実装）はこのケースを検出できない（2 回とも同じ名前だと
+    /// `statuses[l]?.job == j` が常に真になり、取り違えが起きても気づけない）。識別は実行ごとの
+    /// 一意なトークンで行う（`MaintenanceJobRegistry.activeRun`）。
+    ///
+    /// `Task.sleep` による祈りではなく、run1 の `progress` クロージャを外へ捕捉して**呼ばずに**
+    /// run(run1) を return させる（→ finish(run1) が確実に先に完了する）→ run2 を start する→
+    /// その後で**明示的に**捕捉した run1 の progress を呼んで「遅れて届いた run1 の通知」を
+    /// 再現する、という順序を onFinished/onProgress コールバック駆動の AsyncGate で強制する。
     @Test func staleProgressFromFinishedJobDoesNotOverwriteNewerJob() async throws {
-        nonisolated(unsafe) var capturedProgressA: (@Sendable (Int, Int) -> Void)?
-        let aFinished = AsyncGate()
+        let jobName = "full-scan"
+        nonisolated(unsafe) var capturedProgressRun1: (@Sendable (Int, Int) -> Void)?
+        let run1Finished = AsyncGate()
         let lateProgressDelivered = AsyncGate()
 
         let reg = MaintenanceJobRegistry(
             onProgress: { l, j, d, t in
-                if l == "L", j == "A", d == 3, t == 3 {
+                if l == "L", j == jobName, d == 3, t == 3 {
                     Task { await lateProgressDelivered.open() }
                 }
             },
             onFinished: { l, j, _, _ in
-                if l == "L", j == "A" {
-                    Task { await aFinished.open() }
+                if l == "L", j == jobName {
+                    Task { await run1Finished.open() }
                 }
             }
         )
 
-        // ジョブ A: progress は「呼ばずに」参照だけ外へ捕捉し、即 return する
-        // （= すぐ finish(A) が走る。まだ捕捉した progress は一度も呼んでいない）。
-        let startedA = await reg.start(library: "L", job: "A") { progress, _ in
-            capturedProgressA = progress
+        // run1: progress は「呼ばずに」参照だけ外へ捕捉し、即 return する
+        // （= すぐ finish(run1) が走る。まだ捕捉した progress は一度も呼んでいない）。
+        let startedRun1 = await reg.start(library: "L", job: jobName) { progress, _ in
+            capturedProgressRun1 = progress
             return 1
         }
-        #expect(startedA == true)
-        // onFinished(A) の発火を待つ = finish(A) 完了（running/statuses から A が消えたこと）を
-        // 確定させる。同じ Task 内で capturedProgressA の代入 → run 完了 → finish の順に
-        // 実行されるため、ここまで来れば代入は必ず完了している。
-        await aFinished.wait()
-        let progressA = try #require(capturedProgressA)
-        let idleAfterAFinished = await reg.status(library: "L")
-        #expect(idleAfterAFinished == nil)
+        #expect(startedRun1 == true)
+        // onFinished(run1) の発火を待つ = finish(run1) 完了（running/statuses から run1 が消えた
+        // こと）を確定させる。同じ Task 内で capturedProgressRun1 の代入 → run 完了 → finish の
+        // 順に実行されるため、ここまで来れば代入は必ず完了している。
+        await run1Finished.wait()
+        let progressRun1 = try #require(capturedProgressRun1)
+        let idleAfterRun1Finished = await reg.status(library: "L")
+        #expect(idleAfterRun1Finished == nil)
 
-        // ジョブ B を同一 library で start する（A は finish 済みなので busy にならない）。
-        let bGate = AsyncGate()
-        let startedB = await reg.start(library: "L", job: "B") { _, _ in
-            await bGate.wait()
+        // run2 を同一 library・**同じ job 名**で start する（run1 は finish 済みなので busy に
+        // ならない）。run2 は実際に進捗を報告し、その値が保持されることを後で確認する。
+        let run2Gate = AsyncGate()
+        let startedRun2 = await reg.start(library: "L", job: jobName) { progress, _ in
+            progress(2, 5)
+            await run2Gate.wait()
             return 5
         }
-        #expect(startedB == true)
-        let statusAfterBStart = await reg.status(library: "L")
-        #expect(statusAfterBStart?.job == "B")
+        #expect(startedRun2 == true)
+        try await Task.sleep(for: .milliseconds(50))
+        let statusAfterRun2Progress = await reg.status(library: "L")
+        #expect(statusAfterRun2Progress?.job == jobName)
+        #expect(statusAfterRun2Progress?.done == 2)
+        #expect(statusAfterRun2Progress?.total == 5)
 
-        // ここで「保留していた A の遅延 progress」を明示的に解放する（finish(A) 後・B 実行中）。
-        // ジョブ単位でガードしていなければ、この呼び出しが statuses["L"] を
-        // job:"A", done:3, total:3 へ取り違えて上書きしてしまう。
-        progressA(3, 3)
+        // ここで「保留していた run1 の遅延 progress」を明示的に解放する（finish(run1) 後・
+        // run2 実行中）。実行トークンでガードしていなければ、ジョブ名が両方とも "full-scan" で
+        // 一致するため、この呼び出しが statuses["L"] を done:3, total:3（run1 の値）へ
+        // 取り違えて上書きしてしまう。
+        progressRun1(3, 3)
         await lateProgressDelivered.wait()
 
         let statusAfterLateProgress = await reg.status(library: "L")
-        #expect(statusAfterLateProgress?.job == "B")
-        #expect(statusAfterLateProgress?.done == 0)
-        #expect(statusAfterLateProgress?.total == 0)
+        #expect(statusAfterLateProgress?.job == jobName)
+        #expect(statusAfterLateProgress?.done == 2)
+        #expect(statusAfterLateProgress?.total == 5)
 
-        await bGate.open()
+        await run2Gate.open()
         try await Task.sleep(for: .milliseconds(50))
     }
 

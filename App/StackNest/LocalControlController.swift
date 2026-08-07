@@ -15,26 +15,26 @@ final class LocalControlController {
     private var portRetries = 0
     private static let maxPortRetries = 2
 
-    /// G27b 最終レビュー Fix2: メンテナンスジョブ（整合性フルスキャン含む）の唯一の登録先。
+    /// G27b 最終レビュー Fix2 → Codex 事前レビュー Blocker2: メンテナンスジョブ（整合性フルスキャン
+    /// 含む）の唯一の登録先。
     ///
-    /// `LibraryServerCore` は自前で `MaintenanceJobRegistry` を作れるが（`ServerController` は
-    /// それでよい）、ローカル制御は CLI/MCP（`POST .../integrity/full-scan` 等）と GUI の
-    /// 整合性チェックウィンドウの**両方**が同じライブラリに対して起動しうる。この 1 個の
-    /// インスタンスを（a）`startIfEnabled()` が毎回同じものを `LibraryServerCore` へ注入し、
-    /// （b）`IntegrityWindow` が直接（プロセス内・HTTP を経由せず）参照することで、
-    /// 「busy 判定・進捗・中断」を単一の場所に統一する ―― これが無いと GUI が別経路で
-    /// スキャンを開始でき、CLI 側からは `running:false` に見えたまま 2 本目の 31 時間スキャンが
-    /// 同じ庫に対して走ってしまう（レビューで確認された実害）。
+    /// ローカル制御は CLI/MCP（`POST .../integrity/full-scan` 等）と GUI の整合性チェック
+    /// ウィンドウの**両方**が同じライブラリに対して起動しうる。加えて `ServerController`（共有
+    /// ネットワークサーバ）経由でも同じライブラリに対してスキャンを起動できる ―― Blocker2 で、
+    /// この 3 経路のうち `ServerController` だけが独自の `MaintenanceJobRegistry` を持っており
+    /// busy 判定が割れていたことが判明した（同じ庫に 2 本のフルスキャンが並走し、片方が確定
+    /// させた `damaged` を他方の遅れた `ok` で上書きしうる）。
     ///
-    /// `startIfEnabled()`/`stop()`/`reload()`（ローカル制御 HTTP リスナーの起動/停止）とは
-    /// **独立**に、アプリプロセスの生存中ずっと 1 個だけ存在する（ローカル自動化が OFF でも
-    /// GUI からのスキャンは登録され、ボタンの busy 判定は機能する）。onProgress/onFinished は
-    /// no-op ―― ローカル制御の SSE `/events` はこのアプリ内のどこからも購読されていない
-    /// （購読するのはリモート共有クライアントのみ。詳細は `LibraryServerCore.init` のコメント）。
-    let maintenanceRegistry = MaintenanceJobRegistry(
-        onProgress: { _, _, _, _ in },
-        onFinished: { _, _, _, _ in }
-    )
+    /// 解決として、唯一のインスタンスは `SharedMaintenanceRegistry`（中立の置き場所。理由は
+    /// そちらのコメント参照）に hoist した。ここではそれをそのまま公開し、既存の参照
+    /// （`LocalControlController.shared.maintenanceRegistry`、`IntegrityWindow`・`AppState` 経由）を
+    /// 変更せずに済ませる。（a）`startIfEnabled()` と（b）`ServerController.start()` の両方が
+    /// これを `LibraryServerCore` へ注入し、（c）`IntegrityWindow` が直接（プロセス内・HTTP を
+    /// 経由せず）参照することで、「busy 判定・進捗・中断」を単一の場所に統一する。
+    ///
+    /// アプリプロセスの生存中ずっと 1 個だけ存在する（ローカル自動化・共有サーバのいずれも OFF
+    /// でも GUI からのスキャンは登録され、ボタンの busy 判定は機能する）。
+    var maintenanceRegistry: MaintenanceJobRegistry { SharedMaintenanceRegistry.shared }
 
     func startIfEnabled() {
         guard ServerPreferences.localAutomationEnabled() else { return }

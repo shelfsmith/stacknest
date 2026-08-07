@@ -122,6 +122,10 @@ public enum FullIntegrityScanner {
             var pageCount: Int?
             var entryCount: Int?
             var badEntries: [String] = []
+            // Codex 事前レビュー Blocker1: フォルダで、かつ既存の book_integrity 行がある場合だけ
+            // 立てる。下の永続化ブロックをまるごとスキップし、既存の判定（quick スキャンが
+            // 付けた damaged を含む）に一切触れない。
+            var skipPersistenceForUnassessableFolder = false
 
             if !exists {
                 status = .missing
@@ -147,10 +151,29 @@ public enum FullIntegrityScanner {
                 // フォルダの実体検証（列挙）は quick スキャンの担当。full スキャンは CRC
                 // 専任で、フォルダを検証する手段（probe）を持たない。classify(probe: nil) は
                 // アーカイブ/フォルダ分岐で「probe not performed」を damaged として返すため
-                // ここでは呼べない（検証もせず壊れた判定にする方が有害）。現状は unsupported
-                // のまま ―― quick が既に damaged と判定したフォルダを full スキャンが
-                // 上書きしてしまう可能性は残っており、task-2-report.md に申し送る。
-                status = .unsupported
+                // ここでは呼べない（検証もせず壊れた判定にする方が有害）。
+                //
+                // Codex 事前レビュー Blocker1: 内部レビューは「現行 2 ライブラリにはフォルダ本が
+                // 0 冊」を根拠にこの分岐を deferred にしたが、それは今日のデータの事実であって
+                // コードの安全性の話ではない。既存の book_integrity 行があるなら（典型的には
+                // quick スキャンが列挙失敗/打ち切りで damaged を付けた行）、full スキャンは
+                // それを評価する手段を持たないので**一切書かない**（checked_at のローテーション
+                // も含めて完全に不干渉）。既存行が無いときだけ unsupported を新規に書く ――
+                // そうしないと .uncheckedOnly が永遠にこの本を対象に残し続けてしまう。
+                //
+                // 有無の確認自体が失敗した場合（DB エラー）は安全側に倒し、「既存行あり」と
+                // 同じ扱い＝書かない。ここで unsupported を書いてしまうと、確認できなかった
+                // だけなのに既存の damaged を握りつぶすリスクを負うため。
+                let hasExistingRecord: Bool
+                do {
+                    hasExistingRecord = try database.integrityRecord(bookID: book.id) != nil
+                } catch {
+                    hasExistingRecord = true
+                }
+                status = .unsupported // 書く場合の値。skip 時は使われない。
+                if hasExistingRecord {
+                    skipPersistenceForUnassessableFolder = true
+                }
             } else {
                 do {
                     let result = try await deps.verify(URL(fileURLWithPath: path), isCancelled)
@@ -189,6 +212,16 @@ public enum FullIntegrityScanner {
             // 関わらず（QuickScanReport.scanned と同じ意味 = candidates のうち実際に処理を
             // 試みた数。中断で break した本はここに到達しないため含まれない）。
             scanned += 1
+
+            // Blocker1: 評価不能なフォルダで既存行がある場合は、ここで一切書かずに次の本へ
+            // 進む（upsertIntegrity も updateBookPages/updateBookFileStat も呼ばない ―― prev_*
+            // のローテーションも checked_at の更新も一切発生させない）。byStatus には計上しない
+            // （この回で判定を下したわけではないため、実際には触っていない status を報告に
+            // 混ぜない）。
+            if skipPersistenceForUnassessableFolder {
+                progress?(index + 1, candidates.count)
+                continue
+            }
 
             // 永続化は per-book で失敗しうる（SQLite busy/locked・ディスク full・
             // 走査中に本が削除された場合の FK 違反 等）。1 冊の失敗で走査全体を
