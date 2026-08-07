@@ -121,13 +121,20 @@ struct IntegrityWindowContainer: View {
     let ref: IntegrityCheckRef
     @State private var appState: AppState?
     @State private var notFound = false
+    /// Phase G29 Task 1 review fixup: `LocalIntegrityDataSource` を `body` の中で毎回
+    /// 新規生成すると、`body` が再評価されるたびにインスタンスの identity が変わり、
+    /// スキャン中に再評価が起きた場合 `pendingReportBox`（自分が開始したジョブの詳細）が
+    /// 新インスタンスには無いため完了キャプションが黙って消える。`resolve()` で 1 回だけ
+    /// 生成し `@State` に保持することで、ウィンドウの寿命と identity を一致させる
+    /// （`resolve()` 自体も `appState == nil` の間しか実行しない一回性のガードを持つ）。
+    @State private var dataSource: LocalIntegrityDataSource?
 
     var body: some View {
         Group {
-            if let appState, let database = appState.database {
+            if let appState, let database = appState.database, let dataSource {
                 IntegrityCheckView(
                     bundleURL: ref.bundleURL, database: database, appState: appState,
-                    dataSource: LocalIntegrityDataSource(database: database, bundleURL: ref.bundleURL, appState: appState))
+                    dataSource: dataSource)
             } else if notFound {
                 missingView
             } else {
@@ -154,6 +161,12 @@ struct IntegrityWindowContainer: View {
         guard appState == nil, notFound == false else { return }
         if let match = AppState.activeInstances.allObjects.first(where: { $0.bundleURL.path == ref.bundleURL.path }) {
             appState = match
+            // `AppState.finishOpening()` は `database`/`librarySettings` を同期的に設定してから
+            // `activeInstances` へ登録する（`AppState.swift` 参照）ため、`activeInstances` から
+            // 見つかった時点で `match.database` は必ず non-nil。
+            if let database = match.database {
+                dataSource = LocalIntegrityDataSource(database: database, bundleURL: ref.bundleURL, appState: match)
+            }
         } else {
             notFound = true
         }
@@ -213,7 +226,7 @@ struct IntegrityCheckView: View {
 
             if isScanning {
                 ProgressView(value: Double(progress.done), total: Double(max(progress.total, 1)))
-                if jobStatus?.job == integrityFullScanJobName {
+                if jobStatus?.isIntegrityFullScan == true {
                     Text("検査中… \(progress.done)/\(progress.total)")
                         .font(.caption)
                         .monospacedDigit()
@@ -253,6 +266,12 @@ struct IntegrityCheckView: View {
         .padding(20)
         .frame(minWidth: 640, idealWidth: 760, minHeight: 420, idealHeight: 560)
         .onAppear {
+            // Phase G29 Task 1 review fixup: `reload()` は今は async なので fire-and-forget の
+            // `Task` に包んでいる（旧実装は同期呼び出しで `startObserving()` の前に完走していた）。
+            // この 2 つは互いに独立でよい ―― `startObserving()` は `jobStatus` だけを進捗ポーリングで
+            // 埋め、`reload()` は `summary`/`rows`/`lastScanAt` を埋める。どちらが先に終わっても
+            // 相手の結果を読まない。最悪ケースは reload 完了までの数フレーム、要約/一覧が
+            // 初期値のまま表示される程度で、不変条件（Fix2/Fix4・ジョブ検出）には影響しない。
             Task { @MainActor in await reload() }
             startObserving()
         }
