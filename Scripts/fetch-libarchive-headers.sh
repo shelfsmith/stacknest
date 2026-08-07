@@ -34,14 +34,24 @@ BACKUP_DIR="$CARCHIVE_DIR/vendor.old.$$"
 
 HEADERS=(archive.h archive_entry.h)
 
+# レビュー指摘（Critical）への対応: CARCHIVE_DIR への書き込みが恒常的に失敗する状況
+# （パーミッション喪失・ディスクフル等）では、配置の mv だけでなくロールバックの mv も
+# 同じ理由で失敗しうる。その場合に cleanup が STAGING_DIR/BACKUP_DIR を消してしまうと、
+# ヘッダの唯一のコピーを自動削除することになり「復元しました」という嘘のメッセージと
+# 組み合わさって vendor/ が丸ごと消失する。この変数が 1 の間は cleanup は両ディレクトリに
+# 触れない（＝手動復旧できる状態を必ず残す）。
+KEEP_WORK_DIRS_ON_FAILURE=0
+
 # 一時ディレクトリ（検出用の C プローブをここで作業する）。
 # 検証に通るまで VENDOR_DIR には一切書き込まない。
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/fetch-libarchive-headers.XXXXXX")"
 cleanup() {
     rm -rf "$WORK_DIR"
-    # 失敗時に残りうる作業ディレクトリの掃除（正常終了時は既にリネーム済みで存在しない）。
-    rm -rf "$STAGING_DIR"
-    rm -rf "$BACKUP_DIR"
+    if [[ "$KEEP_WORK_DIRS_ON_FAILURE" -eq 0 ]]; then
+        # 失敗時に残りうる作業ディレクトリの掃除（正常終了時は既にリネーム済みで存在しない）。
+        rm -rf "$STAGING_DIR"
+        rm -rf "$BACKUP_DIR"
+    fi
 }
 trap cleanup EXIT
 
@@ -77,7 +87,13 @@ if ! cc -o "$PROBE_BIN" "$PROBE_SRC" -larchive 2>"$WORK_DIR/probe-compile.log"; 
     fail "実行時 libarchive のバージョン検出用プローブのビルドに失敗しました（-larchive でリンクできません）。"
 fi
 
-RUNTIME_VERSION="$("$PROBE_BIN")"
+
+# レビュー指摘（Minor）への対応: プローブはコンパイルできても実行時にクラッシュしうる。
+# 代入の右辺（コマンド置換）の失敗を明示的に検査して fail() 経由にしないと、
+# set -e がそのままスクリプトを打ち切り、日本語の説明メッセージが出ないまま終了してしまう。
+if ! RUNTIME_VERSION="$("$PROBE_BIN")"; then
+    fail "実行時 libarchive のバージョン検出用プローブの実行に失敗しました（ビルドには成功したが、実行時にエラー終了しました）。"
+fi
 if ! [[ "$RUNTIME_VERSION" =~ ^[0-9]+$ ]]; then
     fail "実行時バージョンの検出結果が数値ではありません: '$RUNTIME_VERSION'"
 fi
@@ -122,17 +138,44 @@ fi
 # ここまで来て初めて vendor/ を書き換える。既存 vendor/ を退避してから STAGING_DIR を
 # 一度の mv（= 同一ファイルシステム内なら atomic な rename）で vendor/ に据える。
 # 万一この配置自体が失敗しても、退避した既存 vendor/ を必ず元へ戻す。
+#
+# レビュー指摘（Critical）への対応: CARCHIVE_DIR への書き込みが恒常的に失敗する状況
+# （パーミッション喪失・ディスクフル等）では、配置の mv とロールバックの mv が
+# 「同じ理由で」両方失敗しうる。以前の実装はロールバックの mv の成否を確認せずに
+# 「復元しました」と表示していたため、両方失敗した場合に vendor/ が丸ごと消失した状態で
+# 復元成功を主張する、という最悪の経路があった（レビューがフォールトインジェクションで実証）。
+# 以下は各 mv の成否を個別に確認し、どの段階で何が起きたかを正直に報告する。
+# 復元できない状態に陥った場合は KEEP_WORK_DIRS_ON_FAILURE を立てて、cleanup が
+# STAGING_DIR/BACKUP_DIR（＝ヘッダの唯一のコピー）を削除しないようにする。
 rm -rf "$BACKUP_DIR"
+HAD_EXISTING_VENDOR=0
 if [[ -d "$VENDOR_DIR" ]]; then
-    mv "$VENDOR_DIR" "$BACKUP_DIR"
-fi
-if mv "$STAGING_DIR" "$VENDOR_DIR"; then
-    rm -rf "$BACKUP_DIR"
-else
-    if [[ -d "$BACKUP_DIR" ]]; then
-        mv "$BACKUP_DIR" "$VENDOR_DIR"
+    HAD_EXISTING_VENDOR=1
+    if ! mv "$VENDOR_DIR" "$BACKUP_DIR"; then
+        # 退避そのものが失敗＝vendor/ にはまだ触れていない。取得済みヘッダは STAGING_DIR に残す。
+        KEEP_WORK_DIRS_ON_FAILURE=1
+        fail "既存の vendor/ の退避に失敗しました（書き込み失敗）。vendor/ 自体は変更していません。取得済みのヘッダは ${STAGING_DIR} に残しています（${CARCHIVE_DIR} への書き込み権限・空き容量を確認したうえで、不要なら手動で削除してください）。"
     fi
-    fail "vendor/ への配置に失敗しました（書き込み失敗）。既存の vendor/ を復元しました。"
 fi
 
-echo "libarchive ${RUNTIME_TAG}（${RUNTIME_VERSION}）のヘッダを vendor/ に取得しました。"
+if mv "$STAGING_DIR" "$VENDOR_DIR"; then
+    # 新配置に成功。退避した旧 vendor はもう不要。
+    rm -rf "$BACKUP_DIR"
+    echo "libarchive ${RUNTIME_TAG}（${RUNTIME_VERSION}）のヘッダを vendor/ に取得しました。"
+    exit 0
+fi
+
+if [[ "$HAD_EXISTING_VENDOR" -eq 0 ]]; then
+    # 元々 vendor/ は存在しなかった。新規配置だけが失敗。
+    KEEP_WORK_DIRS_ON_FAILURE=1
+    fail "vendor/ への新ヘッダの配置に失敗しました（書き込み失敗）。vendor/ はもともと存在しませんでした。取得したヘッダは ${STAGING_DIR} に残しています（${CARCHIVE_DIR} への書き込み権限・空き容量を確認してください）。"
+fi
+
+if mv "$BACKUP_DIR" "$VENDOR_DIR"; then
+    fail "vendor/ への新ヘッダの配置に失敗しました（書き込み失敗）。既存の vendor/（旧バージョン）は復元しました。"
+else
+    # 配置とロールバックの両方が失敗＝同一ディレクトリへの書き込みが継続して失敗している。
+    # これ以上は自動復旧できないため、削除は一切行わず両方のコピーを手動復旧用に残す。
+    KEEP_WORK_DIRS_ON_FAILURE=1
+    fail "vendor/ への新ヘッダの配置と、既存 vendor/ の復元の両方に失敗しました（${CARCHIVE_DIR} への書き込みが継続して失敗しています）。自動復旧はできないため、削除は一切行っていません。次を手動で確認してください: 新しいヘッダ = ${STAGING_DIR} / 旧ヘッダ（退避済み） = ${BACKUP_DIR} 。書き込み権限・空き容量を確認したうえで、どちらかを ${VENDOR_DIR} へ配置し直してください。"
+fi
