@@ -147,6 +147,21 @@ enum IntegrityWindowLogic {
         return f.string(from: date)
     }
 
+    /// 「取得: HH:MM」用の時刻のみのフォーマット。
+    ///
+    /// fix round 5 (Minor, whole-branch review): 画面上のどこにもデータの鮮度を示す手掛かりが
+    /// 無かった。read/edit 接続が他の接続によるスキャン完了を静かに見ている間、「破損している
+    /// 本はありません。」も「最終検査: 不明」も**いつの時点の情報かを言わない**現在形の断言に
+    /// 見えてしまう。更新ボタンの隣にこの時刻を出すことで、「これは取得できた時点の情報」と
+    /// 明示する。
+    static func formattedTime(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ja_JP")
+        f.dateStyle = .none
+        f.timeStyle = .short
+        return f.string(from: date)
+    }
+
     /// スキャン完了後の 1 行メッセージ。中断か完走かで文言を変える。
     static func completionSummary(_ report: FullScanReport) -> String {
         if report.cancelled {
@@ -226,7 +241,7 @@ struct IntegrityWindowContainer: View {
             if let dataSource, let payload = readyPayload {
                 IntegrityCheckView(
                     bundleURL: payload.bundleURL, database: payload.database, appState: payload.appState,
-                    dataSource: dataSource)
+                    dataSource: dataSource, refreshDataSource: refreshRemoteDataSource)
             } else if notFound {
                 missingView
             } else {
@@ -237,6 +252,18 @@ struct IntegrityWindowContainer: View {
         // ローカルは同期解決だが、リモートは HTTP 呼び出しを伴いうるため `resolve()` 全体を
         // async にしてある（`RemoteLibraryWindowContainer` と同じ `.task { await resolve() }`）。
         .task { await resolve() }
+    }
+
+    /// fix round 5 (Critical, whole-branch review — 「shape 2」): `.remote` のときだけ、
+    /// 「更新」ボタンから呼べる再解決クロージャを渡す。`RemoteIntegrityDataSource` の
+    /// `liveState`（弱参照）がブラウズ窓のクローズで nil になった後は `tierResolutionFailed` で
+    /// 正直に「確認できない」と言うだけで、それ自体は直らない ―― **本当に直すには
+    /// `resolveRemoteDataSource` をもう一度呼び、新しい（生きている）state を掴み直す必要がある**。
+    /// これが無いと「更新を押してください」という案内が実際には何も直さない、
+    /// 同じ「指示に従っても直らない」欠陥の再演になる。
+    private var refreshRemoteDataSource: (@MainActor () async -> IntegrityDataSource?)? {
+        guard case .remote(let serverID, let libraryUUID) = ref else { return nil }
+        return { await Self.resolveRemoteDataSource(serverID: serverID, libraryUUID: libraryUUID, store: store) }
     }
 
     /// Phase G29 Task 3 review fix (Important 4): `body` 評価のたびに評価する computed property。
@@ -304,18 +331,30 @@ struct IntegrityWindowContainer: View {
 
     @MainActor
     private func resolveRemote(serverID: UUID, libraryUUID: String) async {
-        // review Critical 1 → fix round 4 (whole-branch review C1): まず、同じ庫を既に開いている
-        // ブラウズウィンドウの `RemoteLibraryState` を探す。見つかればその state を弱参照で
-        // `RemoteIntegrityDataSource` に渡す ―― `libraryToken`/`tier` を値としてコピーしない
-        // （fix round 3 まではここでスナップショットしていたため、解錠しても `/me` が完了しても
-        // 窓に反映されなかった）。メニュー項目は `\.remoteState` が非 nil のときしか開けない
-        // （`StackNestApp.swift`）ため、開いた瞬間は必ずこの state が生きている。
+        if let ds = await Self.resolveRemoteDataSource(serverID: serverID, libraryUUID: libraryUUID, store: store) {
+            dataSource = ds
+        } else {
+            notFound = true
+        }
+    }
+
+    /// fix round 4/5 (whole-branch review C1): `resolveRemote()` の中身を `self` への代入から
+    /// 切り離した版。初回解決にも「更新」ボタンからの再解決にも同じロジックを使う ――
+    /// 弱参照（`RemoteIntegrityDataSource.liveState`）が死んだ後も、更新を押せば
+    /// **本当に**回復できるようにするため（fix round 4 で「更新してください」と案内するように
+    /// なったが、その時点では再解決の仕組みが無く、案内どおりに押しても直らなかった＝再指摘）。
+    @MainActor
+    private static func resolveRemoteDataSource(
+        serverID: UUID, libraryUUID: String, store: ServerConnectionStore
+    ) async -> IntegrityDataSource? {
+        // review Critical 1 → fix round 4: まず、同じ庫を既に開いているブラウズウィンドウの
+        // `RemoteLibraryState` を探す。見つかればその state を弱参照で `RemoteIntegrityDataSource` に
+        // 渡す ―― `libraryToken`/`tier` を値としてコピーしない（fix round 3 まではここで
+        // スナップショットしていたため、解錠しても `/me` が完了しても窓に反映されなかった）。
         if let liveState = RemoteLibraryRegistry.shared.allObjects.first(where: {
             $0.serverID == serverID && $0.libraryUUID == libraryUUID
         }) {
-            dataSource = RemoteIntegrityDataSource(
-                client: liveState.client, libraryUUID: libraryUUID, liveState: liveState)
-            return
+            return RemoteIntegrityDataSource(client: liveState.client, libraryUUID: libraryUUID, liveState: liveState)
         }
         // フォールバック: `RemoteLibraryWindowContainer.resolve()` と同じ `ServerConnectionStore`
         // パターン（ブラウズウィンドウが無い状態で integrity ウィンドウだけが復元された場合等）。
@@ -323,8 +362,7 @@ struct IntegrityWindowContainer: View {
         // ―― `IntegrityCheckView.reload()` 側でエラー表示する。
         guard let conn = store.connection(id: serverID),
               let base = URL(string: conn.baseURL) else {
-            notFound = true
-            return
+            return nil
         }
         let client = RemoteLibraryClient(baseURL: base, deviceToken: conn.token)
         // `/me` はデバイストークンの tier（grant 由来）を返す。ライブラリの施錠状態とは無関係
@@ -333,7 +371,7 @@ struct IntegrityWindowContainer: View {
         // 「権限が無い」と「権限を確認できない」は原因が違うため、ビューに出す理由文言を分ける
         // （review Minor 4）。
         let meResult = try? await client.me(libraryToken: nil)
-        dataSource = RemoteIntegrityDataSource(
+        return RemoteIntegrityDataSource(
             client: client, libraryUUID: libraryUUID, libraryToken: nil,
             tier: meResult?.tier ?? .read, tierResolutionFailed: meResult == nil)
     }
@@ -351,10 +389,16 @@ struct IntegrityCheckView: View {
     /// `database == nil` を見て行メニューごと無効化する。
     let database: Database?
     var appState: AppState?
-    /// Phase G29 Task 1: 破損チェックウィンドウのデータ源。ローカル庫は `LocalIntegrityDataSource`
-    /// （DB と registry を直接触る、挙動不変の移設）。relink/delete/Finder 表示は引き続き
-    /// `database`/`bundleURL` を直接使う（このプロトコルのスコープ外）。
-    let dataSource: IntegrityDataSource
+    /// fix round 5 (Critical, whole-branch review): `let` から `@State var` にした。「更新」で
+    /// リモートのデータ源そのものを取り替えられるようにするため ―― `RemoteIntegrityDataSource` の
+    /// `liveState`（弱参照）が死んだ後は、同じインスタンスを読み直しても「確認できない」から
+    /// 抜け出せない。取り替えると、以後 `reload()`/`startObserving()` など `self.dataSource` を
+    /// 読むすべての箇所が `@State` の共有ストレージ経由で新しい値を見るようになる
+    /// （`pollTask` のクロージャも含む ―― 明示的な再起動は不要）。
+    @State private var dataSource: IntegrityDataSource
+    /// fix round 5: `.remote` のときのみ non-nil。「更新」がリモートのデータ源を再解決できるように
+    /// `IntegrityWindowContainer` から渡される（`.local` では re-resolve の概念が無いので nil）。
+    let refreshDataSource: (@MainActor () async -> IntegrityDataSource?)?
 
     @State private var summary = IntegritySummary(checked: 0, unchecked: 0, damaged: 0, degraded: 0)
     @State private var lastScanAt: Date?
@@ -394,14 +438,20 @@ struct IntegrityCheckView: View {
     /// 初期値は `init` で `dataSource` から同期的に読む（ネットワークを伴わない）。
     @State private var canStartScan: Bool
     @State private var scanUnavailableReason: String?
+    /// fix round 5 (Minor, whole-branch review): 最後に `reload()` が**成功**した時刻。
+    /// 失敗時は更新しない（画面上のデータは古い成功時点のものであり続けるため、
+    /// スタンプもそれに合わせて古いままにする）。
+    @State private var lastRefreshedAt: Date?
 
     /// `canStartScan`/`scanUnavailableReason` の初期値を `dataSource` から同期的に読むためだけの
     /// 明示的な `init`（`@State` の initial value は宣言時の定数式にできないため）。
-    init(bundleURL: URL?, database: Database?, appState: AppState? = nil, dataSource: IntegrityDataSource) {
+    init(bundleURL: URL?, database: Database?, appState: AppState? = nil, dataSource: IntegrityDataSource,
+         refreshDataSource: (@MainActor () async -> IntegrityDataSource?)? = nil) {
         self.bundleURL = bundleURL
         self.database = database
         self.appState = appState
-        self.dataSource = dataSource
+        _dataSource = State(initialValue: dataSource)
+        self.refreshDataSource = refreshDataSource
         _canStartScan = State(initialValue: dataSource.canStartScan)
         _scanUnavailableReason = State(initialValue: dataSource.scanUnavailableReason)
     }
@@ -415,10 +465,19 @@ struct IntegrityCheckView: View {
                 Text("蔵書ファイルの破損チェック")
                     .font(.title2.bold())
                 Spacer()
+                // fix round 5 (Minor, whole-branch review): データの鮮度を明示する。
+                // 「破損している本はありません。」等の現在形の表示が、実は数分前の取得結果である
+                // 可能性を隠さない。
+                if let lastRefreshedAt {
+                    Text("取得: \(IntegrityWindowLogic.formattedTime(lastRefreshedAt))")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 // fix round 4 (whole-branch review C1 / I2): 手動更新。施錠庫を解錠した後・
                 // 他の接続がスキャンを完了させた後に、この窓が自力で復帰する導線が無かった
                 // （閉じて開き直す以外に手段が無かった）。⌘R で `reload()` と権限表示の両方を
-                // 即座にやり直す。
+                // 即座にやり直す。fix round 5: リモートでは `refreshDataSource` があれば
+                // データ源そのものも取り替える（弱参照が死んでいた場合の**本当の**回復手段）。
                 Button {
                     refresh()
                 } label: {
@@ -648,15 +707,35 @@ struct IntegrityCheckView: View {
             IntegrityWindowLogic.remoteFailureMessage(
                 for: $0, context: "読み込みに失敗しました。")
         }
+        // fix round 5 (Minor): 成功時だけ鮮度スタンプを進める。失敗時は「画面上のデータは
+        // 直近の成功時点のまま」なので、スタンプもそのときのままにしておく。
+        if encounteredError == nil {
+            lastRefreshedAt = Date()
+        }
     }
 
-    /// fix round 4 (whole-branch review C1 / I2): 手動更新。`reload()` に加えて
-    /// `canStartScan`/`scanUnavailableReason` の `@State` コピーも同期的に更新する
-    /// （`dataSource` の tier は live-state 経由で既に最新なので、ここは読み直すだけでよい）。
+    /// fix round 4/5 (whole-branch review C1 / I2): 手動更新。
+    ///
+    /// - `refreshDataSource` があれば（＝リモート）まずデータ源そのものを取り替えを試みる。
+    ///   `RemoteIntegrityDataSource.liveState`（弱参照）がブラウズ窓のクローズで死んでいた場合、
+    ///   同じインスタンスをいくら読み直しても「確認できない」から抜け出せない ―― 取り替えて
+    ///   初めて、再び開かれたブラウズ窓の新しい state（or 新しい `/me` 解決）を掴める
+    ///   （fix round 4 では「更新してください」と案内するだけで、再解決の仕組みが無く
+    ///   指示どおり押しても直らなかった。review 再指摘）。取り替えに失敗（`nil`）した場合は
+    ///   今の `dataSource` のまま続行する（一時的な取得失敗の可能性があり、既存の状態を
+    ///   失わせたくない）。
+    /// - `canStartScan`/`scanUnavailableReason` の `@State` コピーを（新しい）`dataSource` から
+    ///   同期的に読み直す。
+    /// - 最後に `reload()`。
     private func refresh() {
-        canStartScan = dataSource.canStartScan
-        scanUnavailableReason = dataSource.scanUnavailableReason
-        Task { @MainActor in await reload() }
+        Task { @MainActor in
+            if let refreshDataSource, let fresh = await refreshDataSource() {
+                dataSource = fresh
+            }
+            canStartScan = dataSource.canStartScan
+            scanUnavailableReason = dataSource.scanUnavailableReason
+            await reload()
+        }
     }
 
     // MARK: - ジョブの観測（Fix2/Fix4）
@@ -697,9 +776,12 @@ struct IntegrityCheckView: View {
                     let status = try await dataSource.jobProgress()
                     jobStatus = status
                     progressErrorText = nil
-                    if status != nil {
-                        // ジョブが実際に走っていることが確認できた。「開始できませんでした」
-                        // という以前の警告があれば、もう正しくない（fix round 4, Minor）。
+                    // fix round 5 (Minor, review 再指摘): 「実行中のジョブがある」だけで clear
+                    // すると、無関係な他ジョブ（例: 表紙圧縮）が同じライブラリで走っているだけで
+                    // 本物の 403「スキャンを開始できませんでした。」まで消えてしまう。
+                    // 自分が起動しようとした full-scan だと確認できたときだけ clear する
+                    // （＝ユーザー自身のアクションの結果として消す。他人のジョブでは消さない）。
+                    if status?.isIntegrityFullScan == true {
                         scanErrorText = nil
                     }
                     if wasRunning, status == nil {

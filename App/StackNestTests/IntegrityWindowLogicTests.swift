@@ -202,6 +202,17 @@ struct IntegrityWindowLogicTests {
         #expect(text?.contains("最終検査: 不明") == true)
     }
 
+    // MARK: - formattedTime（fix round 5, Minor: 「取得: HH:MM」スタンプ）
+
+    @Test("formattedTime は日付を含まず時刻のみを返す（formattedDate との違い）")
+    func formattedTimeOmitsDate() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let time = IntegrityWindowLogic.formattedTime(date)
+        let full = IntegrityWindowLogic.formattedDate(date)
+        #expect(time != full)
+        #expect(full.contains(time), "formattedDate は時刻部分を含み、formattedTime はその時刻部分と一致するはず")
+    }
+
     // MARK: - completionSummary
 
     @Test("完走した場合は検査数と破損数を出す")
