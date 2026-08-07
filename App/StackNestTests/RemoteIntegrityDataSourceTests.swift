@@ -231,6 +231,25 @@ struct RemoteIntegrityDataSourceTests {
         #expect(source.scanUnavailableReason?.contains("確認できません") == true)
     }
 
+    /// fix round 6（whole-branch review NEW-4）: `liveStateDied` を `jobProgress()` へ伝えていないと、
+    /// **走行中のスキャンが黙って「完了」扱いになる**。
+    ///
+    /// 経路: live state が失われる → tier が未確認なのに `tier >= .admin` が false → nil を返す →
+    /// ビューは nil を「実行中でない」と読む → `wasRunning && status == nil` が完了分岐を発火。
+    /// 破損チェックウィンドウを独立させたのは**何時間も走るスキャン中に他の操作をするため**なので、
+    /// 「スキャン中に庫のウィンドウを閉じる」は例外的な操作ではなく想定された使い方である。
+    @Test("live-state が破棄されたら jobProgress は nil ではなく throw する（実行中を『完了』にしない）")
+    func liveStateDeallocationMakesJobProgressThrowRatherThanReportNotRunning() async {
+        var state: RemoteLibraryState? = makeLiveState()
+        state!.tier = .admin
+        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
+
+        state = nil   // スキャン実行中にブラウズ窓を閉じた状況。
+        await #expect(throws: RemoteIntegrityUnavailable.self) {
+            _ = try await source.jobProgress()
+        }
+    }
+
     // MARK: - supportsLastScanAt / idlePollIntervalNanoseconds（fix round 4, Important 1 / 3）
 
     @Test("リモートは lastScanAt を取得できない申告をする（『未検査』と『不明』を区別するため）")

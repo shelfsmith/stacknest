@@ -125,6 +125,11 @@ enum IntegrityWindowLogic {
         if case RemoteClientError.libraryLocked = error {
             return "この庫は施錠されています。庫のウィンドウで解錠してから「更新」を押してください。"
         }
+        // fix round 6 (whole-branch review NEW-4): 庫のウィンドウが閉じられて権限を確認できない状態。
+        // 「取得に失敗した」ではなく「聞きに行く前提が崩れている」ので、促す操作も再試行ではなく更新。
+        if case RemoteIntegrityUnavailable.permissionUnconfirmed = error {
+            return "庫のウィンドウが閉じられているため、状態を確認できません。庫を開き直してから「更新」を押してください。"
+        }
         return context
     }
 
