@@ -38,6 +38,15 @@ import LibraryServer
 /// `maintenanceEventFanout:` の両方にこのシングルトンを渡す ―― 1 つの registry を複数の
 /// core（それぞれ別の eventHub）が共有していても、fanout が「起動中の全 core」へ正しく
 /// 配り分ける。
+///
+/// 外部レビュー Low 是正（本ブランチ）: 上記の「どちらも両方渡す」は、この段落が書かれた
+/// 時点では `ServerController` にしか当てはまらない誤りだった ―― `LocalControlController` は
+/// `maintenanceRegistry:` だけ渡し `maintenanceEventFanout:` を渡していなかった。
+/// `LocalControlController` の `/events` には実購読者がいない（GUI 整合性ウィンドウ・CLI・MCP は
+/// いずれも `maintenance/status` のポーリングを使う）ため機能上の実害はなかったが、G27b Fix3 の
+/// 回帰（「動作を主張する誤ったコメントが、後日の配線ミスを『意図通り』に見せてしまう」）と
+/// 同種の火種だったため、コードをコメントに合わせて `LocalControlController` にも
+/// `maintenanceEventFanout:` を注入させた。これで上記の記述は文字どおり正しい。
 enum SharedMaintenanceRegistry {
     static let fanout = MaintenanceEventFanout()
     static let shared = MaintenanceJobRegistry(

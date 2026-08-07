@@ -58,4 +58,39 @@ struct SharedMaintenanceRegistryWiringTests {
     @Test @MainActor func bothControllersShareTheSameRegistryInstance() {
         #expect(ServerController.shared.maintenanceRegistry === LocalControlController.shared.maintenanceRegistry)
     }
+
+    // MARK: - 外部レビュー Low 是正の回帰テスト（`maintenanceEventFanout` の配線）
+
+    /// `SharedMaintenanceRegistry` のドキュメントコメントは「`ServerController`／
+    /// `LocalControlController` はどちらも `LibraryServerCore` 構築時に `maintenanceRegistry:` と
+    /// `maintenanceEventFanout:` の両方にこのシングルトンを渡す」と主張しているが、外部レビューが
+    /// 指摘した時点では `LocalControlController` だけが `maintenanceEventFanout:` を渡していなかった
+    /// ―― コメントが主張する挙動と実装が食い違ったまま放置される状態そのものが、G27b Fix3 で
+    /// 実際に起きた「進捗/完了 SSE が届かない」回帰の温床だった。以下は `maintenanceRegistry` の
+    /// 既存テストと同じ形（`start()`/`startIfEnabled()` が参照する名前付きプロパティの identity を
+    /// 見る）で `maintenanceEventFanout` 側も守る。
+
+    /// `SharedMaintenanceRegistry.fanout` はプロセス内で唯一のインスタンスであり続ける。
+    @Test func sharedFanoutIsStableAcrossReferences() {
+        #expect(SharedMaintenanceRegistry.fanout === SharedMaintenanceRegistry.fanout)
+    }
+
+    /// `LocalControlController.shared.maintenanceEventFanout` は `SharedMaintenanceRegistry.fanout`
+    /// そのものを指す（`startIfEnabled()` の `LibraryServerCore(...)` 呼び出しはこのプロパティを
+    /// 参照しているため、これが崩れれば実際の配線も崩れる）。
+    @Test @MainActor func localControlControllerInjectsSharedFanout() {
+        #expect(LocalControlController.shared.maintenanceEventFanout === SharedMaintenanceRegistry.fanout)
+    }
+
+    /// `ServerController.shared.maintenanceEventFanout` も同様。
+    @Test @MainActor func serverControllerInjectsSharedFanout() {
+        #expect(ServerController.shared.maintenanceEventFanout === SharedMaintenanceRegistry.fanout)
+    }
+
+    /// 両コントローラが同じ fanout インスタンスを共有していることの合成テスト ――
+    /// これが崩れると、片方の core（例えば `LocalControlController`）の eventHub へ進捗/完了
+    /// SSE が配信されなくなる（外部レビュー Low 指摘そのものの回帰）。
+    @Test @MainActor func bothControllersShareTheSameFanoutInstance() {
+        #expect(ServerController.shared.maintenanceEventFanout === LocalControlController.shared.maintenanceEventFanout)
+    }
 }

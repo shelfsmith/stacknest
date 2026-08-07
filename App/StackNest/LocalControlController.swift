@@ -36,6 +36,11 @@ final class LocalControlController {
     /// でも GUI からのスキャンは登録され、ボタンの busy 判定は機能する）。
     var maintenanceRegistry: MaintenanceJobRegistry { SharedMaintenanceRegistry.shared }
 
+    /// 外部レビュー Low 是正: `maintenanceRegistry` と同じ理由で名前付きプロパティとして
+    /// 引き上げる ―― `startIfEnabled()` 内の `LibraryServerCore(...)` 呼び出しがこれを参照する
+    /// ことで、実サーバを起動しないテストからも「fanout が本当に注入されているか」を検証できる。
+    var maintenanceEventFanout: MaintenanceEventFanout { SharedMaintenanceRegistry.fanout }
+
     func startIfEnabled() {
         guard ServerPreferences.localAutomationEnabled() else { return }
         guard !isRunning else { return }
@@ -101,8 +106,25 @@ final class LocalControlController {
             openLibrary: { url in try await Self.openLibrary(at: url) },
             closeLibrary: { uuid in try await Self.closeLibrary(uuid: uuid) }
         )
+        // 外部レビュー Low 指摘の是正: `SharedMaintenanceRegistry` のコメントは以前から
+        // 「`ServerController`／`LocalControlController` はどちらも `maintenanceRegistry:` と
+        // `maintenanceEventFanout:` の両方を注入する」と書いていたが、実際に両方注入していたのは
+        // `ServerController` だけで、ここ（`LocalControlController`）は `maintenanceEventFanout:`
+        // を渡していなかった。コメントが主張する挙動と実装が食い違ったまま放置される状態そのものが
+        // このブランチの最大の回帰（G27b Fix3 の「進捗/完了 SSE が届かない」バグ）を招いた原因なので、
+        // 実害が無いからと見送らず実装をコメントに合わせる。
+        //
+        // 安全性: このコアの `/events` を購読するクライアントは存在しない（ローカル制御の整合性
+        // ウィンドウ・CLI・MCP はいずれも `maintenance/status` のポーリングで進捗を見ており、
+        // `RemoteLibraryState` のような SSE 購読者はローカル制御には無い）。`EventHub.publish`
+        // （`Sources/LibraryServer/EventHub.swift`）は `subscribers` 辞書を走査して該当者にだけ
+        // yield するだけで、購読者が 0 件なら for ループは何もせず、バッファリングも保持も一切
+        // 行わない ―― 購読されない publish は文字どおりの no-op である。よって
+        // `maintenanceEventFanout` を注入しても、このコアの eventHub 経由でイベントが漏れる・
+        // 蓄積する副作用は生じない。
         let core = LibraryServerCore(config: config, dataSource: AllOpenLibrariesDataSource(),
-                                     maintenanceRegistry: maintenanceRegistry)
+                                     maintenanceRegistry: maintenanceRegistry,
+                                     maintenanceEventFanout: maintenanceEventFanout)
         let app = core.buildApplication()
         isRunning = true
         serverTask = Task {

@@ -41,6 +41,11 @@ final class ServerController {
     /// を直接検証できるようにするため（`App/StackNestTests/SharedMaintenanceRegistryTests.swift`）。
     var maintenanceRegistry: MaintenanceJobRegistry { SharedMaintenanceRegistry.shared }
 
+    /// 外部レビュー Low 是正: `maintenanceRegistry` と同じ理由で名前付きプロパティとして
+    /// 引き上げる ―― `start()` 内の `LibraryServerCore(...)` 呼び出しがこれを参照することで、
+    /// 実サーバを起動しないテストからも「fanout が本当に注入されているか」を検証できる。
+    var maintenanceEventFanout: MaintenanceEventFanout { SharedMaintenanceRegistry.fanout }
+
     func start() {
         guard !isRunning else { return }
         lastError = nil
@@ -137,7 +142,7 @@ final class ServerController {
         // の eventHub へ進捗/完了 SSE が一切配信されない回帰になる。
         let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource(),
                                      maintenanceRegistry: maintenanceRegistry,
-                                     maintenanceEventFanout: SharedMaintenanceRegistry.fanout)
+                                     maintenanceEventFanout: maintenanceEventFanout)
         self.runningCore = core
         let app = core.buildApplication()
         isRunning = true
