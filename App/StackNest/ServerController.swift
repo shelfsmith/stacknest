@@ -29,6 +29,18 @@ final class ServerController {
     // C-③b-2: R/RW トークンの UI・専用メソッドを退役し共有トークンに一本化したため、
     // 旧 `token`/`editToken` 公開プロパティは撤去（config への注入は ServerPreferences を直接参照）。
 
+    /// Codex 事前レビュー Blocker2: 共有ネットワークサーバが `LibraryServerCore` へ注入する
+    /// メンテナンスジョブ registry。`LocalControlController.maintenanceRegistry` と同じ
+    /// `SharedMaintenanceRegistry.shared` を指すことで、ローカル制御と共有サーバの busy 判定を
+    /// 単一の場所に統一する（詳細は `SharedMaintenanceRegistry` のコメント参照）。
+    ///
+    /// 元々は `start()` 内の `LibraryServerCore(...)` 呼び出しに直書きしていた式をここへ
+    /// 名前付きプロパティとして引き上げた ―― 実サーバを起動しない（＝ App test target に
+    /// `HummingbirdTesting` を追加しない）テストからも、この配線が壊れていないこと
+    /// （`ServerController`/`LocalControlController` が本当に同一インスタンスを注入しているか）
+    /// を直接検証できるようにするため（`App/StackNestTests/SharedMaintenanceRegistryTests.swift`）。
+    var maintenanceRegistry: MaintenanceJobRegistry { SharedMaintenanceRegistry.shared }
+
     func start() {
         guard !isRunning else { return }
         lastError = nil
@@ -114,7 +126,14 @@ final class ServerController {
             },
             sweepRuntimeTempOnStartup: true  // G21 #6-2: 実サーバ起動経路のみ古い temp を掃除
         )
-        let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource())
+        // Codex 事前レビュー Blocker2: `maintenanceRegistry` を明示的に注入しないと
+        // `LibraryServerCore` が自前で別インスタンスを作ってしまい、`LocalControlController`
+        // （CLI/MCP・GUI 整合性チェックウィンドウ）と busy 判定が割れる ―― 同じライブラリに
+        // 対して共有サーバ経由とローカル経由の 2 本のフルスキャンが並走できてしまい、
+        // 一方が確定させた `damaged` を他方の遅れた `ok` が上書きしうる（詳細は
+        // `SharedMaintenanceRegistry` のコメント参照）。
+        let core = LibraryServerCore(config: config, dataSource: AppStateLibraryDataSource(),
+                                     maintenanceRegistry: maintenanceRegistry)
         self.runningCore = core
         let app = core.buildApplication()
         isRunning = true
