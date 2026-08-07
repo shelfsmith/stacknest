@@ -1,10 +1,20 @@
 #ifndef CARCHIVE_H
 #define CARCHIVE_H
 
-// Use Homebrew headers for compilation (archive.h is not in Apple SDK),
-// but let the linker use the SDK's universal libarchive.tbd so that
-// Universal (arm64 + x86_64) builds work on any Mac.
-#if __has_include("/opt/homebrew/opt/libarchive/include/archive.h")
+// Apple's macOS SDK ships the libarchive dylib and a .tbd stub, but does NOT
+// ship archive.h — so compilation needs headers from somewhere else, while
+// the linker still targets the SDK's universal libarchive.tbd (declared in
+// module.modulemap) so Universal (arm64 + x86_64) builds work on any Mac.
+//
+// G28: prefer headers fetched by Scripts/fetch-libarchive-headers.sh, which
+// match the exact version of Apple's runtime dylib (avoids header/runtime
+// version drift — see Tests/ArchiveAdapterTests/LibarchiveVersionTests.swift).
+// These are gitignored; a machine that hasn't run the script falls back to
+// the pre-existing Homebrew/system search order unchanged.
+#if __has_include("vendor/archive.h")
+  #include "vendor/archive.h"
+  #include "vendor/archive_entry.h"
+#elif __has_include("/opt/homebrew/opt/libarchive/include/archive.h")
   // Apple Silicon Homebrew prefix
   #include "/opt/homebrew/opt/libarchive/include/archive.h"
   #include "/opt/homebrew/opt/libarchive/include/archive_entry.h"
