@@ -29,6 +29,12 @@ jobs:
       - name: Install libarchive (Phase 2.5b ArchiveAdapter build-time headers)
         run: brew install libarchive
 
+      # G28/G30: コンパイルに使うヘッダを、実行時にリンクされる Apple 版と同じバージョンへ揃える。
+      # 新規クローンには vendor/ が無い（.gitignore 済）ため、これを飛ばすと Homebrew のヘッダで
+      # コンパイルされ、LibarchiveVersionTests が**設計どおり失敗する**（未取得を知らせるのが目的）。
+      - name: Fetch libarchive headers matching the runtime library
+        run: ./Scripts/fetch-libarchive-headers.sh
+
       - name: Resolve dependencies
         run: swift package resolve
 
@@ -46,6 +52,11 @@ jobs:
 
       - name: Install dependencies (xcodegen + libarchive)
         run: brew install xcodegen libarchive
+
+      # G28/G30: 上の test ジョブと同じ理由。App 層のテストにも版一致テストがあり
+      # （`swift test` は App ターゲットを見ないため別途必要）、vendor/ が無いと失敗する。
+      - name: Fetch libarchive headers matching the runtime library
+        run: ./Scripts/fetch-libarchive-headers.sh
 
       - name: Generate Xcode project
         run: xcodegen generate --spec App/project.yml --use-cache
