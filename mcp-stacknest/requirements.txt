@@ -1,5 +1,7 @@
-# Upper bound is deliberate: mcp 2.0 removed mcp.server.fastmcp.FastMCP, which
-# server.py imports directly. An unbounded ">=1.2" is what let pip silently
-# pull 2.0.0 and break the MCP server on import (2026-08-08 recovery). Do not
-# remove this bound without first migrating server.py off FastMCP.
-mcp>=1.2,<2
+# Upper bound is deliberate, and stays deliberate. An unbounded ">=1.2" is what
+# let 2.0.0 arrive on its own and break the server on import - mcp 2.0 removed
+# mcp.server.fastmcp.FastMCP (2026-08-08). server.py now uses the 2.x successor
+# mcp.server.mcpserver.MCPServer, so the bound moves rather than disappears:
+# the point of a bound is to make a major upgrade a decision, not an accident.
+# Do not remove it. Raise it only after checking server.py against the new API.
+mcp>=2,<3
