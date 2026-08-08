@@ -92,29 +92,58 @@ struct RemoteIntegrityDataSourceTests {
     // MARK: - mapProgress（MaintenanceStatusReply → IntegrityJobProgress?）
 
     @Test("running: false は nil に写る")
-    func mapProgressNotRunningIsNil() {
+    func mapProgressNotRunningIsNil() throws {
         let reply = MaintenanceStatusReply(running: false)
-        #expect(RemoteIntegrityDataSource.mapProgress(reply) == nil)
+        #expect(try RemoteIntegrityDataSource.mapProgress(reply) == nil)
     }
 
     @Test("running: true で done/total が入っていれば IntegrityJobProgress を返す")
-    func mapProgressRunningWithCountsMapsThrough() {
+    func mapProgressRunningWithCountsMapsThrough() throws {
         let reply = MaintenanceStatusReply(running: true, job: "full-scan", done: 3, total: 10)
-        let progress = RemoteIntegrityDataSource.mapProgress(reply)
+        let progress = try RemoteIntegrityDataSource.mapProgress(reply)
         #expect(progress == IntegrityJobProgress(job: "full-scan", done: 3, total: 10))
         #expect(progress?.isIntegrityFullScan == true)
     }
 
-    /// `job` が欠けたときのフォールバックは空文字ではなく `"unknown"`。
-    /// 空文字だと「他のメンテナンス処理を実行中です（）」という中身の無い表示になり、
-    /// **ジョブ名が取れなかったのか、そういう名前なのかが区別できない**（whole-branch review Minor）。
-    /// `isIntegrityFullScan` の判定はどちらでも false なので、挙動ではなく表示のための選択。
-    @Test("running: true でも job/done/total が欠けていれば既定値で返す（クラッシュしない）")
-    func mapProgressRunningWithMissingFieldsDefaultsToZero() {
-        let reply = MaintenanceStatusReply(running: true)
-        let progress = RemoteIntegrityDataSource.mapProgress(reply)
-        #expect(progress == IntegrityJobProgress(job: "unknown", done: 0, total: 0))
-        #expect(progress?.isIntegrityFullScan == false)
+    /// ★ Codex レビュー(Important) で挙動を変えた箇所。
+    ///
+    /// 以前は欠けたフィールドを `"unknown"` / `0` で埋めており、**「サーバが進捗を教えなかった」を
+    /// 「確かに 0/0 進んでいる」という確定値に化けさせて**いた ―― 本ブランチが 8 件潰してきたのと
+    /// 同じ型の欠陥で、しかも**このテスト自身がその挙動を固定していた**。
+    /// 埋めずに投げ、呼び出し側の既存機構（凍結＋エラー表示）に載せる。
+    @Test("running: true なのに job/done/total が欠けていれば投げる（0 埋めしない）")
+    func mapProgressRunningWithMissingFieldsThrows() {
+        #expect(throws: RemoteIntegrityUnavailable.self) {
+            _ = try RemoteIntegrityDataSource.mapProgress(MaintenanceStatusReply(running: true))
+        }
+        // 一部だけ欠けている場合も同じ（done だけ来て total が無い等）。
+        #expect(throws: RemoteIntegrityUnavailable.self) {
+            _ = try RemoteIntegrityDataSource.mapProgress(
+                MaintenanceStatusReply(running: true, job: "full-scan", done: 3))
+        }
+    }
+
+    /// Codex レビュー(Important): 復号は「キー欠落」と「値が null」を区別するのに、
+    /// **符号化が常にキーを出していた**ため、復号→再符号化で「旧サーバは知らない」が
+    /// 「答えたうえで未検査」に変わってしまっていた。両方向で成立させる。
+    @Test("旧サーバの応答は復号→再符号化してもキーが復活しない")
+    func oldServerSilenceSurvivesRoundTrip() throws {
+        let oldJSON = Data(#"{"checked":1,"unchecked":2,"damaged":3,"degraded":0}"#.utf8)
+        let decoded = try JSONDecoder().decode(IntegritySummaryReply.self, from: oldJSON)
+        #expect(decoded.lastScanAtKnown == false)
+
+        let reencoded = try JSONEncoder().encode(decoded)
+        let obj = try JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
+        // キーごと消えていること（null で出ると「未検査」の意味になってしまう）。
+        #expect(obj?.keys.contains("lastScanAt") == false)
+
+        // 新サーバの「答えたうえで未検査」は null として往復すること。
+        let newJSON = Data(#"{"checked":1,"unchecked":2,"damaged":3,"degraded":0,"lastScanAt":null}"#.utf8)
+        let decodedNew = try JSONDecoder().decode(IntegritySummaryReply.self, from: newJSON)
+        #expect(decodedNew.lastScanAtKnown == true)
+        let obj2 = try JSONSerialization.jsonObject(
+            with: try JSONEncoder().encode(decodedNew)) as? [String: Any]
+        #expect(obj2?.keys.contains("lastScanAt") == true)
     }
 
     // MARK: - tier ゲート（canStartScan / scanUnavailableReason）

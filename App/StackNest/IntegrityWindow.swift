@@ -130,6 +130,11 @@ enum IntegrityWindowLogic {
         if case RemoteIntegrityUnavailable.permissionUnconfirmed = error {
             return "庫のウィンドウが閉じられているため、状態を確認できません。庫を開き直してから「更新」を押してください。"
         }
+        // Codex レビュー(Important): サーバが running=true と言いながら進捗の内訳を返さなかった。
+        // 0/0 を確定値として描かず、取得できなかったことをそのまま言う。
+        if case RemoteIntegrityUnavailable.progressIncomplete = error {
+            return "サーバが進捗の内訳を返しませんでした。"
+        }
         return context
     }
 
