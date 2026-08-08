@@ -249,6 +249,10 @@ enum RemoteIntegrityUnavailable: Error {
     /// 庫のウィンドウが閉じられ、権限を確認する術が無くなった状態。
     /// **確認できないことを「権限が無い」「実行中でない」に化けさせないため**に投げる。
     case permissionUnconfirmed
+    /// `running: true` なのに `job`/`done`/`total` が揃っていない応答。
+    /// **欠けた値を 0 で埋めると「確かに 0/0 進んでいる」という確定値になってしまう**ので投げる
+    /// （Codex レビュー Important）。
+    case progressIncomplete
 }
 
 /// リモート庫の `IntegrityDataSource` 実装。`RemoteLibraryClient`（Task 2 で追加した 4 メソッド＋
@@ -436,7 +440,7 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
         guard !liveStateDied else { throw RemoteIntegrityUnavailable.permissionUnconfirmed }
         guard tier >= .admin else { return nil }
         let reply = try await client.fetchMaintenanceStatus(libraryUUID: libraryUUID, libraryToken: libraryToken)
-        return Self.mapProgress(reply)
+        return try Self.mapProgress(reply)
     }
 
     /// リモートには「自分がこのタブで開始したジョブの詳細レポートを取り出す」箱が無い
@@ -501,13 +505,20 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
 
     /// `MaintenanceStatusReply` → `IntegrityJobProgress?` の写像。`running == false` は nil。
     ///
-    /// review Minor 9: `job` は running=true なら現行サーバが必ず入れるため到達不能だが、
-    /// 万一 nil で来た場合に空文字だと「他のメンテナンス処理を実行中です（）」という
-    /// 中身の無い表示になる。`"unknown"` にして、少なくとも「ジョブ名が取れなかった」と
-    /// 分かる形にしておく。
-    static func mapProgress(_ reply: MaintenanceStatusReply) -> IntegrityJobProgress? {
+    /// Codex レビュー(Important): 以前は欠けたフィールドを `"unknown"` / `0` で埋めていたが、
+    /// それは**「サーバが進捗を教えてくれなかった」を「確かに 0/0 進んでいる」に化けさせる**もので、
+    /// 本ブランチが 8 件潰してきたのと同じ型の欠陥だった（しかもテストがその挙動を固定していた）。
+    ///
+    /// 現行サーバは running=true なら 3 つとも必ず入れる（`LibraryServerCore.swift:1540-1542`）が、
+    /// DTO 上は optional なので、非互換なサーバ・欠落した応答はここへ到達しうる。
+    /// **埋めずに投げる。** 呼び出し側（`startObserving`）の catch が既存の機構で
+    /// `jobStatus` を凍結し「進捗を取得できません。」を出す ―― 0/0 を確定値として描くより正直。
+    static func mapProgress(_ reply: MaintenanceStatusReply) throws -> IntegrityJobProgress? {
         guard reply.running else { return nil }
-        return IntegrityJobProgress(job: reply.job ?? "unknown", done: reply.done ?? 0, total: reply.total ?? 0)
+        guard let job = reply.job, let done = reply.done, let total = reply.total else {
+            throw RemoteIntegrityUnavailable.progressIncomplete
+        }
+        return IntegrityJobProgress(job: job, done: done, total: total)
     }
 }
 

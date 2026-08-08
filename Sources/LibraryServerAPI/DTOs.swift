@@ -731,10 +731,21 @@ public struct IntegritySummaryReply: Codable, Sendable {
         try c.encode(unchecked, forKey: .unchecked)
         try c.encode(damaged, forKey: .damaged)
         try c.encode(degraded, forKey: .degraded)
-        // `encodeIfPresent` だと nil のときキーごと省略され、旧サーバの沈黙と区別が付かなくなる。
-        // `Optional<Int64>` の `Encodable` 適合は nil を「キーは送るが値が null」として符号化する
-        // （`encodeIfPresent` の「キーごと省く」とは異なる）ので、ここは意図的に `encode` を使う。
-        try c.encode(lastScanAt, forKey: .lastScanAt)
+        // Codex レビュー(Important): 復号は「キーが無い＝旧サーバが知らない」と
+        // 「キーはあるが null＝新サーバが答えたうえで未検査」を区別しているのに、
+        // 符号化が `lastScanAtKnown` を無視して常にキーを出していた。
+        // そのため**旧サーバの応答を復号して再符号化すると、意味が「未検査」に変わる**
+        // （プロキシ・キャッシュ・フィクスチャ等、復号→再符号化を挟む経路で壊れる）。
+        // 直接の表示経路は再符号化しないので実害は出ていなかったが、
+        // 型が主張している区別が片方向でしか成立していないのは、まさに本ブランチが
+        // 繰り返し潰してきた「知らないことを、知っている値の顔にする」欠陥である。
+        //
+        // 「知っている」ときだけキーを出す。`encodeIfPresent` ではなく `encode` を使うのは、
+        // `Optional<Int64>` の `Encodable` 適合が nil を「キーはあるが値は null」として
+        // 符号化するため ―― 「答えたうえで未検査」を表現するのに必要。
+        if lastScanAtKnown {
+            try c.encode(lastScanAt, forKey: .lastScanAt)
+        }
     }
 }
 
