@@ -7,9 +7,11 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
-## [0.12.0] - Unreleased — Share-token permissions, CLI / MCP automation, remote-operation wrap-up, rendering performance, and security (Phases 4.2d–4.2f, C, G3, G4, G12b, G15–G22)
+## [0.12.0] - 2026-08-08 — Share-token permissions, CLI / MCP automation, remote-operation wrap-up, rendering performance, and security (Phases 4.2d–4.2f, C, G3, G4, G12b, G15–G22, G27, G29)
 
 > Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07) / `v0.12.0-rc.2` (2026-07-18) / `v0.12.0-rc.3` (2026-07-25). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, setting an external image as a book's cover, plus a remote-parity wrap-up (watch-folder tab, admin maintenance, undo/redo) and built-in viewer stabilization.
+>
+> **Added since rc.3:** the **file damage check** (dedicated window / CLI / MCP, usable over a remote connection) and a **security fix to library locks** — changing one now requires the current password too. If you use locks, updating from rc.3 or earlier is recommended (see Security below).
 >
 > **New in rc.3 (2026-07-25):** page turning in the built-in viewer is now tuned per CPU architecture (fixing pages that would not advance at all on Intel, and stalls a few pages in on Apple Silicon), web reader feel (drag-to-turn, spatial navigation), a subfolder import mode for watch folders, per-book cover regeneration, progress and cancellation for remote deletes, and **security hardening for the server and remote connections**. If you share libraries with anyone, updating from rc.2 or earlier is recommended (see "Security" below).
 
