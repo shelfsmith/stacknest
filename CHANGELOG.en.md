@@ -70,6 +70,14 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 **Remote operation (G22)**
 - **Progress and cancellation for remote deletes**: deleting several books remotely now shows a progress bar and can be stopped partway (cancelling stops the remaining unprocessed items).
 
+**Book file damage check (G27 / G29)**
+- **File damage check**: inspects whether your archives are still intact. File ▸ "ファイルの破損チェック…" opens a dedicated window offering three modes — scan unchecked, rescan everything, recheck damaged only. Results are recorded per book, and books that **were fine last time but are damaged now are listed first**.
+- Two levels. The **quick check** looks at whether the file exists, its size, and whether it opens. The **full (CRC) check** reads every entry and verifies its CRC, which is conclusive but can take hours to tens of hours on a large library — it can be **interrupted at any time, and results so far are kept**.
+- Covers `.zip` / `.cbz` / `.rar` / `.cbr` / `.7z` and single images. Folders, videos and PDF/EPUB carry no CRC and are recorded as out of scope.
+- **Works over a remote connection too** (G29): the same window opens against a remote library from another Mac, for viewing, starting and cancelling scans. Because the job can run for many hours, **starting one requires an admin token** — the menu item is enabled only when the library is unlocked and the connection is admin.
+- **Available from the CLI and MCP**: `stacknest-cli integrity scan / status / list / full-scan / job-status / cancel`.
+- The window is independent, so a running scan blocks neither other work nor quitting the app.
+
 ### Changed
 - **Unified to share tokens**: the old "access / edit token" UI is folded into the share-token list; user-facing wording standardized to "share token".
 - **Local-access settings moved to app settings**: the local-control (CLI / MCP) settings moved out of the sharing window into an app-settings tab, renamed "Local access".
@@ -81,6 +89,9 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 - **Single-pass archive reads (G18 / G19)**: instead of reopening the archive and scanning from the start for every page, the reader now keeps it open and moves forward through it. The benefit grows with page count.
 - **Faster remote page cache (G17)**: reworked how the cache database writes, and access times are now updated in batches.
 - **Unified viewer terminology (G17)**: cleaned up inconsistent wording in 118 places.
+
+- **Renamed two menu items that were both called "整合性チェック"** (G29). The File menu is now **"ファイルの破損チェック…"** (inspects the contents of your book archives) and the library settings button is **"データベースを検査"** (inspects the library's own database). The name now says what is being inspected.
+- Reason strings for damaged entries are shown in Japanese (G31). Names of the files that were damaged are shown unchanged.
 
 ### Fixed
 - **Stale remote covers**: after replacing a cover remotely, the editing detail pane or another viewing client could keep showing the old cover — fixed (bypass the cover fetch's HTTP cache [`immutable`] on replace / version-key the cover cache by server token / host reflects per-book).
@@ -134,6 +145,8 @@ Fixed vulnerabilities in the server and remote connections. All of them **matter
 - **Stopped following HTTP redirects on remote connections**, preventing credentials from being forwarded.
 - **Reduced unnecessary exposure of the share token** when copying it.
 - **Added a response-size cap** on the client so an oversized response cannot exhaust memory.
+- **Fixed removing a library lock requiring the current password while changing it did not** (G27a). Left unlocked and unattended, a third party could overwrite the password and take the library over. **When a lock already exists, both changing and removing it now require the current password** (setting one where none exists is unchanged). The HTTP routes follow the same rule; previously they were gated only by admin, looser than the GUI.
+- **Fixed lock changes verifying the current password and then writing unconditionally** (G27a). Nothing tied the write to the value that had been verified, so a stale write could land on top of a legitimate concurrent change. The write now happens only if the value still matches what was verified.
 - Sort column names are now validated against an internal allowlist.
 
 ## [0.11.0] - Unreleased — Remote sharing / native client / offline / remote editing (Phase 4.2)
