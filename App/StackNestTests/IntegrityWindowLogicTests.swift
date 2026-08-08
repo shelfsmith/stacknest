@@ -92,6 +92,24 @@ struct IntegrityWindowLogicTests {
         #expect(text == nil)
     }
 
+    /// **★ Codex レビュー(Medium) を受けて追加（G31）。**
+    ///
+    /// 既存のテストは「初回失敗＝件数が全 0」のケースしか縛っていなかったが、
+    /// **一度読み込みに成功したあとで失敗した場合は、`summary` に前回の実数が残る**
+    /// （`reload()` のフォールバック規律: 失敗時は前回値を保持する）。
+    /// その状態で要約行を描くと「破損 3 冊」という**取得できていない時点の数字を、
+    /// 現在の事実として**出すことになる ―― 0 件を偽装するのと同じ型の誤り。
+    /// 失敗時は件数の中身によらず一切描かない、を縛る。
+    @Test("読み込みエラーがあれば、前回値の実数が残っていても nil を返す（古い数字を現在として描かない）")
+    func summaryLineTextSuppressedEvenWhenStaleCountsAreNonZero() {
+        // 直前の成功で得ていた実数がそのまま残っている状況。
+        let staleSummary = IntegritySummary(checked: 120, unchecked: 5, damaged: 3, degraded: 1)
+        let text = IntegrityWindowLogic.summaryLineText(
+            summary: staleSummary, lastScanAt: Date(timeIntervalSince1970: 1_700_000_000),
+            loadErrorText: "読み込みに失敗しました。")
+        #expect(text == nil)
+    }
+
     // MARK: - remoteFailureMessage（Phase G29 Task 3 fix round 2: reload/startScan/jobProgress 共通）
 
     @Test("libraryLocked は専用の文言になる（呼び出し側の context は使われない）")
