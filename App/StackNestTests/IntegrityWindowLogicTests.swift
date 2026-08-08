@@ -255,7 +255,7 @@ struct IntegrityWindowLogicTests {
     func localLibraryAlwaysEnabled() {
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(hasLocalLibrary: true, remote: nil) == true)
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
-            hasLocalLibrary: true, remote: (locked: true, tier: .read)) == true)
+            hasLocalLibrary: true, remote: (lockedOut: true, tier: .read)) == true)
     }
 
     @Test("ローカルもリモートも無ければ無効")
@@ -263,24 +263,49 @@ struct IntegrityWindowLogicTests {
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(hasLocalLibrary: false, remote: nil) == false)
     }
 
+    /// ★ 2026-08-08 レビュー(Critical) の再発防止。
+    ///
+    /// 当初この節は `canOpenIntegrityCheckWindow` だけをテストしており、**呼び出し側が
+    /// `RemoteLibraryState.locked` をそのまま渡している誤りを素通りさせた**。
+    /// `locked` は「パスワードが設定されている」であって「今ロックアウトされている」ではないため、
+    /// パスワード付きの庫は解錠後も永久にグレーアウトしていた ―― 解錠→更新の復帰経路を
+    /// わざわざ作った、まさにその庫で。**判定の一部だけをテストしても、
+    /// テストされていない側に誤りが移るだけ**なので、導出そのものもここで縛る。
+    @Test("locked は『パスワードあり』であって『ロックアウト中』ではない（解錠後は開けること）")
+    func lockedOutDerivationDistinguishesPasswordProtectedFromLockedOut() {
+        // 解錠フォームが出ている＝ロックアウト中。
+        #expect(IntegrityWindowLogic.remoteLockedOut(locked: true, libraryToken: nil) == true)
+        // ★ パスワード付きだが解錠済み。ここが false にならないと、施錠庫は解錠しても開けない。
+        #expect(IntegrityWindowLogic.remoteLockedOut(locked: true, libraryToken: "token") == false)
+        // パスワード無し。
+        #expect(IntegrityWindowLogic.remoteLockedOut(locked: false, libraryToken: nil) == false)
+    }
+
+    @Test("解錠済みのパスワード付き庫は admin なら開ける（呼び出し側の導出と合成して確認）")
+    func unlockedPasswordProtectedAdminCanOpen() {
+        let lockedOut = IntegrityWindowLogic.remoteLockedOut(locked: true, libraryToken: "token")
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+            hasLocalLibrary: false, remote: (lockedOut: lockedOut, tier: .admin)) == true)
+    }
+
     @Test("施錠中のリモートは admin でも無効（隣の『重複を検出…』と同じくグレーアウト）")
     func lockedRemoteIsDisabledEvenWithAdminTier() {
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
-            hasLocalLibrary: false, remote: (locked: true, tier: .admin)) == false)
+            hasLocalLibrary: false, remote: (lockedOut: true, tier: .admin)) == false)
     }
 
     @Test("解錠済みでも read/edit は無効（full-scan が admin 専用のため閲覧専用モードは提供しない）")
     func unlockedButBelowAdminIsDisabled() {
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
-            hasLocalLibrary: false, remote: (locked: false, tier: .read)) == false)
+            hasLocalLibrary: false, remote: (lockedOut: false, tier: .read)) == false)
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
-            hasLocalLibrary: false, remote: (locked: false, tier: .edit)) == false)
+            hasLocalLibrary: false, remote: (lockedOut: false, tier: .edit)) == false)
     }
 
     @Test("解錠済み・admin のときだけリモートが有効になる")
     func unlockedAdminIsEnabled() {
         #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
-            hasLocalLibrary: false, remote: (locked: false, tier: .admin)) == true)
+            hasLocalLibrary: false, remote: (lockedOut: false, tier: .admin)) == true)
     }
 
     // MARK: - sortedForDisplay（劣化を先頭に）

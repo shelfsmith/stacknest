@@ -885,9 +885,18 @@ struct FileCommands: Commands {
                         serverID: remoteState.serverID, libraryUUID: remoteState.libraryUUID))
                 }
             }
+            // 2026-08-08 smoke fix レビュー(Critical): `state.locked` は「パスワードが設定されている」
+            // であって「今ロックアウトされている」ではない（`unlock(password:)` は `libraryToken` を
+            // 入れるだけで `locked` を落とさない）。そのまま渡すと**パスワード付きの庫では解錠後も
+            // 永久にグレーアウト**する ―― 解錠→更新の復帰経路をわざわざ作った、まさにその庫で。
+            // アプリ全体の「ロックアウト中」の表現（`RemoteLibraryView.isUnlockFormShown`）と同じ式に揃える。
             .disabled(!IntegrityWindowLogic.canOpenIntegrityCheckWindow(
                 hasLocalLibrary: appState != nil,
-                remote: remoteState.map { (locked: $0.locked, tier: $0.tier) }))
+                remote: remoteState.map {
+                    (lockedOut: IntegrityWindowLogic.remoteLockedOut(
+                        locked: $0.locked, libraryToken: $0.libraryToken),
+                     tier: $0.tier)
+                }))
 
             // G12b-2 smoke: 「重複を検出…」は表示メニューではなく File メニューの
             // 「リンク切れを検出…」の下が適切（ユーザー要望）。gate はローカル/リモート共通の

@@ -816,7 +816,7 @@ struct Integrity: ParsableCommand {
     // 「蔵書ファイルの破損チェック」に改名済み（2026-08-08 smoke フィードバックでさらに
     // 「ファイルの破損チェック」へ短縮）。CLI の abstract だけ旧語彙「整合性」が残っていた。
     static let configuration = CommandConfiguration(
-        commandName: "integrity", abstract: "蔵書ファイルの破損を検査する",
+        commandName: "integrity", abstract: "ファイルの破損を検査する",
         subcommands: [IntegrityScanCmd.self, IntegrityStatusCmd.self, IntegrityListCmd.self,
                       IntegrityFullScanCmd.self, IntegrityJobStatusCmd.self, IntegrityCancelCmd.self])
 }

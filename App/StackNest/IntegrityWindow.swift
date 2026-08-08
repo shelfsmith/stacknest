@@ -196,10 +196,29 @@ enum IntegrityWindowLogic {
     /// ウィンドウを開いたあとに tier が変化/確認不能になるケース（`canStartScan`/
     /// `scanUnavailableReason`）はこの関数のスコープ外 ―― ここは「メニュー項目を出すかどうか」
     /// だけを決める。ウィンドウ内の安全網は変更しない。
-    static func canOpenIntegrityCheckWindow(hasLocalLibrary: Bool, remote: (locked: Bool, tier: AccessTier)?) -> Bool {
+    /// - Parameter remote: `lockedOut` は **「今ロックアウトされている（解錠フォームが出ている）」**。
+    ///   `RemoteLibraryState.locked` を**そのまま渡してはいけない** ―― あれは「パスワードが
+    ///   設定されている」の意味で、`unlock(password:)` は `libraryToken` を入れるだけで
+    ///   `locked` を落とさないため、そのまま使うとパスワード付きの庫が解錠後も永久に無効になる
+    ///   （2026-08-08 のレビューで Critical として検出。ヘルパだけをテストしていたため
+    ///   呼び出し側の引数の誤りを素通りさせた）。呼び出し側は
+    ///   `RemoteLibraryView.isUnlockFormShown` と同じ `locked && libraryToken == nil` を渡すこと。
+    /// `RemoteLibraryState` の生の値から `lockedOut` を導く。
+    ///
+    /// **この導出自体をテスト可能にするために切り出してある。** 2026-08-08 のレビューは、
+    /// ヘルパ（`canOpenIntegrityCheckWindow`）だけをテストしていたために
+    /// **呼び出し側が `locked` をそのまま渡している誤りを素通りさせた**と指摘した。
+    /// 判定の一部だけをテスト可能にしても、テストされていない側に誤りが移るだけである。
+    static func remoteLockedOut(locked: Bool, libraryToken: String?) -> Bool {
+        // `RemoteLibraryView.isUnlockFormShown` と同じ式。`locked` 単体は
+        // 「パスワードが設定されている」であって「今ロックアウトされている」ではない。
+        locked && libraryToken == nil
+    }
+
+    static func canOpenIntegrityCheckWindow(hasLocalLibrary: Bool, remote: (lockedOut: Bool, tier: AccessTier)?) -> Bool {
         if hasLocalLibrary { return true }
         guard let remote else { return false }
-        return !remote.locked && remote.tier == .admin
+        return !remote.lockedOut && remote.tier >= .admin
     }
 
     /// 一覧の表示順: 劣化（前回 ok → 今回 damaged）を先頭に、劣化どうしは検査が新しい順。
