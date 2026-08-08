@@ -1162,7 +1162,22 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
             self, selector: #selector(handleWindowWillClose(_:)),
             name: NSWindow.willCloseNotification, object: nil)
         // 4.2d-2: 127.0.0.1 ローカル制御エンドポイントを起動する（isRunning ガードで冪等）。
-        LocalControlController.shared.startIfEnabled()
+        // G31 Task 2: App ユニットテストのテストホストではここを実行しない。
+        //
+        // App ターゲットのユニットテストは `StackNest.app` 本体をテストホストとして起動する
+        // （`AppEnvironment.isRunningUnitTests` のコメント参照）。ガードなしだと、稼働中の実アプリが
+        // 既にローカル制御ポートを掴んでいるところへテストホストの 2 個目のインスタンスが立ち上がり、
+        // `startIfEnabled()` が portInUse を検知して**新しいポートを再採番し、共有 UserDefaults
+        // （`local_control_port`）に上書きしてから**自分がそのポートで bind してしまう。実アプリは
+        // 旧ポートで listen し続けたまま defaults だけが新ポートを指すため、CLI/MCP はどちらの
+        // ポートに繋いでも失敗する（実アプリ再起動までこの状態が続く）。
+        //
+        // 2026-08-08 に実測: defaults 上の local_control_port は 14830 のままなのに、実アプリが
+        // 実際に listen していたのは 46729 だった。ガードは既存の `AppEnvironment.isRunningUnitTests`
+        // をもう 1 箇所で使うだけで新しい仕組みは足さない。
+        if !AppEnvironment.isRunningUnitTests {
+            LocalControlController.shared.startIfEnabled()
+        }
         // 4.2f: 同梱 CLI（Contents/Helpers/stacknest-cli）の絶対パスを記録（MCP の自動解決用）。
         // 同梱が存在するときだけ記録する。非バンドル起動（dev の swift run 等）では既存値を
         // 消さない（Release 版が記録したパスを dev 起動で破壊しないため）。
