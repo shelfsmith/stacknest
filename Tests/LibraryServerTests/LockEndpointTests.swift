@@ -443,13 +443,21 @@ struct LockEndpointTests {
             ) { $0.status }
             let (statusA, statusB) = try await (respA, respB)
 
-            // ちょうど一方が成功(204)・もう一方が競合(409)であること。
+            // ちょうど一方が成功(204)し、もう一方は**拒否される**こと。
+            // 守りたい不変条件は「同じ現パスワードを提示した 2 本が両方とも通らない」であり、
             // 「両方 204」＝TOCTOU が残っている（両方の変更が無検証で成立してしまった）。
-            // 「両方 409」または他の組み合わせ＝そもそも正常な変更が一本も通っていない。
+            //
+            // **拒否のコードは実行順序で変わる。どちらも正しい**（2026-08-08 CI で判明）:
+            //   - 2 本が本当に重なった場合: 後発は compare-and-set が弾いて **409**
+            //   - 直列化された場合: 後発の現パスワードは既に古いので **403**
+            //     （`LibraryServerCore.swift:1345-1347` の `verifiedCredential` が nil を返す経路）
+            // ローカルでは重なって 409 になるが、CI ランナーでは直列化して 403 になった。
+            // **重なりを強制する手段がテスト側に無い以上、409 を要求するのは実行順序への依存**であり、
+            // 不変条件そのものではない。拒否されたことだけを縛る。
             let succeeded = [statusA, statusB].filter { $0 == .noContent }.count
-            let conflicted = [statusA, statusB].filter { $0 == .conflict }.count
+            let rejected = [statusA, statusB].filter { $0 == .conflict || $0 == .forbidden }.count
             #expect(succeeded == 1, "成功した本数が 1 ではない: A=\(statusA) B=\(statusB)")
-            #expect(conflicted == 1, "競合(409)として拒否された本数が 1 ではない: A=\(statusA) B=\(statusB)")
+            #expect(rejected == 1, "拒否(409 または 403)された本数が 1 ではない: A=\(statusA) B=\(statusB)")
         }
 
         // 勝者のパスワードのどちらか一方だけで解錠できる。
