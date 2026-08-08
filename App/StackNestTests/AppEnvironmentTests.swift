@@ -44,3 +44,27 @@ struct AppEnvironmentTests {
         #expect(ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil)
     }
 }
+
+/// G31 Task 2 の回帰テスト ―― **テストホストがローカル制御サーバを立てていないこと**。
+///
+/// **このテストが存在する理由**: ガード（`StackNestApp.swift` の
+/// `if !AppEnvironment.isRunningUnitTests { LocalControlController.shared.startIfEnabled() }`）が
+/// 外れても、**CI では何も落ちない**。症状が出るのは利用者の手元 ―― `xcodebuild test` が
+/// テストホストとして 2 個目の `StackNest.app` を起動し、稼働中の実アプリが握っている
+/// ローカル制御ポートに bind できず**再採番して共有 UserDefaults を書き換える**ため、
+/// 実アプリは旧ポートで listen したまま defaults だけが新ポートを指し、
+/// **CLI と MCP が実アプリ再起動まで接続不能になる**（2026-08-08 実測: defaults 14830 /
+/// 実リッスン 46729）。壊れても気づきにくい類なので、ここで縛っておく。
+///
+/// テストホスト自身の `LocalControlController` を見れば足りる ―― このプロセスで
+/// `startIfEnabled()` が呼ばれていなければ `isRunning` は false のままである。
+@MainActor
+@Suite("ローカル制御サーバはテストホストで起動しない（G31）")
+struct LocalControlGuardTests {
+    @Test("テストホストでは LocalControlController が起動していない")
+    func localControlIsNotStartedInTestHost() {
+        // 前提: そもそもテストホストとして走っていることを確かめる（判定が壊れたら気づけるように）。
+        #expect(AppEnvironment.isRunningUnitTests)
+        #expect(LocalControlController.shared.isRunning == false)
+    }
+}

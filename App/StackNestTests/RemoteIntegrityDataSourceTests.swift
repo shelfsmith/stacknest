@@ -270,14 +270,25 @@ struct RemoteIntegrityDataSourceTests {
     /// 正しい主張は「確認できなくなった」であって「read だと確認した」ではない ―― admin だった
     /// 接続が弱参照切れの瞬間に「管理者権限がありません」と断言されるのは、このバグの前身である
     /// Critical 1 と同じ形の欠陥。
+    /// **★ 解放は `autoreleasepool` で囲む（2026-08-08 G31 全体レビュー）。**
+    /// `RemoteLibraryState.init` は自身を `RemoteLibraryRegistry` の
+    /// `NSHashTable.weakObjects()` へ登録する。テーブル自体は保持しないが、
+    /// **`allObjects` は autorelease された「強参照」を返す**ため、テスト実行中に
+    /// production 側の誰か（`IntegrityWindow` / `ResumeLastReadCoordinator`）がそれを読むと、
+    /// プールが排出されるまでオブジェクトが生き残る。
+    /// その結果 `state = nil` の直後に弱参照が切れているとは限らず、**このテストは間欠的に落ちた**
+    /// （2026-08-08 に 1 回発生 → 再実行で緑）。
+    /// **間欠的に落ちるテストは無いより悪い** ―― 緑になるまで再実行する習慣を作るため。
     @Test("live-state が破棄されると『確認できない』扱いになる（.read を確定事実として騙らない）")
     func liveStateDeallocationBecomesUnconfirmedNotConfirmedRead() {
-        var state: RemoteLibraryState? = makeLiveState()
-        state!.tier = .admin
-        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
-        #expect(source.canStartScan == true)
-
-        state = nil   // 弱参照が外れる（例: ブラウズ窓を閉じた）。
+        let source: RemoteIntegrityDataSource = autoreleasepool {
+            var state: RemoteLibraryState? = makeLiveState()
+            state!.tier = .admin
+            let s = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
+            #expect(s.canStartScan == true)
+            state = nil   // 弱参照が外れる（例: ブラウズ窓を閉じた）。
+            return s
+        }
         #expect(source.canStartScan == false)
         // 「管理者権限がないため」（＝確認済みの事実）ではなく、「確認できない」でなければならない。
         #expect(source.scanUnavailableReason?.contains("管理者権限がないため") == false)
@@ -293,11 +304,14 @@ struct RemoteIntegrityDataSourceTests {
     /// 「スキャン中に庫のウィンドウを閉じる」は例外的な操作ではなく想定された使い方である。
     @Test("live-state が破棄されたら jobProgress は nil ではなく throw する（実行中を『完了』にしない）")
     func liveStateDeallocationMakesJobProgressThrowRatherThanReportNotRunning() async {
-        var state: RemoteLibraryState? = makeLiveState()
-        state!.tier = .admin
-        let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
-
-        state = nil   // スキャン実行中にブラウズ窓を閉じた状況。
+        // 解放を `autoreleasepool` で囲む理由は上のテストの注記を参照（間欠失敗の対策）。
+        let source: RemoteIntegrityDataSource = autoreleasepool {
+            var state: RemoteLibraryState? = makeLiveState()
+            state!.tier = .admin
+            let s = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", liveState: state!)
+            state = nil   // スキャン実行中にブラウズ窓を閉じた状況。
+            return s
+        }
         await #expect(throws: RemoteIntegrityUnavailable.self) {
             _ = try await source.jobProgress()
         }
