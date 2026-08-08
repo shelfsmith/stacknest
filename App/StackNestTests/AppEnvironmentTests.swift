@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Testing
 import Foundation
+import AppCore
 @testable import StackNest
 
 /// App テストハーネスのハング対策（`AppEnvironment.isRunningUnitTests`）のテスト。
@@ -61,10 +62,25 @@ struct AppEnvironmentTests {
 @MainActor
 @Suite("ローカル制御サーバはテストホストで起動しない（G31）")
 struct LocalControlGuardTests {
-    @Test("テストホストでは LocalControlController が起動していない")
+    /// **★ Codex レビュー(Medium) を受けて前提を明示した。**
+    /// `isRunning == false` を見るだけでは不十分だった ―― `startIfEnabled()` は
+    /// `ServerPreferences.localAutomationEnabled()` が false のときも**何もせず返る**ため、
+    /// ガードを外してもこのテストは通ってしまう（＝検査になっていない）。
+    /// 「ローカルアクセスが有効なのに起動していない」まで言って初めて、
+    /// **ガードだけが起動を止めている**ことの証拠になる。
+    ///
+    /// 既定値は true（`ServerPreferences.localAutomationEnabled` は未設定なら true を返す）なので、
+    /// 通常はこの前提が満たされる。満たされない環境ではこのテストは**落ちる** ――
+    /// 「検査できていない」ことを黙って緑にするより、落ちて気づく方がよい。
+    @Test("ローカルアクセスが有効でも、テストホストでは起動していない")
     func localControlIsNotStartedInTestHost() {
-        // 前提: そもそもテストホストとして走っていることを確かめる（判定が壊れたら気づけるように）。
+        // 前提 1: テストホストとして走っている（判定そのものが壊れたら気づけるように）。
         #expect(AppEnvironment.isRunningUnitTests)
+        // 前提 2: ローカルアクセスは有効 ―― これが false だと startIfEnabled() は
+        // ガードの有無に関わらず何もしないので、次の #expect が検査にならない。
+        #expect(ServerPreferences.localAutomationEnabled(),
+                "ローカルアクセスが無効なため、このテストはガードの有無を区別できない")
+        // 本題: それでも起動していない＝ガードが効いている。
         #expect(LocalControlController.shared.isRunning == false)
     }
 }
