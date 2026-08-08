@@ -679,9 +679,62 @@ public struct IntegritySummaryReply: Codable, Sendable {
     public let unchecked: Int
     public let damaged: Int
     public let degraded: Int
-    public init(checked: Int, unchecked: Int, damaged: Int, degraded: Int) {
+    /// 最終検査時刻（epoch seconds）。2026-08-08 smoke フィードバックで追加 ―― **旧サーバ
+    /// （このフィールドを知らないビルド）はキー自体を応答に含めない。** 新サーバは「一度も
+    /// 検査していない」場合でも `null` を明示して必ずキーを送る（`encode(to:)` 参照）。
+    /// `nil` だけでは「新サーバが『未検査』と答えた」のか「旧サーバがそもそも運ばない」のか
+    /// 区別できない（`Optional` の `decodeIfPresent` はキー欠落と明示 `null` を区別しない）ため、
+    /// その判定材料は `lastScanAtKnown` が担う ―― **この 2 フィールドは必ずセットで見ること**。
+    public let lastScanAt: Int64?
+    /// サーバの応答 JSON に `lastScanAt` キー自体が存在したか（＝新サーバか）。
+    ///
+    /// `RemoteIntegrityDataSource.supportsLastScanAt` の直接の情報源。旧サーバとの通信では
+    /// 常に `false` になり、`lastScanAt == nil` が「未検査」ではなく「取得できない」（不明）と
+    /// 表示されるようにする ―― このブランチが 6 ラウンドかけて除去した「読めなかったことを
+    /// 事実として断言する」欠陥（施錠庫を『破損 0 冊』と表示していた等）の再演を避けるため。
+    public let lastScanAtKnown: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case checked, unchecked, damaged, degraded, lastScanAt
+    }
+
+    /// サーバ側・テスト側から直接組み立てる用。新サーバが答える値は常に「分かっている」ので
+    /// `lastScanAtKnown` は既定 `true`（旧サーバのシミュレートには `init(from:)` 経由で
+    /// キーを欠いた JSON を渡すこと）。
+    public init(checked: Int, unchecked: Int, damaged: Int, degraded: Int,
+                lastScanAt: Int64? = nil, lastScanAtKnown: Bool = true) {
         self.checked = checked; self.unchecked = unchecked
         self.damaged = damaged; self.degraded = degraded
+        self.lastScanAt = lastScanAt; self.lastScanAtKnown = lastScanAtKnown
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        checked = try c.decode(Int.self, forKey: .checked)
+        unchecked = try c.decode(Int.self, forKey: .unchecked)
+        damaged = try c.decode(Int.self, forKey: .damaged)
+        degraded = try c.decode(Int.self, forKey: .degraded)
+        // `contains` で「キーが存在するか」を明示的に見る。`decodeIfPresent` だけでは
+        // 「キー欠落」と「値が null」を区別できず、旧サーバの沈黙を「未検査」と誤読しかねない。
+        if c.contains(.lastScanAt) {
+            lastScanAt = try c.decodeIfPresent(Int64.self, forKey: .lastScanAt)
+            lastScanAtKnown = true
+        } else {
+            lastScanAt = nil
+            lastScanAtKnown = false
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(checked, forKey: .checked)
+        try c.encode(unchecked, forKey: .unchecked)
+        try c.encode(damaged, forKey: .damaged)
+        try c.encode(degraded, forKey: .degraded)
+        // `encodeIfPresent` だと nil のときキーごと省略され、旧サーバの沈黙と区別が付かなくなる。
+        // `Optional<Int64>` の `Encodable` 適合は nil を「キーは送るが値が null」として符号化する
+        // （`encodeIfPresent` の「キーごと省く」とは異なる）ので、ここは意図的に `encode` を使う。
+        try c.encode(lastScanAt, forKey: .lastScanAt)
     }
 }
 

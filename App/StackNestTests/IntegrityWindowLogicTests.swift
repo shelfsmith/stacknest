@@ -2,6 +2,7 @@
 import Testing
 import Foundation
 import AppCore
+import LibraryServerAPI
 import LibraryStore
 import RemoteClient
 @testable import StackNest
@@ -241,6 +242,45 @@ struct IntegrityWindowLogicTests {
         let report = FullScanReport(scanned: 10, byStatus: [.ok: 9],
                                     persistenceFailures: 2, cancelled: false)
         #expect(IntegrityWindowLogic.completionSummary(report).contains("保存失敗 2 件"))
+    }
+
+    // MARK: - canOpenIntegrityCheckWindow（2026-08-08 smoke フィードバック: File メニューのゲート）
+    //
+    // `FileCommands`（SwiftUI `Commands`）は実ウィンドウ/メニューを作るため App テストで
+    // インスタンス化できない（本ファイル冒頭のコメントと同じ理由）。ビューが実際に
+    // `.disabled(...)` へ渡す条件式そのものをここに切り出したので、「施錠中・tier 不足で
+    // 本当にグレーアウトするか」をここで縛る。
+
+    @Test("ローカル庫は常に有効（remote の値によらない）")
+    func localLibraryAlwaysEnabled() {
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(hasLocalLibrary: true, remote: nil) == true)
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+            hasLocalLibrary: true, remote: (locked: true, tier: .read)) == true)
+    }
+
+    @Test("ローカルもリモートも無ければ無効")
+    func neitherLocalNorRemoteIsDisabled() {
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(hasLocalLibrary: false, remote: nil) == false)
+    }
+
+    @Test("施錠中のリモートは admin でも無効（隣の『重複を検出…』と同じくグレーアウト）")
+    func lockedRemoteIsDisabledEvenWithAdminTier() {
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+            hasLocalLibrary: false, remote: (locked: true, tier: .admin)) == false)
+    }
+
+    @Test("解錠済みでも read/edit は無効（full-scan が admin 専用のため閲覧専用モードは提供しない）")
+    func unlockedButBelowAdminIsDisabled() {
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+            hasLocalLibrary: false, remote: (locked: false, tier: .read)) == false)
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+            hasLocalLibrary: false, remote: (locked: false, tier: .edit)) == false)
+    }
+
+    @Test("解錠済み・admin のときだけリモートが有効になる")
+    func unlockedAdminIsEnabled() {
+        #expect(IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+            hasLocalLibrary: false, remote: (locked: false, tier: .admin)) == true)
     }
 
     // MARK: - sortedForDisplay（劣化を先頭に）

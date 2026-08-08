@@ -333,6 +333,26 @@ struct StubBackedRemoteClientTests {
             #expect(dto.degraded == 0)
         }
 
+        // 2026-08-08 smoke フィードバック: lastScanAt の旧サーバ判別（`IntegritySummaryReplyDTOTests`
+        // が Codable そのものを詳しくテスト済み。ここでは `RemoteLibraryClient` 経由でも
+        // 同じ区別が保たれることだけを確認する）。
+        @Test func fetchIntegritySummaryFromOldServerWithoutLastScanAtKeyDoesNotThrow() async throws {
+            let oldServerBody = Data(#"{"checked":10,"unchecked":2,"damaged":1,"degraded":0}"#.utf8)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: oldServerBody)
+            let dto = try await makeClient().fetchIntegritySummary(libraryUUID: "U", libraryToken: nil)
+            #expect(dto.lastScanAtKnown == false, "旧サーバはキーを送らないので既知の値として扱ってはいけない")
+            #expect(dto.lastScanAt == nil)
+        }
+
+        @Test func fetchIntegritySummaryFromNewServerWithLastScanAtDecodes() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(IntegritySummaryReply(
+                    checked: 10, unchecked: 2, damaged: 1, degraded: 0, lastScanAt: 1_700_000_000)))
+            let dto = try await makeClient().fetchIntegritySummary(libraryUUID: "U", libraryToken: nil)
+            #expect(dto.lastScanAtKnown == true)
+            #expect(dto.lastScanAt == 1_700_000_000)
+        }
+
         @Test func fetchIntegrityListSendsStatusQueryAndDecodes() async throws {
             let item = IntegrityItemDTO(bookID: 5, title: "T", filename: "a.zip", status: "damaged",
                                         checkedAt: 1_700_000_000, entryCount: 3, badEntries: ["a"], degraded: true)

@@ -35,6 +35,10 @@ struct IntegrityEndpointTests {
                 #expect(reply.unchecked == 3)
                 #expect(reply.damaged == 0)
                 #expect(reply.degraded == 0)
+                // 2026-08-08 smoke フィードバック: 未検査でもキー自体は必ず送る（旧サーバとの
+                // 判別材料になるため、値が nil でも省略してはいけない ―― DTOs.swift 参照）。
+                #expect(reply.lastScanAtKnown == true)
+                #expect(reply.lastScanAt == nil, "一度も検査していないので最終検査時刻は無いはず")
             }
         }
     }
@@ -73,6 +77,10 @@ struct IntegrityEndpointTests {
                 let reply = try JSONDecoder().decode(
                     IntegritySummaryReply.self, from: Data(buffer: response.body))
                 #expect(reply.checked > 0, "スキャン結果が永続化されていない")
+                // 2026-08-08 smoke フィードバック: スキャン後は最終検査時刻が入る
+                // （`Database.integrityLastCheckedAt()` の MAX(checked_at) 参照）。
+                #expect(reply.lastScanAtKnown == true)
+                #expect(reply.lastScanAt != nil, "スキャン後なので最終検査時刻が入っているはず")
             }
         }
     }

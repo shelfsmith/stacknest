@@ -179,6 +179,29 @@ enum IntegrityWindowLogic {
         return "完了: \(report.scanned) 件検査 / 破損 \(damaged) 件"
     }
 
+    /// File メニュー「ファイルの破損チェック…」の有効化条件（2026-08-08 smoke フィードバック由来）。
+    ///
+    /// - **ローカル**: 常に有効。
+    /// - **リモート**: **解錠済み（`!locked`）かつ tier が admin のときのみ**有効。
+    ///   - 施錠中は `remoteState` 自体は non-nil のまま（解錠フォームを表示するため）なので、
+    ///     従来は項目が有効なままだった。隣の「重複を検出…」は `target?.canEditMeta`
+    ///     （`target` は施錠中 nil）でグレーアウトしており、それと一貫させる。
+    ///   - read/edit 接続は `POST .../integrity/full-scan` が admin 専用のため、開いても
+    ///     スキャンを一切開始できない。閲覧専用モードは提供しない方針（ユーザー選定）なので、
+    ///     ウィンドウそのものへの入口を隠す。
+    ///
+    /// tier は `/me` 解決前は `.read` 既定（fail-closed）のため、接続直後は一旦グレーのまま、
+    /// `/me` 完了後に有効化される ―― これは許容される想定挙動。
+    ///
+    /// ウィンドウを開いたあとに tier が変化/確認不能になるケース（`canStartScan`/
+    /// `scanUnavailableReason`）はこの関数のスコープ外 ―― ここは「メニュー項目を出すかどうか」
+    /// だけを決める。ウィンドウ内の安全網は変更しない。
+    static func canOpenIntegrityCheckWindow(hasLocalLibrary: Bool, remote: (locked: Bool, tier: AccessTier)?) -> Bool {
+        if hasLocalLibrary { return true }
+        guard let remote else { return false }
+        return !remote.locked && remote.tier == .admin
+    }
+
     /// 一覧の表示順: 劣化（前回 ok → 今回 damaged）を先頭に、劣化どうしは検査が新しい順。
     /// それ以外はタイトル順。「今回悪化した本」をスクロールなしで見つけられるようにするための
     /// ウィンドウ固有の並び替えロジック（`Database.integrityRecords` 自体はタイトル順で返す）。
@@ -467,7 +490,7 @@ struct IntegrityCheckView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("蔵書ファイルの破損チェック")
+                Text("ファイルの破損チェック")
                     .font(.title2.bold())
                 Spacer()
                 // fix round 5 (Minor, whole-branch review): データの鮮度を明示する。
