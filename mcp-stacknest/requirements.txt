@@ -1,1 +1,5 @@
-mcp>=1.2
+# Upper bound is deliberate: mcp 2.0 removed mcp.server.fastmcp.FastMCP, which
+# server.py imports directly. An unbounded ">=1.2" is what let pip silently
+# pull 2.0.0 and break the MCP server on import (2026-08-08 recovery). Do not
+# remove this bound without first migrating server.py off FastMCP.
+mcp>=1.2,<2
