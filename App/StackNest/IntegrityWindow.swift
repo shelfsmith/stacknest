@@ -243,6 +243,54 @@ enum IntegrityWindowLogic {
             return a.title.localizedStandardCompare(b.title) == .orderedAscending
         }
     }
+
+    /// 破損エントリの表示文字列。既知の理由文字列だけを日本語にし、**それ以外は原文のまま返す**。
+    ///
+    /// `badEntries` には「アーカイブ内のエントリ名（＝壊れていたファイル名）」と
+    /// 「自前の理由文字列」が混在する。**前者はユーザーのデータなので訳してはいけない。**
+    /// 判定は既知語彙との完全一致（パラメータを持つものは前置一致）で行い、
+    /// **未知の文字列は握り潰さず原文を出す** ―― 訳せないものを黙って消さないための規則であり、
+    /// エントリ名がそのまま通るのも同じ規則による。
+    ///
+    /// libarchive の生エラー文字列はここへ届かない（`ArchiveIntegrityVerifier` が意図的に捨てている。
+    /// 絶対パスを漏らすため）。だから語彙が閉じており、この表が網羅になっている。
+    ///
+    /// **Phase G31 Task 4 Step 1 の grep で確認済み**: プランの表（6 種）に加えて、
+    /// `QuickIntegrityCheck.classify`（`Sources/AppCore/QuickIntegrityCheck.swift`）が返す
+    /// 3 種（`image file size is zero or unknown` / `probe not performed` /
+    /// `enumeration truncated`）も同じ badEntries 経路（quick スキャンおよび full スキャンの
+    /// image 分岐）に流れる、プランの表に無かった理由文字列。同じ規律（自前の固定文言・
+    /// パスを含まない）に従うため、ここに追加して訳している。
+    static func badEntryText(_ raw: String) -> String {
+        switch raw {
+        case "archive read truncated":
+            return "アーカイブが途中で切れています"
+        case "no image entry found":
+            return "画像が 1 枚も見つかりません"
+        case "archive unreadable: could not open archive":
+            return "アーカイブを開けません"
+        case "archive unreadable: unrecognized archive format":
+            return "未対応のアーカイブ形式です"
+        case "archive unreadable: unexpected archive read failure":
+            return "アーカイブの読み取りに失敗しました"
+        // プランの表には無かったが、grep で見つかった同じ語彙クラスの理由文字列（上のコメント参照）。
+        case "image file size is zero or unknown":
+            return "画像ファイルのサイズが 0 または不明です"
+        case "probe not performed":
+            return "検査が実行されませんでした"
+        case "enumeration truncated":
+            return "列挙が途中で打ち切られました"
+        default:
+            if raw.hasPrefix("archive unreadable: ") {
+                return "アーカイブを読み取れません"
+            }
+            if raw.hasPrefix("probe failed: ") {
+                let detail = raw.dropFirst("probe failed: ".count)
+                return "検査に失敗しました（\(detail)）"
+            }
+            return raw
+        }
+    }
 }
 
 // MARK: - IntegrityCheckRef / WindowGroup container
@@ -684,7 +732,8 @@ struct IntegrityCheckView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if !row.badEntries.isEmpty {
-                    Text(row.badEntries.prefix(3).joined(separator: ", "))
+                    Text(row.badEntries.prefix(3).map(IntegrityWindowLogic.badEntryText)
+                        .joined(separator: ", "))
                         .font(.caption2)
                         .foregroundStyle(.orange)
                         .lineLimit(1)

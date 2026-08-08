@@ -340,4 +340,46 @@ struct IntegrityWindowLogicTests {
         let sorted = IntegrityWindowLogic.sortedForDisplay(rows)
         #expect(sorted.map(\.id) == [2, 1])
     }
+
+    // MARK: - badEntryText（Phase G31 Task 4: 破損メッセージの日本語化）
+    //
+    // プランの表（6 種）に加えて、grep で見つかった `QuickIntegrityCheck.classify` 由来の
+    // 3 種（image file size is zero or unknown / probe not performed / enumeration truncated）
+    // も同じ badEntries 経路に流れることが判明したため訳語を追加している（実装側コメント参照）。
+
+    @Test("プランの表 6 種すべてが訳される", arguments: [
+        ("archive read truncated", "アーカイブが途中で切れています"),
+        ("no image entry found", "画像が 1 枚も見つかりません"),
+        ("archive unreadable: could not open archive", "アーカイブを開けません"),
+        ("archive unreadable: unrecognized archive format", "未対応のアーカイブ形式です"),
+        ("archive unreadable: unexpected archive read failure", "アーカイブの読み取りに失敗しました"),
+    ])
+    func knownVocabularyTranslates(raw: String, expected: String) {
+        #expect(IntegrityWindowLogic.badEntryText(raw) == expected)
+    }
+
+    @Test("probe failed: <型名> は型名を保持したまま訳される")
+    func probeFailedKeepsTypeName() {
+        #expect(IntegrityWindowLogic.badEntryText("probe failed: SomeError") == "検査に失敗しました（SomeError）")
+    }
+
+    @Test("grep で追加判明した 3 種も訳される（プランの表に無かったが同じ語彙クラス）", arguments: [
+        ("image file size is zero or unknown", "画像ファイルのサイズが 0 または不明です"),
+        ("probe not performed", "検査が実行されませんでした"),
+        ("enumeration truncated", "列挙が途中で打ち切られました"),
+    ])
+    func additionallyDiscoveredVocabularyTranslates(raw: String, expected: String) {
+        #expect(IntegrityWindowLogic.badEntryText(raw) == expected)
+    }
+
+    @Test("アーカイブ内のエントリ名（ユーザーデータ）は原文のまま返る")
+    func entryNamePassesThroughUnchanged() {
+        #expect(IntegrityWindowLogic.badEntryText("page_012.jpg") == "page_012.jpg")
+    }
+
+    @Test("未知の文字列は握り潰さず原文のまま返る")
+    func unknownStringPassesThroughUnchanged() {
+        #expect(IntegrityWindowLogic.badEntryText("some future reason nobody wrote a translation for")
+            == "some future reason nobody wrote a translation for")
+    }
 }
