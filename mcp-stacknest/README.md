@@ -12,6 +12,20 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
+**既存の `.venv` を作り直さずに依存だけ入れ直す場合**は、その venv がどう作られたかで
+コマンドが変わる。現在の `.venv` は `uv` 製で **`pip` が同梱されていない**ため、
+上のコマンドは `No such file or directory` になる（2026-08-08 の復旧時に判明）。
+
+```bash
+uv pip install -r requirements.txt --python .venv/bin/python
+```
+
+依存が壊れているか確かめるには、`server.py` が import できるかを見るのが速い:
+
+```bash
+./.venv/bin/python -c "import server; print('server module OK')"
+```
+
 ## Claude Code への登録（`~/.claude.json` の mcpServers）
 
 ```json
