@@ -1682,8 +1682,13 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/integrity/summary") { request, context in
             let lib = try await resolver.resolveLibrary(request, context)
             let s = try lib.db.integritySummary()
+            // 2026-08-08 smoke フィードバック: 最終検査時刻をあわせて返す（DTOs.swift の
+            // `IntegritySummaryReply.lastScanAt`/`lastScanAtKnown` 参照）。`integrityLastCheckedAt()`
+            // は `book_integrity` 全体の `checked_at` 最大値で、1 件も検査していなければ nil。
+            let lastScanAt = try lib.db.integrityLastCheckedAt()
             return IntegritySummaryReply(checked: s.checked, unchecked: s.unchecked,
-                                         damaged: s.damaged, degraded: s.degraded)
+                                         damaged: s.damaged, degraded: s.degraded,
+                                         lastScanAt: lastScanAt)
         }
 
         api.get("libraries/:lib/integrity/list") { request, context in

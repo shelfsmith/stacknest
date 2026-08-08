@@ -88,9 +88,15 @@ protocol IntegrityDataSource {
     func takeCompletionReport() -> FullScanReport?
     /// `lastScanAt()` が意味のある答えを返せるか。false なら、その nil は「一度も検査していない」
     /// ではなく「そもそも取得できない」という意味 ―― Phase G29 Task 3 fix round 4
-    /// (whole-branch review Important 1): リモートは `integrity/summary` が最終検査時刻を運ばない
-    /// ため常に nil を返すが、ビュー側の語彙では nil は「未検査」を意味する。両者を混同すると、
-    /// フルスキャン済みのリモート庫でも「最終検査: 未検査」という自己矛盾した断言になる。
+    /// (whole-branch review Important 1): ビュー側の語彙では nil は「未検査」を意味するため、
+    /// 両者を混同するとフルスキャン済みの庫でも「最終検査: 未検査」という自己矛盾した断言になる。
+    /// ローカルは常に true。
+    ///
+    /// 2026-08-08 smoke フィードバック: `integrity/summary` に `lastScanAt` フィールドが追加された
+    /// ことで、リモートも**新サーバとの通信時は** true になりうる。ただし**旧サーバ（このフィールド
+    /// を知らないビルド）はキー自体を返さない**ため、`false` のままになる ―― 「サーバが答えを
+    /// 知らない」場合と「サーバは答えたが未検査」の場合を混同すると、まさに直前のバグの再演になる
+    /// （`RemoteIntegrityDataSource.mapSummary`/`IntegritySummaryReply.lastScanAtKnown` 参照）。
     var supportsLastScanAt: Bool { get }
     /// ジョブ非実行時（アイドル時）のポーリング間隔（ナノ秒）。Phase G29 Task 3 fix round 4
     /// (whole-branch review Important 3): 400ms はローカルの in-process registry 呼び出し用に
@@ -277,6 +283,12 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     /// live-state 経路では常に false で init するが、`tierResolutionFailed`（computed）側で
     /// `liveState == nil` を見て上書きする。
     private let explicitTierResolutionFailed: Bool
+    /// 2026-08-08 smoke フィードバック: `integrity/summary` が `lastScanAt` を運ぶようになった
+    /// （旧サーバはこのキー自体を返さない）。直近の応答が実際にこのキーを含んでいたかを覚えておく
+    /// ―― `supportsLastScanAt` の情報源。ウィンドウを開いた直後・まだ一度も応答を受け取っていない
+    /// 間は「まだ確認していない」＝ `false`（不明側に倒す fail-closed。旧サーバの沈黙を
+    /// 「未検査」と誤読しないため、このブランチが 6 ラウンドかけて除去した欠陥と同じ形を避ける）。
+    private var lastScanAtKnown = false
 
     /// 優先経路: 生きている `RemoteLibraryState` を弱参照する（fix round 4, Critical 1）。
     init(client: RemoteLibraryClient, libraryUUID: String, liveState: RemoteLibraryState) {
@@ -317,7 +329,9 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     /// `/me` の成否で判定しており、こちらとは原因が違うので文言も分ける（下記 `scanUnavailableReason`）。
     private var liveStateDied: Bool { constructedFromLiveState && liveState == nil }
 
-    var supportsLastScanAt: Bool { false }
+    /// `lastScanAtKnown` をそのまま返す（直近の応答が実際に `lastScanAt` キーを含んでいたか）。
+    /// まだ何も取得していない間は `false`（不明側の fail-closed 初期値）。
+    var supportsLastScanAt: Bool { lastScanAtKnown }
     /// HTTP 往復のため、ジョブが無いときは大きく間隔を空ける（whole-branch review Important 3）。
     var idlePollIntervalNanoseconds: UInt64 { 3_000_000_000 }
 
@@ -343,14 +357,27 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
 
     func summary() async throws -> IntegritySummary {
         let reply = try await client.fetchIntegritySummary(libraryUUID: libraryUUID, libraryToken: libraryToken)
-        return IntegritySummary(checked: reply.checked, unchecked: reply.unchecked,
-                                 damaged: reply.damaged, degraded: reply.degraded)
+        let mapped = Self.mapSummary(reply)
+        lastScanAtKnown = mapped.lastScanAtKnown
+        return mapped.summary
     }
 
-    /// `integrity/summary` は最終検査時刻を運ばない（サーバを変更しないという本フェーズの制約上、
-    /// 新しいフィールドを追加できない）。素直に「取得できない」を返す — ビューは既に
-    /// `lastScanAt: Date?` を optional として扱っているため、呼び出し側の分岐を増やさずに済む。
-    func lastScanAt() async throws -> Date? { nil }
+    /// 2026-08-08 smoke フィードバック: `integrity/summary` が `lastScanAt` を運ぶようになったため、
+    /// 同じエンドポイントをもう一度叩いて取り出す（`list(status:)` 用の別エンドポイントは無い ―
+    /// `summary()` の呼び出し順に依存しないよう、独立して取得する。2 count クエリだけの軽い
+    /// エンドポイントなので、`reload()` が毎回 `summary()`→`lastScanAt()` の順で呼ぶことによる
+    /// 二重取得は許容する）。
+    ///
+    /// `reply.lastScanAtKnown == false`（旧サーバ）のときは、値が `nil` でもそれを
+    /// 「未検査」と読ませてはいけない ―― `supportsLastScanAt`（＝ `lastScanAtKnown`）を
+    /// 同時に更新し、ビュー側は `dataSource.supportsLastScanAt` を見て「不明」と「未検査」を
+    /// 区別する（`IntegrityWindowLogic.lastScanText` 参照）。
+    func lastScanAt() async throws -> Date? {
+        let reply = try await client.fetchIntegritySummary(libraryUUID: libraryUUID, libraryToken: libraryToken)
+        let mapped = Self.mapSummary(reply)
+        lastScanAtKnown = mapped.lastScanAtKnown
+        return mapped.lastScanAt
+    }
 
     func list(status: IntegrityStatus) async throws -> [IntegrityRow] {
         let reply = try await client.fetchIntegrityList(
@@ -420,6 +447,22 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     func takeCompletionReport() -> FullScanReport? { nil }
 
     // MARK: - 純粋な写像（HTTP を張らずにテストできるよう切り出したもの）
+
+    /// `IntegritySummaryReply` → (`IntegritySummary`, 最終検査時刻, 「取得できたか」) の写像。
+    /// `summary()`/`lastScanAt()` の両方がこれを経由する ―― 「ビューが実際に呼ぶのと同じ関数を
+    /// テストする」（`mapRow`/`mapProgress` と同じ設計方針。ロジックを平行に複製したテストは
+    /// このブランチの過去レビューで実欠陥を捕まえなかった実績があるため避ける）。
+    ///
+    /// `lastScanAtKnown`（DTO 側のフィールド、`contains(.lastScanAt)` から決まる）をそのまま
+    /// `known` として返す ―― 旧サーバ（キー自体を送らない）との通信では常に `false` になり、
+    /// 呼び出し側はこれを `supportsLastScanAt` として保持することで「未検査」と「不明」を
+    /// 区別する。
+    static func mapSummary(_ reply: IntegritySummaryReply) -> (summary: IntegritySummary, lastScanAt: Date?, lastScanAtKnown: Bool) {
+        let summary = IntegritySummary(checked: reply.checked, unchecked: reply.unchecked,
+                                        damaged: reply.damaged, degraded: reply.degraded)
+        let lastScanAt = reply.lastScanAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        return (summary, lastScanAt, reply.lastScanAtKnown)
+    }
 
     /// `IntegrityItemDTO` → `IntegrityRow` の写像。未知の `status` 文字列の行は nil（＝スキップ）。
     ///

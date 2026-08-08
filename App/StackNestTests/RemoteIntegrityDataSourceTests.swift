@@ -252,10 +252,47 @@ struct RemoteIntegrityDataSourceTests {
 
     // MARK: - supportsLastScanAt / idlePollIntervalNanoseconds（fix round 4, Important 1 / 3）
 
-    @Test("リモートは lastScanAt を取得できない申告をする（『未検査』と『不明』を区別するため）")
-    func remoteDoesNotSupportLastScanAt() {
+    @Test("構築直後・まだ何も取得していない間は『取得できない』扱い（fail-closed の初期値）")
+    func supportsLastScanAtStartsFalseBeforeAnyFetch() {
         let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .read)
         #expect(source.supportsLastScanAt == false)
+    }
+
+    // MARK: - mapSummary（2026-08-08 smoke フィードバック: lastScanAt の旧サーバ判別）
+    //
+    // `summary()`/`lastScanAt()` は両方ともこの関数を経由する（`IntegrityDataSource.swift` 参照）。
+    // HTTP は張らず、DTO → 表示モデルの写像だけを検証する（`mapRow`/`mapProgress` と同じ方針）。
+
+    @Test("新サーバ・未検査（lastScanAt が JSON に null で存在）は既知の nil として写る")
+    func mapSummaryKnownNilIsNeverScanned() throws {
+        // JSON にキーは存在するが値が null ―― `IntegritySummaryReply.init(from:)` が
+        // `contains(.lastScanAt) == true` を見て `lastScanAtKnown = true` にするケース。
+        let json = #"{"checked":0,"unchecked":5,"damaged":0,"degraded":0,"lastScanAt":null}"#
+        let reply = try JSONDecoder().decode(IntegritySummaryReply.self, from: Data(json.utf8))
+        let mapped = RemoteIntegrityDataSource.mapSummary(reply)
+        #expect(mapped.lastScanAtKnown == true)
+        #expect(mapped.lastScanAt == nil)
+        #expect(mapped.summary.unchecked == 5)
+    }
+
+    @Test("新サーバ・検査済みは epoch から Date へ写る")
+    func mapSummaryKnownDateMapsThrough() throws {
+        let json = #"{"checked":3,"unchecked":0,"damaged":1,"degraded":0,"lastScanAt":1700000000}"#
+        let reply = try JSONDecoder().decode(IntegritySummaryReply.self, from: Data(json.utf8))
+        let mapped = RemoteIntegrityDataSource.mapSummary(reply)
+        #expect(mapped.lastScanAtKnown == true)
+        #expect(mapped.lastScanAt == Date(timeIntervalSince1970: 1_700_000_000))
+    }
+
+    @Test("旧サーバ（lastScanAt キー自体が無い）は『不明』側になる ―― nil を『未検査』と読ませない")
+    func mapSummaryUnknownFromOldServerIsNotNeverScanned() throws {
+        // このブランチが 6 ラウンドかけて除去した「読めなかったことを事実として断言する」欠陥の
+        // 再演を防ぐ核心のケース: キーが無いだけの応答（旧サーバのシミュレート）。
+        let json = #"{"checked":10,"unchecked":2,"damaged":1,"degraded":0}"#
+        let reply = try JSONDecoder().decode(IntegritySummaryReply.self, from: Data(json.utf8))
+        let mapped = RemoteIntegrityDataSource.mapSummary(reply)
+        #expect(mapped.lastScanAtKnown == false, "旧サーバはキーを送らないので『不明』扱いにならなければならない")
+        #expect(mapped.lastScanAt == nil)
     }
 
     @Test("リモートのアイドル時ポーリング間隔はローカルより大幅に長い（400ms は HTTP 往復に不適切）")

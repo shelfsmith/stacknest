@@ -869,7 +869,15 @@ struct FileCommands: Commands {
             // すべてサーバに既存で（read/edit で閲覧・admin でスキャン開始）、`IntegrityDataSource` が
             // ローカル/リモートを差し替えるため、`canManageLocalFiles`（rename/move/relink 専用の
             // ゲート）はここには適用しない — リモートでも開ける。
-            Button("蔵書ファイルの破損チェック…") {
+            // 2026-08-08 smoke フィードバック: ゲートを `appState == nil && remoteState == nil`
+            // （＝「何か開いていれば有効」）から `IntegrityWindowLogic.canOpenIntegrityCheckWindow`
+            // （リモートは「解錠済み・admin」限定）へ変更。施錠中は `remoteState` が non-nil のままで
+            // 有効になってしまっていた（隣の「重複を検出…」は `target?.canEditMeta` で施錠中グレーに
+            // なるのに揃っていなかった）ほか、read/edit 接続は `full-scan` が admin 専用で
+            // スキャンを一切開始できないため、閲覧専用モードは提供せず項目ごと隠す方針にした
+            // （ウィンドウ内の tier ゲート `canStartScan`/`scanUnavailableReason` は安全網として
+            // そのまま残す ―― 開いた後に tier が変化/確認不能になるケースを引き続き扱う）。
+            Button("ファイルの破損チェック…") {
                 if let url = appState?.bundleURL {
                     openWindow(id: "integrity-check", value: IntegrityCheckRef.local(bundleURL: url))
                 } else if let remoteState {
@@ -877,7 +885,9 @@ struct FileCommands: Commands {
                         serverID: remoteState.serverID, libraryUUID: remoteState.libraryUUID))
                 }
             }
-            .disabled(appState == nil && remoteState == nil)
+            .disabled(!IntegrityWindowLogic.canOpenIntegrityCheckWindow(
+                hasLocalLibrary: appState != nil,
+                remote: remoteState.map { (locked: $0.locked, tier: $0.tier) }))
 
             // G12b-2 smoke: 「重複を検出…」は表示メニューではなく File メニューの
             // 「リンク切れを検出…」の下が適切（ユーザー要望）。gate はローカル/リモート共通の
