@@ -65,8 +65,8 @@ struct QuickIntegrityScannerTests {
 
         #expect(report.byStatus[.damaged] == 1)
         #expect(report.pagesUpdated == 0)
-        #expect(try #require(db.integrityRecord(bookID: 1)).status == .damaged)
-        #expect(try #require(db.fetchBook(id: 1)).pages == nil, "破損本の pages を確定させてはいけない")
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .damaged)
+        #expect(try #require(try db.fetchBook(id: 1)).pages == nil, "破損本の pages を確定させてはいけない")
     }
 
     @Test("ファイル不在は missing が記録され、開こうとしない")
@@ -84,7 +84,7 @@ struct QuickIntegrityScannerTests {
             fileExists: { _ in false }))
 
         #expect(report.byStatus[.missing] == 1)
-        #expect(try #require(db.integrityRecord(bookID: 1)).status == .missing)
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .missing)
     }
 
     @Test("pages が入っている本は候補にならない")
@@ -115,8 +115,8 @@ struct QuickIntegrityScannerTests {
             }))
 
         #expect(report.scanned == 2, "1 冊の失敗で走査が止まっている")
-        #expect(try #require(db.integrityRecord(bookID: 1)).status == .damaged)
-        #expect(try #require(db.integrityRecord(bookID: 2)).status == .ok)
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .damaged)
+        #expect(try #require(try db.integrityRecord(bookID: 2)).status == .ok)
     }
 
     /// レビュー指摘: 永続化（upsertIntegrity 等）が throw すると走査全体が止まってしまう
@@ -181,7 +181,7 @@ struct QuickIntegrityScannerTests {
         // 1 回目: 画像 0 枚(empty) → pages=0 が確定するので 2 回目も候補に残る。
         _ = try await QuickIntegrityScanner.scan(
             database: db, deps: deps(probe: { _ in .enumerated(count: 0, truncated: false) }))
-        #expect(try #require(db.integrityRecord(bookID: 1)).status == .empty)
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .empty)
 
         // 2 回目: 破損に変化。
         _ = try await QuickIntegrityScanner.scan(
