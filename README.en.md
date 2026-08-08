@@ -59,6 +59,7 @@ re-implemented from observation.
 - **Smart shelves**: dynamic collections from rule lists (N conditions × AND/OR × 4 match types), with an Apple Mail–style condition editor; imported Stackroom smart playlists are evaluated dynamically too
 - **Stamp pane**: user-defined chips (5 columns: clear / value / new-add) for batch-applying attributes to multiple books
 - **Duplicate detection**: finds same-content books in different directories by SHA-256 byte equality (plus series + volume match). A resolution sheet offers "remove entry only" / "also move file to Trash" and per-group ignore
+- **File damage check**: inspects whether your book archives are still intact. Two levels — a quick check (exists / size / opens) and a full CRC check — with **books that were fine last time but are damaged now listed first**. Interruptible at any time, keeping the results so far. **Works over a remote connection** (admin token required) and from the CLI / MCP
 - **Label customization**: content fields (genre / neta / keyword A / B / C) and the 6 bookType labels can be renamed per-library, reflected consistently across all surfaces (column headers / sort / Detail / stamps / filters / smart shelves)
 - **Viewer key rebinding**: Settings ▸ Keys lets you remap every built-in viewer action to any key (conflicts are rejected; per-row / global reset; the help table reflects the current bindings)
 - **Large-library performance**: sorting is optimized for thousands–tens of thousands of items (precomputed ICU collation keys speed up the re-sort that runs on every list refresh)
@@ -246,13 +247,37 @@ The same StackNest acts as both a **server (sharing)** and a **client**. You can
 StackNest can drive libraries from the **command line or AI agents** without the GUI.
 
 - **Enable:** turn it on under **"General ▸ Local access"** in app settings (`⌘,`) — a `127.0.0.1`-only local-control endpoint.
-- **CLI:** the bundled **`stacknest-cli`** covers list / add / remove / metadata edit / shelf CRUD / watch config / lock / import / relink / dedup scan / share-token management / stamps / labels (`stacknest-cli --help`). Passwords are read from stdin so they never appear in argv.
+- **CLI:** the bundled **`stacknest-cli`** covers list / add / remove / metadata edit / shelf CRUD / watch config / lock / import / relink / dedup scan / share-token management / stamps / labels / **file damage check** (`integrity scan / status / list / full-scan / job-status / cancel`) (`stacknest-cli --help`). Passwords are read from stdin so they never appear in argv.
 - **MCP:** register **`mcp-stacknest`** (a Model Context Protocol server) to get the same operations from a compatible AI agent. See `mcp-stacknest/README.md`.
 - **API docs:** the local endpoint is API-only; opening the root (`/`) in a browser shows the **Redoc (OpenAPI 3.1)** API reference.
+
+## File damage check (Phase G27+)
+
+Inspects whether your book archives are still intact. File ▸ **ファイルの破損チェック…** opens a dedicated window. It is an independent window, so a running scan blocks neither other work nor quitting the app.
+
+| Mode | Scope |
+|---|---|
+| Scan unchecked | books not yet inspected |
+| Rescan everything | all books (**hours to tens of hours** on a large library, so it confirms first) |
+| Recheck damaged only | books previously judged damaged (e.g. after replacing a file) |
+
+Two levels. The **quick check** looks at whether the file exists, its size, and whether it opens. The **full (CRC) check** reads every entry inside the archive and verifies it — conclusive, but slow. **It can be interrupted at any time, and results so far are kept.**
+
+**Books that were fine last time but are damaged now are listed first**, so the ones worth restoring from backup are easy to find.
+
+Covers `.zip` / `.cbz` / `.rar` / `.cbr` / `.7z` and single images. Folders, videos and PDF / EPUB carry no CRC and are recorded as out of scope — which does not mean they are intact.
+
+**It works over a remote connection too.** Because the job can run for many hours, **starting one requires an admin token**: the menu item is enabled only when the library is unlocked and the connection is admin. "Reveal in Finder" is unavailable remotely, since the paths belong to the server machine.
+
+From the CLI: `stacknest-cli integrity scan / status / list / full-scan / job-status / cancel`.
+
+> **Not the same as "データベースを検査" in library settings.** That one inspects the library's own SQLite database; this one inspects the contents of your book files.
 
 ## Library lock (Phase 2.5b+)
 
 Each `.stacknest` library can be password-protected. Touch ID / Apple Watch biometric unlock is supported.
+
+**When a lock already exists, both changing and removing it require the current password** (setting one where none exists does not). Leaving a library unlocked and unattended no longer lets a third party overwrite the password and take it over. The rule applies to the GUI, HTTP and CLI alike.
 
 ### Forgotten password
 
