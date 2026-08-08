@@ -86,7 +86,7 @@ struct FullIntegrityScannerTests {
         #expect(rec.status == .damaged)
         #expect(rec.badEntries == ["012.jpg"])
 
-        #expect(try #require(db.fetchBook(id: 1)).pages == nil, "破損本の pages を確定させてはいけない")
+        #expect(try #require(try db.fetchBook(id: 1)).pages == nil, "破損本の pages を確定させてはいけない")
     }
 
     @Test("構造破綻で truncated になった場合も damaged が記録される（中断ではない）")
@@ -146,7 +146,7 @@ struct FullIntegrityScannerTests {
             fileExists: { _ in false }))
 
         #expect(report.byStatus[.missing] == 1)
-        #expect(try #require(db.integrityRecord(bookID: 1)).status == .missing)
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .missing)
     }
 
     @Test("アーカイブ以外(video)は unsupported が記録され、verify を呼ばない")
@@ -163,8 +163,8 @@ struct FullIntegrityScannerTests {
             categoryOf: { _ in .video }))
 
         #expect(report.byStatus[.unsupported] == 1)
-        #expect(try #require(db.integrityRecord(bookID: 1)).status == .unsupported)
-        #expect(try #require(db.integrityRecord(bookID: 1)).method == .full,
+        #expect(try #require(try db.integrityRecord(bookID: 1)).status == .unsupported)
+        #expect(try #require(try db.integrityRecord(bookID: 1)).method == .full,
                 "unsupported も method='full' で書かないと .uncheckedOnly から外れない")
     }
 
@@ -200,7 +200,7 @@ struct FullIntegrityScannerTests {
         let rec = try #require(try db.integrityRecord(bookID: 1))
         #expect(rec.status == .damaged, "既知の破損が unsupported で消されている")
         #expect(rec.method == .full)
-        #expect(try #require(db.fetchBook(id: 1)).pages == nil,
+        #expect(try #require(try db.fetchBook(id: 1)).pages == nil,
                 "破損した画像に pages を確定させてはいけない")
     }
 
@@ -250,7 +250,7 @@ struct FullIntegrityScannerTests {
         #expect(report.byStatus[.ok] == 1)
         let rec = try #require(try db.integrityRecord(bookID: 1))
         #expect(rec.status == .ok)
-        #expect(try #require(db.fetchBook(id: 1)).pages == 1)
+        #expect(try #require(try db.fetchBook(id: 1)).pages == 1)
     }
 
     // MARK: - Codex 事前レビュー Blocker1: フォルダは既存の判定を上書きしない
@@ -432,7 +432,7 @@ struct FullIntegrityScannerTests {
         let rec = try #require(try db.integrityRecord(bookID: 1))
         #expect(rec.status == .unsupported)
         #expect(rec.method == .full, "既存行が無い場合は method='full' で書かないと候補から外れない")
-        #expect(try #require(db.fetchBook(id: 1)).fileSize == 8192,
+        #expect(try #require(try db.fetchBook(id: 1)).fileSize == 8192,
                 "新規挿入できた場合は file_size も書き戻されるべき（従来の video 挙動）")
     }
 
