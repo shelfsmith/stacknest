@@ -24,9 +24,34 @@ struct ArchiveIntegrityVerifierRARDirectoryTests {
 
     // MARK: - rar CLI 実行ヘルパー
 
-    /// `rar` 実行ファイルの絶対パスを解決する。Homebrew の Intel/Apple Silicon 両プレフィックス
-    /// と PATH を順に見る。見つからなければ `FixtureError.rarExecutableNotFound` を throw する
-    /// （本機には導入済みなので、ここに来たら CI/別機での実行漏れとして明示的に落とす）。
+    /// `rar` 実行ファイルを探す。見つからなければ nil。
+    ///
+    /// **`rar` は proprietary で、GitHub Actions のランナーには入っていない**（2026-08-08 の
+    /// CI 有効化で判明）。ライセンス上 CI へ導入するのも望ましくないため、
+    /// 無い環境では**理由付きでスキップ**する（`@Test(.enabled(if:))`）。
+    /// 黙って通すのでも落とすのでもなく、「検証していない」と報告させるのが目的。
+    ///
+    /// **副作用として CI では RAR 経路が一切検証されない。** RAR のディレクトリ誤判定は
+    /// 実機 smoke で見つかった実バグ（G27b）なので、検体をリポジトリに置いて
+    /// `rar` 非依存にする案を follow-up として起票してある。
+    static func rarExecutableIfAvailable() -> String? {
+        let candidates = ["/usr/local/bin/rar", "/opt/homebrew/bin/rar"]
+        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
+        }
+        if let pathEnv = ProcessInfo.processInfo.environment["PATH"] {
+            for dir in pathEnv.split(separator: ":") {
+                let candidate = "\(dir)/rar"
+                if FileManager.default.isExecutableFile(atPath: candidate) {
+                    return candidate
+                }
+            }
+        }
+        return nil
+    }
+
+    /// `rar` が使えることを前提とする箇所用。無ければ throw する（呼び出し側は
+    /// `.enabled(if:)` で既に弾かれているはずなので、ここに来るのは想定外）。
     static func resolveRarExecutable() throws -> String {
         let candidates = ["/usr/local/bin/rar", "/opt/homebrew/bin/rar"]
         for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
@@ -121,7 +146,8 @@ struct ArchiveIntegrityVerifierRARDirectoryTests {
 
     /// 本 fix のリグレッションテスト: RAR のディレクトリ（末尾 "/" なし）が
     /// `entryCount`/`badEntries` に混入せず、本全体が健全と判定されることを確認する。
-    @Test
+    @Test(.enabled(if: ArchiveIntegrityVerifierRARDirectoryTests.rarExecutableIfAvailable() != nil,
+                   "rar 実行ファイルが無いためスキップ（proprietary のため CI には導入しない）"))
     func rarDirectoryEntryWithoutTrailingSlashIsNotFlaggedAsDamaged() async throws {
         let url = try Self.makeRealRARWithDirectory()
         // workDir (= url の親。src/ と test.rar をまとめて持つ) ごと片付ける。
@@ -138,7 +164,8 @@ struct ArchiveIntegrityVerifierRARDirectoryTests {
 
     /// fix が RAR の全エラーを握り潰していないことの確認: 圧縮ストリームが実際に
     /// 壊れているエントリは引き続き badEntries に検出される。
-    @Test
+    @Test(.enabled(if: ArchiveIntegrityVerifierRARDirectoryTests.rarExecutableIfAvailable() != nil,
+                   "rar 実行ファイルが無いためスキップ（proprietary のため CI には導入しない）"))
     func genuinelyCorruptedRAREntryIsStillDetected() async throws {
         let url = try Self.makeRealRARWithCorruptedCompressedEntry()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
