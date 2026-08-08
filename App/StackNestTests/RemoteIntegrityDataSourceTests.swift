@@ -6,6 +6,30 @@ import LibraryStore
 import RemoteClient
 @testable import StackNest
 
+/// `summary()` が実際に何回 HTTP リクエストを発行したかを数えるための最小限の `URLProtocol` スタブ
+/// （Phase G31 Task 3）。
+///
+/// `RemoteLibraryClient` はコンストラクタで `URLSession` を注入できるため、これで実リクエスト回数を
+/// 検証できる。`Tests/RemoteClientTests/RemoteLibraryClientTests.swift` に同種の `StubURLProtocol`
+/// があるが、そちらは SPM のテストターゲット側の型で、この Xcode テストターゲット（`StackNestTests`）
+/// からは import できない。カウントだけに絞った最小の複製をここに置く。
+final class CountingStubURLProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var responseBody = Data()
+    nonisolated(unsafe) static var requestCount = 0
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for r: URLRequest) -> URLRequest { r }
+    override func startLoading() {
+        Self.requestCount += 1
+        let resp = HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+            headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: resp, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Self.responseBody)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 /// `RemoteIntegrityDataSource` の純ロジックテスト（Phase G29 Task 3）。
 ///
 /// **HTTP は張らない** — `fetchIntegritySummary`/`fetchIntegrityList`/`startIntegrityFullScan`/
@@ -328,6 +352,37 @@ struct RemoteIntegrityDataSourceTests {
     func remoteIdlePollIntervalIsMuchLongerThanActive() {
         let source = RemoteIntegrityDataSource(client: dummyClient(), libraryUUID: "lib-1", libraryToken: nil, tier: .read)
         #expect(source.idlePollIntervalNanoseconds > 400_000_000)
+    }
+
+    // MARK: - summary() の二重取得防止（Phase G31 Task 3）
+    //
+    // これがこの Task の要点そのもの。以前は `summary()`/`lastScanAt()` が別メソッドで、
+    // どちらも `GET integrity/summary` を叩いていたため、`IntegrityWindow.reload()` が
+    // 両方を順に呼ぶと同一リクエストが 2 回飛んでいた。1 メソッドにまとめたことで、
+    // 呼び出し側がどう呼んでも `fetchIntegritySummary` は 1 回しか起きない ―― それを実際に
+    // HTTP リクエスト回数で確認する（戻り値だけを見るテストでは、2 回叩いた上で結果を
+    // 合成していても同じ値を返しうるため、回帰を検出できない）。
+
+    @Test("summary() 1 回の呼び出しで fetchIntegritySummary は 1 回しか発行されない")
+    func summaryCallsFetchIntegritySummaryExactlyOnce() async throws {
+        let cfg = URLSessionConfiguration.ephemeral
+        cfg.protocolClasses = [CountingStubURLProtocol.self]
+        let session = URLSession(configuration: cfg)
+        let client = RemoteLibraryClient(
+            baseURL: URL(string: "http://127.0.0.1:1")!, deviceToken: "test-token", session: session)
+        let reply = IntegritySummaryReply(
+            checked: 3, unchecked: 0, damaged: 1, degraded: 0,
+            lastScanAt: 1_700_000_000, lastScanAtKnown: true)
+        CountingStubURLProtocol.responseBody = try JSONEncoder().encode(reply)
+        CountingStubURLProtocol.requestCount = 0
+
+        let source = RemoteIntegrityDataSource(client: client, libraryUUID: "lib-1", libraryToken: nil, tier: .read)
+        let result = try await source.summary()
+
+        #expect(CountingStubURLProtocol.requestCount == 1)
+        #expect(result.summary.damaged == 1)
+        #expect(result.lastScanAt == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(source.supportsLastScanAt == true)
     }
 
     // MARK: - FullScanMode.wireValue（review Minor 2: サーバの parseFullScanMode と 1 文字でもずれると壊れる）

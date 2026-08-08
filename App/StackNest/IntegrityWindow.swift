@@ -731,17 +731,22 @@ struct IntegrityCheckView: View {
     /// `libraryToken` 無しで開くと `RemoteClientError.libraryLocked`（403）が消え、
     /// 「検査済み 0 件・破損 0 件」＋「破損している本はありません。」という**積極的な**
     /// 誤った安全宣言になっていた。
+    ///
+    /// Phase G31 Task 3: `summary`/`lastScanAt` は元は別々の `do/catch`（＝別々の
+    /// `dataSource` 呼び出し）だったが、`summary()` が両方を 1 回で返すようになったので
+    /// 1 つの `do/catch` にまとめた。**フォールバックの不変は維持している** ―― 失敗時は
+    /// `summary` が代入されない（＝前回値を保持）のは元のままで、`lastScanAt = nil` は
+    /// catch 節で明示的に代入する（元は 2 つ目の `do/catch` が担っていたのを、1 つの catch
+    /// 節に合流させただけ）。表示側の「`loadErrorText != nil` のときは要約行を描かない」判定
+    /// （`IntegrityWindowLogic.summaryLineText`）はこの関数の外にあり、この変更では触れていない。
     private func reload() async {
         var encounteredError: Error?
         do {
-            summary = try await dataSource.summary()
+            let result = try await dataSource.summary()
+            summary = result.summary
+            lastScanAt = result.lastScanAt
         } catch {
             encounteredError = error   // summary は前回値を保持（フォールバック不変）
-        }
-        do {
-            lastScanAt = try await dataSource.lastScanAt()
-        } catch {
-            encounteredError = encounteredError ?? error
             lastScanAt = nil   // フォールバック不変
         }
         do {

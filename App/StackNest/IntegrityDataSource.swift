@@ -58,10 +58,16 @@ struct IntegrityJobProgress: Equatable, Sendable {
 /// ローカル専用の操作としてスコープ外 ―― ウィンドウが `database`/`bundleURL` を直接使う）。
 @MainActor
 protocol IntegrityDataSource {
-    /// 件数の要約。
-    func summary() async throws -> IntegritySummary
-    /// 最後にスキャンした時刻。取得できなければ nil。
-    func lastScanAt() async throws -> Date?
+    /// 件数の要約と最終検査時刻。
+    ///
+    /// Phase G31 Task 3: 以前は `summary()`/`lastScanAt()` の 2 メソッドに分かれていたが、
+    /// **リモートでは同じ `GET integrity/summary` が両方を運ぶ**ため、別メソッドにすると
+    /// `reload()` が毎回同一リクエストを 2 回叩くことになっていた（G29 で `lastScanAt` を
+    /// この 1 エンドポイントへ足した副作用）。キャッシュで解決しない ―― 1 回の応答を
+    /// 2 つのメソッド間で持ち回る形は状態を増やし、それは G29 が 6 巡かけて潰した stale 値の
+    /// 欠陥そのものを招く。プロトコルを変えれば状態は増えない（ローカルは DB クエリ 2 本を
+    /// 1 メソッドにまとめるだけ）。
+    func summary() async throws -> (summary: IntegritySummary, lastScanAt: Date?)
     /// 指定状態の一覧。
     func list(status: IntegrityStatus) async throws -> [IntegrityRow]
     /// スキャン開始。`false` は「他ジョブ実行中」（HTTP では 409）。
@@ -86,7 +92,7 @@ protocol IntegrityDataSource {
     /// 1 回だけ取り出す。他所（CLI/MCP・別ウィンドウ）が開始したジョブや、詳細レポートの概念が
     /// ない場合（リモート）は常に nil ―― `IntegrityReportBox` の仕組み（挙動不変で移設）。
     func takeCompletionReport() -> FullScanReport?
-    /// `lastScanAt()` が意味のある答えを返せるか。false なら、その nil は「一度も検査していない」
+    /// `summary()` が返す `lastScanAt` が意味のある答えか。false なら、その nil は「一度も検査していない」
     /// ではなく「そもそも取得できない」という意味 ―― Phase G29 Task 3 fix round 4
     /// (whole-branch review Important 1): ビュー側の語彙では nil は「未検査」を意味するため、
     /// 両者を混同するとフルスキャン済みの庫でも「最終検査: 未検査」という自己矛盾した断言になる。
@@ -146,13 +152,13 @@ final class LocalIntegrityDataSource: IntegrityDataSource {
     /// （`IntegrityCheckView.Self.activePollIntervalNanoseconds` と同値）。
     var idlePollIntervalNanoseconds: UInt64 { 400_000_000 }
 
-    func summary() async throws -> IntegritySummary {
-        try database.integritySummary()
-    }
-
-    func lastScanAt() async throws -> Date? {
-        guard let unix = try database.integrityLastCheckedAt() else { return nil }
-        return Date(timeIntervalSince1970: TimeInterval(unix))
+    /// ローカルは DB クエリ 2 本（`integritySummary`/`integrityLastCheckedAt`）を 1 メソッドに
+    /// まとめただけ ―― どちらも安価なクエリで、リモートのような二重 HTTP 問題は元から無い。
+    /// ロジックは変えていない。
+    func summary() async throws -> (summary: IntegritySummary, lastScanAt: Date?) {
+        let summary = try database.integritySummary()
+        let lastScanAt = try database.integrityLastCheckedAt().map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        return (summary, lastScanAt)
     }
 
     func list(status: IntegrityStatus) async throws -> [IntegrityRow] {
@@ -359,28 +365,20 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
         return "この接続には管理者権限がないため、スキャンを開始できません。"
     }
 
-    func summary() async throws -> IntegritySummary {
-        let reply = try await client.fetchIntegritySummary(libraryUUID: libraryUUID, libraryToken: libraryToken)
-        let mapped = Self.mapSummary(reply)
-        lastScanAtKnown = mapped.lastScanAtKnown
-        return mapped.summary
-    }
-
-    /// 2026-08-08 smoke フィードバック: `integrity/summary` が `lastScanAt` を運ぶようになったため、
-    /// 同じエンドポイントをもう一度叩いて取り出す（`list(status:)` 用の別エンドポイントは無い ―
-    /// `summary()` の呼び出し順に依存しないよう、独立して取得する。2 count クエリだけの軽い
-    /// エンドポイントなので、`reload()` が毎回 `summary()`→`lastScanAt()` の順で呼ぶことによる
-    /// 二重取得は許容する）。
+    /// Phase G31 Task 3: 以前は `summary()`/`lastScanAt()` に分かれており、両方が同じ
+    /// `GET integrity/summary` を叩いていた（`reload()` が毎回この順で呼ぶため、更新のたびに
+    /// 同一リクエストが 2 回飛んでいた）。1 メソッドにまとめ、`fetchIntegritySummary` を
+    /// **1 回だけ**呼んで両方の値を返す。
     ///
     /// `reply.lastScanAtKnown == false`（旧サーバ）のときは、値が `nil` でもそれを
     /// 「未検査」と読ませてはいけない ―― `supportsLastScanAt`（＝ `lastScanAtKnown`）を
     /// 同時に更新し、ビュー側は `dataSource.supportsLastScanAt` を見て「不明」と「未検査」を
     /// 区別する（`IntegrityWindowLogic.lastScanText` 参照）。
-    func lastScanAt() async throws -> Date? {
+    func summary() async throws -> (summary: IntegritySummary, lastScanAt: Date?) {
         let reply = try await client.fetchIntegritySummary(libraryUUID: libraryUUID, libraryToken: libraryToken)
         let mapped = Self.mapSummary(reply)
         lastScanAtKnown = mapped.lastScanAtKnown
-        return mapped.lastScanAt
+        return (mapped.summary, mapped.lastScanAt)
     }
 
     func list(status: IntegrityStatus) async throws -> [IntegrityRow] {
@@ -453,9 +451,9 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
     // MARK: - 純粋な写像（HTTP を張らずにテストできるよう切り出したもの）
 
     /// `IntegritySummaryReply` → (`IntegritySummary`, 最終検査時刻, 「取得できたか」) の写像。
-    /// `summary()`/`lastScanAt()` の両方がこれを経由する ―― 「ビューが実際に呼ぶのと同じ関数を
-    /// テストする」（`mapRow`/`mapProgress` と同じ設計方針。ロジックを平行に複製したテストは
-    /// このブランチの過去レビューで実欠陥を捕まえなかった実績があるため避ける）。
+    /// `summary()` がこれを経由する ―― 「ビューが実際に呼ぶのと同じ関数をテストする」
+    /// （`mapRow`/`mapProgress` と同じ設計方針。ロジックを平行に複製したテストはこのブランチの
+    /// 過去レビューで実欠陥を捕まえなかった実績があるため避ける）。
     ///
     /// `lastScanAtKnown`（DTO 側のフィールド、`contains(.lastScanAt)` から決まる）をそのまま
     /// `known` として返す ―― 旧サーバ（キー自体を送らない）との通信では常に `false` になり、
