@@ -58,7 +58,7 @@ struct ArchiveIntegrityVerifierTests {
         let url = try Self.writeTemp(zip)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
 
         #expect(result.badEntries.isEmpty)
         #expect(result.imageCount == 5)
@@ -84,7 +84,7 @@ struct ArchiveIntegrityVerifierTests {
         #expect(headerOnlyListing.names.count == 3)
         #expect(headerOnlyListing.truncated == false)
 
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
 
         #expect(result.badEntries == ["2.png"])
         #expect(result.entryCount == 3)
@@ -99,7 +99,7 @@ struct ArchiveIntegrityVerifierTests {
         let url = try Self.writeTemp(zip)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
 
         #expect(result.truncated == true)
         #expect(result.entryCount > 0)
@@ -113,7 +113,7 @@ struct ArchiveIntegrityVerifierTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         await #expect(throws: (any Error).self) {
-            _ = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+            _ = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
         }
     }
 
@@ -125,7 +125,7 @@ struct ArchiveIntegrityVerifierTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         await #expect(throws: (any Error).self) {
-            _ = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+            _ = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
         }
     }
 
@@ -140,7 +140,7 @@ struct ArchiveIntegrityVerifierTests {
         let url = try Self.writeTemp(zip)
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
 
         let dump = String(describing: result)
         #expect(!dump.contains("file://"))
@@ -160,7 +160,7 @@ struct ArchiveIntegrityVerifierTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         var calls = 0
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: {
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: {
             calls += 1
             return calls > 3   // 数エントリ処理させてから中断
         })

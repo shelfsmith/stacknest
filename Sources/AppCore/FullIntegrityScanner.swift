@@ -293,13 +293,29 @@ extension FullIntegrityScanner {
     /// （例: `.../MyLibrary.stacknest`）。`!exists` になった本がある度に、この 1 パスの
     /// 存在確認だけで「ボリューム/バンドルごと消えている」か「その本だけが本当に消えた」かを
     /// 判別する（ファイル 1 個の stat なので走査全体のコストには効かない）。
+    ///
+    /// G34a: CRC 検証は `ThrottledIOExecutor` の専用スレッド（低 QoS ＋ `IOPOL_THROTTLE`）で走らせる。
+    /// 従来はこの検証が**呼び出し元（GUI＝`@MainActor`）の優先度を継承した非構造 Task 上**で
+    /// 走っており、実測で `PRI=46`（Finder / Safari のメインスレッド相当）だった。
+    /// 走査は時間の 70% を `read()` に費やす I/O 律速で、UI が読むもの（本体・サムネイル・SQLite）は
+    /// 同じディスクイメージ上にあるため、UI の read が背後に並んで**アプリだけがもっさり**していた。
+    ///
+    /// 実行器は**この Dependencies に 1 個**（＝1 回の走査に 1 個）。直列なので、ディスクイメージへの
+    /// 同時要求を増やさない。
     public static func liveDependencies(libraryBundleURL: URL) -> Dependencies {
-        Dependencies(
+        let executor = ThrottledIOExecutor()
+        return Dependencies(
             categoryOf: { BookCategory.classify(path: $0) },
             fileExists: { FileManager.default.fileExists(atPath: $0) },
             statFile: { Database.statFile($0) },
             verify: { url, isCancelled in
-                try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: isCancelled)
+                // 検証は同期ループなので、actor 越しの async な中断問い合わせを
+                // 同期的に読めるフラグへ写してから渡す（詳細は CancellationMirror）。
+                try await CancellationMirror.mirroring(probe: isCancelled) { syncIsCancelled in
+                    try await executor.run {
+                        try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: syncIsCancelled)
+                    }
+                }
             },
             now: { Int64(Date().timeIntervalSince1970) },
             libraryReachable: { FileManager.default.fileExists(atPath: libraryBundleURL.path) })
