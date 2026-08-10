@@ -1001,6 +1001,42 @@ final class AppState {
         }
     }
 
+    /// 巻送りで開いた本を既読にし、**一覧の該当行だけをその場で書き換える**（G34b）。
+    ///
+    /// ## なぜ `refreshDisplayedBooks()` を呼ばないのか
+    ///
+    /// 元の実装はここで DB だけを更新し、一覧には一切触れていなかった
+    /// （「背景ライブラリ window の displayedBooks/選択を巻送りごとに揺らさない」）。
+    /// その意図は正しい: 再取得すると `searchBooks` が走って**並び替えとフィルタが再適用される**ため、
+    /// 「読んだ日」降順で並べているとその本が巻送りのたびに先頭へジャンプし、
+    /// 「未読のみ」表示だと読み始めた瞬間に一覧から消える。
+    ///
+    /// 一方で、DB だけ更新して一覧を放置すると**ブラウザを開き直すまで既読マークと
+    /// 「読んだ日」が変わらない**（ユーザー報告の症状）。最初に本を開く経路
+    /// （`markAsRead(book:)`）は `refreshDisplayedBooks()` まで呼ぶため即反映しており、
+    /// 「最初の 1 冊は反映されるのに巻送りした本は反映されない」という非対称になっていた。
+    ///
+    /// そこで、リモート側（`RemoteLibraryState`）が採っているのと同じ**行内更新**にする。
+    /// `AppState` は `@Observable` なので配列要素の差し替えだけで SwiftUI の再描画が走る
+    /// （`booksDataVersion` の bump は不要 ―― あれは `LibraryBrowserView` の facet キャッシュキーに
+    /// 入っており、bump すると巻送りのたびに facet が再計算される）。
+    ///
+    /// - Parameter date: DB と一覧の**両方に同じ値**を書く。別々に `Date()` を呼ぶと
+    ///   保存した値と表示が数ミリ秒ずれる。
+    func markVolumeAsReadAndReflect(bookID: Int, at date: Date = Date()) {
+        guard let db = database else { return }
+        try? db.markAsRead(bookID: bookID, at: date)
+
+        // 一覧に居ない本のこともある（「未読のみ」表示・シェルフ・検索中など）。
+        // その場合は DB 更新だけで終える ―― 一覧へ勝手に足さない。
+        if let i = displayedBooks.firstIndex(where: { $0.id == bookID }) {
+            displayedBooks[i] = displayedBooks[i].markedRead(at: date)
+        }
+        if selectedBookIDs.contains(bookID) { refreshSelectedBook() }
+        // 未読バッジは件数が変わるので更新する。一覧の並びには触れない。
+        reloadSidebarCounts()
+    }
+
     private enum VolumeDirection { case next, prev }
 
     /// 次/前の巻を解決して NextVolume を返す。content 化に失敗したら nil。
@@ -1014,8 +1050,7 @@ final class AppState {
         guard let next = sibling,
               let content = try? BookContentFactory.make(for: next) else { return nil }
         // 巻送りで開く本も Stackroom 同様「閲覧開始」とみなし unseen=0 + play_date=now を更新する（D9）。
-        // DB レベル更新に留め、背景ライブラリ window の displayedBooks/選択を巻送りごとに揺らさない。
-        try? db.markAsRead(bookID: next.id, at: Date())
+        markVolumeAsReadAndReflect(bookID: next.id)
         let state = Self.resolvedState(for: next, database: db)
         return NextVolume(content: content, book: next, state: state)
     }
