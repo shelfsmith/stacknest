@@ -113,6 +113,28 @@ public struct BookRow: Sendable, Equatable, Identifiable {
         self.fileMtime = fileMtime
     }
 
+    /// 既読化（`unseen = false` ＋ `playDate = date`）した複製を返す（G34b）。
+    ///
+    /// 巻送りで開いた本を**一覧へその場で反映する**ために使う。`refreshDisplayedBooks()` の
+    /// ような再取得はしない ―― 「読んだ日」降順で並べていると巻送りのたびにその本が先頭へ
+    /// ジャンプし、「未読のみ」表示だと一覧から消えてしまう（`AppState.resolveVolume` の
+    /// 元コメントが避けていた挙動そのもの。ユーザー選択済みの方針）。
+    ///
+    /// **`unseen` と `playDate` を別々に更新する API は用意しない。** 既読化は常に
+    /// この 2 フィールド同時であり、片方だけ適用できる形にすると呼び出し側で取り違えが起きる。
+    public func markedRead(at date: Date) -> BookRow {
+        BookRow(
+            id: id, title: title, author: author, genre: genre,
+            path: path, dateAdded: dateAdded, playDate: date,
+            bookType: bookType, fileType: fileType, pages: pages, rating: rating,
+            unseen: false,
+            keywordA: keywordA, keywordB: keywordB, keywordC: keywordC,
+            neta: neta, memo: memo, series: series, volume: volume,
+            coverImageName: coverImageName, coverCropRect: coverCropRect,
+            pageDirection: pageDirection, contentHash: contentHash,
+            fileSize: fileSize, fileMtime: fileMtime)
+    }
+
     /// JSON `{"x":...,"y":...,"w":...,"h":...}` を CGRect に復号。`nil` / 空 / 不正 JSON は nil。
     public static func decodeCoverCropRect(json: String?) -> CGRect? {
         guard let json, !json.isEmpty,
