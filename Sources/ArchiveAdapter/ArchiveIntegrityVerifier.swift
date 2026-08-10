@@ -63,7 +63,20 @@ public enum ArchiveIntegrityVerifier {
     ///   （throw しない）。ただし 1 件も読めないまま破綻した場合は throw する
     ///   （`enumerateImageEntries` と同じ「0 ページの本として黙って開かせない」規律）。
     /// - open 自体が失敗した場合（非アーカイブファイル・権限拒否等）は throw する。
-    public static func verify(url: URL, isCancelled: () async -> Bool = { false }) async throws -> ArchiveVerifyResult {
+    ///
+    /// **★ `Sync` の意味（G34a）: この関数はブロックする。協調スレッドプール上で呼んではいけない。**
+    /// 実測（`sample`・2026-08-10）で、この関数は時間の 70% を `read()` syscall に費やす
+    /// 完全な I/O 律速であり、1 冊あたり数秒間スレッドを占有し続ける。走査は
+    /// `ThrottledIOExecutor` の専用スレッド（低 QoS ＋ `IOPOL_THROTTLE`）から呼ぶこと。
+    ///
+    /// 同期であること自体が要件でもある。`setiopolicy_np` は**スレッド単位**の設定なので、
+    /// 協調プールのスレッドに設定するとそのスレッドが後で拾う無関係なタスクにまで
+    /// スロットルが漏れる。専用スレッド上で**中断しない同期ループ**として走ることが前提。
+    ///
+    /// G34a 以前は `isCancelled: () async -> Bool` を取る async 版だったが、
+    /// 上記の理由で同期版へ一本化した（本番呼び出しは `FullIntegrityScanner.liveDependencies`
+    /// の 1 箇所のみで、そこは実行器経由になったため async 版に利用者がいなくなった）。
+    public static func verifySync(url: URL, isCancelled: () -> Bool = { false }) throws -> ArchiveVerifyResult {
         guard let archive = archive_read_new() else {
             throw ArchiveAdapterError.archiveUnreadable(url, reason: "archive_read_new failed")
         }
@@ -91,7 +104,7 @@ public enum ArchiveIntegrityVerifier {
         var entry: OpaquePointer?
         while true {
             // エントリ単位の中断確認（次のヘッダを読む/読まないの境界で見る）。
-            if await isCancelled() {
+            if isCancelled() {
                 return ArchiveVerifyResult(entryCount: entryCount, imageCount: imageCount,
                                            badEntries: badEntries, truncated: true)
             }

@@ -153,7 +153,7 @@ struct ArchiveIntegrityVerifierRARDirectoryTests {
         // workDir (= url の親。src/ と test.rar をまとめて持つ) ごと片付ける。
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
 
         #expect(result.badEntries.isEmpty)
         #expect(result.truncated == false)
@@ -170,7 +170,7 @@ struct ArchiveIntegrityVerifierRARDirectoryTests {
         let url = try Self.makeRealRARWithCorruptedCompressedEntry()
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-        let result = try await ArchiveIntegrityVerifier.verify(url: url, isCancelled: { false })
+        let result = try ArchiveIntegrityVerifier.verifySync(url: url, isCancelled: { false })
 
         #expect(result.badEntries == ["big.txt"])
         #expect(result.truncated == false)
