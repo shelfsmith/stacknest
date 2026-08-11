@@ -1016,23 +1016,28 @@ final class AppState {
     /// （`markAsRead(book:)`）は `refreshDisplayedBooks()` まで呼ぶため即反映しており、
     /// 「最初の 1 冊は反映されるのに巻送りした本は反映されない」という非対称になっていた。
     ///
-    /// そこで、リモート側（`RemoteLibraryState`）が採っているのと同じ**行内更新**にする。
-    /// `AppState` は `@Observable` なので配列要素の差し替えだけで SwiftUI の再描画が走る
-    /// （`booksDataVersion` の bump は不要 ―― あれは `LibraryBrowserView` の facet キャッシュキーに
-    /// 入っており、bump すると巻送りのたびに facet が再計算される）。
+    /// そこで、外部変更（`handleExternalBookChange`）と**同じ行内更新の仕組みを共有する**。
+    /// 唯一違うのは `allowResort: false`（下記 `applyFreshBook` 参照）。
     ///
-    /// - Parameter date: DB と一覧の**両方に同じ値**を書く。別々に `Date()` を呼ぶと
-    ///   保存した値と表示が数ミリ秒ずれる。
+    /// ★ **反映先は `displayedBooks` だけではない。** グリッドが描画するのは
+    /// `sortedDisplayedBooks` で、リストはさらに `sortedDisplayedBooksVersion` を見ている。
+    /// 初版は `displayedBooks` だけを書き換えて「直った」としたが、実機では一切反映されず
+    /// smoke B1 が NG になった。だからここは自前で配列を触らず `applyFreshBook` に委ねる。
+    ///
+    /// `booksDataVersion` は bump しない ―― あれは `LibraryBrowserView` の facet キャッシュキーに
+    /// 入っており、bump すると巻送りのたびに facet が再計算される。
+    ///
+    /// - Parameter date: DB へ書く読書日時。一覧へは**書き込んだ DB から読み直した値**を
+    ///   反映するので、保存値と表示が食い違わない。
     func markVolumeAsReadAndReflect(bookID: Int, at date: Date = Date()) {
         guard let db = database else { return }
         try? db.markAsRead(bookID: bookID, at: date)
 
         // 一覧に居ない本のこともある（「未読のみ」表示・シェルフ・検索中など）。
-        // その場合は DB 更新だけで終える ―― 一覧へ勝手に足さない。
-        if let i = displayedBooks.firstIndex(where: { $0.id == bookID }) {
-            displayedBooks[i] = displayedBooks[i].markedRead(at: date)
+        // `applyFreshBook` は該当行が無ければ配列に触らない（勝手に足さない）。
+        if let fresh = try? db.fetchBook(id: bookID) {
+            applyFreshBook(fresh, allowResort: false)
         }
-        if selectedBookIDs.contains(bookID) { refreshSelectedBook() }
         // 未読バッジは件数が変わるので更新する。一覧の並びには触れない。
         reloadSidebarCounts()
     }
@@ -1201,6 +1206,46 @@ final class AppState {
     /// Call after displayedBooks updates so the detail pane sees fresh values.
     private func refreshDisplayedSelectedBooks() {
         displayedSelectedBooks = displayedBooks.filter { selectedBookIDs.contains($0.id) }
+    }
+
+    /// 1 冊分の最新値を、**画面が読む全ての場所**へ反映する（G34b で `handleExternalBookChange`
+    /// から切り出した）。
+    ///
+    /// ★ 反映先が 3 つある点がこの処理の要:
+    /// - `displayedBooks` — 各種操作の母集合。**グリッドはこれを描画していない**
+    /// - `sortedDisplayedBooks` — **グリッドが `ForEach` で描画する実体**（`LibraryBrowserView`）
+    /// - `displayedSelectedBooks` / `selectedBook` — 詳細ペイン
+    ///
+    /// さらにリスト表示（NSTableView 版）は `sortedDisplayedBooksVersion` の変化を見て
+    /// `reloadData` するため、**配列を書き換えるだけでは足りず version の bump が要る**。
+    /// G34b の初版は `displayedBooks` だけを更新して「直った」と判断し、実機 smoke で
+    /// 反映されていないことが分かった。以後この経路は必ずここを通す。
+    ///
+    /// - Parameter allowResort: 並び順に影響する変更のとき、全再ソートしてよいか。
+    ///   `true`（外部変更の既定）: 「読んだ日」ソート中に読書が起きれば正しい位置へ動かす。
+    ///   `false`（巻送り経路）: 読み進めるたびに背景の一覧でその本が先頭へジャンプするのを
+    ///   避けるため、値だけ差し替えて位置は据え置く（ユーザー選択済みの方針）。
+    private func applyFreshBook(_ fresh: BookRow, allowResort: Bool) {
+        let bookID = fresh.id
+        let idx = displayedBooks.firstIndex(where: { $0.id == bookID })
+        let oldBook = idx.map { displayedBooks[$0] }
+        if let idx { displayedBooks[idx] = fresh }
+        if selectedBook?.id == bookID { selectedBook = fresh }
+        refreshDisplayedSelectedBooks()   // 詳細ペイン（displayedSelectedBooks）は常に即時更新
+
+        let mode = librarySettings?.sortMode ?? .column
+        let colSort = librarySettings?.listViewSort ?? ColumnSort(column: .dateAdded, ascending: false)
+        let needsResort = oldBook.map {
+            sortOrderAffected(old: $0, new: fresh, sortMode: mode, columnSort: colSort)
+        } ?? false
+        if needsResort && allowResort {
+            refreshSortedDisplayedBooks()
+        } else if let sidx = sortedDisplayedBooks.firstIndex(where: { $0.id == bookID }) {
+            // 並び順は不変（または据え置く）。該当行の内容（未読●・最終閲覧日列等）だけ
+            // 差し替えて version を bump する。bump しないとリストが reloadData しない。
+            sortedDisplayedBooks[sidx] = fresh
+            sortedDisplayedBooksVersion &+= 1
+        }
     }
 
     /// Re-sort displayedBooks into sortedDisplayedBooks. Call after
@@ -1903,24 +1948,7 @@ final class AppState {
     func handleExternalBookChange(bookID: Int) {
         guard let db = database else { return }
         guard let fresh = try? db.fetchBook(id: bookID) else { return }
-        let idx = displayedBooks.firstIndex(where: { $0.id == bookID })
-        let oldBook = idx.map { displayedBooks[$0] }
-        if let idx { displayedBooks[idx] = fresh }
-        if selectedBook?.id == bookID { selectedBook = fresh }
-        refreshDisplayedSelectedBooks()   // 詳細ペイン（displayedSelectedBooks）は常に即時更新
-
-        let mode = librarySettings?.sortMode ?? .column
-        let colSort = librarySettings?.listViewSort ?? ColumnSort(column: .dateAdded, ascending: false)
-        let needsResort = oldBook.map {
-            sortOrderAffected(old: $0, new: fresh, sortMode: mode, columnSort: colSort)
-        } ?? false
-        if needsResort {
-            refreshSortedDisplayedBooks()
-        } else if let sidx = sortedDisplayedBooks.firstIndex(where: { $0.id == bookID }) {
-            // 並び順は不変。該当行の内容（未読●・最終閲覧日列等）だけ差し替えて version を bump。
-            sortedDisplayedBooks[sidx] = fresh
-            sortedDisplayedBooksVersion &+= 1
-        }
+        applyFreshBook(fresh, allowResort: true)
 
         // G4c: リモート由来の変更で表紙が差し替わっている可能性があるため、当該本のサムネイル
         // メモリキャッシュを捨てた後に当該本の coverVersionByBook を bump してローカル表紙ビューを
