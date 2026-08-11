@@ -69,34 +69,138 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
         }
     }
 
-    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "ThrottledIOExecutor")
+    static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "ThrottledIOExecutor")
 
-    private typealias WorkItem = @Sendable () -> Void
+    /// ★ ワーカーを別オブジェクトに分けている理由（Codex レビュー P2）。
+    ///
+    /// 初版はスレッドのクロージャが `self?.threadLoop()` を呼んでおり、**呼び出しの間ずっと
+    /// executor を強参照していた**。`threadLoop` は `isStopped` が立つまで返らず、`isStopped` は
+    /// `deinit` でしか立たない ―― つまり「スレッドが executor を生かし、executor の死だけが
+    /// スレッドを止める」という所有の循環になっていて、`deinit` は永久に走らなかった。
+    /// 走査のたびに `liveDependencies` が executor を 1 個作るので、**ネイティブスレッドが
+    /// 1 本ずつ漏れ続ける**。
+    ///
+    /// スレッドが持つのはこの `Worker`（キューと停止フラグだけの小さな箱）にして、
+    /// executor の `deinit` が `Worker.stop()` を呼ぶ。executor は誰からも参照されなくなれば
+    /// 解放され、ワーカーは残った仕事を捌いてからスレッドを終える。
+    final class Worker: @unchecked Sendable {
+        typealias WorkItem = @Sendable () -> Void
 
-    private let lock = NSCondition()
-    private var pending: [WorkItem] = []
-    private var isStopped = false
-    private var didStartThread = false
-    /// スレッド上で `setiopolicy_np` を実際に適用して読み戻した結果。未起動なら nil。
-    private var observedPolicy: Int32?
+        private let lock = NSCondition()
+        private var pending: [WorkItem] = []
+        private var isStopped = false
+        private var didStartThread = false
+        /// スレッド上で `setiopolicy_np` を実際に適用して読み戻した結果。未起動なら nil。
+        private var observedPolicy: Int32?
+        /// スレッドがループを抜けたか（終了できたことをテストから観測するため）。
+        private var didExit = false
 
-    private let policy: Int32
-    private let label: String
-    private let qualityOfService: QualityOfService
+        let policy: Int32
+        private let label: String
+        private let qualityOfService: QualityOfService
+
+        init(label: String, policy: Int32, qualityOfService: QualityOfService) {
+            self.label = label
+            self.policy = policy
+            self.qualityOfService = qualityOfService
+        }
+
+        /// 以後の新規受付をやめ、残った仕事を捌いてからスレッドを終わらせる。
+        /// **積まれた仕事は捨てない** ―― `run` の continuation が resume されないまま
+        /// 捨てられると、`withCheckedContinuation` がリークとして落ちる。
+        func stop() {
+            lock.lock()
+            isStopped = true
+            lock.broadcast()
+            lock.unlock()
+        }
+
+        func enqueue(_ item: @escaping WorkItem) {
+            lock.lock()
+            pending.append(item)
+            if !didStartThread {
+                didStartThread = true
+                startThread()
+            }
+            lock.signal()
+            lock.unlock()
+        }
+
+        var throttleState: (observed: Int32?, requested: Int32) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (observedPolicy, policy)
+        }
+
+        /// テスト用: スレッドが実際に終了したか。
+        var hasExited: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return didExit
+        }
+
+        /// **`lock` を保持した状態で呼ぶこと。**
+        private func startThread() {
+            // ここで `self`（Worker）を強参照するのは意図どおり。Worker は小さく、
+            // `stop()` を受ければ確実に抜ける（上のコメント参照）。
+            let thread = Thread { [self] in
+                // ★ 生の Thread 上でのみ成功する（dispatch worker では EINVAL）。冒頭のコメント参照。
+                _ = setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, policy)
+                // 設定できたことを**読み戻して**記録する。効かなかった場合に「効いたつもり」で
+                // 走らせないため、成功の可否は推測せず観測値で持つ。
+                let observed = ThrottledIOExecutor.currentThreadDiskPolicy()
+                // 実機で「本当に効いたか」を外から確かめられるようにする。
+                // 単体テストは通っても、実行環境が変われば同じ設定が拒否されうる
+                // （dispatch worker では EINVAL になることが実測で分かっている）。
+                // `log show --predicate 'category == "ThrottledIOExecutor"'` で確認できる。
+                if observed == policy {
+                    // 既定以外（測定・調整で `standard` 等にした場合）に "throttle active" と出ると
+                    // 誤読するので、要求どおりに適用できたことと実際の値を分けて書く。
+                    let throttled = (observed != IOPOL_STANDARD && observed != IOPOL_IMPORTANT)
+                    ThrottledIOExecutor.logger.info(
+                        "disk I/O policy applied: \(observed, privacy: .public) (throttled=\(throttled, privacy: .public))")
+                } else {
+                    let requested = self.policy
+                    ThrottledIOExecutor.logger.error(
+                        "disk I/O throttle NOT applied (requested=\(requested, privacy: .public) observed=\(observed, privacy: .public)) — scan will compete with UI I/O")
+                }
+                threadLoop(observedPolicy: observed)
+            }
+            thread.name = label
+            thread.qualityOfService = qualityOfService
+            thread.start()
+        }
+
+        private func threadLoop(observedPolicy: Int32) {
+            lock.lock()
+            self.observedPolicy = observedPolicy
+            while true {
+                while pending.isEmpty && !isStopped {
+                    lock.wait()
+                }
+                if pending.isEmpty && isStopped {
+                    didExit = true
+                    lock.unlock()
+                    return
+                }
+                let item = pending.removeFirst()
+                lock.unlock()
+                item()
+                lock.lock()
+            }
+        }
+    }
+
+    let worker: Worker
 
     public init(label: String = "app.shelfsmith.stacknest.throttled-io",
                 policy: Int32 = ThrottledIOExecutor.defaultPolicy,
                 qualityOfService: QualityOfService = .utility) {
-        self.label = label
-        self.policy = policy
-        self.qualityOfService = qualityOfService
+        self.worker = Worker(label: label, policy: policy, qualityOfService: qualityOfService)
     }
 
     deinit {
-        lock.lock()
-        isStopped = true
-        lock.broadcast()
-        lock.unlock()
+        worker.stop()
     }
 
     /// `body` を実行器の専用スレッド上で実行し、結果を返す。`body` が throw したら同じエラーを伝播する。
@@ -105,7 +209,7 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
     /// continuation で待つだけなので、協調スレッドプールのスレッドは解放される。
     public func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-            enqueue {
+            worker.enqueue {
                 do {
                     continuation.resume(returning: try body())
                 } catch {
@@ -119,10 +223,9 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
     /// 一度でも `run` を通したあとに意味を持つ（それまでスレッドは起動していない）。
     /// `nil` は「まだ起動していないので分からない」であって「有効」でも「無効」でもない。
     public var isThrottleActive: Bool? {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let observedPolicy else { return nil }
-        return observedPolicy == policy
+        let state = worker.throttleState
+        guard let observed = state.observed else { return nil }
+        return observed == state.requested
     }
 
     /// 現在のスレッドのディスク I/O ポリシーを返す（テストと診断用）。
@@ -130,64 +233,4 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
         getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD)
     }
 
-    // MARK: - 内部
-
-    private func enqueue(_ item: @escaping WorkItem) {
-        lock.lock()
-        pending.append(item)
-        if !didStartThread {
-            didStartThread = true
-            startThread()
-        }
-        lock.signal()
-        lock.unlock()
-    }
-
-    /// **`lock` を保持した状態で呼ぶこと。**
-    private func startThread() {
-        let thread = Thread { [weak self] in
-            // ★ 生の Thread 上でのみ成功する（dispatch worker では EINVAL）。冒頭のコメント参照。
-            _ = setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, self?.policy ?? IOPOL_THROTTLE)
-            // 設定できたことを**読み戻して**記録する。効かなかった場合に「効いたつもり」で
-            // 走らせないため、成功の可否は推測せず観測値で持つ。
-            let observed = Self.currentThreadDiskPolicy()
-            let requested = self?.policy ?? IOPOL_THROTTLE
-            // 実機で「本当に効いたか」を外から確かめられるようにする。
-            // 単体テストは通っても、実行環境が変われば同じ設定が拒否されうる
-            // （dispatch worker では EINVAL になることが実測で分かっている）。
-            // `log show --predicate 'category == "ThrottledIOExecutor"'` で確認できる。
-            if observed == requested {
-                // 既定以外（測定・調整で `standard` 等にした場合）に "throttle active" と出ると
-                // 誤読するので、要求どおりに適用できたことと実際の値を分けて書く。
-                let throttled = (observed != IOPOL_STANDARD && observed != IOPOL_IMPORTANT)
-                Self.logger.info(
-                    "disk I/O policy applied: \(observed, privacy: .public) (throttled=\(throttled, privacy: .public))")
-            } else {
-                Self.logger.error(
-                    "disk I/O throttle NOT applied (requested=\(requested, privacy: .public) observed=\(observed, privacy: .public)) — scan will compete with UI I/O")
-            }
-            self?.threadLoop(observedPolicy: observed)
-        }
-        thread.name = label
-        thread.qualityOfService = qualityOfService
-        thread.start()
-    }
-
-    private func threadLoop(observedPolicy: Int32) {
-        lock.lock()
-        self.observedPolicy = observedPolicy
-        while true {
-            while pending.isEmpty && !isStopped {
-                lock.wait()
-            }
-            if isStopped && pending.isEmpty {
-                lock.unlock()
-                return
-            }
-            let item = pending.removeFirst()
-            lock.unlock()
-            item()
-            lock.lock()
-        }
-    }
 }

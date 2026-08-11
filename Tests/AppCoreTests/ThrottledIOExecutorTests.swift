@@ -148,6 +148,47 @@ struct ThrottledIOExecutorTests {
         #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("off")) == IOPOL_THROTTLE)
     }
 
+    // MARK: - 7c. ★ 使い終わった実行器はスレッドごと片付く（Codex レビュー P2 の回帰ガード）
+
+    /// 初版はスレッドのクロージャが `self?.threadLoop()` を呼んでおり、呼び出しの間ずっと
+    /// executor を強参照していた。`threadLoop` は `isStopped` が立つまで返らず、`isStopped` は
+    /// `deinit` でしか立たない ―― 所有が循環して `deinit` が永久に走らず、
+    /// **走査のたびにネイティブスレッドが 1 本ずつ漏れていた**。
+    ///
+    /// `liveDependencies` は走査 1 回につき executor を 1 個作るので、
+    /// 「参照が切れたらスレッドも終わる」は運用上の必須条件。
+    @Test("実行器が解放されるとワーカースレッドも終了する")
+    func releasingTheExecutorTerminatesItsThread() async throws {
+        // worker だけを手元に残し、executor は解放させる。
+        let worker: ThrottledIOExecutor.Worker
+        do {
+            let executor = ThrottledIOExecutor()
+            worker = executor.worker
+            _ = try await executor.run { 1 }        // スレッドを起動させる
+            #expect(worker.hasExited == false)      // 使用中は当然まだ生きている
+        }
+        // ここで executor は解放され、deinit が worker.stop() を呼ぶ。
+
+        for _ in 0..<200 {
+            if worker.hasExited { break }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(worker.hasExited == true)
+    }
+
+    /// 停止時に積まれていた仕事は**捨てない**。捨てると `run` の continuation が
+    /// resume されないまま消え、`withCheckedContinuation` がリークとして落ちる。
+    @Test("停止しても積まれた仕事は捌かれる（continuation を宙に浮かせない）")
+    func pendingWorkStillRunsAfterStop() async throws {
+        let executor = ThrottledIOExecutor()
+        let value = try await executor.run { 7 }
+        #expect(value == 7)
+        executor.worker.stop()
+        // stop 後に積んだ分も resume される（ハングしないことがこのテストの主眼）
+        let after = try await executor.run { 8 }
+        #expect(after == 8)
+    }
+
     // MARK: - 8. 実行はすべて同一スレッド上（＝専用スレッドである）
 
     /// 専用スレッドであることは「ポリシーを設定できる」ための前提条件そのもの
