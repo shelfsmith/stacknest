@@ -118,6 +118,36 @@ struct ThrottledIOExecutorTests {
         #expect(executor.isThrottleActive == true)
     }
 
+    // MARK: - 7b. UserDefaults による上書き
+
+    private func makeDefaults(_ value: String?) -> UserDefaults {
+        let name = "g34a-test-\(UUID().uuidString)"
+        let d = UserDefaults(suiteName: name)!
+        if let value { d.set(value, forKey: "stacknest.scanIOPolicy") }
+        return d
+    }
+
+    @Test("未設定なら既定の THROTTLE")
+    func configuredPolicyDefaultsToThrottle() {
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults(nil)) == IOPOL_THROTTLE)
+    }
+
+    @Test("utility / standard へ切り替えられる（A/B 測定と体感調整のため）")
+    func configuredPolicyHonoursKnownValues() {
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("utility")) == IOPOL_UTILITY)
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("standard")) == IOPOL_STANDARD)
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("UTILITY")) == IOPOL_UTILITY)
+    }
+
+    /// ★ 打ち間違いで**無効化**されては困る。未知の値は既定へ倒す
+    /// （「効いているつもり」で走るのが最悪の結果なので、安全側は throttle）。
+    @Test("未知の値は既定へ倒す（無効化しない）")
+    func configuredPolicyFallsBackToTheSafeDefault() {
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("throttle_typo")) == IOPOL_THROTTLE)
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("")) == IOPOL_THROTTLE)
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("off")) == IOPOL_THROTTLE)
+    }
+
     // MARK: - 8. 実行はすべて同一スレッド上（＝専用スレッドである）
 
     /// 専用スレッドであることは「ポリシーを設定できる」ための前提条件そのもの

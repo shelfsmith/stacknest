@@ -44,6 +44,31 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
     /// 走査が遅くなりすぎる場合の緩和先は `IOPOL_UTILITY`。
     public static let defaultPolicy: Int32 = IOPOL_THROTTLE
 
+    /// 走査の I/O ポリシーを UserDefaults から上書きする（診断・調整用）。
+    ///
+    /// ```sh
+    /// defaults write app.shelfsmith.stacknest stacknest.scanIOPolicy utility   # 緩める
+    /// defaults write app.shelfsmith.stacknest stacknest.scanIOPolicy standard  # 実質無効（比較測定用）
+    /// defaults delete app.shelfsmith.stacknest stacknest.scanIOPolicy          # 既定へ戻す
+    /// ```
+    ///
+    /// 用途は 2 つ。①**同一の本集合で throttle 有無を A/B 測定する**（そうしないと
+    /// 「遅くなった分がスロットルのせいなのか、対象の本が違うだけなのか」を切り分けられない）。
+    /// ②体感と走査時間のトレードオフを、再ビルドせずに調整できるようにする。
+    /// 不明な値は既定（`throttle`）として扱う ―― 打ち間違いで**無効化されて**しまい、
+    /// 「効いているつもり」で走るのを避けるため。効いたかどうかは `isThrottleActive` で読める。
+    public static func configuredPolicy(
+        _ defaults: UserDefaults = .standard,
+        key: String = "stacknest.scanIOPolicy"
+    ) -> Int32 {
+        switch defaults.string(forKey: key)?.lowercased() {
+        case "utility":  return IOPOL_UTILITY
+        case "standard": return IOPOL_STANDARD
+        case "important": return IOPOL_IMPORTANT
+        default:         return defaultPolicy
+        }
+    }
+
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "ThrottledIOExecutor")
 
     private typealias WorkItem = @Sendable () -> Void
