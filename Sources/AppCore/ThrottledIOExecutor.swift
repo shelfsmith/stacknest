@@ -38,6 +38,11 @@ import Darwin
 /// なお `setiopolicy_np` の戻り値は**握り潰さない**。効いたかどうかは `isThrottleActive` で
 /// 実際に読み戻して確かめられる（このプロジェクトが繰り返し踏んできた
 /// 「確認できないことを、確認できた結果と同じ形にしてしまう」誤りを避けるため）。
+public enum ThrottledIOExecutorError: Error, Equatable {
+    /// 実行器が既に停止している（解放後）。新しい仕事は受け付けられない。
+    case stopped
+}
+
 public final class ThrottledIOExecutor: @unchecked Sendable {
     /// `<sys/resource.h>` の `IOPOL_THROTTLE`。最も強い後回し指定（Spotlight / Time Machine 相当）。
     /// 競合する I/O があるときカーネルが意図的に遅延を挟む＝まさに今回欲しい挙動。
@@ -61,10 +66,12 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
         _ defaults: UserDefaults = .standard,
         key: String = "stacknest.scanIOPolicy"
     ) -> Int32 {
+        // `important`(1) は受け付けない。設定しても `getiopolicy_np` は 0（default）を返すため
+        // **適用できたかを読み戻して確かめられない**（実測）。検証できない選択肢を残すと
+        // 「効いているつもり」の余地になるので、そもそも選ばせない。
         switch defaults.string(forKey: key)?.lowercased() {
         case "utility":  return IOPOL_UTILITY
         case "standard": return IOPOL_STANDARD
-        case "important": return IOPOL_IMPORTANT
         default:         return defaultPolicy
         }
     }
@@ -115,15 +122,24 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
             lock.unlock()
         }
 
-        func enqueue(_ item: @escaping WorkItem) {
+        /// 仕事を積む。**停止済みなら受け付けず `false` を返す。**
+        ///
+        /// ★ 黙って積んではいけない。スレッドは既に抜けており、`didStartThread` が立っているため
+        /// 新しいスレッドも起動しない ―― 積んだ仕事は永久に実行されず、`run` の continuation が
+        /// resume されないまま宙に浮く（＝呼び出し側が無期限にハングする）。
+        /// 実際にこの実装の初版でテストがハングして発覚した。
+        /// 受け付けられないことを呼び出し側へ返し、`run` はエラーとして解決させる。
+        func enqueue(_ item: @escaping WorkItem) -> Bool {
             lock.lock()
+            defer { lock.unlock() }
+            guard !isStopped else { return false }
             pending.append(item)
             if !didStartThread {
                 didStartThread = true
                 startThread()
             }
             lock.signal()
-            lock.unlock()
+            return true
         }
 
         var throttleState: (observed: Int32?, requested: Int32) {
@@ -156,7 +172,8 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
                 if observed == policy {
                     // 既定以外（測定・調整で `standard` 等にした場合）に "throttle active" と出ると
                     // 誤読するので、要求どおりに適用できたことと実際の値を分けて書く。
-                    let throttled = (observed != IOPOL_STANDARD && observed != IOPOL_IMPORTANT)
+                    // 判定は `isThrottleActive` と同じ述語を共有する（二重定義にしない）。
+                    let throttled = ThrottledIOExecutor.isThrottlingPolicy(observed)
                     ThrottledIOExecutor.logger.info(
                         "disk I/O policy applied: \(observed, privacy: .public) (throttled=\(throttled, privacy: .public))")
                 } else {
@@ -209,23 +226,44 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
     /// continuation で待つだけなので、協調スレッドプールのスレッドは解放される。
     public func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-            worker.enqueue {
+            let accepted = worker.enqueue {
                 do {
                     continuation.resume(returning: try body())
                 } catch {
                     continuation.resume(throwing: error)
                 }
             }
+            // 受け付けられなかった（＝停止済み）なら**必ずここで解決する**。
+            // resume せずに戻ると呼び出し側が無期限に待ち続ける。
+            if !accepted { continuation.resume(throwing: ThrottledIOExecutorError.stopped) }
         }
+    }
+
+    /// そのポリシー値が「後回しにする」種類かどうか。
+    ///
+    /// `IOPOL_STANDARD` / `IOPOL_IMPORTANT` は**スロットルしない**指定である。
+    /// この判定はログと `isThrottleActive` の両方が使う ―― 別々に書くと、
+    /// 「ログは throttled=false と言っているのにプロパティは true を返す」という
+    /// 食い違いが起きる（Codex レビュー P2 で実際に指摘された）。
+    static func isThrottlingPolicy(_ policy: Int32) -> Bool {
+        policy != IOPOL_STANDARD && policy != IOPOL_IMPORTANT
     }
 
     /// スレッド上で I/O スロットルが**実際に有効になっているか**を返す。
     /// 一度でも `run` を通したあとに意味を持つ（それまでスレッドは起動していない）。
-    /// `nil` は「まだ起動していないので分からない」であって「有効」でも「無効」でもない。
+    ///
+    /// - `nil`: まだスレッドが起動していないので**分からない**（「有効」でも「無効」でもない）
+    /// - `false`: 要求したポリシーを適用できなかった、**または**適用できたがそれが
+    ///   スロットルしない種類（`standard` / `important` ＝ A/B 測定で意図的に切っている状態）
+    /// - `true`: 後回し指定が実際に効いている
+    ///
+    /// **「要求どおり適用できたか」と「スロットルが効いているか」は別の問い。**
+    /// このプロパティは名前どおり後者だけを答える。
     public var isThrottleActive: Bool? {
         let state = worker.throttleState
         guard let observed = state.observed else { return nil }
-        return observed == state.requested
+        guard observed == state.requested else { return false }
+        return Self.isThrottlingPolicy(observed)
     }
 
     /// 現在のスレッドのディスク I/O ポリシーを返す（テストと診断用）。
