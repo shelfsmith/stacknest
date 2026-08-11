@@ -303,7 +303,7 @@ extension FullIntegrityScanner {
     /// 実行器は**この Dependencies に 1 個**（＝1 回の走査に 1 個）。直列なので、ディスクイメージへの
     /// 同時要求を増やさない。
     public static func liveDependencies(libraryBundleURL: URL) -> Dependencies {
-        let executor = ThrottledIOExecutor()
+        let executor = ThrottledIOExecutor(policy: ThrottledIOExecutor.configuredPolicy())
         return Dependencies(
             categoryOf: { BookCategory.classify(path: $0) },
             fileExists: { FileManager.default.fileExists(atPath: $0) },
