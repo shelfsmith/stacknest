@@ -115,7 +115,35 @@ struct ThrottledIOExecutorTests {
         }
 
         #expect(policyInside == IOPOL_UTILITY)
-        #expect(executor.isThrottleActive == true)
+        #expect(executor.isThrottleActive == true)   // utility も「後回しにする」種類
+    }
+
+    /// ★ `standard` は **A/B 測定でスロットルを意図的に切っている状態**。
+    /// ここで `isThrottleActive` が true を返すと「切っているのに効いていると報告する」ことになり、
+    /// 測定の解釈を丸ごと誤らせる（Codex レビュー P2）。
+    /// 「要求どおり適用できたか」と「スロットルが効いているか」は別の問いである。
+    @Test("スロットルしないポリシーを適用できた場合は isThrottleActive が false")
+    func nonThrottlingPolicyIsReportedInactive() async throws {
+        let executor = ThrottledIOExecutor(policy: IOPOL_STANDARD)
+        let applied = try await executor.run { ThrottledIOExecutor.currentThreadDiskPolicy() }
+
+        #expect(applied == IOPOL_STANDARD)           // 要求どおり適用はできている
+        #expect(executor.isThrottleActive == false)  // が、スロットルは効いていない
+    }
+
+    /// `important`(1) は設定しても読み戻しが 0（default）になり**適用を確認できない**。
+    /// そのため設定値として受け付けず、既定（throttle）へ倒す。
+    @Test("important は受け付けず既定へ倒れる（検証できない選択肢を残さない）")
+    func importantIsNotSelectable() {
+        #expect(ThrottledIOExecutor.configuredPolicy(makeDefaults("important")) == IOPOL_THROTTLE)
+    }
+
+    @Test("スロットルする種類かどうかの判定（ログとプロパティで共有する述語）")
+    func throttlingPolicyPredicate() {
+        #expect(ThrottledIOExecutor.isThrottlingPolicy(IOPOL_THROTTLE) == true)
+        #expect(ThrottledIOExecutor.isThrottlingPolicy(IOPOL_UTILITY) == true)
+        #expect(ThrottledIOExecutor.isThrottlingPolicy(IOPOL_STANDARD) == false)
+        #expect(ThrottledIOExecutor.isThrottlingPolicy(IOPOL_IMPORTANT) == false)
     }
 
     // MARK: - 7b. UserDefaults による上書き
@@ -176,17 +204,36 @@ struct ThrottledIOExecutorTests {
         #expect(worker.hasExited == true)
     }
 
-    /// 停止時に積まれていた仕事は**捨てない**。捨てると `run` の continuation が
-    /// resume されないまま消え、`withCheckedContinuation` がリークとして落ちる。
-    @Test("停止しても積まれた仕事は捌かれる（continuation を宙に浮かせない）")
-    func pendingWorkStillRunsAfterStop() async throws {
+    /// ★ 停止後に `run` を呼んでも**ハングしない**（必ずエラーで解決する）。
+    ///
+    /// 初版は停止後も黙って仕事を積んでいた。スレッドは既に抜けていて再起動もしないため、
+    /// continuation が resume されないまま宙に浮き、呼び出し側が無期限に待った
+    /// （実際にテストがハングして発覚した）。受け付けないなら、そう返さなければならない。
+    @Test("停止後の run はハングせずエラーになる")
+    func runAfterStopFailsInsteadOfHanging() async throws {
         let executor = ThrottledIOExecutor()
-        let value = try await executor.run { 7 }
-        #expect(value == 7)
+        #expect(try await executor.run { 7 } == 7)
+
         executor.worker.stop()
-        // stop 後に積んだ分も resume される（ハングしないことがこのテストの主眼）
-        let after = try await executor.run { 8 }
-        #expect(after == 8)
+
+        await #expect(throws: ThrottledIOExecutorError.stopped) {
+            _ = try await executor.run { 8 }
+        }
+    }
+
+    /// 停止時に**実行中／待機中だった**仕事は捨てない（捨てると同じく continuation が宙に浮く）。
+    @Test("実行中に停止されても、その仕事は最後まで完了する")
+    func inFlightWorkCompletesDespiteStop() async throws {
+        let executor = ThrottledIOExecutor()
+
+        async let slow = executor.run { () -> Int in
+            Thread.sleep(forTimeInterval: 0.3)
+            return 5
+        }
+        try? await Task.sleep(for: .milliseconds(80))   // 走り始めさせてから止める
+        executor.worker.stop()
+
+        #expect(try await slow == 5)
     }
 
     // MARK: - 8. 実行はすべて同一スレッド上（＝専用スレッドである）
