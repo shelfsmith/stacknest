@@ -157,7 +157,11 @@ public final class ThrottledIOExecutor: @unchecked Sendable {
             // （dispatch worker では EINVAL になることが実測で分かっている）。
             // `log show --predicate 'category == "ThrottledIOExecutor"'` で確認できる。
             if observed == requested {
-                Self.logger.info("disk I/O throttle active (policy=\(observed, privacy: .public))")
+                // 既定以外（測定・調整で `standard` 等にした場合）に "throttle active" と出ると
+                // 誤読するので、要求どおりに適用できたことと実際の値を分けて書く。
+                let throttled = (observed != IOPOL_STANDARD && observed != IOPOL_IMPORTANT)
+                Self.logger.info(
+                    "disk I/O policy applied: \(observed, privacy: .public) (throttled=\(throttled, privacy: .public))")
             } else {
                 Self.logger.error(
                     "disk I/O throttle NOT applied (requested=\(requested, privacy: .public) observed=\(observed, privacy: .public)) — scan will compete with UI I/O")
