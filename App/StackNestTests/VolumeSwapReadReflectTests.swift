@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Testing
 import Foundation
+import AppCore
 import LibraryStore
 import StackroomFormat
 @testable import StackNest
@@ -47,7 +48,14 @@ struct VolumeSwapReadReflectTests {
             neta: row.neta, series: row.series, volume: row.volume)
     }
 
-    /// in-memory DB に 3 冊入れ、`displayedBooks` を同じ順で持った `AppState` を返す。
+    /// in-memory DB に 3 冊入れ、一覧を同じ順で持った `AppState` を返す。
+    ///
+    /// ★ `displayedBooks` と `sortedDisplayedBooks` の**両方**を用意する。
+    /// グリッドが実際に描画するのは `sortedDisplayedBooks` の方
+    /// （`LibraryBrowserView.swift` の `ForEach(appState.sortedDisplayedBooks)`）で、
+    /// リストは `BookTableCoordinator` が `sortedDisplayedBooksVersion` を見て reloadData する。
+    /// **`displayedBooks` だけを検査するテストは、画面に出ない更新を「成功」と判定してしまう**
+    /// ―― G34b の初版はまさにそれで、実機 smoke B1 が NG になるまで緑のままだった。
     private func makeState() throws -> (AppState, Database) {
         let db = try Database.openInMemory()
         try db.migrate()
@@ -61,13 +69,39 @@ struct VolumeSwapReadReflectTests {
         let state = AppState(bundleURL: URL(fileURLWithPath: "/tmp/g34b-test.stacknest"))
         state.database = db
         state.displayedBooks = books
+        state.sortedDisplayedBooks = books
         return (state, db)
     }
 
-    // MARK: - 1. ★ 一覧に即反映される（報告された症状そのもの）
+    // MARK: - 1. ★★ 画面に出る配列に反映される（報告された症状そのもの）
 
-    @Test("巻送りした本が displayedBooks 上で既読になり、読んだ日が入る")
-    func swappedVolumeIsReflectedInTheList() throws {
+    /// **これが B1 NG の再現テスト。** グリッドは `sortedDisplayedBooks` を描画する。
+    @Test("巻送りした本が sortedDisplayedBooks 上で既読になり、読んだ日が入る")
+    func swappedVolumeIsReflectedInTheRenderedList() throws {
+        let (state, _) = try makeState()
+        let at = Date(timeIntervalSince1970: 1_700_000_000)
+
+        state.markVolumeAsReadAndReflect(bookID: 2, at: at)
+
+        let rendered = try #require(state.sortedDisplayedBooks.first(where: { $0.id == 2 }))
+        #expect(rendered.unseen == false)
+        #expect(rendered.playDate?.timeIntervalSince1970 == at.timeIntervalSince1970)
+    }
+
+    /// リストビュー（NSTableView 版）は `sortedDisplayedBooksVersion` の変化で reloadData する。
+    /// 配列だけ書き換えて version を bump しないと、**リスト表示では反映されない**。
+    @Test("sortedDisplayedBooksVersion が bump される（リストの reloadData 用）")
+    func renderedListVersionIsBumped() throws {
+        let (state, _) = try makeState()
+        let before = state.sortedDisplayedBooksVersion
+
+        state.markVolumeAsReadAndReflect(bookID: 2, at: Date(timeIntervalSince1970: 1_700_000_000))
+
+        #expect(state.sortedDisplayedBooksVersion != before)
+    }
+
+    @Test("巻送りした本が displayedBooks 上でも既読になる")
+    func swappedVolumeIsReflectedInDisplayedBooks() throws {
         let (state, _) = try makeState()
         let at = Date(timeIntervalSince1970: 1_700_000_000)
 
@@ -75,32 +109,65 @@ struct VolumeSwapReadReflectTests {
 
         let updated = try #require(state.displayedBooks.first(where: { $0.id == 2 }))
         #expect(updated.unseen == false)
-        #expect(updated.playDate == at)
+        #expect(updated.playDate?.timeIntervalSince1970 == at.timeIntervalSince1970)
     }
 
     // MARK: - 2. ★ 並び順・要素数を動かさない（再ソートしていないことの証明）
 
-    @Test("並び順と要素数は巻送り前後で変わらない")
+    @Test("両方の配列で並び順と要素数が巻送り前後で変わらない")
     func listOrderAndCountAreUnchanged() throws {
         let (state, _) = try makeState()
-        let before = state.displayedBooks.map(\.id)
+        let beforeDisplayed = state.displayedBooks.map(\.id)
+        let beforeSorted = state.sortedDisplayedBooks.map(\.id)
 
         state.markVolumeAsReadAndReflect(bookID: 2, at: Date(timeIntervalSince1970: 1_700_000_000))
 
-        #expect(state.displayedBooks.map(\.id) == before)
-        #expect(state.displayedBooks.count == 3)
+        #expect(state.displayedBooks.map(\.id) == beforeDisplayed)
+        #expect(state.sortedDisplayedBooks.map(\.id) == beforeSorted)
+        #expect(state.sortedDisplayedBooks.count == 3)
+    }
+
+    /// ★ 「読んだ日」降順で並べていても再ソートしない（ユーザー選択済みの方針）。
+    /// `handleExternalBookChange` は並び順に影響する変更で再ソートするが、
+    /// 巻送り経路は**意図的にその分岐を採らない** ―― 読み進めるたびに背景の一覧で
+    /// その本が先頭へジャンプするのを避けるため。
+    @Test("読んだ日ソート中でも巻送りで行が動かない")
+    func doesNotResortEvenWhenTheSortKeyIsAffected() throws {
+        let (state, _) = try makeState()
+        state.librarySettings?.listViewSort = ColumnSort(column: .playDate, ascending: false)
+        let beforeSorted = state.sortedDisplayedBooks.map(\.id)
+
+        state.markVolumeAsReadAndReflect(bookID: 3, at: Date(timeIntervalSince1970: 1_700_000_000))
+
+        #expect(state.sortedDisplayedBooks.map(\.id) == beforeSorted)
     }
 
     /// 他の本は 1 フィールドも変わらない（行内更新が対象行だけに閉じている）。
     @Test("対象以外の本は変化しない")
     func otherBooksAreUntouched() throws {
         let (state, _) = try makeState()
-        let othersBefore = state.displayedBooks.filter { $0.id != 2 }
+        let othersBefore = state.sortedDisplayedBooks.filter { $0.id != 2 }
 
         state.markVolumeAsReadAndReflect(bookID: 2, at: Date(timeIntervalSince1970: 1_700_000_000))
 
-        let othersAfter = state.displayedBooks.filter { $0.id != 2 }
+        let othersAfter = state.sortedDisplayedBooks.filter { $0.id != 2 }
         #expect(othersAfter == othersBefore)
+    }
+
+    // MARK: - 2b. 詳細ペインへ反映される
+
+    @Test("選択中の本を巻送りすると詳細ペインの値も更新される")
+    func detailPaneReflectsTheChangeWhenSelected() throws {
+        let (state, _) = try makeState()
+        state.selectedBookIDs = [2]
+        state.selectedBook = state.displayedBooks.first(where: { $0.id == 2 })
+        let at = Date(timeIntervalSince1970: 1_700_000_000)
+
+        state.markVolumeAsReadAndReflect(bookID: 2, at: at)
+
+        #expect(state.selectedBook?.unseen == false)
+        let inDetail = try #require(state.displayedSelectedBooks.first(where: { $0.id == 2 }))
+        #expect(inDetail.unseen == false)
     }
 
     // MARK: - 3. ★ DB と画面が同じ時刻を持つ
@@ -115,7 +182,7 @@ struct VolumeSwapReadReflectTests {
         state.markVolumeAsReadAndReflect(bookID: 2, at: at)
 
         let fromDB = try #require(try db.fetchBook(id: 2))
-        let fromList = try #require(state.displayedBooks.first(where: { $0.id == 2 }))
+        let fromList = try #require(state.sortedDisplayedBooks.first(where: { $0.id == 2 }))
         #expect(fromDB.unseen == false)
         #expect(fromDB.playDate?.timeIntervalSince1970 == at.timeIntervalSince1970)
         #expect(fromList.playDate == fromDB.playDate)
@@ -138,6 +205,7 @@ struct VolumeSwapReadReflectTests {
         let fromDB = try #require(try db.fetchBook(id: 99))
         #expect(fromDB.unseen == false)
         #expect(state.displayedBooks.count == 3)
-        #expect(!state.displayedBooks.contains(where: { $0.id == 99 }))
+        #expect(state.sortedDisplayedBooks.count == 3)
+        #expect(!state.sortedDisplayedBooks.contains(where: { $0.id == 99 }))
     }
 }
