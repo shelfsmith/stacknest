@@ -46,6 +46,10 @@ public enum ArchiveIntegrityVerifier {
     /// 1MB スクラッチバッファ。読んだ内容は破棄する（CRC 検証だけが目的で、データそのものは不要）。
     private static let bufferSize = 1 << 20
 
+    /// libarchive にファイルから読ませる 1 回分のサイズ（G34a fix2）。
+    /// `F_NOCACHE` で先読みが無くなるため、既定の 16KB では小さすぎる（上記 `verifySync` 参照）。
+    private static let readBlockSize = 1 << 20
+
     /// `archive_entry.h` の `AE_IFDIR`（= POSIX `S_IFDIR`, 0o040000）と同じ値。
     /// マクロは `((__LA_MODE_T)0040000)` という入れ子キャスト式で定義されており、
     /// Clang importer がこの形を Swift 定数として取り込めない（実測: `AE_IFDIR` は
@@ -77,6 +81,29 @@ public enum ArchiveIntegrityVerifier {
     /// 上記の理由で同期版へ一本化した（本番呼び出しは `FullIntegrityScanner.liveDependencies`
     /// の 1 箇所のみで、そこは実行器経由になったため async 版に利用者がいなくなった）。
     public static func verifySync(url: URL, isCancelled: () -> Bool = { false }) throws -> ArchiveVerifyResult {
+        // ★ G34a fix2: ファイルは**自分で開いて `F_NOCACHE` を立ててから**渡す。
+        //
+        // 走査は 1 冊あたり数十 MB を読んで**すべて捨てる**（CRC を検証したいだけでデータは要らない）。
+        // 既定の経路（`archive_read_open_filename`）ではその全バイトがユニファイドバッファ
+        // キャッシュを通るため、ユーザーが見ているサムネイル・DB ページが片端から追い出される。
+        //
+        // 実測（2026-08-11・32GB 機）: 走査中は `Pages free` が 15MB まで落ち、
+        // **たった今読んだサムネイルを読み直しても p50 71.8ms**（走査していなければ 0.08ms）。
+        // その差は約 900 倍で、これが「走査中にアプリだけもっさりする」の主因だった。
+        // `IOPOL_THROTTLE`（デバイスの順番待ちを後回しにする）はこの問題には**無力**である
+        // ―― 順番の話であってキャッシュの話ではないため。両方要る。
+        //
+        // `F_NOCACHE` は「このディスクリプタの読み書きをキャッシュに残さない」指示なので、
+        // 読み捨てるだけの走査には理想的（走査自身は 1 度しか読まないので損もしない）。
+        //
+        // ★ fd は `archive` より**先に**開く。Swift の `defer` は LIFO なので、
+        // 先に宣言した `close(fd)` が最後に走り、`archive_read_free` の後始末が
+        // 閉じた fd に触るのを避けられる（`archive_read_open_fd` は fd の所有権を取らない）。
+        guard let fd = Self.openForStreamingWithoutCaching(url) else {
+            throw ArchiveAdapterError.archiveUnreadable(url, reason: "open failed")
+        }
+        defer { close(fd) }
+
         guard let archive = archive_read_new() else {
             throw ArchiveAdapterError.archiveUnreadable(url, reason: "archive_read_new failed")
         }
@@ -88,9 +115,10 @@ public enum ArchiveIntegrityVerifier {
         archive_read_support_format_7zip(archive)
         archive_read_support_filter_all(archive)
 
-        let status = url.path.withCString { cPath in
-            archive_read_open_filename(archive, cPath, 16384)
-        }
+        // ブロックサイズは 16KB ではなく 1MB。`F_NOCACHE` はカーネルの先読みも止めるため、
+        // 16KB のままだと 50MB の本で 3,200 回の小さなデバイス read になり、走査が 16% 遅くなった
+        // （実測 1.41 → 1.63 秒/冊）。libarchive に大きく読ませて取り返す。
+        let status = archive_read_open_fd(archive, fd, Self.readBlockSize)
         if status != ARCHIVE_OK {
             let msg = errorMessage(archive)
             throw ArchiveAdapterError.archiveUnreadable(url, reason: msg.isEmpty ? "open failed" : msg)
@@ -162,6 +190,25 @@ public enum ArchiveIntegrityVerifier {
 
         return ArchiveVerifyResult(entryCount: entryCount, imageCount: imageCount,
                                    badEntries: badEntries, truncated: false)
+    }
+
+    /// `<sys/fcntl.h>` の `F_NOCACHE`。「このディスクリプタの I/O をバッファキャッシュに残さない」。
+    /// Swift からは定数として見えないため値を再定義する（`AE_IFDIR` と同じ事情）。
+    private static let fNoCache: Int32 = 48
+
+    /// 読み捨て前提のストリーミング用にファイルを開く。**開けたら必ず `F_NOCACHE` を試みる。**
+    ///
+    /// `F_NOCACHE` に失敗しても読み取り自体は続行する（キャッシュ汚染は起きるが、
+    /// 検査ができなくなるよりはよい）。失敗を握り潰さずログに残すのは、
+    /// 「効いているつもり」で走らせないため ―― 効いたかどうかは `fcntl(F_NOCACHE)` の
+    /// 戻り値でしか分からず、外から観測する手段がないので、ここで記録するしかない。
+    static func openForStreamingWithoutCaching(_ url: URL) -> Int32? {
+        let fd = url.path.withCString { open($0, O_RDONLY) }
+        guard fd >= 0 else { return nil }
+        if fcntl(fd, fNoCache, 1) == -1 {
+            logger.error("F_NOCACHE not applied (errno=\(errno, privacy: .public)) — scan will evict the UI's cached pages")
+        }
+        return fd
     }
 
     /// libarchive のエラー文字列を安全に読む（nil なら空文字列）。
