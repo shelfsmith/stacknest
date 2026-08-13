@@ -75,53 +75,52 @@ final class FolderWatcher {
         sources.append(src)
     }
 
+    /// 監視フォルダを走査し、安定した候補を取り込む。
+    ///
+    /// ## G35a-1: 重い部分はメインスレッドの外で走る
+    ///
+    /// DB 読み・ディレクトリ列挙・サイズ集計・安定判定は **MainActor を必要としない**のに、
+    /// このクラスが `@MainActor` であるためメインスレッド上で走っていた ―― 60 秒タイマー＋
+    /// vnode イベントで、**開いている庫ごとに**。ライブラリは USB HDD 上の暗号化ディスクイメージに
+    /// あり 1 操作 36〜80ms かかるので、まとまった時間 UI が固まっていた。
+    ///
+    /// 判定は `WatchScanPlanner` へ移し、ここは
+    /// **①入力のスナップショット → ②オフスレッドで判定 → ③MainActor で取り込みと UI 更新**
+    /// の 3 段になっている。
     private func scanAll() {
         guard !scanning, settings.folderWatchEnabled else { return }
         scanning = true
         Task { @MainActor in
             defer { scanning = false }
-            let existing = (try? Set(database.fetchAllBooks().map { $0.path ?? "" })) ?? []
-            var currentSizes: [String: Int64] = [:]
-            var candidatesByPath: [String: (URL, WatchedFolder)] = [:]
-            for folder in settings.watchedFolders where folder.enabled {
-                let dir = URL(fileURLWithPath: folder.path)
-                let top = WatchFolderScanner.enumerateCandidates(
-                    folder: dir, mode: folder.subfolderMode)
-                let importable = WatchFolderScanner.importable(
-                    topLevel: top,
-                    existingLibraryPaths: existing,
-                    baseline: Set(folder.baseline))
-                for url in importable {
-                    let size = Self.totalSize(of: url)
-                    // サイズ 0 の候補は記録しない（最終レビュー Finding 2）。
-                    // 空フォルダ（archive モードの新規サブフォルダ）や 0byte ファイルは、2 回連続で
-                    // 観測しても常に 0==0 で「安定」と誤判定され、コピー完了前・中身がまだ空の状態で
-                    // 取り込まれてしまう（例: Finder が先にフォルダを作り、最初の大きいファイルの
-                    // 書き込みが settleInterval を超える／ユーザーが後で詰めるつもりで空フォルダを
-                    // 作った直後）。一度取り込むと path がライブラリ既存になり、コピー完了後も
-                    // 二度と再取込されない事故になるため、そもそも current に載せず lastSizes にも
-                    // 残さない＝次スキャンでサイズが付いてから改めて安定判定させる。
-                    guard size > 0 else { continue }
-                    currentSizes[url.path] = size
-                    candidatesByPath[url.path] = (url, folder)
-                }
-            }
-            let decision = WatchFolderScanner.decideStable(previous: lastSizes, current: currentSizes)
-            lastSizes = decision.pending
+
+            // ① 入力を MainActor 上でスナップショットする。
+            // **1 回の走査は最初に見た設定で最後まで通す** ―― 途中で読み直すと、
+            // 一部のフォルダだけ新しい設定で走査された中途半端な結果になる。
+            let folders = settings.watchedFolders.filter(\.enabled)
+            let snapshotLastSizes = lastSizes
+            let snapshotRejectedSizes = rejectedSizes
+            let db = database
+
+            // ② 重い部分をメインスレッドの外で。
+            let plan = await Self.makePlan(folders: folders, lastSizes: snapshotLastSizes,
+                                           rejectedSizes: snapshotRejectedSizes, database: db)
+
+            // ③ ここから再び MainActor。状態の書き戻しと取り込み。
+            lastSizes = plan.pending
 
             // pending（前回サイズ未確定＝直近で出現/書き込み中の候補）が残るなら、60 秒タイマを待たず
             // 短時間で再スキャンして安定確認する。これにより vnode 検知 → 数秒で取込（実質リアルタイム）。
-            if !decision.pending.isEmpty { scheduleSettleScan() }
+            if plan.hasPending { scheduleSettleScan() }
 
-            // review follow-up Finding 2: フォルダゲートに拒否されサイズが変わっていない候補は
-            // 今回の attempt 対象から外す（再試行もバナーも起こさない）。
-            let attemptable = WatchFolderScanner.filterRetry(
-                stable: decision.stable, currentSizes: currentSizes, rejectedSizes: rejectedSizes)
+            let attemptable = plan.attemptable
+            let candidatesByPath = plan.candidatesByPath
+            let currentSizes = plan.currentSizes
 
             var grouped: [String: [URL]] = [:]
             var formatByKey: [String: FilenameFormat] = [:]
             for path in attemptable {
-                guard let (url, folder) = candidatesByPath[path] else { continue }
+                guard let candidate = candidatesByPath[path] else { continue }
+                let (url, folder) = (candidate.url, candidate.folder)
                 let key = folder.presetID ?? ""
                 grouped[key, default: []].append(url)
                 if formatByKey[key] == nil {
@@ -167,6 +166,27 @@ final class FolderWatcher {
         }
     }
 
+    /// 走査の判定を**メインスレッドの外で**行う（G35a-1）。
+    ///
+    /// ★ `Task.detached(priority: .utility)` を使う理由。**非構造 `Task {}` は呼び出し元の
+    /// 優先度を継承する**ので、`@MainActor` から起こすと user-interactive 相当になる ――
+    /// G34a で走査が `PRI=46`（Finder / Safari のメインスレッド相当）で走っていた原因が
+    /// まさにこれだった。定期的な保守処理をその優先度で走らせない。
+    ///
+    /// `Database` は `@unchecked Sendable`、`WatchedFolder` と各サイズ表は値型なので、
+    /// そのままオフスレッドへ渡せる。**`lastSizes` / `rejectedSizes` はスナップショットを渡し、
+    /// 書き戻しは呼び出し側が MainActor 上で行う**（オフスレッドから状態を触らない）。
+    private static func makePlan(folders: [WatchedFolder],
+                                 lastSizes: [String: Int64],
+                                 rejectedSizes: [String: Int64],
+                                 database: Database) async -> WatchScanPlanner.Plan {
+        await Task.detached(priority: .utility) {
+            WatchScanPlanner.plan(folders: folders, lastSizes: lastSizes,
+                                  rejectedSizes: rejectedSizes,
+                                  io: .live(database: database))
+        }.value
+    }
+
     /// pending 候補があるとき、60 秒タイマを待たず settleInterval 秒後に再スキャンして安定確認する。
     /// 多重予約は settleScheduled でガード。停止後（self 解放）は weak self で no-op。
     private func scheduleSettleScan() {
@@ -180,18 +200,4 @@ final class FolderWatcher {
         }
     }
 
-    private static func totalSize(of url: URL) -> Int64 {
-        var isDir: ObjCBool = false
-        FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-        if !isDir.boolValue {
-            return Int64((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
-        }
-        var sum: Int64 = 0
-        if let en = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey]) {
-            for case let f as URL in en {
-                sum += Int64((try? f.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0)
-            }
-        }
-        return sum
-    }
 }
