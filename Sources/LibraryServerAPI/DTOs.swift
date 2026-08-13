@@ -122,6 +122,28 @@ extension BookListItemDTO {
     }
 }
 
+extension Array where Element == BookListItemDTO {
+    /// 指定 ID の本を既読にした一覧を返す（G35b）。
+    ///
+    /// リモート閲覧で「開いた瞬間に一覧へ反映する」ために使う。ローカルは G34b で同じことを
+    /// しており、リモートだけ**その巻を離れるまで一覧が未読のまま**だったのを揃える。
+    ///
+    /// **並び替えない。** 該当行の値だけ差し替える（ローカルと同じ方針。「読んだ日」降順で
+    /// 並べているときに読み進めるたび先頭へジャンプするのを避ける）。
+    ///
+    /// **`lastPage` は触らない。** 巻送り直後の読書位置はまだ確定しておらず、
+    /// 確定していない値で一覧を上書きしない（`persistState` が正しい値で更新する）。
+    ///
+    /// **`unseen` の状態で分岐しない。** 既読の本を読み返したときも「読んだ日」は更新すべきで、
+    /// `unseen == true` のときだけ更新すると読み返しが記録されない。
+    public func markingRead(bookID: Int, at date: Date) -> [BookListItemDTO] {
+        guard let i = firstIndex(where: { $0.id == bookID }) else { return self }
+        var out = self
+        out[i] = out[i].withUnseen(false).withLastReadAt(date)
+        return out
+    }
+}
+
 /// books 一覧のページングレスポンス（spec §3.3）。
 public struct BookPageDTO: Codable, Sendable {
     public let items: [BookListItemDTO]
