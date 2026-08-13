@@ -471,6 +471,28 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// 登録済みの本のパスだけを集合で返す（G35a-1）。
+    ///
+    /// 監視フォルダの走査は「このパスは既にライブラリにあるか」しか要らないのに、
+    /// 従来は `fetchAllBooks()` で**全 24 カラム × 全行を `BookRow` にデコード**していた
+    /// （一般コミック 10,752 冊 ＋ e_comic 12,180 冊、しかも `@MainActor` 上で 60 秒ごと）。
+    /// 必要な 1 列だけを読む。
+    ///
+    /// `path` が nil の本は**含めない** ―― 用途が存在判定なので、nil は「どのパスとも一致しない」
+    /// が正しい（`fetchAllBooks()` から `compactMap { $0.path }` するのと同じ母集合）。
+    public func allBookPaths() throws -> Set<String> {
+        guard let q = queue else { return [] }
+        return try q.read { db in
+            var result: Set<String> = []
+            let cursor = try String.fetchCursor(
+                db, sql: "SELECT path FROM book WHERE path IS NOT NULL")
+            while let path = try cursor.next() {
+                result.insert(path)
+            }
+            return result
+        }
+    }
+
     public func fetchAllBooks() throws -> [BookRow] {
         guard let q = queue else { return [] }
         return try q.read { db in
