@@ -80,12 +80,23 @@ final class LibraryOpenLockManager {
         let t = Timer.scheduledTimer(withTimeInterval: LibraryOpenLock.heartbeatInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self else { return }
-                // G35a-2: ハートビートはロックファイルの読み書き（`Data.write(to:)`）で、
-                // ライブラリと同じ USB HDD 上の暗号化ディスクイメージへ書く。**開いている庫ごとに**
-                // タイマーがあるため、メインスレッド上でやると定期的に UI が固まる。
-                // I/O だけ外へ出し、ロックを失ったときの `release`（`timers` を触る）だけ戻る。
-                let alive = await Self.heartbeatOffMain(bundleURL: bundleURL,
-                                                        instanceUUID: self.instanceUUID)
+                // ★ ここは意図的に同期のまま（G35 Codex P1 を受けて一度オフスレッド化したものを戻した）。
+                //
+                // オフスレッド化すると `release(bundleURL:)` と競合する: ハートビートが
+                // 「ロックを読んだ後・書く前」に release が走ると、**削除したロックファイルを
+                // 書き戻してしまう**。残った stale ロックは `staleThreshold`（90 秒）まで
+                // 他マシンをブロックする ―― **クロスマシンのロックはこの機能の存在理由そのもの**。
+                //
+                // 一方、メインスレッド占有は実測 **0.34%**（45 秒窓で 103/約 30,000 サンプル。
+                // 間隔は 30 秒・庫ごと）にすぎず、G35 の成果（実働 2.7% → 0.0%）はほぼ全部が
+                // `FolderWatcher` 側だった。**この交換は割に合わない。**
+                //
+                // 正しくオフスレッド化するにはロックファイル I/O を直列化する必要があり
+                // （release の削除がハートビートの書き込みより後に来ることを保証する）、
+                // それは独立した設計。Backlog へ。
+                let alive = LibraryOpenLock.heartbeat(bundleURL: bundleURL,
+                                                      instanceUUID: self.instanceUUID,
+                                                      now: Date().timeIntervalSince1970)
                 if !alive {
                     Self.logger.warning("Lost lock ownership for \(bundleURL.lastPathComponent, privacy: .public); stopping heartbeat")
                     self.release(bundleURL: bundleURL)   // clears timer + re-enables sudden termination; on-disk release no-ops (not ours)
@@ -96,23 +107,6 @@ final class LibraryOpenLockManager {
         // Hold off macOS sudden termination while we own a lock, so applicationWillTerminate
         // (→ releaseAll) is guaranteed to run on ⌘Q and delete the lock file.
         if isNew { ProcessInfo.processInfo.disableSuddenTermination() }
-    }
-
-    /// ロックファイルの読み書きを**メインスレッドの外で**行う（G35a-2）。
-    ///
-    /// ★ `Task.detached(priority: .utility)` を使う理由は `FolderWatcher.makePlan` と同じ ――
-    /// 非構造 `Task {}` は呼び出し元（ここでは `@MainActor`）の優先度を継承するため、
-    /// 定期的な保守 I/O が user-interactive 相当で走ってしまう（G34a の `PRI=46` と同じ型）。
-    ///
-    /// `instanceUUID` は呼び出し側が MainActor 上でスナップショットして渡す
-    /// （オフスレッドから `self` を触らない）。戻り値の意味は変えていない ――
-    /// **false は「このロックはもう自分のものではない」**で、それが `release` の唯一の起点。
-    /// 契約は `LibraryOpenLockHeartbeatTests` で固定してある。
-    private static func heartbeatOffMain(bundleURL: URL, instanceUUID: String) async -> Bool {
-        await Task.detached(priority: .utility) {
-            LibraryOpenLock.heartbeat(bundleURL: bundleURL, instanceUUID: instanceUUID,
-                                      now: Date().timeIntervalSince1970)
-        }.value
     }
 
     // MARK: - Environment helpers
