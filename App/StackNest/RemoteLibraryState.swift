@@ -1791,9 +1791,10 @@ final class RemoteLibraryState {
         let identity = ViewerIdentity.remote(serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: book.id)
         guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
         // 未読即時反映: 開いた瞬間にメモリ一覧の unseen を落とす（ローカルの「開いたら既読」に合わせる）。
-        if let idx = books.firstIndex(where: { $0.id == book.id }), books[idx].unseen {
-            books[idx] = books[idx].withUnseen(false)
-        }
+        // G35b: **`lastReadAt` も一緒に更新する。** 従来は `unseen` を落とすだけで、しかも
+        // `unseen == true` のときしか通らなかったため、①「読んだ日」列が一覧の再取得まで古いまま
+        // ②既読の本を読み返しても読んだ日が更新されない、の 2 点でローカルとずれていた。
+        books = books.markingRead(bookID: book.id, at: Date())
         // Phase 4.2c-2: 「最後に開いた本」を記録する（リモート）。
         LastReadTracker.shared.record(.remote(
             serverID: serverID, serverURL: client.baseURL.absoluteString,
@@ -2028,6 +2029,12 @@ final class RemoteLibraryState {
                 let newIdentity = ViewerIdentity.remote(
                     serverID: self.serverID.uuidString, libraryUUID: self.libraryUUID, bookID: newBook.id)
                 ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
+                // G35b: 巻送りで開いた瞬間に一覧を既読化する（ローカルは G34b で同じ）。
+                // これが無いと、その巻を読んでいる間ずっと一覧では未読のまま見える
+                // （`persistState` は「その巻を離れるとき」にしか走らないため）。
+                // サーバへの通知は増やさない ―― `postProgress` は `persistState` が担当し、
+                // ここで足すと巻送りのたびに往復が増える。
+                self.books = self.books.markingRead(bookID: newBook.id, at: Date())
             }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.onSetBookPageDirection = { [weak self] id, dir in
