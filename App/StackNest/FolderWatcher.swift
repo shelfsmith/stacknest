@@ -21,7 +21,14 @@ final class FolderWatcher {
     /// サイズが変わらない限り再試行を飛ばし、「1 件失敗」バナーが 60 秒ごとに無限リピートするのを防ぐ。
     /// サイズが変われば（実画像追加等）自動的に再試行対象へ戻る（詳細は WatchFolderScanner.filterRetry）。
     private var rejectedSizes: [String: Int64] = [:]
-    private var scanning = false
+    /// 走査が進行中か（重複実行のガード）。**`stop()` で必ず解放される**必要がある ――
+    /// 握られたままだと後続の走査が入口で弾かれ、監視が事実上止まる（G35 Codex P1）。
+    /// テストから観測できるよう getter は internal にしてある。
+    private(set) var scanning = false
+    /// 走査の世代。`stop()` で上がる。`await` を挟んだ走査が「自分はもう現役か」を判定するのに使う
+    /// （G35 Codex P1。詳細は `stop()` のコメント）。
+    private var scanGeneration = 0
+    private var scanTask: Task<Void, Never>?
     private var settleScheduled = false   // pending 候補の短時間 settle 再スキャンが予約済みか
     private static let settleInterval: TimeInterval = 3   // vnode 検知後にサイズ安定を確認する間隔
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FolderWatcher")
@@ -51,11 +58,25 @@ final class FolderWatcher {
         scanAll()   // 起動時キャッチアップ
     }
 
+    /// 監視を止める。**進行中の走査も無効化する**（G35 Codex P1）。
+    ///
+    /// `scanAll` は `makePlan` の `await` で数秒中断しうる。その間に `stop()` が走ると、
+    /// 再開した旧走査が
+    /// - 停止後に `lastSizes` / `rejectedSizes` を書き戻す
+    /// - **閉じた DB へ取り込もうとする**（`AppState.closeBundle` は `stop()` → `database.close()` の順）
+    /// - `reload()` の場合、`scanning` が true のままなので**新しい走査がスキップされる**
+    ///
+    /// という 3 つの問題を起こす。世代番号を上げて、旧走査に「自分はもう現役ではない」と
+    /// 分からせる（`Task.cancel()` だけでは `await` 明けの MainActor 側処理は止まらない）。
     func stop() {
         sources.forEach { $0.cancel() }
         sources.removeAll()
         timer?.invalidate()
         timer = nil
+        scanGeneration &+= 1        // 進行中の走査を失効させる
+        scanTask?.cancel()
+        scanTask = nil
+        scanning = false            // reload 後の scanAll がスキップされないように
     }
 
     func reload() { start() }
@@ -90,8 +111,11 @@ final class FolderWatcher {
     private func scanAll() {
         guard !scanning, settings.folderWatchEnabled else { return }
         scanning = true
-        Task { @MainActor in
-            defer { scanning = false }
+        let generation = scanGeneration
+        scanTask = Task { @MainActor in
+            // 自分がまだ現役の走査であるときだけ `scanning` を戻す。
+            // 失効した旧走査が、後発の走査のフラグを消してしまわないようにする。
+            defer { if generation == scanGeneration { scanning = false } }
 
             // ① 入力を MainActor 上でスナップショットする。
             // **1 回の走査は最初に見た設定で最後まで通す** ―― 途中で読み直すと、
@@ -104,6 +128,11 @@ final class FolderWatcher {
             // ② 重い部分をメインスレッドの外で。
             let plan = await Self.makePlan(folders: folders, lastSizes: snapshotLastSizes,
                                            rejectedSizes: snapshotRejectedSizes, database: db)
+
+            // ★ ここで停止していたら、状態も書かず取り込みもしない（G35 Codex P1）。
+            // `stop()` の後に書き戻すと、後発の走査の状態を古いスナップショットで潰し、
+            // `closeBundle` 経路では**閉じた DB へ取り込もうとする**。
+            guard generation == scanGeneration else { return }
 
             // ③ ここから再び MainActor。状態の書き戻しと取り込み。
             lastSizes = plan.pending
@@ -142,6 +171,10 @@ final class FolderWatcher {
                 total.alreadyPresent += r.alreadyPresent
                 total.failed += r.failed
             }
+
+            // 取り込みも `await` なので、その間に停止されうる。停止後に
+            // `rejectedSizes` を書き戻したり `onImported`（UI コールバック）を撃たない。
+            guard generation == scanGeneration else { return }
 
             // review follow-up Finding 2: 今回フォルダゲートで落ちた候補のサイズを記憶し、次回以降
             // サイズ不変なら再試行を飛ばす。落ちなかった（成功/別理由で失敗）候補は記憶を持ち越さない
@@ -192,10 +225,15 @@ final class FolderWatcher {
     private func scheduleSettleScan() {
         guard !settleScheduled else { return }
         settleScheduled = true
+        let generation = scanGeneration
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Self.settleInterval))
             guard let self else { return }
             self.settleScheduled = false
+            // 待っている間に停止（または再起動）されていたら、この予約は失効している。
+            // `scanAll` の `folderWatchEnabled` ガードだけでは、`closeBundle` 後も設定上は
+            // 有効なままなので素通りしてしまう（G35 Codex P1 の派生）。
+            guard generation == self.scanGeneration else { return }
             self.scanAll()
         }
     }
