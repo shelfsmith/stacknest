@@ -29,7 +29,11 @@ final class FolderWatcher {
     /// （G35 Codex P1。詳細は `stop()` のコメント）。
     private var scanGeneration = 0
     private var scanTask: Task<Void, Never>?
-    private var settleScheduled = false   // pending 候補の短時間 settle 再スキャンが予約済みか
+    /// pending 候補の短時間 settle 再スキャンが予約済みか。**`stop()` で必ず解放される**必要がある
+    /// （残すと再起動後の走査が予約を見送り、settle 走査が誰にも予約されなくなる）。
+    /// テストから観測できるよう getter は internal。
+    private(set) var settleScheduled = false
+    private var settleTask: Task<Void, Never>?
     private static let settleInterval: TimeInterval = 3   // vnode 検知後にサイズ安定を確認する間隔
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FolderWatcher")
 
@@ -77,6 +81,13 @@ final class FolderWatcher {
         scanTask?.cancel()
         scanTask = nil
         scanning = false            // reload 後の scanAll がスキップされないように
+        // settle 予約も一緒に解放する（G35 Codex 2 巡目 P2）。
+        // これを残すと、再起動後の走査が `guard !settleScheduled` で予約を見送り、
+        // 古いタスクは世代チェックで何もせず抜けるため、**誰も settle 走査を予約しない**。
+        // pending のファイルが 60 秒タイマーか次の vnode イベントまで放置される。
+        settleTask?.cancel()
+        settleTask = nil
+        settleScheduled = false
     }
 
     func reload() { start() }
@@ -226,14 +237,15 @@ final class FolderWatcher {
         guard !settleScheduled else { return }
         settleScheduled = true
         let generation = scanGeneration
-        Task { @MainActor [weak self] in
+        settleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(Self.settleInterval))
             guard let self else { return }
-            self.settleScheduled = false
-            // 待っている間に停止（または再起動）されていたら、この予約は失効している。
-            // `scanAll` の `folderWatchEnabled` ガードだけでは、`closeBundle` 後も設定上は
-            // 有効なままなので素通りしてしまう（G35 Codex P1 の派生）。
+            // ★ 世代チェックを**フラグの解放より先に**行う。順序を逆にすると、
+            // 失効した古いタスクが**新世代の予約フラグを消して**しまい、
+            // その世代の settle 走査が起きなくなる（G35 Codex 2 巡目 P2）。
+            // 待っている間に停止されていたら、フラグは `stop()` が既に解放している。
             guard generation == self.scanGeneration else { return }
+            self.settleScheduled = false
             self.scanAll()
         }
     }

@@ -79,6 +79,30 @@ struct FolderWatcherLifecycleTests {
         #expect(watcher.scanning == true, "停止後の再走査が入口で弾かれない")
     }
 
+    // MARK: - ★ stop() が settle 予約も解放する（Codex 2 巡目 P2）
+
+    /// pending 候補があると 3 秒後の settle 再走査が予約される。`stop()` がこの予約を
+    /// 解放しないと、再起動後の走査が `guard !settleScheduled` で予約を見送り、
+    /// 古いタスクは世代チェックで抜けるため **誰も settle 走査を予約しない**。
+    /// pending のファイルが 60 秒タイマーか次の vnode イベントまで取り込まれなくなる。
+    @Test("stop() は settle 予約も解放する")
+    func stopClearsSettleScheduling() async throws {
+        let dir = try makeWatchDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        // サイズ > 0 の候補を置く → 1 回目の走査で pending になり settle が予約される
+        try Data(repeating: 0x50, count: 4096)
+            .write(to: dir.appendingPathComponent("pending.zip"))
+        let watcher = try makeWatcher(watching: dir)
+
+        watcher.scanNow()
+        try? await Task.sleep(for: .milliseconds(400))   // 走査の完了を待つ
+        #expect(watcher.settleScheduled == true, "pending があるので settle が予約される（前提）")
+
+        watcher.stop()
+
+        #expect(watcher.settleScheduled == false, "stop() は settle 予約も解放する")
+    }
+
     /// 失効した旧走査が、後から始まった走査のフラグを消してしまわないこと。
     /// （`defer` を無条件に `scanning = false` にすると、旧走査の完了が新走査を潰す）
     @Test("失効した旧走査は、後続の走査の scanning を消さない")
