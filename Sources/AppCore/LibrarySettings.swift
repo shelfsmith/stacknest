@@ -548,16 +548,25 @@ public final class LibrarySettings {
 
     private func persistWindowFrame() {
         guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
-        do {
-            if let frame = windowFrame {
-                let data = try JSONEncoder().encode(frame)
-                let str = String(decoding: data, as: UTF8.self)
-                try database.setLibrarySetting(key: Self.windowFrameKey, value: str)
+        // G36: リサイズ/移動中ずっと発火するのでまとめ書きにする。
+        // key/logger は MainActor 隔離の static let なので、@Sendable クロージャに `Self` 経由で
+        // 触らせず、ここでローカル定数へスナップショットする。
+        let snapshot = windowFrame
+        let db = database
+        let key = Self.windowFrameKey
+        let logger = Self.logger
+        writeDebouncer.schedule(key: key) {
+            do {
+                if let frame = snapshot {
+                    let data = try JSONEncoder().encode(frame)
+                    let str = String(decoding: data, as: UTF8.self)
+                    try db.setLibrarySetting(key: key, value: str)
+                }
+                // Note: We don't explicitly clear the database on nil assignment;
+                // the last saved frame persists until overwritten.
+            } catch {
+                logger.error("Failed to persist windowFrame: \(error.localizedDescription, privacy: .public)")
             }
-            // Note: We don't explicitly clear the database on nil assignment;
-            // the last saved frame persists until overwritten.
-        } catch {
-            Self.logger.error("Failed to persist windowFrame: \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -742,6 +751,17 @@ public final class LibrarySettings {
     private var databaseSyncDepth = 0
     private var isSyncingFromDatabase: Bool { databaseSyncDepth > 0 }
 
+    /// G36 ③: ドラッグ中ずっと発火する 3 つの設定（`columnWidths` / `gridItemSize` /
+    /// `windowFrame`）の書き込みをまとめる。**他の 27 個の `persist*` は経由しない**
+    /// （`persistLockHash` 等を含むため、そもそも近づかない）。
+    private let writeDebouncer = SettingsWriteDebouncer()
+
+    /// 保留中の設定書き込みを確定させる。**アプリ終了時とライブラリを閉じるときに必ず呼ぶ。**
+    /// 呼ばないとウィンドウ位置・列幅・グリッドサイズが保存されない。
+    public func flushPendingWrites() {
+        writeDebouncer.flush()
+    }
+
     /// **DB を真として読んだ値をメモリへ反映する**ブロック。この間 `persist*` は書き込みを行わない。
     /// `defer` で必ず解除するため、body が throw / early return しても残留しない。
     private func syncingFromDatabase(_ body: () -> Void) {
@@ -787,12 +807,21 @@ public final class LibrarySettings {
 
     private func persistColumnWidths() {
         guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
-        do {
-            let data = try JSONEncoder().encode(columnWidths)
-            let str = String(decoding: data, as: UTF8.self)
-            try database.setLibrarySetting(key: Self.columnWidthsKey, value: str)
-        } catch {
-            Self.logger.error("Failed to persist columnWidths: \(error.localizedDescription, privacy: .public)")
+        // G36: 列ドラッグ中ずっと発火するのでまとめ書きにする。
+        // key/logger は MainActor 隔離の static let なので、@Sendable クロージャに `Self` 経由で
+        // 触らせず、ここでローカル定数へスナップショットする。
+        let snapshot = columnWidths
+        let db = database
+        let key = Self.columnWidthsKey
+        let logger = Self.logger
+        writeDebouncer.schedule(key: key) {
+            do {
+                let data = try JSONEncoder().encode(snapshot)
+                let str = String(decoding: data, as: UTF8.self)
+                try db.setLibrarySetting(key: key, value: str)
+            } catch {
+                logger.error("Failed to persist columnWidths: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
@@ -934,10 +963,19 @@ public final class LibrarySettings {
 
     private func persistGridItemSize() {
         guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
-        do {
-            try database.setLibrarySetting(key: Self.gridItemSizeKey, value: String(gridItemSize))
-        } catch {
-            Self.logger.error("Failed to persist gridItemSize: \(error.localizedDescription, privacy: .public)")
+        // G36: Slider に直結していてドラッグ中ずっと発火するのでまとめ書きにする。
+        // key/logger は MainActor 隔離の static let なので、@Sendable クロージャに `Self` 経由で
+        // 触らせず、ここでローカル定数へスナップショットする。
+        let snapshot = gridItemSize
+        let db = database
+        let key = Self.gridItemSizeKey
+        let logger = Self.logger
+        writeDebouncer.schedule(key: key) {
+            do {
+                try db.setLibrarySetting(key: key, value: String(snapshot))
+            } catch {
+                logger.error("Failed to persist gridItemSize: \(error.localizedDescription, privacy: .public)")
+            }
         }
     }
 
