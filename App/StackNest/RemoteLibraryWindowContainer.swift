@@ -16,13 +16,43 @@ import SwiftUI
 enum RemoteLibrarySettingsProvider {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteLibrarySettings")
 
+    /// G36 ③ Task 7 レビュー Critical 1: `make()` が返す `LibrarySettings` は
+    /// `RemoteLibraryWindowContainer` の `@State` にしか保持されず、`AppState.activeInstances`
+    /// には載らない。そのため `applicationWillTerminate` の flush ループ（AppState 経由）が
+    /// リモート庫の `columnWidths` / `gridItemSize` に届かなかった（列幅・グリッドサイズドラッグ
+    /// 直後の ⌘Q で保存されない退行）。`AppStateRegistry` と同じ流儀（`NSHashTable.weakObjects()`）
+    /// で弱参照レジストリを持ち、終了時に一括 flush できるようにする。
+    ///
+    /// リモート側にはバックアップ経路が無い（`BackupManager` の呼び出しは
+    /// `App/StackNest/*.swift` 中どこにも無く、`RemoteLibrarySettingsProvider` の settings.db は
+    /// バックアップされない）ため、ローカルの「flush は backup より前」という順序規律は
+    /// **リモート側には適用対象が無い**（backup 自体が存在しない）。
+    ///
+    /// `private` にしない: `make()` はアプリサポート配下の実ファイル（実ユーザーの本物の
+    /// settings.db）を直接開くため、テストから `make()` 経由でこのレジストリへ触ると実データを
+    /// 汚しかねない。テストは一時ファイルで作った `LibrarySettings` を直接 `registry.add` して
+    /// `flushAll()` の実効果だけを検証できるよう、module-internal に留める
+    /// （`@testable import` で `App/StackNestTests/` から見える）。
+    static let registry = NSHashTable<LibrarySettings>.weakObjects()
+
+    /// 開いている全リモートウィンドウの保留中設定書き込みを確定させる。
+    /// **アプリ終了時に必ず呼ぶ。** 呼ばないとリモート庫の列幅・グリッドサイズが保存されない
+    /// （ローカルの `AppState.closeBundle` / `flushPendingWrites` と同じ理由）。
+    static func flushAll() {
+        for settings in registry.allObjects {
+            settings.flushPendingWrites()
+        }
+    }
+
     /// 4.2c-8: リモートウィンドウごとに新しい LibrarySettings を生成する。
     /// ラベル（remoteFieldLabelOverride）はライブラリ固有・サーバ canonical のため、共有インスタンス
     /// だと複数リモートウィンドウで混ざる。各ウィンドウが自分のインスタンスを持つ。列幅・grid 等の
     /// クライアント好みは引き続き settings.db から読む（複数同時ウィンドウの即時共有のみ失われる）。
     /// DB を開いて（必要なら作成して）マイグレートする。失敗時はインメモリ DB にフォールバックする。
     static func make() -> LibrarySettings {
-        makeSettings()
+        let settings = makeSettings()
+        registry.add(settings)
+        return settings
     }
 
     private static func makeSettings() -> LibrarySettings {
@@ -102,6 +132,12 @@ struct RemoteLibraryWindowContainer: View {
             if let w = hostWindow, let s = state { w.stacknestRemoteState = s }
         }
         .onDisappear {
+            // G36 ③ Task 7 レビュー Critical 1: このウィンドウの保留中設定書き込みを確定させる。
+            // `windowClosed` の条件分岐（下）とは独立に無条件で呼ぶ ―― 実際の close でなくても
+            // 早めに flush すること自体は無害（デバウンスの利得を早めに手放すだけ）で、
+            // 「閉じたときだけ」に絞ると #7 と同じ理由で見逃しうる（onDisappear は WindowGroup
+            // では不確実）。終端の保証は applicationWillTerminate → flushAll() 側が持つ。
+            settings.flushPendingWrites()
             // #7: 主経路は NSWindow.willCloseNotification（AppDelegate）。ここは補助で、
             // 窓が実際に閉じている（`isVisible == false`）ときだけ registry 除去＋token 破棄を行う。
             // Codex High の逆方向回帰（窓以外の view teardown で発火し、開いたままの窓の
