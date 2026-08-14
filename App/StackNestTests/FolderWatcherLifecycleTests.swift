@@ -135,6 +135,25 @@ struct FolderWatcherLifecycleTests {
         #expect(watcher.scanning == false, "待ち合わせが解けて走査が完了する")
     }
 
+    /// ★ 直列化は「旧タスクの参照が `stop()` 後も残っていること」に依存している。
+    /// `stop()` で `scanTask = nil` にすると、次の走査が `previous == nil` を掴み
+    /// `await previous?.value` が素通りして、**取り込みが並行してしまう**
+    /// （`BookImporter.add` は cancel しても止まらないため）。
+    @Test("stop() は走査タスクの参照を捨てない（直列化の前提）")
+    func stopKeepsTheScanTaskForSerialization() throws {
+        let dir = try makeWatchDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let watcher = try makeWatcher(watching: dir)
+
+        watcher.scanNow()
+        #expect(watcher.hasRetainedScanTask, "走査タスクが保持されている（前提）")
+
+        watcher.stop()
+
+        #expect(watcher.hasRetainedScanTask,
+                "stop() の後も参照が残る ―― 次の走査がこれを待って重複取り込みを防ぐ")
+    }
+
     /// 失効した旧走査が、後から始まった走査のフラグを消してしまわないこと。
     /// （`defer` を無条件に `scanning = false` にすると、旧走査の完了が新走査を潰す）
     @Test("失効した旧走査は、後続の走査の scanning を消さない")
