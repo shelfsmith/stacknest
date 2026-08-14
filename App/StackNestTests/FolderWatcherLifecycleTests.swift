@@ -103,6 +103,38 @@ struct FolderWatcherLifecycleTests {
         #expect(watcher.settleScheduled == false, "stop() は settle 予約も解放する")
     }
 
+    // MARK: - ★ 走査は直列に保たれる（Codex 5 巡目 P1）
+
+    /// `stop()` が `scanning` を解放するようにした結果、旧走査の**取り込みが走ったまま**
+    /// 新走査が始まりうる状態になっていた（`BookImporter.add` は中断に協調しないため）。
+    /// 同じ候補を 2 つの取り込みが同時に処理すると、重複挿入や表紙ファイルの衝突が起きる。
+    /// 新走査は旧走査の完了を待ってから進む。
+    ///
+    /// ここでは**待ち合わせでデッドロックしない**ことと、停止・再開を繰り返しても
+    /// 最終的に走査が完了することを見る（連鎖が自分自身を待つと固まる）。
+    @Test("停止と再開を繰り返しても走査が固まらない")
+    func repeatedStopAndRestartDoesNotDeadlock() async throws {
+        let dir = try makeWatchDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data(repeating: 0x50, count: 2048)
+            .write(to: dir.appendingPathComponent("a.zip"))
+        let watcher = try makeWatcher(watching: dir)
+
+        for _ in 0..<5 {
+            watcher.scanNow()
+            watcher.stop()
+        }
+        watcher.scanNow()
+
+        // 連鎖した待ち合わせが解けて、最後の走査が完了すること。
+        // デッドロックしていればここでタイムアウトする（scanning が下りない）。
+        for _ in 0..<100 {
+            if watcher.scanning == false { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(watcher.scanning == false, "待ち合わせが解けて走査が完了する")
+    }
+
     /// 失効した旧走査が、後から始まった走査のフラグを消してしまわないこと。
     /// （`defer` を無条件に `scanning = false` にすると、旧走査の完了が新走査を潰す）
     @Test("失効した旧走査は、後続の走査の scanning を消さない")
