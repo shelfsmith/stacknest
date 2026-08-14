@@ -117,6 +117,56 @@ struct RemoteSettingsFlushOnTerminateTests {
         #expect(Double(gridRaw) == 222.0)
     }
 
+    // MARK: - ★ インメモリ fallback は sharedWriteDebouncer を共有してはいけない（Codex P2 追加指摘）
+
+    /// `RemoteLibrarySettingsProvider.makeSettings()` はファイル版 DB のオープンに失敗した
+    /// ウィンドウだけインメモリ DB へフォールバックする。フォールバックしたウィンドウと、
+    /// 隣で正常にファイル版を開いているウィンドウは**別々の DB** を指すが、もし両者が
+    /// `sharedWriteDebouncer` を共有すると、`SettingsWriteDebouncer` はキー文字列だけで
+    /// coalescing するため、**片方の書き込みが黙って消える**（後から schedule された側の
+    /// クロージャが先の側を上書きし、先の DB には何も書かれない）。
+    ///
+    /// production の現行実装（修正後）は、ファイル版だけ `sharedWriteDebouncer` を共有し、
+    /// インメモリ fallback は自前の新規デバウンサを持つ。このテストはその配線をそのまま
+    /// 再現し、「別 DB を指す 2 つのウィンドウの書き込みが、互いを消さずにそれぞれの DB へ
+    /// 着地する」ことを主張する。
+    ///
+    /// ★ 修正前（インメモリ fallback にも `sharedWriteDebouncer` を渡していた版）でこのテストを
+    /// 実行すると FAIL する（実行ログは `.superpowers/sdd/2026-08-14-phase-g36/codex-p2-report.md`
+    /// に転記済み）。
+    @Test("インメモリ fallback は共有デバウンサを持たない ―― 別 DB を指すウィンドウ同士で書き込みが消えない")
+    func inMemoryFallbackDoesNotShareDebouncerWithFileBackedWindow() throws {
+        // ファイル版ウィンドウ: production と同じく sharedWriteDebouncer を共有する。
+        let (fileWindow, fileDB, fileDBURL) = try makeFileBackedSettings(
+            writeDebouncer: RemoteLibrarySettingsProvider.sharedWriteDebouncer)
+
+        // インメモリ fallback ウィンドウ: 別の DB を指す。production の現行実装どおり、
+        // 自前の新規デバウンサ（既定引数）を使う ―― sharedWriteDebouncer は渡さない。
+        let memoryDB = try Database.openInMemory()
+        try memoryDB.migrate()
+        let memoryWindow = try LibrarySettings(database: memoryDB)
+
+        // 両方とも同じキー("columnWidths")を変更する。もし memoryWindow が誤って
+        // sharedWriteDebouncer を共有していたら、後から schedule された側が pending を
+        // 上書きし、先に schedule された側の DB には何も書かれなくなる。
+        fileWindow.columnWidths = ["title": 111.0]
+        memoryWindow.columnWidths = ["title": 222.0]
+
+        RemoteLibrarySettingsProvider.flushAll()   // sharedWriteDebouncer.flush() を直接呼ぶ
+        memoryWindow.flushPendingWrites()          // memoryWindow 自前のデバウンサも確定させる
+        fileDB.close()                             // 独立に開き直して読むため、まず自分の参照を閉じる
+
+        let decoded = try #require(try readColumnWidths(at: fileDBURL),
+                                    "ファイル版ウィンドウの書き込みは自分の DB に残らないといけない")
+        #expect(decoded["title"] == 111.0)
+
+        let memRaw = try #require(try memoryDB.getLibrarySetting(key: "columnWidths"),
+                                   "インメモリ版ウィンドウの書き込みも自分の DB に残らないといけない")
+        let memDecoded = try JSONDecoder().decode([String: Double].self, from: Data(memRaw.utf8))
+        #expect(memDecoded["title"] == 222.0)
+        memoryDB.close()
+    }
+
     // MARK: - flush していなければディスクに無い（デバウンスが実際に効いていることの前提確認）
 
     /// flushAll() を呼ばずに db を閉じた場合、デバウンス中の書き込みは
