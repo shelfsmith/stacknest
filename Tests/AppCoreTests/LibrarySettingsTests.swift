@@ -155,6 +155,9 @@ struct LibrarySettingsLoadSaveTests {
         let s1 = try LibrarySettings(database: db)
         let newFrame = WindowFrame(x: 100, y: 200, width: 800, height: 600)
         s1.windowFrame = newFrame
+        // G36 ③: windowFrame の書き込みはデバウンスされる（ドラッグ中ずっと発火するため）。
+        // 別インスタンスで読む前に flush しないと、まだディスクに届いていない可能性がある。
+        s1.flushPendingWrites()
 
         let s2 = try LibrarySettings(database: db)
         #expect(s2.windowFrame == newFrame)
@@ -166,6 +169,8 @@ struct LibrarySettingsLoadSaveTests {
         let s1 = try LibrarySettings(database: db)
         let frame1 = WindowFrame(x: 100, y: 200, width: 800, height: 600)
         s1.windowFrame = frame1
+        // G36 ③: 書き込みはデバウンスされるので、次のインスタンスで読む前に確定させる。
+        s1.flushPendingWrites()
 
         let s2 = try LibrarySettings(database: db)
         #expect(s2.windowFrame == frame1)
@@ -173,6 +178,8 @@ struct LibrarySettingsLoadSaveTests {
         // Update to a different frame
         let frame2 = WindowFrame(x: 50, y: 50, width: 1024, height: 768)
         s2.windowFrame = frame2
+        // 更新後もう一度 flush してから読み直す。
+        s2.flushPendingWrites()
 
         let s3 = try LibrarySettings(database: db)
         #expect(s3.windowFrame == frame2)
