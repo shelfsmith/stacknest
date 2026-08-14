@@ -123,10 +123,24 @@ final class FolderWatcher {
         guard !scanning, settings.folderWatchEnabled else { return }
         scanning = true
         let generation = scanGeneration
+        // 直前の走査（`stop()` で失効させたものを含む）。取り込みが走っている可能性がある。
+        let previous = scanTask
         scanTask = Task { @MainActor in
             // 自分がまだ現役の走査であるときだけ `scanning` を戻す。
             // 失効した旧走査が、後発の走査のフラグを消してしまわないようにする。
             defer { if generation == scanGeneration { scanning = false } }
+
+            // ★ 旧走査の完了を待ってから始める（G35 Codex 5 巡目 P1）。
+            //
+            // `stop()` は `scanTask` を cancel するが、**`BookImporter.add` は中断に協調しない**ので
+            // 走り出したバッチは最後まで走る。`stop()` が `scanning` を解放して `reload()` が
+            // すぐ次の走査を始められるようにした結果、**同じ候補を 2 つの取り込みが同時に処理**
+            // しうる状態になっていた（重複挿入・表紙ファイルの衝突）。
+            //
+            // ここで待てば、reload はスキップされず（1 巡目の指摘の解決を保ったまま）、
+            // 取り込みは直列のままになる。cancel 済みタスクでも `.value` は本体の終了まで待つ。
+            await previous?.value
+            guard generation == scanGeneration else { return }
 
             // ① 入力を MainActor 上でスナップショットする。
             // **1 回の走査は最初に見た設定で最後まで通す** ―― 途中で読み直すと、
