@@ -1278,9 +1278,22 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         Self.isTerminating = true
         // G36 ③: 保留中の設定書き込みを確定させる。デバウンスを入れた以上、
         // ここを外すとウィンドウ位置・列幅・グリッドサイズが保存されない。
-        // `disableSuddenTermination()` があるのでこの経路は確実に走る（ロック解放と同じ仕組み）。
+        // この経路が確実に走るのは、`LibraryOpenLockManager` がロック（ハートビート）を
+        // 握っているとき（`disableSuddenTermination()` を取るのはそのときだけ・
+        // `LibraryOpenLockManager.swift:109`）に限る。ロックを取れなかった `.unprotected` オープン
+        // （`LibraryOpenLockManager.swift:51-53`）や、ローカル庫を 1 つも開いておらずリモート庫
+        // だけを開いているセッション（そもそもこのロック機構に触れない）では、
+        // `NSSupportsSuddenTermination = YES`（Info.plist）のもとシステムに即座に殺されうるため
+        // `applicationWillTerminate` 自体が走らない可能性がある（Task 7 レビューで指摘。この
+        // ギャップ自体は本タスクのスコープ外・既存の制約）。
         // 直後のバックアップ（B22）より前に置くこと ―― 後だとバックアップに古い設定が入る
         // （closeBundle() と同じ理由。AppState.closeBundle 参照）。
+        //
+        // G36 ③ Task 7 レビュー Critical 1: リモート庫の LibrarySettings は AppState を経由しない
+        // （`RemoteLibraryWindowContainer` の `@State` にのみ保持される）ため、上の AppState ループ
+        // では届かない。`RemoteLibrarySettingsProvider.flushAll()` で別途潰す。
+        // リモート側にはバックアップ経路そのものが無いので、backup との順序制約はここには無い。
+        RemoteLibrarySettingsProvider.flushAll()
         for state in AppState.activeInstances.allObjects {
             state.librarySettings?.flushPendingWrites()
         }
