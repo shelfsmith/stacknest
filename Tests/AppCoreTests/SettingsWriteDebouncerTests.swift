@@ -103,4 +103,78 @@ struct SettingsWriteDebouncerTests {
 
         #expect(recorder.all == [5], "最後に積んだものだけが実行される")
     }
+
+    /// ★ C1 の回帰ガード（レビュー指摘）。
+    ///
+    /// タイマ発火の `flush()` が**古い値**の書き込みを実行中（fsync を模した長い sleep）に、
+    /// 別スレッドから**新しい値**が `schedule` され、その直後に明示的な `flush()`（アプリ終了時
+    /// に相当）が呼ばれる状況を再現する。
+    ///
+    /// 修正前は drain のみがロックで直列化され、write の**実行**は直列化されていなかったため、
+    /// 速い新しい write が先に完了し、その後で遅い古い write が完了して**新しい値を踏み潰す**
+    /// （記録順序が `[2, 1]` になる＝最後に書かれた値が古い方）。
+    ///
+    /// 修正後は drain+execute を単一の直列キューの 1 タスクとして扱うため、明示的な `flush()`
+    /// は先行する（タイマ発火の）write の完了を待ってから実行され、記録順序は必ず `[1, 2]`
+    /// になる＝最後に書かれた値が新しい方。
+    @Test("同一キーへの並行 flush は完了順序が入れ替わらない（C1 回帰）")
+    func concurrentFlushesPreserveCompletionOrder() async throws {
+        let recorder = Recorder()
+        let d = SettingsWriteDebouncer(interval: .milliseconds(30))
+
+        // 古い値: タイマ発火で drain され、実行に約 200ms かかる（fsync を模す）。
+        d.schedule(key: "k") {
+            Thread.sleep(forTimeInterval: 0.2)
+            recorder.record(1)
+        }
+
+        // タイマが発火し、上の write が「実行中（sleep 中）」になるのを待つ。
+        try? await Task.sleep(for: .milliseconds(80))
+
+        // 新しい値: 古い write がまだ sleep 中のうちに積む。
+        d.schedule(key: "k") { recorder.record(2) }
+
+        // アプリ終了時に相当する明示的 flush。別スレッドから、待たずに叩く。
+        let flushThread = Thread {
+            d.flush()
+        }
+        flushThread.start()
+
+        // 両方の write が完了するのを待つ。
+        try? await Task.sleep(for: .milliseconds(500))
+
+        #expect(
+            recorder.all == [1, 2],
+            "古い write (1) が完了してから新しい write (2) が実行される必要がある。実際の記録順序: \(recorder.all)"
+        )
+    }
+
+    /// `deinit` は公開挙動（ドキュメントコメントで「アプリ終了時・ライブラリを閉じるときに
+    /// 必ず flush() すること」と謳っている安全網の最後の砦）だが、修正前はテストが 0 件だった。
+    @Test("deinit で保留中の write が実行される")
+    func deinitFlushesPendingWrites() {
+        let counter = Counter()
+        do {
+            let d = SettingsWriteDebouncer(interval: .seconds(60))
+            d.schedule(key: "x") { counter.bump() }
+            // `d` はここでスコープを抜け、他に強参照が無いので deinit が同期的に走る。
+        }
+        #expect(counter.count == 1, "スコープを抜けて deinit されると保留中の write が実行される")
+    }
+
+    /// `flush()` は内部でタイマを nil に戻すが、その後の `schedule` が正しく新しいタイマを
+    /// 再武装できることを確認する（flush 中/直後に積まれた分が失われないこと）。
+    @Test("flush 後の schedule はタイマを再武装できる")
+    func scheduleAfterFlushRearmsTimer() async throws {
+        let counter = Counter()
+        let d = SettingsWriteDebouncer(interval: .milliseconds(100))
+
+        d.schedule(key: "k") { counter.bump() }
+        d.flush()
+        #expect(counter.count == 1)
+
+        d.schedule(key: "k") { counter.bump() }
+        try? await Task.sleep(for: .milliseconds(400))
+        #expect(counter.count == 2, "flush 後の schedule でもタイマが再武装され、書き込みが実行される")
+    }
 }
