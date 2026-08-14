@@ -227,7 +227,31 @@ public final class Database: @unchecked Sendable {
     // from `isOpen` (only `init` and `close()`, both in this file, are allowed to write `queue`,
     // and `close()` always pairs `queue = nil` with `isOpen = false`). `private(set)` gives
     // module-wide read access while keeping the setter private to this file.
-    private(set) var queue: DatabaseQueue?
+    /// ★ `queue` の読み書きはロックで直列化する（G35 Codex 4 巡目 P1）。
+    ///
+    /// 従来は素の `var` で、読み手も書き手も MainActor 上にいたため競合しなかった。
+    /// G35 で監視フォルダの走査（`allBookPaths`）がオフスレッドへ移り、
+    /// **`close()` が `queue = nil` を書くのと並行して読まれる**ようになった。
+    /// strong reference の並行読み書きは ARC の retain/release が壊れうるので、
+    /// 論理的な競合では済まず**メモリ安全性の問題**になる。
+    ///
+    /// 読み出しを同期化すれば、呼び出し側が `guard let q = queue` で得た強参照は
+    /// その処理の間 ARC が生かし続ける（`close()` が後からプロパティを nil にしても、
+    /// 実行中の処理は自分の `q` を安全に使い切れる。GRDB の `DatabaseQueue` は
+    /// 内部で直列化しているので、複数の利用者が居ても安全）。
+    ///
+    /// **`queue` へ直接触れてよいのは `init` と `close()` だけ**という従来の規律は変えていない
+    /// （`_queue` はこのファイル内に閉じ、他の `Database+*.swift` からは読み取り専用の
+    /// `queue` しか見えない）。
+    private let queueLock = NSLock()
+    private var _queue: DatabaseQueue?
+
+    var queue: DatabaseQueue? {
+        queueLock.lock()
+        defer { queueLock.unlock() }
+        return _queue
+    }
+
     public private(set) var isOpen: Bool = false
 
     /// Seconds in one day. Used for all date-cutoff arithmetic
@@ -235,7 +259,7 @@ public final class Database: @unchecked Sendable {
     static let secondsPerDay: Double = 86_400
 
     private init(queue: DatabaseQueue) {
-        self.queue = queue
+        self._queue = queue
         self.isOpen = true
     }
 
@@ -2118,7 +2142,9 @@ public final class Database: @unchecked Sendable {
     }
 
     public func close() {
-        queue = nil
+        queueLock.lock()
+        _queue = nil
+        queueLock.unlock()
         isOpen = false
     }
 }
