@@ -40,6 +40,12 @@ public struct BookImporter: Sendable {
         public var alreadyPresent: [URL] = []
         /// Entries where insert or I/O failed. Error is not formally Sendable, hence @unchecked.
         public var failed: [(URL, any Error)] = []
+        /// 中断されて全件を処理しきらなかったか（G36）。
+        ///
+        /// **呼び出し側が「全部処理した」と誤認しないための印。** 既に取り込んだ分は
+        /// 巻き戻さないので、`addedIDs` 等は「そこまでの分」として正しい値が入る
+        /// （`FullScanReport.cancelled` と同じ規律）。
+        public var cancelled: Bool = false
         public init() {}
     }
 
@@ -62,6 +68,14 @@ public struct BookImporter: Sendable {
 
         // Sequential execution keeps DB writes serial (safe for auto-increment ID retrieval)
         for url in urls {
+            // G36: 中断は**本の境界**で見る。1 冊の途中（表紙抽出中など）で抜けると
+            // DB 行はあるが表紙が無い中途半端な本ができるため、走り出した 1 冊は最後までやる。
+            // 既に取り込んだ分は巻き戻さない ―― ロールバックは表紙ファイルの削除等を伴い、
+            // **失敗したロールバックが新しい欠陥になる**。
+            if Task.isCancelled {
+                result.cancelled = true
+                break
+            }
             if existingPaths.contains(url.path) {
                 result.alreadyPresent.append(url)
                 continue
