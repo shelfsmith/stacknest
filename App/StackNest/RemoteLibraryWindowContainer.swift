@@ -35,6 +35,18 @@ enum RemoteLibrarySettingsProvider {
     /// （`@testable import` で `App/StackNestTests/` から見える）。
     static let registry = NSHashTable<LibrarySettings>.weakObjects()
 
+    /// G36 Codex レビュー P2: 全リモートウィンドウの `LibrarySettings` は別インスタンスでも
+    /// **同じ `settings.db`** を指す（`makeSettings()` が固定パスを開くため）。`make()` が
+    /// ウィンドウごとに別インスタンスを返す設計は変えない（ラベルが per-window。上のコメント
+    /// 参照）が、`columnWidths` / `gridItemSize` / `windowFrame` の書き込みデバウンサだけは
+    /// この 1 つを全インスタンスで共有する。共有しないと、同じキーへの書き込みなのに
+    /// coalescing が効かず、flush の実行順（タイマー発火順・`registry.allObjects` の列挙順）
+    /// 次第で古いウィンドウの値が新しいウィンドウの値を上書きしうる（ユーザー操作順が
+    /// 保証されない ―― G36 ③ が同期書き込みを遅延書き込みに変えたことで持ち込んだ退行）。
+    /// 共有すれば `SettingsWriteDebouncer` のキー単位 coalescing により
+    /// 「最後に schedule された値」だけが書かれ、ユーザー操作順が復活する。
+    private static let sharedWriteDebouncer = SettingsWriteDebouncer()
+
     /// 開いている全リモートウィンドウの保留中設定書き込みを確定させる。
     /// **アプリ終了時に必ず呼ぶ。** 呼ばないとリモート庫の列幅・グリッドサイズが保存されない
     /// （ローカルの `AppState.closeBundle` / `flushPendingWrites` と同じ理由）。
@@ -65,7 +77,7 @@ enum RemoteLibrarySettingsProvider {
                 ? try Database.openExisting(at: dbURL)
                 : try Database.openFile(at: dbURL, mode: .createOrFail)
             try db.migrate()
-            let settings = try LibrarySettings(database: db)
+            let settings = try LibrarySettings(database: db, writeDebouncer: sharedWriteDebouncer)
             // 4.2c-4: リモートブラウザは上ペインの「スタンプ」未対応（別フェーズ）。旧ビルドで
             // ローカルと設定 DB を共有していた等の歴史的経緯で "stamp" が残っていたら、ここで
             // 一度だけ "browse" に矯正する（リモート UI からは stamp を選べないため通常は到達しない）。
@@ -78,7 +90,7 @@ enum RemoteLibrarySettingsProvider {
             do {
                 let db = try Database.openInMemory()
                 try db.migrate()
-                return try LibrarySettings(database: db)
+                return try LibrarySettings(database: db, writeDebouncer: sharedWriteDebouncer)
             } catch {
                 fatalError("RemoteLibrarySettings: in-memory fallback failed: \(error)")
             }
