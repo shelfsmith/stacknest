@@ -1276,6 +1276,14 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         // C-④a: 終了確定。以後の窓クローズ（終了に伴うもの）で open-set を削らない
         // （開いていた庫を次回 .lastOpened 復元対象に残す）。
         Self.isTerminating = true
+        // G36 ③: 保留中の設定書き込みを確定させる。デバウンスを入れた以上、
+        // ここを外すとウィンドウ位置・列幅・グリッドサイズが保存されない。
+        // `disableSuddenTermination()` があるのでこの経路は確実に走る（ロック解放と同じ仕組み）。
+        // 直後のバックアップ（B22）より前に置くこと ―― 後だとバックアップに古い設定が入る
+        // （closeBundle() と同じ理由。AppState.closeBundle 参照）。
+        for state in AppState.activeInstances.allObjects {
+            state.librarySettings?.flushPendingWrites()
+        }
         // B22: Cmd-Q では LibraryWindowContainer.onDisappear が確実に発火しないため、
         // 終了時にも開いている各 AppState のバックアップを走らせる（didBackupThisSession で二重実行防止）。
         for state in AppState.activeInstances.allObjects {
