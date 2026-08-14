@@ -7,6 +7,44 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.12.1] - 2026-08-14 — Lighter drag interactions, and cleanup when an import is interrupted (Phases G34–G36)
+
+> Rolls up three maintenance phases since `0.12.0`. No new features.
+> **You will notice it when using the app while a file damage check is running, and when
+> dragging column dividers, the grid size slider, or the window itself.**
+
+### Changed
+
+- **The app no longer bogs down during a damage check** (G34): the scan now runs on a dedicated
+  thread under low-priority I/O, and its reads no longer flush the buffer cache. Re-reading a
+  thumbnail mid-scan went from **71.8ms to 0.09ms**. The scan itself also got faster —
+  1.41 to **1.35 seconds per book** — and its verdicts across 993 books match the old code exactly.
+- **Watch-folder scanning moved off the main thread** (G35): less stalling when activating the
+  window or scrolling. Main-thread busy time went from **2.7–2.8% to 0.0%**.
+- **Column widths, grid size and window position are now written once per gesture** (G36): these
+  fire continuously while you drag, so a single drag meant tens to hundreds of disk writes.
+  **This matters most when your library lives on an external hard disk or an encrypted disk image.**
+
+### Fixed
+
+- **Advancing to the next volume did not update the list right away** (G34 / G35): the database
+  recorded the book as read, but the browser kept showing it as unread until reopened.
+  Fixed for both local and remote libraries.
+- **An interrupted import could leave a half-imported book** (G36): closing a library while a
+  watch-folder import was running let the import run to completion and **write into the
+  already-closed database**. It now stops at a book boundary, and whatever was imported stays
+  (interruption is not a reason to discard books that did land).
+- **Remote library column widths and grid size were not always saved** (G36): remote windows
+  persist settings through a different path than local ones, and the write-out at quit was not
+  reaching them. Also fixed a case where, with several remote windows open, **an older value
+  could overwrite a newer one**.
+
+### Internal
+
+- RAR test specimens are now committed to the repository so the RAR path is exercised in CI
+  (it was skipped there, because the `rar` command is not available on the runner).
+- Automated tests: **1978** via `swift test` and **115** in the app layer (1904 / 90 at `0.12.0`).
+
 ## [0.12.0] - 2026-08-08 — Share-token permissions, CLI / MCP automation, remote-operation wrap-up, rendering performance, and security (Phases 4.2d–4.2f, C, G3, G4, G12b, G15–G22, G27, G29)
 
 > Distributed as a pre-release: `v0.12.0-rc.1` (2026-07-07) / `v0.12.0-rc.2` (2026-07-18) / `v0.12.0-rc.3` (2026-07-25). Rolls up everything added since 0.11.0 (Phase 4.2). Highlights: per-recipient sharing permissions (tokens), control from the command line / AI agents, watch-folder auto-import, a persistent on-disk cache for remote viewing, setting an external image as a book's cover, plus a remote-parity wrap-up (watch-folder tab, admin maintenance, undo/redo) and built-in viewer stabilization.

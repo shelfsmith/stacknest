@@ -3,17 +3,23 @@
 ## Module graph
 
 ```
-                 ┌──────────────┐
-                 │   App/       │
-                 │  (SwiftUI)   │
-                 └──────┬───────┘
-                        │ depends on
-       ┌────────────────┼─────────────────┐
-       ▼                ▼                 ▼
-┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-│ LibraryStore │ │  ImageCache  │ │ArchiveAdapter│
-│   (GRDB)     │ │  (ImageIO)   │ │ (libarchive) │
-└──────┬───────┘ └──────────────┘ └──────────────┘
+                        ┌──────────────┐
+                        │   App/       │
+                        │  (SwiftUI)   │
+                        └──────┬───────┘
+                               │ depends on
+      ┌──────────┬─────────────┼──────────────┬──────────────┐
+      ▼          ▼             ▼              ▼              ▼
+┌───────────┐ ┌──────────┐ ┌──────────────┐ ┌───────────┐ ┌──────────────┐
+│  AppCore  │ │ImageCache│ │ArchiveAdapter│ │RemoteClient│ │LibraryServer │
+│  (logic)  │ │(ImageIO) │ │ (libarchive) │ │  (URLSession)│ │   Core      │
+└─────┬─────┘ └──────────┘ └──────────────┘ └─────┬─────┘ └──────┬───────┘
+      │                                            │              │
+      ▼                                            ▼              ▼
+┌──────────────┐                            ┌──────────────────────────┐
+│ LibraryStore │                            │    LibraryServerAPI      │
+│   (GRDB)     │◀───────────────────────────│      (DTOs only)         │
+└──────┬───────┘                            └──────────────────────────┘
        │ depends on
        ▼
 ┌──────────────────┐
@@ -21,6 +27,9 @@
 │  (PropertyList)  │
 └──────────────────┘
 ```
+
+Executables: `LibraryServer`, `StackroomImportCLI`, `StackNestCLI` (`stacknest-cli`,
+shipped inside the app bundle under `Contents/Helpers/`).
 
 ## Module responsibilities
 
@@ -37,9 +46,23 @@
   implemented via libarchive. (Historical note: the earliest Phase 2.1 build
   read ZIP only; the remaining archive formats landed in later phases and all
   are supported now.)
-- **App/** — SwiftUI macOS application target. Glues the four libraries into
+- **AppCore** — UI-independent application logic that the App target and the
+  CLI both need: import (`BookImporter`), filename parsing (`FilenameFormat`),
+  watch-folder scan planning (`WatchScanPlanner`), settings (`LibrarySettings`),
+  library open locks, and throttled I/O for background scans
+  (`ThrottledIOExecutor`). Testable via `swift test`, unlike the App target.
+- **LibraryServerAPI** — Wire-format DTOs shared by the server and every
+  client. No I/O, no persistence — pure `Codable` value types.
+- **LibraryServerCore** — The sharing server: HTTP routing, share tokens and
+  their scopes/tiers, SSE, and image delivery.
+- **RemoteClient** — Client side of the above (`URLSession`), used by the
+  native remote browser and by the offline store.
+- **App/** — SwiftUI macOS application target. Glues the libraries into
   the user-facing experience: sidebar, browser, item grid, item detail,
   external helper launching.
+
+> Kept honest as of 0.12.1. This list previously named only five modules and
+> omitted `AppCore`, which is where most non-UI logic actually lives.
 
 ## Strict layering
 
@@ -48,6 +71,10 @@ Lower layers do not import upper layers. Specifically:
 - `StackroomFormat` has no SQLite, no SwiftUI, no AppKit dependencies.
 - `LibraryStore` may import `StackroomFormat` but no UI frameworks.
 - `ImageCache` and `ArchiveAdapter` are independent (no upward dependencies).
+- `AppCore` may import `LibraryStore` and the leaf modules, but imports no UI
+  framework — that is what makes it reachable from `swift test`.
+- `LibraryServerAPI` is a leaf: both the server and the client depend on it,
+  and it depends on neither.
 - The App target is the only place SwiftUI and AppKit are imported.
 
 This separation makes the StackroomFormat module reusable for CLI migration
