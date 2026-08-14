@@ -773,6 +773,14 @@ public final class LibrarySettings {
     /// 注入できる（同じ DB を共有する複数インスタンス間で共有するため。詳細は init のコメント）。
     private let writeDebouncer: SettingsWriteDebouncer
 
+    /// G36 Codex 再レビュー Minor #2: `writeDebouncer` そのものは `private` のままだが、
+    /// テストが「既定引数（省略）は本当に別インスタンスを作るか」を**固定時間への依存なしで**
+    /// 直接検証できるよう、identity だけを internal に公開する。500ms のデバウンス窓や実際の
+    /// flush 完了順に依存する挙動ベースの検証は、CI 環境のストールで反転しうる（実測: 600ms
+    /// 級のストールを挟むと結果が反転して flake する）。オブジェクト同一性の比較なら
+    /// 非同期・タイマー要素が一切絡まないため、原理的に flake しない。
+    var writeDebouncerIdentity: ObjectIdentifier { ObjectIdentifier(writeDebouncer) }
+
     /// 保留中の設定書き込みを確定させる。**アプリ終了時とライブラリを閉じるときに必ず呼ぶ。**
     /// 呼ばないとウィンドウ位置・列幅・グリッドサイズが保存されない。
     public func flushPendingWrites() {
