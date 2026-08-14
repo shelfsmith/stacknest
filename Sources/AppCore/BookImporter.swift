@@ -46,6 +46,21 @@ public struct BookImporter: Sendable {
         /// 巻き戻さないので、`addedIDs` 等は「そこまでの分」として正しい値が入る
         /// （`FullScanReport.cancelled` と同じ規律）。
         public var cancelled: Bool = false
+
+        /// 別のバッチの結果を足し込む（G36）。
+        ///
+        /// `FolderWatcher` はプリセット単位のバッチごとに `add` を呼び、結果をここへ畳む。
+        /// **フィールドごとの手書きコピーだと、新しいフィールドを足したときに写し忘れる**
+        /// ―― G36 で `cancelled` を足した際に実際に起きかけた（畳み込みを通らず恒久的に
+        /// false のままになる欠陥）。畳み込みを型自身の責務にして、写し忘れる場所を 1 つに保つ。
+        public mutating func merge(_ other: ImportResult) {
+            addedIDs += other.addedIDs
+            coverFailures += other.coverFailures
+            alreadyPresent += other.alreadyPresent
+            failed += other.failed
+            // 一度でも中断されたら立ったまま。後続バッチが下ろしてはならない。
+            cancelled = cancelled || other.cancelled
+        }
         public init() {}
     }
 

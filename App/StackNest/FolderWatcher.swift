@@ -195,21 +195,20 @@ final class FolderWatcher {
             var total = BookImporter.ImportResult()
             for (key, urls) in grouped {
                 // プリセットごとのバッチ境界で停止を見る（G35 Codex 3 巡目 P1 の緩和）。
-                // `BookImporter.add` 自体は中断に協調しないので、**走り出した 1 バッチは
-                // 最後まで走る**。それでも「停止後に残りのバッチを走らせない」だけで
-                // 露出はバッチ 1 個分に収まる。
-                // 完全な解決は `BookImporter` を中断協調にすること。取り込み経路全体
-                // （手動追加・ドラッグ&ドロップ・CLI）に影響するので Backlog へ。
+                // G36 で `BookImporter.add` 自身が**本の境界**で中断に協調するようになった
+                // （中断されたら `result.cancelled = true` を立てて break する）ため、
+                // 現在はバッチの途中でも次の本に進む前に止まりうる。ただし 1 冊の取り込みが
+                // 走り出したら最後までやる点は変わらない（表紙抽出途中で抜けると DB 行だけ
+                // あって表紙が無い中途半端な本ができるため）。ここの外側ガードは
+                // 「停止後に残りのバッチを新規に走らせない」役割で、`add` 内の中断とは独立に
+                // 効く二段構え。
                 guard generation == scanGeneration else { break }
                 let importer = BookImporter(database: database, bundleURL: bundleURL, format: formatByKey[key]!)
                 let r = await importer.add(
                     urls: urls,
                     autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(db: database),
                     thickThreshold: ImportDefaults.effectiveThickThreshold(db: database))
-                total.addedIDs += r.addedIDs
-                total.coverFailures += r.coverFailures
-                total.alreadyPresent += r.alreadyPresent
-                total.failed += r.failed
+                total.merge(r)
             }
 
             // 取り込みも `await` なので、その間に停止されうる。停止後に
@@ -235,6 +234,9 @@ final class FolderWatcher {
             // 放置してもプロセス生存中の数十バイトだが、残しておく意味が無い（レビュー Minor）。
             rejectedSizes = rejectedSizes.filter { currentSizes[$0.key] != nil }
 
+            // G36: `total.cancelled` でも通知はする ―― 取り込めた分は実際に入っており、
+            // 「N 件追加」は嘘ではない。中断を理由に結果を捨てない
+            // （世代が変わっている場合は上のガードで既に return している）。
             if !total.addedIDs.isEmpty || !total.failed.isEmpty { onImported(total) }
         }
     }
