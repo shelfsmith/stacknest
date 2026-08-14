@@ -58,6 +58,17 @@ enum RemoteLibrarySettingsProvider {
     /// 本物の共有インスタンスへ注入**して production と同じ配線（同じ debouncer を共有する
     /// 複数ウィンドウ）を再現できるようにする（`registry` と同じ理由。`@testable import` で
     /// `App/StackNestTests/` から見える）。
+    ///
+    /// ★ 不変条件（Codex 再レビュー・P2 追加指摘）: **このインスタンスを渡してよいのは、
+    /// 同じ `settings.db`（= `makeSettings()` が開く固定パスのファイル）を指す `LibrarySettings`
+    /// 同士だけ**。`SettingsWriteDebouncer` はキー文字列（"columnWidths" 等）だけで
+    /// coalescing するため、**異なる DB を指すインスタンス同士で共有すると、片方の書き込みが
+    /// 黙って消える**（後から `schedule` された側が pending を上書きするため、先に schedule
+    /// された側の DB には何も書かれない）。実例: `makeSettings()` の catch 節（ファイル版の
+    /// オープン失敗時のインメモリ fallback）には**渡さない** ―― そちらは別の DB（インメモリ）
+    /// を指すため、共有するとファイル版ウィンドウの書き込みを黙って消しうる。この不変条件を
+    /// 知らずに「どうせ同じ 3 キーだから」と共有範囲を広げると、G36 ③〜P2 で潰してきた
+    /// 「書き込みが黙って消える」系の欠陥が同じ形で戻る。
     static let sharedWriteDebouncer = SettingsWriteDebouncer()
 
     /// 開いている全リモートウィンドウの保留中設定書き込みを確定させる。
@@ -110,10 +121,22 @@ enum RemoteLibrarySettingsProvider {
             logger.error("RemoteLibrarySettings: file-backed init failed (\(error.localizedDescription)); falling back to in-memory")
             // フォールバック: インメモリ DB（永続化されないが UI は動作する）。
             // ここも失敗するなら設定機構自体が壊れているので致命的に扱う。
+            //
+            // ★ Codex 再レビュー（P2 追加指摘）: ここには `sharedWriteDebouncer` を**渡さない**。
+            // `sharedWriteDebouncer` はキー文字列（"columnWidths" 等）だけで coalescing するため、
+            // **同じ DB を指すインスタンス同士でしか共有してはいけない**という不変条件がある
+            // （宣言側のコメントにも明記）。この catch 節は「ファイル版の DB オープンに失敗した
+            // ウィンドウ」だけが通る経路 ―― もし共有デバウンサを渡すと、あるウィンドウがここに
+            // 落ちて別の DB（インメモリ）を持つ一方、別のウィンドウは正常にファイル版 DB を持って
+            // 同じキーへ書き込む場合、coalescing で片方の書き込みが黙って消える
+            // （インメモリ側が生き残れば本来ファイルへ書かれるはずの値が失われ、逆にファイル側が
+            // 生き残ればインメモリ側の変更が消える ―― どちらにせよ「片方の窓の劣化がもう片方の
+            // 永続化を壊す」）。インメモリはそもそも永続化されないので、専用の新規デバウンサを
+            // 持たせても失うものは無い。
             do {
                 let db = try Database.openInMemory()
                 try db.migrate()
-                return try LibrarySettings(database: db, writeDebouncer: sharedWriteDebouncer)
+                return try LibrarySettings(database: db)
             } catch {
                 fatalError("RemoteLibrarySettings: in-memory fallback failed: \(error)")
             }
