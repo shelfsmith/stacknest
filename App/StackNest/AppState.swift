@@ -460,6 +460,10 @@ final class AppState {
         if let uuid = librarySettings?.libraryUUID {
             Task { await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid) }
         }
+        // G36 ③: 保留中の設定書き込みを確定させてから DB を閉じる。
+        // 閉じた後では `setLibrarySetting` が no-op になり、設定が失われる。
+        // backupOnCloseIfNeeded() より前に置くこと ―― 後だとバックアップに古い設定が入る。
+        librarySettings?.flushPendingWrites()
         folderWatcher?.stop()
         folderWatcher = nil
         watchSummaryClearTask?.cancel()
