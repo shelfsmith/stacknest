@@ -117,21 +117,34 @@ struct SettingsWriteDebouncerTests {
     /// 修正後は drain+execute を単一の直列キューの 1 タスクとして扱うため、明示的な `flush()`
     /// は先行する（タイマ発火の）write の完了を待ってから実行され、記録順序は必ず `[1, 2]`
     /// になる＝最後に書かれた値が新しい方。
+    ///
+    /// ★ N1（レビュー再指摘）: 当初は「タイマが 80ms 以内に発火する」ことを固定 sleep で
+    /// 仮定していたが、負荷次第でタイマ発火が間に合わず、write1 がまだ drain されていない
+    /// うちに write2 の `schedule` が pending の write1 を**単に上書き**してしまい
+    /// （＝それ自体は正しい coalescing 動作）、`recorder.all == [2]` で spurious FAIL する
+    /// ことが実測で 25% 発生した。固定時間の代わりに `DispatchSemaphore` で
+    /// 「write1 が実際に drain されて実行を開始したこと」を確定させてから write2 を積む。
     @Test("同一キーへの並行 flush は完了順序が入れ替わらない（C1 回帰）")
-    func concurrentFlushesPreserveCompletionOrder() async throws {
+    func concurrentFlushesPreserveCompletionOrder() throws {
         let recorder = Recorder()
         let d = SettingsWriteDebouncer(interval: .milliseconds(30))
+        let write1Started = DispatchSemaphore(value: 0)
 
-        // 古い値: タイマ発火で drain され、実行に約 200ms かかる（fsync を模す）。
+        // 古い値: タイマ発火で drain され、実行開始を signal してから約 200ms かかる（fsync を模す）。
         d.schedule(key: "k") {
+            write1Started.signal()
             Thread.sleep(forTimeInterval: 0.2)
             recorder.record(1)
         }
 
-        // タイマが発火し、上の write が「実行中（sleep 中）」になるのを待つ。
-        try? await Task.sleep(for: .milliseconds(80))
+        // write1 が「実際に drain されて実行中」になったことを確定させてから進む
+        // （固定 sleep ではなくイベント同期。踏み外しても無限に固まらないよう 3 秒でタイムアウト。
+        // `DispatchSemaphore.wait` は async コンテキストから直接呼べないため、このテストは
+        // 意図的に非 async にしている）。
+        let write1ActuallyStarted = write1Started.wait(timeout: .now() + 3.0) == .success
+        #expect(write1ActuallyStarted, "write1 が 3 秒以内に実行開始しなかった（タイマ遅延が異常）")
 
-        // 新しい値: 古い write がまだ sleep 中のうちに積む。
+        // 新しい値: 古い write が実行中であることが確定した状態で積む。
         d.schedule(key: "k") { recorder.record(2) }
 
         // アプリ終了時に相当する明示的 flush。別スレッドから、待たずに叩く。
@@ -141,7 +154,7 @@ struct SettingsWriteDebouncerTests {
         flushThread.start()
 
         // 両方の write が完了するのを待つ。
-        try? await Task.sleep(for: .milliseconds(500))
+        Thread.sleep(forTimeInterval: 0.5)
 
         #expect(
             recorder.all == [1, 2],
