@@ -234,8 +234,23 @@ public final class LibrarySettings {
     private static let defaultColumns: Set<BookColumn> = Set(BookColumn.allCases.filter { $0.defaultEnabled })
     private static let defaultSort = ColumnSort(column: .dateAdded, ascending: false)
 
-    public init(database: Database) throws {
+    /// G36 Codex レビュー P2: `writeDebouncer` を外から注入できるようにする。
+    /// 既定は自前で新規作成（**ローカル庫の挙動は変えない** ―― ローカルは庫ごとに別 DB なので、
+    /// インスタンスごとに別デバウンサを持つのが正しい）。
+    ///
+    /// 注入が要るのは、複数インスタンスが**同じ DB** を共有するケース（リモートウィンドウの
+    /// `settings.db`）。`RemoteLibraryWindowContainer.make()` はウィンドウごとに別インスタンスを
+    /// 返す（ラベルが per-window のため。この設計は変えない）が、`columnWidths` /
+    /// `gridItemSize` / `windowFrame` の書き込み先キーは全インスタンス共通のため、デバウンサが
+    /// 別々だと「同じキーへの書き込みなのに coalescing が効かない」―― ユーザー操作順ではなく
+    /// flush の実行順（タイマー発火順・レジストリ列挙順）で最後勝ちになってしまう
+    /// （G36 ③ が同期書き込みを遅延書き込みに変えたことで持ち込んだ退行）。
+    /// 同じ DB を指す全インスタンスへ**同一のインスタンス**を渡せば、`SettingsWriteDebouncer`
+    /// のキー単位 coalescing が効き、「最後に schedule された値」だけが書かれる ――
+    /// つまりユーザー操作順が復活する。
+    public init(database: Database, writeDebouncer: SettingsWriteDebouncer = SettingsWriteDebouncer()) throws {
         self.database = database
+        self.writeDebouncer = writeDebouncer
         // Load columns
         if let json = try database.getLibrarySetting(key: Self.columnsKey),
            let data = json.data(using: .utf8),
@@ -754,7 +769,9 @@ public final class LibrarySettings {
     /// G36 ③: ドラッグ中ずっと発火する 3 つの設定（`columnWidths` / `gridItemSize` /
     /// `windowFrame`）の書き込みをまとめる。**他の 27 個の `persist*` は経由しない**
     /// （`persistLockHash` 等を含むため、そもそも近づかない）。
-    private let writeDebouncer = SettingsWriteDebouncer()
+    /// G36 Codex レビュー P2: 既定は自前で新規作成するが、`init(database:writeDebouncer:)` から
+    /// 注入できる（同じ DB を共有する複数インスタンス間で共有するため。詳細は init のコメント）。
+    private let writeDebouncer: SettingsWriteDebouncer
 
     /// 保留中の設定書き込みを確定させる。**アプリ終了時とライブラリを閉じるときに必ず呼ぶ。**
     /// 呼ばないとウィンドウ位置・列幅・グリッドサイズが保存されない。
