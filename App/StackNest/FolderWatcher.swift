@@ -29,6 +29,10 @@ final class FolderWatcher {
     /// （G35 Codex P1。詳細は `stop()` のコメント）。
     private var scanGeneration = 0
     private var scanTask: Task<Void, Never>?
+    /// 直列化のために保持している走査タスクがあるか（テスト用）。
+    /// `stop()` の後も**残っていなければならない** ―― 次の走査がこれを待って
+    /// 重複取り込みを防ぐため（G35 Codex 6 巡目 P1）。
+    var hasRetainedScanTask: Bool { scanTask != nil }
     /// pending 候補の短時間 settle 再スキャンが予約済みか。**`stop()` で必ず解放される**必要がある
     /// （残すと再起動後の走査が予約を見送り、settle 走査が誰にも予約されなくなる）。
     /// テストから観測できるよう getter は internal。
@@ -79,7 +83,11 @@ final class FolderWatcher {
         timer = nil
         scanGeneration &+= 1        // 進行中の走査を失効させる
         scanTask?.cancel()
-        scanTask = nil
+        // ★ `scanTask` は **nil にしない**（G35 Codex 6 巡目 P1）。
+        // `BookImporter.add` は中断に協調しないので、cancel してもバッチは走り続ける。
+        // 次の走査はこの参照を `previous` として掴み `await previous?.value` で待つ
+        // ―― ここで nil にすると待ち合わせが素通りし、重複取り込みが起きる。
+        // 完了済みタスクを保持するコストは無視できる（次の走査で置き換わる）。
         scanning = false            // reload 後の scanAll がスキップされないように
         // settle 予約も一緒に解放する（G35 Codex 2 巡目 P2）。
         // これを残すと、再起動後の走査が `guard !settleScheduled` で予約を見送り、
