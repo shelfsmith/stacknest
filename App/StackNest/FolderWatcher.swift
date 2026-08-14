@@ -172,6 +172,13 @@ final class FolderWatcher {
 
             var total = BookImporter.ImportResult()
             for (key, urls) in grouped {
+                // プリセットごとのバッチ境界で停止を見る（G35 Codex 3 巡目 P1 の緩和）。
+                // `BookImporter.add` 自体は中断に協調しないので、**走り出した 1 バッチは
+                // 最後まで走る**。それでも「停止後に残りのバッチを走らせない」だけで
+                // 露出はバッチ 1 個分に収まる。
+                // 完全な解決は `BookImporter` を中断協調にすること。取り込み経路全体
+                // （手動追加・ドラッグ&ドロップ・CLI）に影響するので Backlog へ。
+                guard generation == scanGeneration else { break }
                 let importer = BookImporter(database: database, bundleURL: bundleURL, format: formatByKey[key]!)
                 let r = await importer.add(
                     urls: urls,
