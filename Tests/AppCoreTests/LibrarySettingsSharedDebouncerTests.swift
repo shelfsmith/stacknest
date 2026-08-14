@@ -89,37 +89,32 @@ struct LibrarySettingsSharedDebouncerTests {
     }
 
     /// ローカル庫の挙動は変えない: `LibrarySettings(database:)`（`writeDebouncer` 省略）で
-    /// 作った 2 インスタンスは今まで通り**別々の**デバウンサを持ち、coalescing は効かない
-    /// （flush 順次第で結果が変わりうる）。これは退行ではなくローカル庫の設計そのもの
-    /// （庫ごとに別 DB なので、そもそも同じキーを取り合う場面が無い）。
-    /// ここでは「デフォルト引数は注入しない限り従来どおり独立している」ことだけを確認する。
+    /// 作った 2 インスタンスは今まで通り**別々の**デバウンサを持ち、coalescing は効かない。
+    /// これは退行ではなくローカル庫の設計そのもの（庫ごとに別 DB なので、そもそも同じキーを
+    /// 取り合う場面が無い）。
+    ///
+    /// G36 Codex 再レビュー Minor #2: 旧バージョンはこれを「B を flush → 500ms 未満で A を
+    /// flush → disk が A の値になる」という**実ディスク書き込みの完了順**で確認していたが、
+    /// これは各インスタンスが内部に持つ 500ms タイマー（`SettingsWriteDebouncer.restartTimer`）
+    /// が明示 flush より先に自動発火しないことへの**暗黙の時間依存**だった。再レビューで
+    /// 「600ms 級のストールを挟むと結果が反転して FAIL する」ことが実測され、CI での flake
+    /// リスクが指摘された（このフェーズで C1 の回帰テストが固定 `sleep` 依存で 25% 落ちた際も
+    /// 同じ理由でセマフォ同期に作り直している ―― 同じ類型を残すのは一貫しない）。
+    ///
+    /// 今回は「既定引数は別インスタンスを作る」という主張の**本質**（＝オブジェクト同一性）を
+    /// 直接検証する形に変えた。非同期・タイマー・実ディスク I/O が一切絡まないため、
+    /// 原理的に flake しようがない。もし将来 `init(database:)` が誤って static な共有
+    /// デバウンサへ退行したら（＝このテストが守りたい退行）、この identity 比較は必ず失敗する。
     @Test("デフォルト引数（writeDebouncer 省略）は依然として独立したデバウンサを作る")
     @MainActor
     func defaultInitStillCreatesIndependentDebouncers() throws {
-        let (db, dbURL) = try setupFileBackedDB()
+        let (db, _) = try setupFileBackedDB()
         defer { db.close() }
 
         let windowA = try LibrarySettings(database: db)
         let windowB = try LibrarySettings(database: db)
 
-        windowA.columnWidths = ["title": 100.0]
-        windowB.columnWidths = ["title": 200.0]
-
-        // B を先に flush しても、A の保留書き込みは A 自身のデバウンサにまだ残っている。
-        windowB.flushPendingWrites()
-        let midway = try Database.openExisting(at: dbURL)
-        let midRaw = try #require(try midway.getLibrarySetting(key: "columnWidths"))
-        midway.close()
-        let midDecoded = try JSONDecoder().decode([String: Double].self, from: Data(midRaw.utf8))
-        #expect(midDecoded["title"] == 200.0, "B 自身の flush 直後は B の値が見えるはず")
-
-        // A を flush すると、A 自身のデバウンサに残っていた古い値が別々に書かれる
-        // （coalescing が効かないことの確認 ―― デフォルト引数の独立性そのもの）。
-        windowA.flushPendingWrites()
-        let reopened = try Database.openExisting(at: dbURL)
-        defer { reopened.close() }
-        let raw = try #require(try reopened.getLibrarySetting(key: "columnWidths"))
-        let decoded = try JSONDecoder().decode([String: Double].self, from: Data(raw.utf8))
-        #expect(decoded["title"] == 100.0, "独立したデバウンサでは A の保留書き込みが後から B を上書きする")
+        #expect(windowA.writeDebouncerIdentity != windowB.writeDebouncerIdentity,
+                "既定引数(writeDebouncer 省略)は各インスタンスに新規デバウンサを作るはず ―― 同一なら共有デバウンサへの意図しない退行が起きている")
     }
 }

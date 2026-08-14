@@ -31,8 +31,15 @@ enum RemoteLibrarySettingsProvider {
     /// `private` にしない: `make()` はアプリサポート配下の実ファイル（実ユーザーの本物の
     /// settings.db）を直接開くため、テストから `make()` 経由でこのレジストリへ触ると実データを
     /// 汚しかねない。テストは一時ファイルで作った `LibrarySettings` を直接 `registry.add` して
-    /// `flushAll()` の実効果だけを検証できるよう、module-internal に留める
-    /// （`@testable import` で `App/StackNestTests/` から見える）。
+    /// 効果だけを検証できるよう、module-internal に留める（`@testable import` で
+    /// `App/StackNestTests/` から見える）。
+    ///
+    /// G36 Codex 再レビュー Minor #1: **`flushAll()` はこの `registry` を経由しなくなった**
+    /// （下記コメント参照。今は `sharedWriteDebouncer.flush()` を直接呼ぶ）。この `registry`
+    /// 自体は削除しない ―― 個別インスタンスの生存確認・将来の診断/個別 flush など、
+    /// flush 以外の用途に使える汎用のレジストリとして残す。`RemoteSettingsFlushOnTerminateTests`
+    /// はこの変更に合わせ、`registry.add` ではなく `sharedWriteDebouncer`（下記）を直接注入する
+    /// 形に更新した（production の `make()` と同じ配線を再現するため）。
     static let registry = NSHashTable<LibrarySettings>.weakObjects()
 
     /// G36 Codex レビュー P2: 全リモートウィンドウの `LibrarySettings` は別インスタンスでも
@@ -45,15 +52,31 @@ enum RemoteLibrarySettingsProvider {
     /// 保証されない ―― G36 ③ が同期書き込みを遅延書き込みに変えたことで持ち込んだ退行）。
     /// 共有すれば `SettingsWriteDebouncer` のキー単位 coalescing により
     /// 「最後に schedule された値」だけが書かれ、ユーザー操作順が復活する。
-    private static let sharedWriteDebouncer = SettingsWriteDebouncer()
+    ///
+    /// `private` にしない: 下の `flushAll()` を検証する App 層テストが、実ユーザーの
+    /// settings.db を汚さないよう一時ファイルの `LibrarySettings` を作りつつ、**この
+    /// 本物の共有インスタンスへ注入**して production と同じ配線（同じ debouncer を共有する
+    /// 複数ウィンドウ）を再現できるようにする（`registry` と同じ理由。`@testable import` で
+    /// `App/StackNestTests/` から見える）。
+    static let sharedWriteDebouncer = SettingsWriteDebouncer()
 
     /// 開いている全リモートウィンドウの保留中設定書き込みを確定させる。
     /// **アプリ終了時に必ず呼ぶ。** 呼ばないとリモート庫の列幅・グリッドサイズが保存されない
     /// （ローカルの `AppState.closeBundle` / `flushPendingWrites` と同じ理由）。
+    ///
+    /// G36 Codex 再レビュー Minor #1: 以前は `registry.allObjects` を回して個々の
+    /// `flushPendingWrites()` を呼んでいたが、全インスタンスが `sharedWriteDebouncer` を
+    /// 共有するようになった今、それは同じデバウンサを N 回 flush しているだけで冗長
+    /// （2 回目以降は空の drain）。さらに実質的な穴があった: `registry` は
+    /// `NSHashTable.weakObjects()` なので、最後の強参照（`RemoteLibraryWindowContainer` の
+    /// `@State`）が保留中の書き込みを残したまま解放されると、そのインスタンスは registry から
+    /// 静かに消え、`flushAll()` は空の registry を回すだけになっていた（共有 static にした
+    /// ことで、以前あった「各インスタンス自前デバウンサの `deinit { flush() }`」という最後の
+    /// 砦も無くなっていたため、これは実害のある退行だった）。`sharedWriteDebouncer.flush()` を
+    /// 直接呼べば、registry に何が残っているかに関係なく保留中の書き込みは必ず着地する。
+    /// `registry` 自体は削除しない（個別インスタンスの生存確認や将来の診断用途に残す）。
     static func flushAll() {
-        for settings in registry.allObjects {
-            settings.flushPendingWrites()
-        }
+        sharedWriteDebouncer.flush()
     }
 
     /// 4.2c-8: リモートウィンドウごとに新しい LibrarySettings を生成する。
