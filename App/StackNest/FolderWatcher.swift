@@ -84,8 +84,10 @@ final class FolderWatcher {
         scanGeneration &+= 1        // 進行中の走査を失効させる
         scanTask?.cancel()
         // ★ `scanTask` は **nil にしない**（G35 Codex 6 巡目 P1）。
-        // `BookImporter.add` は中断に協調しないので、cancel してもバッチは走り続ける。
-        // 次の走査はこの参照を `previous` として掴み `await previous?.value` で待つ
+        // G36 で `BookImporter.add` は本の境界では中断に協調するようになったが（Task 3）、
+        // それでも cancel した瞬間に止まるわけではない ―― 今読んでいる 1 冊は最後までやる
+        // ため、走り続ける時間帯が残る。次の走査はこの参照を `previous` として掴み
+        // `await previous?.value` で待つ
         // ―― ここで nil にすると待ち合わせが素通りし、重複取り込みが起きる。
         // 完了済みタスクを保持するコストは無視できる（次の走査で置き換わる）。
         scanning = false            // reload 後の scanAll がスキップされないように
@@ -140,10 +142,11 @@ final class FolderWatcher {
 
             // ★ 旧走査の完了を待ってから始める（G35 Codex 5 巡目 P1）。
             //
-            // `stop()` は `scanTask` を cancel するが、**`BookImporter.add` は中断に協調しない**ので
-            // 走り出したバッチは最後まで走る。`stop()` が `scanning` を解放して `reload()` が
-            // すぐ次の走査を始められるようにした結果、**同じ候補を 2 つの取り込みが同時に処理**
-            // しうる状態になっていた（重複挿入・表紙ファイルの衝突）。
+            // `stop()` は `scanTask` を cancel する。G36 で `BookImporter.add` は**本の境界**では
+            // 中断に協調するようになった（Task 3）が、それは「今読んでいる 1 冊は最後までやる」
+            // だけの粒度で、cancel の瞬間に即座に止まるわけではない。`stop()` が `scanning` を
+            // 解放して `reload()` がすぐ次の走査を始められるようにした結果、**同じ候補を 2 つの
+            // 取り込みが同時に処理**しうる状態になっていた（重複挿入・表紙ファイルの衝突）。
             //
             // ここで待てば、reload はスキップされず（1 巡目の指摘の解決を保ったまま）、
             // 取り込みは直列のままになる。cancel 済みタスクでも `.value` は本体の終了まで待つ。
