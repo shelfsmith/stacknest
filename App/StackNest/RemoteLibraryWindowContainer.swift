@@ -73,13 +73,20 @@ enum RemoteLibrarySettingsProvider {
 
     /// G37 ①: リモート設定 DB は**窓ごとに別接続**で同じファイルへ書くため、`SQLITE_BUSY` が起きうる。
     /// 競合相手は同一プロセス内の短い書き込み（1 設定の UPSERT）なので実際には数十 ms で解ける。
-    /// 5 秒は「それでも解けないなら諦める」ための上限であり、**普段は 1 度も待たない値**。
+    ///
+    /// この値は「それでも解けないなら諦める」ための待機上限であると**同時に**、万一そこまで
+    /// 到達したときに `@MainActor` の `LibrarySettings` の同期 `persist*` を止めうる時間でもある
+    /// （`onDisappear` / `applicationWillTerminate` → `flushAll()` はいずれもメインから
+    /// `queue.sync` で書く）。spec §1.2 は同じ理屈で本庫 DB への `busyTimeout` 導入を退けており、
+    /// リモートだけ 5 秒を無検討で許すのは筋が通らない（G37 最終レビュー I1）。
+    /// 最終レビューの実測では必要量は 0.1〜1ms・重なり確率 ≈5×10⁻⁴ で、2 秒でも
+    /// 必要量の 3 桁上の余裕がある。
     ///
     /// **`sharedWriteDebouncer` とは事情が違う。** デバウンサの共有には
     /// 「同じ DB を指すインスタンス同士でしか共有してはならない」という不変条件があるため
     /// インメモリ fallback では外したが、`busyTimeout` は**接続ごとの設定**なので
     /// 共有の問題は起きない。インメモリ版にも同じ値を渡してよい。
-    static let settingsBusyTimeout: TimeInterval = 5
+    static let settingsBusyTimeout: TimeInterval = 2
 
     /// 開いている全リモートウィンドウの保留中設定書き込みを確定させる。
     /// **アプリ終了時に必ず呼ぶ。** 呼ばないとリモート庫の列幅・グリッドサイズが保存されない
