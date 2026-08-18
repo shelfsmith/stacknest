@@ -40,6 +40,11 @@ public final class SettingsWriteDebouncer: @unchecked Sendable {
     ///
     /// **時計は `ContinuousClock`。** このファイルは既に `Duration` を使っており直接引き算できる。
     /// `Date()` は時刻変更で巻き戻りうるので使わない。
+    ///
+    /// **現状はキー単位の辞書とスカラ 1 個が事実上等価**（`drainAndExecute` が `pending` を
+    /// キーごとではなく全キーまとめて drain するため、`min` は常に「直近の drain 後の最初の
+    /// `schedule` 時刻」になる）。それでもキー単位の辞書のまま持たせているのは、将来
+    /// `drainAndExecute` がキーごとの部分 drain に変わったときに備えるため（G37 レビュー指摘）。
     private var firstPendingAt: [String: ContinuousClock.Instant] = [:]
     private let queue = DispatchQueue(label: "app.shelfsmith.stacknest.settings-debounce")
     /// 現在の実行が `queue` 上かどうかを判定するためのキー（`flush()` の自己デッドロック回避、G36 ③ C1）。
