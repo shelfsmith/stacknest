@@ -110,8 +110,8 @@ struct SettingsWriteDebouncerDeinitRaceTests {
     func deinitFlushesSynchronouslyWhenNoTimerIsInFlight() throws {
         let counter = Counter()
         do {
-            // interval を長く取り、タイマが発火する前に確実にスコープを抜けられるようにする。
-            let d = SettingsWriteDebouncer(interval: .seconds(60))
+            // interval・maxDelay を長く取り、タイマが発火する前に確実にスコープを抜けられるようにする。
+            let d = SettingsWriteDebouncer(interval: .seconds(60), maxDelay: .seconds(60))
             d.schedule(key: "k") { counter.bump() }
             // `d` はここでスコープを抜ける。他に強参照は無いので deinit が同期的に走る。
         }
