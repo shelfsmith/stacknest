@@ -31,12 +31,24 @@ public final class SettingsWriteDebouncer: @unchecked Sendable {
     private var pending: [String: @Sendable () -> Void] = [:]
     private var timer: DispatchSourceTimer?
     private let interval: Duration
+    /// G37 ②: **最初の未書き込み変更から**これだけ経ったら、更新が続いていても書く。
+    ///
+    /// `interval`（既定 500ms）は「**最後の**変更から」なので、ドラッグを続けている限り
+    /// タイマが張り直され、10 秒ドラッグすれば 10 秒間 1 度も書かれない。異常終了すると全部失う。
+    private let maxDelay: Duration
+    /// キーごとの「最初の未書き込み変更」の時刻。書き込みを実行したキーは消える。
+    ///
+    /// **時計は `ContinuousClock`。** このファイルは既に `Duration` を使っており直接引き算できる。
+    /// `Date()` は時刻変更で巻き戻りうるので使わない。
+    private var firstPendingAt: [String: ContinuousClock.Instant] = [:]
     private let queue = DispatchQueue(label: "app.shelfsmith.stacknest.settings-debounce")
     /// 現在の実行が `queue` 上かどうかを判定するためのキー（`flush()` の自己デッドロック回避、G36 ③ C1）。
     private let queueKey = DispatchSpecificKey<Void>()
 
-    public init(interval: Duration = .milliseconds(500)) {
+    public init(interval: Duration = .milliseconds(500),
+                maxDelay: Duration = .seconds(2)) {
         self.interval = interval
+        self.maxDelay = maxDelay
         queue.setSpecific(key: queueKey, value: ())
     }
 
@@ -61,6 +73,8 @@ public final class SettingsWriteDebouncer: @unchecked Sendable {
     public func schedule(key: String, write: @escaping @Sendable () -> Void) {
         lock.lock()
         pending[key] = write
+        // G37 ②: 初回だけ記録し、以後の更新では**据え置く**（最初の変更からの経過を測るため）。
+        if firstPendingAt[key] == nil { firstPendingAt[key] = ContinuousClock.now }
         lock.unlock()
         restartTimer()
     }
@@ -100,6 +114,7 @@ public final class SettingsWriteDebouncer: @unchecked Sendable {
         lock.lock()
         let writes = Array(pending.values)
         pending.removeAll()
+        firstPendingAt.removeAll()      // G37 ②: 書いたキーは起点をリセットする
         timer?.cancel()
         timer = nil
         lock.unlock()
@@ -109,9 +124,20 @@ public final class SettingsWriteDebouncer: @unchecked Sendable {
     private func restartTimer() {
         lock.lock()
         timer?.cancel()
+
+        // G37 ②: 「最後の変更 + interval」と「各キーの初回 + maxDelay」の**早いほう**で発火する。
+        // タイマは 1 本のまま ―― キーごとにタイマを増やすと、G36 で潰した
+        // 「タイマとロックの相互作用」の複雑さが増える。発火時刻の計算で足りる。
+        let now = ContinuousClock.now
+        var delay = interval
+        for (_, first) in firstPendingAt {
+            let remaining = maxDelay - (now - first)
+            if remaining < delay { delay = remaining }
+        }
+        let ms = Int(delay.components.seconds * 1000
+                     + delay.components.attoseconds / 1_000_000_000_000_000)
+
         let t = DispatchSource.makeTimerSource(queue: queue)
-        let ms = Int(interval.components.seconds * 1000
-                     + interval.components.attoseconds / 1_000_000_000_000_000)
         t.schedule(deadline: .now() + .milliseconds(max(1, ms)))
         t.setEventHandler { [weak self] in self?.flush() }
         timer = t

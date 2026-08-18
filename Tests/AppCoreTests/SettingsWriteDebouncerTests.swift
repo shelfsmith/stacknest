@@ -53,7 +53,7 @@ struct SettingsWriteDebouncerTests {
     @Test("flush で即座に書かれる")
     func flushWritesImmediately() throws {
         let counter = Counter()
-        let d = SettingsWriteDebouncer(interval: .seconds(60))   // 待っていたら来ない長さ
+        let d = SettingsWriteDebouncer(interval: .seconds(60), maxDelay: .seconds(60))   // 上限も含めて来ない長さ
 
         d.schedule(key: "windowFrame") { counter.bump() }
         #expect(counter.count == 0)
@@ -66,7 +66,7 @@ struct SettingsWriteDebouncerTests {
     @Test("flush 後は保留が残らない")
     func flushClearsPending() throws {
         let counter = Counter()
-        let d = SettingsWriteDebouncer(interval: .seconds(60))
+        let d = SettingsWriteDebouncer(interval: .seconds(60), maxDelay: .seconds(60))   // 上限も含めて来ない長さ
 
         d.schedule(key: "a") { counter.bump() }
         d.schedule(key: "b") { counter.bump() }
@@ -168,7 +168,7 @@ struct SettingsWriteDebouncerTests {
     func deinitFlushesPendingWrites() {
         let counter = Counter()
         do {
-            let d = SettingsWriteDebouncer(interval: .seconds(60))
+            let d = SettingsWriteDebouncer(interval: .seconds(60), maxDelay: .seconds(60))   // 上限も含めて来ない長さ
             d.schedule(key: "x") { counter.bump() }
             // `d` はここでスコープを抜け、他に強参照が無いので deinit が同期的に走る。
         }
