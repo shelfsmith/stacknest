@@ -463,8 +463,9 @@ final class AppState {
             Task { await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid) }
         }
         // G37 ③: 先に取り込みへ中断信号を出してから flush する。
-        // `flush` はメインを 0.1〜0.5 秒止めるので、その待ち時間を
-        // 「取り込みが本の境界へ辿り着く猶予」に充てられる（G36 ② で中断協調済み）。
+        // `flush` はメインを止めうる（① の busyTimeout 導入後は、リモート設定 DB が競合していれば
+        // 最大 settingsBusyTimeout 秒まで。本庫側は busyTimeout を持たず短時間で完了する）。
+        // その待ち時間を「取り込みが本の境界へ辿り着く猶予」に充てられる（G36 ② で中断協調済み）。
         folderWatcher?.stop()
         folderWatcher = nil
         // G36 ③: 保留中の設定書き込みを確定させてから DB を閉じる。

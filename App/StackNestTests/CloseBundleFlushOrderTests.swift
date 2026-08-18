@@ -88,16 +88,21 @@ struct CloseBundleFlushOrderTests {
         #expect(state.librarySettings == nil)
     }
 
-    /// ★ G37 ③: `folderWatcher.stop()` は `flushPendingWrites()` の**前**でなければならない。
+    /// ★ G37 ③: `closeBundle()` は `folderWatcher` を停止すること。
     ///
-    /// `flush` はメインスレッドを 0.1〜0.5 秒止める（飛行中の書き込み完了まで待つ設計）。
-    /// その間まだ取り込みに中断信号が届いていないと、待ち時間が丸ごと無駄になる。
-    /// 先に `stop()` しておけば、同じ待ち時間が「取り込みが**本の境界へ辿り着く猶予**」になる
+    /// `flush` はメインスレッドを止めうる（飛行中の書き込み完了まで待つ設計）。その間まだ
+    /// 取り込みに中断信号が届いていないと、待ち時間が丸ごと無駄になる。先に `stop()` しておけば、
+    /// 同じ待ち時間が「取り込みが**本の境界へ辿り着く猶予**」になる
     /// （G36 ② で `BookImporter` は本の境界で中断協調するようになった）。
     ///
-    /// **flush が backup より前**という G36 の不変条件は維持されること。
-    @Test("closeBundle は stop → flush → backup → close の順に進む")
-    func closeBundleStopsTheWatcherBeforeFlushing() throws {
+    /// **相対順序（stop→flush）そのものの直接検証は原理的に困難なので、ここでは検証しない**
+    /// （両者を跨いで観測可能な副作用を作るのが難しい）。このテストが実際に守るのは
+    /// 「`closeBundle` が走査中の folderWatcher を止めること」という単独の事実のみ。
+    ///
+    /// **flush が backup より前**という G36 の不変条件は既存の
+    /// `pendingColumnWidthsSurviveIntoTheBackup` が守っている（ここでは再検証しない）。
+    @Test("closeBundle は走査中の folderWatcher を停止する")
+    func closeBundleStopsTheWatcher() throws {
         let (state, bundle, db) = try makeState()
         defer { try? FileManager.default.removeItem(at: bundle); db.close() }
 
@@ -108,18 +113,15 @@ struct CloseBundleFlushOrderTests {
             onImported: { _ in })
         let watcher = try #require(state.folderWatcher)
 
-        state.librarySettings?.columnWidths = ["title": 321]
+        // 前提: closeBundle の前に走査が実際に走っていること（scanNow は folderWatchEnabled
+        // が true でなければ即座に return し scanning を true にしない）。
+        state.librarySettings?.folderWatchEnabled = true
+        watcher.scanNow()
+        #expect(watcher.scanning == true, "前提: closeBundle の前に走査が動いていること")
+
         state.closeBundle()
 
         // stop() が呼ばれていること
         #expect(watcher.scanning == false, "closeBundle が folderWatcher を停止すること")
-
-        // G36 の不変条件: flush は backup より前 ―― 保留値がバックアップに入っている
-        let backups = BackupManager.list(in: BackupManager.backupsDir(for: bundle))
-        let backupURL = try #require(backups.first)
-        let backupDB = try Database.openExisting(at: backupURL)
-        defer { backupDB.close() }
-        #expect(try backupDB.getLibrarySetting(key: "columnWidths") != nil,
-                "flush は backupOnCloseIfNeeded より前でなければならない")
     }
 }

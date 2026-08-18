@@ -92,8 +92,14 @@ struct SettingsWriteDebouncerDeadlineTests {
         #expect(c.count == 1, "20 回の更新が 1 回に畳まれる")
     }
 
-    /// ★ キーごとに初回時刻を持つこと。
-    /// 片方のキーを連続更新し続けても、**もう片方は自分の上限で書かれる**。
+    /// ★ 連続更新されているキーがあっても、静かなキーが書かれずに残り続けることはない。
+    ///
+    /// **キーごとに初回時刻を持つこと自体は、このテストでは検証できない**（そして検証対象では
+    /// ない）: `drainAndExecute` は全キーをまとめて drain するため、`firstPendingAt` の辞書は
+    /// 実質スカラ 1 個と等価で、`min` は常に「drain 後の最初の `schedule` 時刻」になる。
+    /// これは欠陥ではなく、実装は目的を**過達成**している ―― 全キー drain のため、静かなキーは
+    /// `min(全起点)+maxDelay` で書かれ、これは per-key 実装の「自分の起点+maxDelay」**以下**。
+    /// 飢餓は起こり得ない（G37 最終レビュー I2）。
     ///
     /// `writesOnceTheDeadlineCapIsReached` と同じ理由で、`busy` の feeder は待ち窓（2 秒）より
     /// 確実に長く（3 秒）動き続ける。`busy` が interval より短い周期で回り続ける限り共有タイマは
@@ -104,7 +110,7 @@ struct SettingsWriteDebouncerDeadlineTests {
     /// `busy` が一度も干渉しないまま `quiet` が通常の `interval` だけで書かれ、テストが
     /// 何も検証せずに空振りで PASS する余地があった。生の `Thread` は起動が実質即時なので
     /// この窓はほぼ閉じるが、schedule の順序を反転させることで構造的にも塞いでおく。
-    @Test("連続更新していないキーが巻き添えで遅れない")
+    @Test("連続更新されているキーがあっても静かなキーが書かれずに残り続けることはない")
     func aQuietKeyIsNotStarvedByABusyOne() throws {
         let quiet = Counter()
         let busy = Counter()
