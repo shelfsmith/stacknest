@@ -87,4 +87,39 @@ struct CloseBundleFlushOrderTests {
         #expect(state.database == nil)
         #expect(state.librarySettings == nil)
     }
+
+    /// ★ G37 ③: `folderWatcher.stop()` は `flushPendingWrites()` の**前**でなければならない。
+    ///
+    /// `flush` はメインスレッドを 0.1〜0.5 秒止める（飛行中の書き込み完了まで待つ設計）。
+    /// その間まだ取り込みに中断信号が届いていないと、待ち時間が丸ごと無駄になる。
+    /// 先に `stop()` しておけば、同じ待ち時間が「取り込みが**本の境界へ辿り着く猶予**」になる
+    /// （G36 ② で `BookImporter` は本の境界で中断協調するようになった）。
+    ///
+    /// **flush が backup より前**という G36 の不変条件は維持されること。
+    @Test("closeBundle は stop → flush → backup → close の順に進む")
+    func closeBundleStopsTheWatcherBeforeFlushing() throws {
+        let (state, bundle, db) = try makeState()
+        defer { try? FileManager.default.removeItem(at: bundle); db.close() }
+
+        state.folderWatcher = FolderWatcher(
+            database: db,
+            bundleURL: bundle,
+            settings: try #require(state.librarySettings),
+            onImported: { _ in })
+        let watcher = try #require(state.folderWatcher)
+
+        state.librarySettings?.columnWidths = ["title": 321]
+        state.closeBundle()
+
+        // stop() が呼ばれていること
+        #expect(watcher.scanning == false, "closeBundle が folderWatcher を停止すること")
+
+        // G36 の不変条件: flush は backup より前 ―― 保留値がバックアップに入っている
+        let backups = BackupManager.list(in: BackupManager.backupsDir(for: bundle))
+        let backupURL = try #require(backups.first)
+        let backupDB = try Database.openExisting(at: backupURL)
+        defer { backupDB.close() }
+        #expect(try backupDB.getLibrarySetting(key: "columnWidths") != nil,
+                "flush は backupOnCloseIfNeeded より前でなければならない")
+    }
 }

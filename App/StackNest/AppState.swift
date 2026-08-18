@@ -73,7 +73,9 @@ final class AppState {
 
     /// 監視フォルダ自動取込の要約（バナー表示用・一定時間で自動クリア）。
     var watchImportSummary: String?
-    private var folderWatcher: FolderWatcher?
+    // G37 ③: テストが `closeBundle()` の停止順序を検証できるよう internal にしてある
+    // （`database` / `librarySettings` と同様、テストからの直接注入・読み取りを許す）。
+    var folderWatcher: FolderWatcher?
     private var watchSummaryClearTask: Task<Void, Never>?
 
     // v0.4a additions
@@ -460,12 +462,15 @@ final class AppState {
         if let uuid = librarySettings?.libraryUUID {
             Task { await LocalControlController.shared.maintenanceRegistry.cancel(library: uuid) }
         }
-        // G36 ③: 保留中の設定書き込みを確定させてから DB を閉じる。
-        // 閉じた後では `setLibrarySetting` が no-op になり、設定が失われる。
-        // backupOnCloseIfNeeded() より前に置くこと ―― 後だとバックアップに古い設定が入る。
-        librarySettings?.flushPendingWrites()
+        // G37 ③: 先に取り込みへ中断信号を出してから flush する。
+        // `flush` はメインを 0.1〜0.5 秒止めるので、その待ち時間を
+        // 「取り込みが本の境界へ辿り着く猶予」に充てられる（G36 ② で中断協調済み）。
         folderWatcher?.stop()
         folderWatcher = nil
+        // G36 ③: 保留中の設定書き込みを確定させてから DB を閉じる。
+        // 閉じた後では `setLibrarySetting` が no-op になり、設定が失われる。
+        // **backupOnCloseIfNeeded() より前に置くこと** ―― 後だとバックアップに古い設定が入る。
+        librarySettings?.flushPendingWrites()
         watchSummaryClearTask?.cancel()
         watchSummaryClearTask = nil
         backupOnCloseIfNeeded()
