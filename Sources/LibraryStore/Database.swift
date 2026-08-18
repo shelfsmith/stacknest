@@ -264,20 +264,32 @@ public final class Database: @unchecked Sendable {
     }
 
     /// GRDB Configuration that enables SQLite FK enforcement on every connection.
-    private static func makeConfiguration() -> Configuration {
+    ///
+    /// - Parameter busyTimeout: 競合時に待つ秒数。`nil` なら GRDB の既定
+    ///   （`.immediateError` ＝ 即失敗）のまま。
+    ///
+    /// **既定を変えないこと（G37 ①）。** この関数は本庫 DB を含む**全オープン経路が共有**する。
+    /// 本庫 DB は `LibraryOpenLock` が同時に 1 インスタンスへ限定しており競合がほぼ無い一方、
+    /// 書き込みは MainActor からも行われるため、待たせると**メインスレッドを最大 N 秒止めうる**
+    /// ―― G35/G36 が減らしてきたものを戻す方向になる。**待たせるべき場所だけ待たせる。**
+    private static func makeConfiguration(busyTimeout: TimeInterval? = nil) -> Configuration {
         var config = Configuration()
+        if let busyTimeout {
+            config.busyMode = .timeout(busyTimeout)
+        }
         config.prepareDatabase { db in
             try db.execute(sql: "PRAGMA foreign_keys = ON")
         }
         return config
     }
 
-    public static func openInMemory() throws -> Database {
-        let q = try DatabaseQueue(configuration: makeConfiguration())
+    public static func openInMemory(busyTimeout: TimeInterval? = nil) throws -> Database {
+        let q = try DatabaseQueue(configuration: makeConfiguration(busyTimeout: busyTimeout))
         return Database(queue: q)
     }
 
-    public static func openFile(at url: URL, mode: OpenMode) throws -> Database {
+    public static func openFile(at url: URL, mode: OpenMode,
+                                busyTimeout: TimeInterval? = nil) throws -> Database {
         let exists = FileManager.default.fileExists(atPath: url.path)
         switch mode {
         case .createOrFail:
@@ -287,15 +299,18 @@ public final class Database: @unchecked Sendable {
                 try FileManager.default.removeItem(at: url)
             }
         }
-        let q = try DatabaseQueue(path: url.path, configuration: makeConfiguration())
+        let q = try DatabaseQueue(path: url.path,
+                                  configuration: makeConfiguration(busyTimeout: busyTimeout))
         return Database(queue: q)
     }
 
-    public static func openExisting(at url: URL) throws -> Database {
+    public static func openExisting(at url: URL,
+                                    busyTimeout: TimeInterval? = nil) throws -> Database {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw ImportError.dbNotFound(url)
         }
-        let q = try DatabaseQueue(path: url.path, configuration: makeConfiguration())
+        let q = try DatabaseQueue(path: url.path,
+                                  configuration: makeConfiguration(busyTimeout: busyTimeout))
         return Database(queue: q)
     }
 
