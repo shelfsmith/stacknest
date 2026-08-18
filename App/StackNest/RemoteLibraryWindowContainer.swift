@@ -71,6 +71,16 @@ enum RemoteLibrarySettingsProvider {
     /// 「書き込みが黙って消える」系の欠陥が同じ形で戻る。
     static let sharedWriteDebouncer = SettingsWriteDebouncer()
 
+    /// G37 ①: リモート設定 DB は**窓ごとに別接続**で同じファイルへ書くため、`SQLITE_BUSY` が起きうる。
+    /// 競合相手は同一プロセス内の短い書き込み（1 設定の UPSERT）なので実際には数十 ms で解ける。
+    /// 5 秒は「それでも解けないなら諦める」ための上限であり、**普段は 1 度も待たない値**。
+    ///
+    /// **`sharedWriteDebouncer` とは事情が違う。** デバウンサの共有には
+    /// 「同じ DB を指すインスタンス同士でしか共有してはならない」という不変条件があるため
+    /// インメモリ fallback では外したが、`busyTimeout` は**接続ごとの設定**なので
+    /// 共有の問題は起きない。インメモリ版にも同じ値を渡してよい。
+    static let settingsBusyTimeout: TimeInterval = 5
+
     /// 開いている全リモートウィンドウの保留中設定書き込みを確定させる。
     /// **アプリ終了時に必ず呼ぶ。** 呼ばないとリモート庫の列幅・グリッドサイズが保存されない
     /// （ローカルの `AppState.closeBundle` / `flushPendingWrites` と同じ理由）。
@@ -108,8 +118,9 @@ enum RemoteLibrarySettingsProvider {
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             let dbURL = dir.appendingPathComponent("settings.db")
             let db = FileManager.default.fileExists(atPath: dbURL.path)
-                ? try Database.openExisting(at: dbURL)
-                : try Database.openFile(at: dbURL, mode: .createOrFail)
+                ? try Database.openExisting(at: dbURL, busyTimeout: Self.settingsBusyTimeout)
+                : try Database.openFile(at: dbURL, mode: .createOrFail,
+                                        busyTimeout: Self.settingsBusyTimeout)
             try db.migrate()
             let settings = try LibrarySettings(database: db, writeDebouncer: sharedWriteDebouncer)
             // 4.2c-4: リモートブラウザは上ペインの「スタンプ」未対応（別フェーズ）。旧ビルドで
@@ -134,7 +145,7 @@ enum RemoteLibrarySettingsProvider {
             // 永続化を壊す」）。インメモリはそもそも永続化されないので、専用の新規デバウンサを
             // 持たせても失うものは無い。
             do {
-                let db = try Database.openInMemory()
+                let db = try Database.openInMemory(busyTimeout: Self.settingsBusyTimeout)
                 try db.migrate()
                 return try LibrarySettings(database: db)
             } catch {
