@@ -902,7 +902,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         case .jumpToPercent90: jumpToPercent(0.9)
         case .skipForward:  skipPages(ViewerSettings.shared.tabSkipPageCount)
         case .skipBackward: skipPages(-ViewerSettings.shared.tabSkipPageCount)
-        case .toggleLoupe:  canvas.loupeEnabled.toggle()
+        case .toggleLoupe:
+            canvas.loupeEnabled.toggle()
+            // G38 review I-1: トグル時にも再デコード判定を予約する。フィット表示のままルーペを
+            // ON にする最も普通の使い方では onZoomChanged が一切発火しない（ズーム操作をしていない
+            // ため）ので、ここで明示的にスケジュールしないと高解像再デコードが永久に走らない。
+            scheduleZoomRedecodeCheck()
         }
         if action.showsHUD { showHUDThenScheduleHide() }
     }
@@ -1478,16 +1483,20 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 巻スワップ中（await content.pageCount 中）は content/model が差し替わり得るため何もしない。
         guard !isSwapping else { return }
         let zoomFactor = canvas.currentZoomFactor
-        // フィット(1.0)まで戻っていれば拡大表示ではない＝縮小版のままで十分なので何もしない。
+        // G38 review I-1: ルーペ ON のときは実効倍率が zoomFactor × loupeMagnification になる
+        // （ルーペ内はさらに拡大して見せているため）。`2.0` を直に書かず canvas 側の定数を使う。
+        // guard より前に計算する — フィット表示（zoomFactor==1.0）のままルーペを ON にしても
+        // effectiveZoomFactor は loupeMagnification（2.0）になり、下の guard を通過できる必要がある。
+        let effectiveZoomFactor = canvas.loupeEnabled ? zoomFactor * ViewerCanvasView.loupeMagnification : zoomFactor
+        // フィット(1.0)まで戻っていて、かつルーペも OFF なら拡大表示ではない＝縮小版のままで十分
+        // なので何もしない。ルーペ OFF のときは effectiveZoomFactor == zoomFactor なので従来と
+        // 同じ条件・同じ判断になる（非退行）。
         // （高解像を積極的に破棄する必要はない。同一ページに留まる限りメモリ方針上は許容範囲。
         //   離脱時の破棄は loadCurrentPage 冒頭の zoomHighResPages 後始末が担う。）
-        guard zoomFactor > 1.0001 else { return }
+        guard effectiveZoomFactor > 1.0001 else { return }
         // 成長判定の基準（ページ集合と最小 lastDecodeTarget）は C3 と共通 → `redecodeBaseline()`。
         guard let (pages, lastTarget) = redecodeBaseline() else { return }
         let baseTarget = decodeTargetMaxPixelSize()
-        // G38: ルーペ ON のときは実効倍率が zoomFactor × loupeMagnification になる
-        // （ルーペ内はさらに拡大して見せているため）。`2.0` を直に書かず canvas 側の定数を使う。
-        let effectiveZoomFactor = canvas.loupeEnabled ? zoomFactor * ViewerCanvasView.loupeMagnification : zoomFactor
         let newTarget = DecodeTargetMath.zoomDecodeTarget(baseTarget: baseTarget, zoomFactor: effectiveZoomFactor)
         guard DecodeTargetMath.shouldRedecodeForZoom(lastTarget: lastTarget, newTarget: newTarget, growthThreshold: zoomRedecodeGrowthThreshold) else { return }
 
