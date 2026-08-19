@@ -39,7 +39,34 @@ final class ViewerCanvasView: NSView {
         }
     }
     /// 最後に観測したカーソル位置（View 座標）。ウィンドウ外なら nil。
-    private var loupeCursor: CGPoint?
+    ///
+    /// G38 final review 再描画の最適化: I-1 でルーペの decode target が実質 2 倍（ピクセル数は
+    /// 約 4 倍）になった上、この値はマウスが動くたびに変わる＝高頻度。`needsDisplay = true`
+    /// （全面再描画）を毎フレーム呼ぶと、拡大された高解像画像を毎回全面リサンプルすることになり
+    /// 「再デコードを直す」と「毎フレーム全面再描画」が掛け算で効いてしまう。
+    /// `didSet` で旧位置・新位置それぞれの円の dirty rect だけを `setNeedsDisplay(_:)` する
+    /// （`draw(_:)` は既に `dirtyRect` を尊重して動く）。ページ画像そのものが変わる操作
+    /// （パン・ズーム・ページ送り）は各々が独自に `refresh()`（全面 `needsDisplay = true`）を
+    /// 呼んでおり、この didSet と衝突しても単に重複するだけで害はない。
+    private var loupeCursor: CGPoint? {
+        didSet {
+            guard oldValue != loupeCursor else { return }
+            invalidateLoupeCircle(at: oldValue)
+            invalidateLoupeCircle(at: loupeCursor)
+        }
+    }
+
+    /// `loupeCursor` を中心とするルーペ円（ストロークの線幅分の余白込み）の矩形だけを
+    /// 再描画要求する。`point` が nil なら何もしない（円が存在しない位置は再描画不要）。
+    private func invalidateLoupeCircle(at point: CGPoint?) {
+        guard let point else { return }
+        let pad: CGFloat = 2   // strokeEllipse の lineWidth（2pt）がはみ出す分の余白
+        setNeedsDisplay(CGRect(
+            x: point.x - loupeDiameter / 2 - pad,
+            y: point.y - loupeDiameter / 2 - pad,
+            width: loupeDiameter + pad * 2,
+            height: loupeDiameter + pad * 2))
+    }
     /// G38 §5: 倍率は固定。**可変化フェーズで触るのはこの 1 箇所だけ**にするため、
     /// 再デコードの判定にも `2.0` を直接書かずこの定数を使う。
     static let loupeMagnification: CGFloat = 2.0
@@ -294,13 +321,16 @@ final class ViewerCanvasView: NSView {
     override func mouseMoved(with event: NSEvent) {
         super.mouseMoved(with: event)
         guard loupeEnabled else { return }
+        // 再描画の最適化: `needsDisplay = true`（全面）はやめ、`loupeCursor` の didSet が
+        // 旧位置・新位置の円の dirty rect だけを再描画要求する。
         loupeCursor = convert(event.locationInWindow, from: nil)
-        needsDisplay = true
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        // 再描画の最適化: 上と同じ理由で `needsDisplay = true`（全面）を呼ばない。
+        // `loupeCursor` の didSet が旧円の dirty rect だけを再描画要求する
+        // （新位置は nil なので new 側の invalidate は no-op）。
         loupeCursor = nil
-        needsDisplay = true
     }
 }
