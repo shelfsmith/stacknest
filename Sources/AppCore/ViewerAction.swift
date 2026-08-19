@@ -200,6 +200,31 @@ public struct ViewerKeyBindings: Codable, Sendable {
     /// 全キーを既定へ戻す。
     public mutating func resetAll() { self = .defaults }
 
+    /// G38 final review C-1: 保存済みマップに存在しないアクションへ、defaults 側の既定バインドを補う。
+    ///
+    /// 新しい `ViewerAction`（例: toggleLoupe）を足しても、**既にキー設定を保存済みのユーザー**の
+    /// `UserDefaults` には旧い `ViewerKeyBindings` がそのまま残っている。`load()` が単純に decode
+    /// した値を返すだけだと、そのユーザーには新アクションのキーが一生届かない
+    /// （defaults に "l" を足しても保存済みマップは知らないまま）。
+    ///
+    /// この関数は「そのアクションにどのキーも割り当たっていない」場合だけ defaults の既定キーを補う。
+    /// - ユーザーが明示的に変更したバインドには触れない（対象は未バインドのアクションのみ）。
+    /// - 既に他のアクションが使っているキーは奪わない（衝突時はそのアクションを未バインドのまま残す）。
+    ///
+    /// 今後 `ViewerAction` を足すたびに同じ穴が開くので、`toggleLoupe` 専用ではなく汎用の仕組みとして書く。
+    public mutating func fillMissingActionsFromDefaults() {
+        for action in ViewerAction.allCases {
+            guard boundBindings(for: action).isEmpty else { continue }  // 既にバインド済みなら触らない
+            for capture in ViewerKeyBindings.defaults.boundBindings(for: action) {
+                guard existingAction(for: capture) == nil else { continue }  // 他アクション使用中なら奪わない
+                switch capture {
+                case .character(let s): characterMap[s] = action
+                case .chord(let c):     map[c] = action
+                }
+            }
+        }
+    }
+
     // MARK: - UserDefaults 永続（アプリ全体）
 
     public static let userDefaultsKey = "viewerKeyBindings"
@@ -208,7 +233,9 @@ public struct ViewerKeyBindings: Codable, Sendable {
         guard let data = ud.data(forKey: userDefaultsKey),
               let decoded = try? JSONDecoder().decode(ViewerKeyBindings.self, from: data)
         else { return .defaults }
-        return decoded
+        var merged = decoded
+        merged.fillMissingActionsFromDefaults()
+        return merged
     }
 
     public func save(_ ud: UserDefaults = .standard) {

@@ -514,6 +514,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             zoomRedecodeTimer = nil
         }
 
+        // G38 final review I-1: ルーペ ON のままページを送ると、この関数の呼び出し自体は
+        // onZoomChanged を一切発火させない（ズーム操作をしていないため）。加えて直上のブロックが
+        // 見開き集合の変化で zoomRedecodeTimer を invalidate する（トグル直後のデバウンス中に
+        // ページ送りがあると、保留中だった判定も一緒に消える）。ページが変わるたびにここで
+        // 明示的に再スケジュールしないと、2 ページ目以降がずっと低解像度のまま鮮明化しない。
+        // ルーペ OFF のときは何もしない（従来どおり onZoomChanged/toggleLoupe 経由のみ）。
+        if canvas.loupeEnabled { scheduleZoomRedecodeCheck() }
+
         // 全ページがキャッシュ済なら即時表示
         let cachedAll = pages.compactMap { prefetch[$0] }
         if cachedAll.count == pages.count {
@@ -908,6 +916,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // ON にする最も普通の使い方では onZoomChanged が一切発火しない（ズーム操作をしていない
             // ため）ので、ここで明示的にスケジュールしないと高解像再デコードが永久に走らない。
             scheduleZoomRedecodeCheck()
+            // G38 final review I-2: showsHUD==false かつ hudNote も呼んでいなかったため、
+            // mouseExited で円が消えると ON/OFF を判別する手段が無かった（spec §4 未達）。
+            hudNote(canvas.loupeEnabled ? "ルーペ ON" : "ルーペ OFF")
         }
         if action.showsHUD { showHUDThenScheduleHide() }
     }
@@ -1382,7 +1393,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 既にリサイズのデバウンスが確定した後の呼び出しなので、ここでさらに
         // `scheduleZoomRedecodeCheck()` で再デバウンスはせず直接呼ぶ（二重デバウンスで無用に
         // 遅延させない）。ズームしていない（zoomFactor == 1.0）ときは従来どおりこの経路を使う。
-        guard canvas.currentZoomFactor <= 1.0001 else {
+        // G38 final review I-1: この判定は `zoomFactor` だけを見ており `loupeEnabled` を考慮しない
+        // ため、フィット表示（zoomFactor==1.0）のままルーペ ON でリサイズすると、ズーム対応の
+        // `checkAndRedecodeForZoom()`（実効倍率 zoomFactor×loupeMagnification を計算できる経路）
+        // に委譲されず、この resize 専用経路（ルーペを知らない）に入ってしまう。
+        // `checkAndRedecodeForZoom()` 自身が使う effectiveZoomFactor と同じロジックで判定する。
+        let effectiveZoomFactor = canvas.loupeEnabled
+            ? canvas.currentZoomFactor * ViewerCanvasView.loupeMagnification
+            : canvas.currentZoomFactor
+        guard effectiveZoomFactor <= 1.0001 else {
             checkAndRedecodeForZoom()
             return
         }

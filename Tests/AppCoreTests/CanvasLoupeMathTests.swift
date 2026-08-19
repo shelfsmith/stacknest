@@ -265,4 +265,98 @@ struct CanvasLoupeMathTests {
         #expect(abs(s.sourceRect.width - 100) < 0.001)
         #expect(abs(s.sourceRect.height - 100) < 0.001)
     }
+
+    /// ★ G38 final review テストの穴 1/3: 上下端でのクリップ（spec §6 の項目 2「画像の端」）。
+    /// 中央カーソルのテストは常に `hit == probe`（クリップ無し）なので、`hit` と `drawRect` の
+    /// 交差計算そのものを削って `hit = probe` に決め打ちしても全部通ってしまう。
+    ///
+    /// 上端の手計算（レビュアー提供）: 実寸 1000x2000・ビュー 500x1000・scale 0.5・直径 100・倍率 2。
+    /// drawRect=(0,0,500,1000)。cursor=(250,980), half=50, srcHalf=25 → probe=(225,955,50,50)。
+    /// probe の y 上端 1005 は drawRect の 1000 を超えるのでクリップされ hit=(225,955,50,45)
+    /// （このケースは hit.minY == probe.minY のまま＝上端のみが縮む）。
+    /// sourceRect=(450,0,100,90) / destRect=(200,930,100,90)。
+    @Test("画像の上端でカーソルがはみ出すと、クリップされた矩形が返る")
+    func cursorNearTopEdgeClipsTheRect() throws {
+        let r = CanvasFitMath.loupeSource(
+            images: [img], nativeSizes: [img], viewSize: view, scale: 0.5, offset: .zero,
+            gutter: 0, firstOnRight: true,
+            cursor: CGPoint(x: 250, y: 980), loupeDiameter: 100, magnification: 2)
+
+        let s = try #require(r.first)
+        #expect(abs(s.sourceRect.minX - 450) < 0.001)
+        #expect(abs(s.sourceRect.minY - 0) < 0.001)
+        #expect(abs(s.sourceRect.width - 100) < 0.001)
+        #expect(abs(s.sourceRect.height - 90) < 0.001)
+        #expect(abs(s.destRect.minX - 200) < 0.001)
+        #expect(abs(s.destRect.minY - 930) < 0.001)
+        #expect(abs(s.destRect.width - 100) < 0.001)
+        #expect(abs(s.destRect.height - 90) < 0.001)
+    }
+
+    /// 下端側でのクリップ。上端ケースは `hit.minY == probe.minY`（上端だけが縮む）なので
+    /// `dy` の `(hit.minY - probe.minY) * magnification` 項は偶然 0 になり、この項自体を落とす
+    /// 変異は検出できない。下端は逆に `probe.minY` がクランプされる（`hit.minY > probe.minY`）ため、
+    /// この項が非 0 になり、`dy` の計算そのものを守れる。
+    ///
+    /// 手計算: cursor=(250,20), half=50, srcHalf=25 → probe=(225,-5,50,50)。
+    /// probe の y 下端 -5 は drawRect の 0 未満なのでクリップされ hit=(225,0,50,45)。
+    /// nyFromBottom=(0-0)/0.5=0, ph=90 → py=2000-0-90=1910 → sourceRect=(450,1910,100,90)。
+    /// dy=(hit.minY-probe.minY)*2+(cursor.y-half)=(0-(-5))*2+(20-50)=10-30=-20 → destRect=(200,-20,100,90)。
+    @Test("画像の下端でカーソルがはみ出すと、クリップされた矩形が返る")
+    func cursorNearBottomEdgeClipsTheRect() throws {
+        let r = CanvasFitMath.loupeSource(
+            images: [img], nativeSizes: [img], viewSize: view, scale: 0.5, offset: .zero,
+            gutter: 0, firstOnRight: true,
+            cursor: CGPoint(x: 250, y: 20), loupeDiameter: 100, magnification: 2)
+
+        let s = try #require(r.first)
+        #expect(abs(s.sourceRect.minX - 450) < 0.001)
+        #expect(abs(s.sourceRect.minY - 1910) < 0.001)
+        #expect(abs(s.sourceRect.width - 100) < 0.001)
+        #expect(abs(s.sourceRect.height - 90) < 0.001)
+        #expect(abs(s.destRect.minX - 200) < 0.001)
+        #expect(abs(s.destRect.minY - (-20)) < 0.001)
+        #expect(abs(s.destRect.width - 100) < 0.001)
+        #expect(abs(s.destRect.height - 90) < 0.001)
+    }
+
+    /// ★ G38 final review テストの穴 2/3: `firstOnRight` の左右主張。
+    /// 既存の `acrossTheGutterTakesFromBothPages` は destRect の union/重複だけを主張しており、
+    /// `!firstOnRight` に反転しても（画像 0/1 が左右入れ替わるだけで）union は対称なので通ってしまう。
+    /// 左右の並びそのものを 1 行で閉じる。
+    @Test("firstOnRight=true では index 0 が右（大きい x）に来る")
+    func firstOnRightPlacesIndexZeroOnTheRight() throws {
+        let two = [CGSize(width: 1000, height: 2000), CGSize(width: 1000, height: 2000)]
+        let r = CanvasFitMath.loupeSource(
+            images: two, nativeSizes: two, viewSize: CGSize(width: 1000, height: 1000),
+            scale: 0.5, offset: .zero,
+            gutter: 0, firstOnRight: true,
+            cursor: CGPoint(x: 500, y: 500), loupeDiameter: 100, magnification: 2)
+
+        let d0 = try #require(r.first(where: { $0.imageIndex == 0 })).destRect
+        let d1 = try #require(r.first(where: { $0.imageIndex == 1 })).destRect
+        #expect(d0.minX > d1.minX, "firstOnRight=true なら index 0（pages[0]）が右に来る")
+    }
+
+    /// ★ G38 final review テストの穴 3/3: 縦方向のパン。
+    /// 既存の `panningShiftsTheSourceRect` は `offset.width` のみを動かしており、
+    /// `offset.height` を無視する実装でも通ってしまう（y 反転と符号が絡む唯一の未検証軸）。
+    @Test("縦方向のパンでも sourceRect の y が正しくずれる")
+    func verticalPanShiftsTheSourceRectInY() throws {
+        let noPan = CanvasFitMath.loupeSource(
+            images: [img], nativeSizes: [img], viewSize: view, scale: 0.5, offset: .zero,
+            gutter: 0, firstOnRight: true,
+            cursor: CGPoint(x: 250, y: 500), loupeDiameter: 100, magnification: 2)
+        let panned = CanvasFitMath.loupeSource(
+            images: [img], nativeSizes: [img], viewSize: view, scale: 0.5,
+            offset: CGSize(width: 0, height: 50),
+            gutter: 0, firstOnRight: true,
+            cursor: CGPoint(x: 250, y: 500), loupeDiameter: 100, magnification: 2)
+
+        let a = try #require(noPan.first).sourceRect
+        let b = try #require(panned.first).sourceRect
+        // 画像を上へ 50pt パンした＝同じカーソル位置は画像のより下側（py が大きい）を指す。
+        // scale 0.5 なので元画像では 50 / 0.5 = 100 px 分ずれる。
+        #expect(abs((b.minY - a.minY) - 100) < 0.001)
+    }
 }
