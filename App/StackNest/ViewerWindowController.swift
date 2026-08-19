@@ -578,6 +578,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             guard self.model.currentSpreadIndex == token else { self.loadCurrentPage(); return }
             self.canvas.setImages(imgs)
             self.updateHUD()
+            // G38 再レビュー Important #2: loadCurrentPage 冒頭の予約はデコード**前**に置かれている。
+            // プリフェッチ未済のページ（パーセントジャンプ・巻移動・初回表示）でデコードが
+            // デバウンス（0.2s）を超えると、タイマーは lastDecodeTarget がまだ無い状態で発火して
+            // 何も再スケジュールせずに終わる → そのページはルーペ ON のまま低解像度で固まる。
+            // 実際に画像が載ったこの時点で、ルーペ ON なら判定を張り直す。
+            if self.canvas.loupeEnabled { self.scheduleZoomRedecodeCheck() }
             self.recordOrientationsThenMaybeReload(displayedPages: pages, images: imgs)
             self.recomputePrefetch()
         }
