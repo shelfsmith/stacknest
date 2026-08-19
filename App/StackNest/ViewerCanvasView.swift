@@ -309,13 +309,37 @@ final class ViewerCanvasView: NSView {
 
     // MARK: - Loupe (G38)
 
+    /// ルーペ用のトラッキング領域。**貼り直さずに使い回す**（下記）。
+    private var loupeTrackingArea: NSTrackingArea?
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
+        // ★ 毎回 remove → add してはいけない。領域を外した瞬間、AppKit は
+        // 「ポインタが古い領域から出た」として **mouseExited を送る**。ポインタは実際には
+        // 動いていないので mouseEntered は来ず、`loupeCursor` が nil のまま残る。
+        // 実機 smoke で「クリックでページを送るとルーペが消え、カーソルを動かすまで戻らない」
+        // として現れた（キーボードでのページ送りでは起きない＝マウスイベント経路の問題）。
+        //
+        // `.inVisibleRect` は bounds/可視領域の変化に領域自身が追従するので、そもそも
+        // 貼り直す必要がない。既に自分の領域が付いているなら何もしない。
+        if let area = loupeTrackingArea, trackingAreas.contains(area) { return }
+        let area = NSTrackingArea(
             rect: bounds,
             options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
-            owner: self))
+            owner: self)
+        addTrackingArea(area)
+        loupeTrackingArea = area
+    }
+
+    /// 退出イベントが本物か —— ポインタが実際に `bounds` の外にあるか。
+    ///
+    /// 上の貼り直しを直しても、AppKit が偽の `mouseExited` を送る経路は他にも起こりうる
+    /// （領域の再評価はフレーム変化・ウィンドウ状態の変化でも走る）。**実際のポインタ位置で
+    /// 裏を取る**のが確実な防波堤になる。`pointerInView` が nil（ウィンドウが無い）なら
+    /// 裏が取れないので、素直に本物として扱う。
+    static func isRealExit(pointerInView: CGPoint?, bounds: CGRect) -> Bool {
+        guard let pointerInView else { return true }
+        return !bounds.contains(pointerInView)
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -328,6 +352,9 @@ final class ViewerCanvasView: NSView {
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
+        // ポインタがまだ中にあるなら、この退出は領域の再評価が生んだ偽物。無視する。
+        let pointer = window.map { convert($0.mouseLocationOutsideOfEventStream, from: nil) }
+        guard Self.isRealExit(pointerInView: pointer, bounds: bounds) else { return }
         // 再描画の最適化: 上と同じ理由で `needsDisplay = true`（全面）を呼ばない。
         // `loupeCursor` の didSet が旧円の dirty rect だけを再描画要求する
         // （新位置は nil なので new 側の invalidate は no-op）。
