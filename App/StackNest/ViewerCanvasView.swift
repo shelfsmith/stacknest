@@ -27,7 +27,17 @@ final class ViewerCanvasView: NSView {
     private let maxZoomFactor: CGFloat = 8.0
 
     /// G38: ルーペの ON/OFF。`ViewerWindowController` から設定される。
-    var loupeEnabled: Bool = false { didSet { needsDisplay = true } }
+    var loupeEnabled: Bool = false {
+        didSet {
+            // G38 review I-2: loupeCursor は mouseMoved でしか入らないため、ON にした瞬間にマウスが
+            // 静止していると円が一切描かれない（「押したのに無反応」に見える）。ON になった時点で
+            // 現在のカーソル位置を能動的に取得して補う。ウィンドウ外なら nil のままで構わない。
+            if loupeEnabled, let window {
+                loupeCursor = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            }
+            needsDisplay = true
+        }
+    }
     /// 最後に観測したカーソル位置（View 座標）。ウィンドウ外なら nil。
     private var loupeCursor: CGPoint?
     /// G38 §5: 倍率は固定。**可変化フェーズで触るのはこの 1 箇所だけ**にするため、
@@ -151,7 +161,10 @@ final class ViewerCanvasView: NSView {
             gutter: gutter, firstOnRight: firstOnRight,
             cursor: cursor, loupeDiameter: loupeDiameter,
             magnification: Self.loupeMagnification)
-        guard !sources.isEmpty else { return }
+        // G38 review I-4: sources が空（カーソルが黒余白の上）でも黒塗り＋縁は描く。spec §3 の
+        // 「画像の外（余白）にかかった部分は背景色になる」を満たすには円自体が消えてはいけない
+        // （以前は guard で早期 return し、円ごと消えていた）。中身が無ければ下の for ループが
+        // 単に何も描かないだけで安全。
 
         let circle = CGRect(x: cursor.x - loupeDiameter / 2, y: cursor.y - loupeDiameter / 2,
                             width: loupeDiameter, height: loupeDiameter)
@@ -252,6 +265,11 @@ final class ViewerCanvasView: NSView {
         offset.height -= event.deltaY
         clampOffsetForCurrentScale()
         refresh()
+        // G38 review I-3: ドラッグ中は mouseMoved が来ないため、ズーム中のパン操作をしている間だけ
+        // ルーペの円がカーソルから取り残される。純追加でここにも追従させる（既存行は 1 行も変更しない）。
+        if loupeEnabled {
+            loupeCursor = convert(event.locationInWindow, from: nil)
+        }
     }
 
     /// clickCount は見ない（D13: 同一位置の2回目クリックが double-click 扱いで無反応になる不具合の根治）。
