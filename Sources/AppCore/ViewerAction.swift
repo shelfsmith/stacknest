@@ -81,9 +81,28 @@ public struct ViewerKeyBindings: Codable, Sendable {
     /// `charactersIgnoringModifiers` でフォールバックするための層（smoke v2/v3 で実証した root cause）。
     public var characterMap: [String: ViewerAction]
 
-    public init(map: [KeyChord: ViewerAction], characterMap: [String: ViewerAction] = [:]) {
+    /// 保存した時点で**存在を知っていた**アクション（`ViewerAction.rawValue`）の集合。
+    ///
+    /// `nil` は「G38 以前に保存されたデータ」を意味する。当時はこの欄が無かったので、
+    /// どのアクションが既知だったのかを後から知る術がない。
+    ///
+    /// これが要るのは、保存済みマップの中で「未バインドのアクション」に**二つの意味**が
+    /// あるからだ —— ①保存後に新しく増えたアクション（キーを補うべき）と
+    /// ②ユーザーが意図的にキーを外したアクション（触ってはいけない）。マップだけを見ても
+    /// 両者は区別できない。既知の集合を覚えておくことで初めて分かれる。
+    public var knownActions: Set<String>?
+
+    /// 現時点で存在する全アクションの `rawValue`。
+    public static let allActionKeys: Set<String> = Set(ViewerAction.allCases.map(\.rawValue))
+
+    public init(
+        map: [KeyChord: ViewerAction],
+        characterMap: [String: ViewerAction] = [:],
+        knownActions: Set<String>? = nil
+    ) {
         self.map = map
         self.characterMap = characterMap
+        self.knownActions = knownActions
     }
 
     public func action(for chord: KeyChord) -> ViewerAction? { map[chord] }
@@ -198,7 +217,13 @@ public struct ViewerKeyBindings: Codable, Sendable {
     }
 
     /// 全キーを既定へ戻す。
-    public mutating func resetAll() { self = .defaults }
+    ///
+    /// `.defaults` の `knownActions` は nil なので、そのまま代入すると「旧データ」に化けて
+    /// しまう（次の削除が `load()` で巻き戻る）。今の全アクションを既知として刻み直す。
+    public mutating func resetAll() {
+        self = .defaults
+        knownActions = Self.allActionKeys
+    }
 
     /// G38 final review C-1: 保存済みマップに存在しないアクションへ、defaults 側の既定バインドを補う。
     ///
@@ -207,13 +232,21 @@ public struct ViewerKeyBindings: Codable, Sendable {
     /// した値を返すだけだと、そのユーザーには新アクションのキーが一生届かない
     /// （defaults に "l" を足しても保存済みマップは知らないまま）。
     ///
-    /// この関数は「そのアクションにどのキーも割り当たっていない」場合だけ defaults の既定キーを補う。
+    /// 補うのは **`knownActions` に載っていないアクション**、つまり保存後に新しく増えたものだけ。
     /// - ユーザーが明示的に変更したバインドには触れない（対象は未バインドのアクションのみ）。
+    /// - **ユーザーが意図的に外したキーは復活させない。**「外した」は保存時に既知だった
+    ///   アクションなので `knownActions` に載っており、ここで弾かれる（G38 再レビュー Important #1）。
     /// - 既に他のアクションが使っているキーは奪わない（衝突時はそのアクションを未バインドのまま残す）。
+    ///
+    /// `knownActions` が nil の旧データだけは「何も既知でない」扱いになり、未バインドの
+    /// アクションを一律に補う。C-1 が塞ぎたかったのはまさにこの状態（`l` がどこにも無い保存済み設定）で、
+    /// かつ当時は削除の意図を記録していなかったので、これが唯一取りうる解釈になる。
+    /// 移行は 1 度きり —— 最後に現在の全アクションを既知として刻むので、次回以降は削除が残る。
     ///
     /// 今後 `ViewerAction` を足すたびに同じ穴が開くので、`toggleLoupe` 専用ではなく汎用の仕組みとして書く。
     public mutating func fillMissingActionsFromDefaults() {
-        for action in ViewerAction.allCases {
+        let known = knownActions ?? []
+        for action in ViewerAction.allCases where !known.contains(action.rawValue) {
             guard boundBindings(for: action).isEmpty else { continue }  // 既にバインド済みなら触らない
             for capture in ViewerKeyBindings.defaults.boundBindings(for: action) {
                 guard existingAction(for: capture) == nil else { continue }  // 他アクション使用中なら奪わない
@@ -223,6 +256,7 @@ public struct ViewerKeyBindings: Codable, Sendable {
                 }
             }
         }
+        knownActions = Self.allActionKeys
     }
 
     // MARK: - UserDefaults 永続（アプリ全体）
@@ -232,7 +266,13 @@ public struct ViewerKeyBindings: Codable, Sendable {
     public static func load(_ ud: UserDefaults = .standard) -> ViewerKeyBindings {
         guard let data = ud.data(forKey: userDefaultsKey),
               let decoded = try? JSONDecoder().decode(ViewerKeyBindings.self, from: data)
-        else { return .defaults }
+        else {
+            // 未保存（新規ユーザー）。既定は全アクションを含むので、それを既知として刻んで返す。
+            // 刻まずに返すと、この直後にキーを 1 つ外して保存したユーザーの削除が次回 load で戻る。
+            var fresh = ViewerKeyBindings.defaults
+            fresh.knownActions = Self.allActionKeys
+            return fresh
+        }
         var merged = decoded
         merged.fillMissingActionsFromDefaults()
         return merged
