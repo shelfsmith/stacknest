@@ -28,6 +28,8 @@ public enum ViewerAction: String, Codable, Sendable, CaseIterable {
     case skipForward, skipBackward
     /// Phase 2.6b-2 D3: 現在の本のページ方向を rtl ↔ ltr で切り替え、永続化する。
     case togglePageDirection
+    /// G38: ルーペのトグル。ON の間、カーソル位置の周辺を拡大表示する。
+    case toggleLoupe
 
     /// このアクション実行後に HUD（ページ進捗）を一時表示すべきか。
     /// ナビゲーション系は true、ズーム/全画面/終了は false。
@@ -39,7 +41,7 @@ public enum ViewerAction: String, Codable, Sendable, CaseIterable {
              .nextVolume, .prevVolume, .cycleEndOfBookBehavior,
              .togglePageDirection:
             return true
-        case .zoomIn, .zoomOut, .fitToWindow, .toggleFullScreen, .close:
+        case .zoomIn, .zoomOut, .fitToWindow, .toggleFullScreen, .close, .toggleLoupe:
             return false
         case .showHelp:
             return false  // 独自オーバーレイを持つ; progress HUD は表示しない
@@ -125,6 +127,7 @@ public struct ViewerKeyBindings: Codable, Sendable {
         "h": .showHelp,
         "r": .togglePageDirection,
         "f": .toggleFullScreen,
+        "l": .toggleLoupe,
     ])
 
     // MARK: - 変更・永続（Phase 2.7 キー再割当）

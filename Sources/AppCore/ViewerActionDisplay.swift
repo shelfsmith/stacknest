@@ -37,6 +37,7 @@ public extension ViewerAction {
         case .skipForward: return "ページスキップ（進む）"
         case .skipBackward: return "ページスキップ（戻る）"
         case .togglePageDirection: return "ページ方向 切替（この本）"
+        case .toggleLoupe: return "ルーペ"
         }
     }
 }
@@ -65,7 +66,7 @@ public enum ViewerActionSection: CaseIterable {
                     .jumpToPercent40, .jumpToPercent50, .jumpToPercent60, .jumpToPercent70,
                     .jumpToPercent80, .jumpToPercent90]
         case .zoom:
-            return [.zoomIn, .zoomOut, .fitToWindow]
+            return [.zoomIn, .zoomOut, .fitToWindow, .toggleLoupe]
         case .spreadSlideshow:
             return [.toggleSpread, .toggleCoverOffset, .cyclePageLayout,
                     .toggleAutoAdvance, .cycleEndOfBookBehavior, .togglePageDirection]
