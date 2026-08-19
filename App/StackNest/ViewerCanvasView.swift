@@ -26,6 +26,15 @@ final class ViewerCanvasView: NSView {
     private var offset: CGSize = .zero
     private let maxZoomFactor: CGFloat = 8.0
 
+    /// G38: ルーペの ON/OFF。`ViewerWindowController` から設定される。
+    var loupeEnabled: Bool = false { didSet { needsDisplay = true } }
+    /// 最後に観測したカーソル位置（View 座標）。ウィンドウ外なら nil。
+    private var loupeCursor: CGPoint?
+    /// G38 §5: 倍率は固定。**可変化フェーズで触るのはこの 1 箇所だけ**にするため、
+    /// 再デコードの判定にも `2.0` を直接書かずこの定数を使う。
+    static let loupeMagnification: CGFloat = 2.0
+    private let loupeDiameter: CGFloat = 300
+
     /// 実効スケール。常に現在の fitScale から導出するため、zoomFactor==1 のとき
     /// ウィンドウ拡大/縮小の両方向でフィットが追従する（絶対 scale 保持による
     /// "縮小時に user-zoomed と誤判定" を根治。smoke v3 KEEP-ZOOM 誤分類の修正）。
@@ -133,6 +142,34 @@ final class ViewerCanvasView: NSView {
             guard rect.width > 0, rect.height > 0 else { continue }
             ctx.draw(decoded.cgImage, in: rect)
         }
+
+        // G38: ルーペ。既存の描画の上に円を 1 つ重ねるだけ。
+        guard loupeEnabled, let cursor = loupeCursor else { return }
+        let sources = CanvasFitMath.loupeSource(
+            images: imageSizes, nativeSizes: images.map { $0.pixelSize },
+            viewSize: bounds.size, scale: scale, offset: offset,
+            gutter: gutter, firstOnRight: firstOnRight,
+            cursor: cursor, loupeDiameter: loupeDiameter,
+            magnification: Self.loupeMagnification)
+        guard !sources.isEmpty else { return }
+
+        let circle = CGRect(x: cursor.x - loupeDiameter / 2, y: cursor.y - loupeDiameter / 2,
+                            width: loupeDiameter, height: loupeDiameter)
+        ctx.saveGState()
+        ctx.addEllipse(in: circle)
+        ctx.clip()
+        NSColor.black.setFill()
+        ctx.fill(circle)
+        for s in sources where s.imageIndex < images.count {
+            if let cropped = images[s.imageIndex].cgImage.cropping(to: s.sourceRect) {
+                ctx.draw(cropped, in: s.destRect)
+            }
+        }
+        ctx.restoreGState()
+        // 縁を描く。ON であることがこれで分かる（spec §4）。
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.8).cgColor)
+        ctx.setLineWidth(2)
+        ctx.strokeEllipse(in: circle)
     }
 
     /// scale/offset を変えたら再描画を要求する（フレーム juggling 不要）。
@@ -223,5 +260,29 @@ final class ViewerCanvasView: NSView {
         guard !didDrag else { return }
         let p = convert(event.locationInWindow, from: nil)
         onZoneClick?(p.x < bounds.midX)
+    }
+
+    // MARK: - Loupe (G38)
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.activeInKeyWindow, .mouseMoved, .mouseEnteredAndExited, .inVisibleRect],
+            owner: self))
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        guard loupeEnabled else { return }
+        loupeCursor = convert(event.locationInWindow, from: nil)
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        loupeCursor = nil
+        needsDisplay = true
     }
 }
