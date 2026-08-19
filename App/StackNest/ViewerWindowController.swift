@@ -902,6 +902,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         case .jumpToPercent90: jumpToPercent(0.9)
         case .skipForward:  skipPages(ViewerSettings.shared.tabSkipPageCount)
         case .skipBackward: skipPages(-ViewerSettings.shared.tabSkipPageCount)
+        case .toggleLoupe:  canvas.loupeEnabled.toggle()
         }
         if action.showsHUD { showHUDThenScheduleHide() }
     }
@@ -1484,7 +1485,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 成長判定の基準（ページ集合と最小 lastDecodeTarget）は C3 と共通 → `redecodeBaseline()`。
         guard let (pages, lastTarget) = redecodeBaseline() else { return }
         let baseTarget = decodeTargetMaxPixelSize()
-        let newTarget = DecodeTargetMath.zoomDecodeTarget(baseTarget: baseTarget, zoomFactor: zoomFactor)
+        // G38: ルーペ ON のときは実効倍率が zoomFactor × loupeMagnification になる
+        // （ルーペ内はさらに拡大して見せているため）。`2.0` を直に書かず canvas 側の定数を使う。
+        let effectiveZoomFactor = canvas.loupeEnabled ? zoomFactor * ViewerCanvasView.loupeMagnification : zoomFactor
+        let newTarget = DecodeTargetMath.zoomDecodeTarget(baseTarget: baseTarget, zoomFactor: effectiveZoomFactor)
         guard DecodeTargetMath.shouldRedecodeForZoom(lastTarget: lastTarget, newTarget: newTarget, growthThreshold: zoomRedecodeGrowthThreshold) else { return }
 
         // この再デコード自体を新しい現在ページ描画の開始として扱い renderRequest をバンプする
