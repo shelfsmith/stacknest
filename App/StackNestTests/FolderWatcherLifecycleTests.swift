@@ -95,7 +95,13 @@ struct FolderWatcherLifecycleTests {
         let watcher = try makeWatcher(watching: dir)
 
         watcher.scanNow()
-        try? await Task.sleep(for: .milliseconds(400))   // 走査の完了を待つ
+        // 固定 sleep で走査完了を待たない。400ms 決め打ちだと、マシンに負荷がかかっているときに
+        // 走査が間に合わず**前提の側**が落ちる（G38 の smoke 中に実際に 3 回中 1 回落ちた）。
+        // 同ファイルの `chainedWaitsResolve` と同じくポーリングで待つ。
+        for _ in 0..<100 {
+            if watcher.settleScheduled { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
         #expect(watcher.settleScheduled == true, "pending があるので settle が予約される（前提）")
 
         watcher.stop()
