@@ -104,6 +104,29 @@ struct BuiltInViewerSettingsForm: View {
                 let synced = String(newValue)
                 if tabSkipPageCountInput != synced { tabSkipPageCountInput = synced }
             }
+
+            // G40: ルーペの形（グローバル）
+            Picker("ルーペの形", selection: $settings.loupeShape) {
+                ForEach(LoupeShape.allCases, id: \.self) { shape in
+                    Text(shape.displayName).tag(shape)
+                }
+            }
+            .disabled(!settings.useBuiltInViewer)
+
+            // G40: 倍率は本を見ながらスクロールで決めるものなので、ここでは
+            // **現在値の表示と既定へ戻す手段**だけを置く（スライダーは置かない）。
+            HStack {
+                Text("ルーペの倍率")
+                Spacer()
+                Text(String(format: "%.1f×", settings.loupeMagnification))
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                Button("既定に戻す") {
+                    settings.loupeMagnification = Double(LoupeMagnification.defaultValue)
+                }
+                .controlSize(.small)
+            }
+            .disabled(!settings.useBuiltInViewer)
         }
     }
 

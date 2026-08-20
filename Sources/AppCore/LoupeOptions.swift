@@ -46,3 +46,11 @@ public enum LoupeMagnification {
         return clamp(clamp(current) * exp(scrollDeltaY * gain))
     }
 }
+
+public extension LoupeMagnification {
+    /// 再デコード判定に使う実効倍率。ルーペ OFF ならズーム倍率そのもの。
+    /// **`2.0` を直に書かないための単一の入口。**
+    static func effectiveZoomFactor(zoomFactor: CGFloat, loupeEnabled: Bool, magnification: CGFloat) -> CGFloat {
+        loupeEnabled ? zoomFactor * clamp(magnification) : zoomFactor
+    }
+}
