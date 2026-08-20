@@ -4,7 +4,7 @@ import Foundation
 
 /// ルーペの形。**描画のクリップ形状だけの関心事**で、`CanvasFitMath.loupeSource` には影響しない
 /// （あの純関数はもともと正方形の probe を計算しており、円はクリップで作っている）。
-public enum LoupeShape: String, Codable, CaseIterable, Sendable {
+public enum LoupeShape: String, CaseIterable, Sendable {
     case circle
     case square
 
