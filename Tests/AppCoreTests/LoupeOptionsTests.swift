@@ -5,6 +5,14 @@ import CoreGraphics
 
 @Suite("ルーペの倍率（G40）")
 struct LoupeMagnificationTests {
+    /// spec が決めた数値そのものを固定する。
+    /// 他のテストはすべて `range.upperBound` を symbolic に参照しているので、
+    /// **上限を 8.0 → 10.0 に変えても全部通ってしまう**（最終レビューで穴として見つかった）。
+    @Test func theRangeAndDefaultAreTheOnesTheSpecChose() {
+        #expect(LoupeMagnification.range == 1.5...8.0)
+        #expect(LoupeMagnification.defaultValue == 2.0)
+    }
+
     @Test func clampKeepsValuesInsideTheRange() {
         #expect(LoupeMagnification.clamp(2.0) == 2.0)
         #expect(LoupeMagnification.clamp(1.0) == LoupeMagnification.range.lowerBound)

@@ -19,6 +19,19 @@ struct ViewerSettingsLoupeTests {
         #expect(s.loupeShape == LoupeShape.defaultValue)
     }
 
+    /// 保存キーの文字列を固定する。読み書きが同じ定数を使うので、**キーを改名しても
+    /// 往復テストは素通りする**（最終レビューで穴として見つかった）。改名すると
+    /// **ユーザーの保存済みの設定が黙って既定へ戻る**ので、外から literal で書いて確かめる。
+    @Test func theStorageKeysAreTheOnesAlreadyShipped() {
+        let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
+        ud.set("square", forKey: "viewerLoupeShape")
+        ud.set(4.0, forKey: "viewerLoupeMagnification")
+
+        let s = ViewerSettings(defaults: ud)
+        #expect(s.loupeShape == .square, "保存キー viewerLoupeShape を変えてはいけない")
+        #expect(s.loupeMagnification == 4.0, "保存キー viewerLoupeMagnification を変えてはいけない")
+    }
+
     @Test func valuesSurviveARoundTrip() {
         let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
         let s = ViewerSettings(defaults: ud)

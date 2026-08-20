@@ -336,7 +336,11 @@ final class ViewerCanvasView: NSView {
                 from: currentLoupeMagnification,
                 scrollDeltaY: event.scrollingDeltaY,
                 hasPreciseDeltas: event.hasPreciseScrollingDeltas)
-            if next != currentLoupeMagnification {
+            // トラックパッドは 1 イベントごとに連続値を送ってくる（120Hz にもなる）。素直に毎回
+            // 反映すると、**見た目が一切変わらない 0.003% の変化でも**設定の書き込み・全 canvas への
+            // 通知・HUD の作り直し・Timer の張り直しが走る。HUD は `%.1f` 表示なので、
+            // **表示の 1 桁が動く粒度**より細かい変化は取り込まない（次のイベントで累積して超える）。
+            if abs(next - currentLoupeMagnification) > 0.005 {
                 ViewerSettings.shared.loupeMagnification = Double(next)
                 invalidateLoupeFrame(at: loupeCursor)
                 onLoupeMagnificationChanged?(next)
