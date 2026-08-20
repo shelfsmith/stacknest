@@ -51,6 +51,23 @@ struct LoupeMagnificationTests {
         #expect(precise < notched, "precise の方が 1 単位あたりの変化が小さい")
     }
 
+    /// 壊れた `current`（範囲外の有限値）からでも、スクロールで**戻ってこられる**こと。
+    ///
+    /// `stepped` が内側で `clamp(current)` を掛けているのは、まさにこの経路のため。
+    /// 外すと `-100 * exp(...)` がさらに負へ振れ、外側の clamp が下限へ丸めるので、
+    /// **上げ方向にスクロールし続けても下限に張り付いたまま永遠に回復しない**。
+    /// Task 2 以降は `ViewerSettings` の保存値がそのまま `current` に流れるため、
+    /// この行は load-bearing。レビューで「消しても全テストが通る」穴として見つかった。
+    @Test func recoversFromAnOutOfRangeCurrentValue() {
+        let up = LoupeMagnification.stepped(from: -100, scrollDeltaY: 10, hasPreciseDeltas: false)
+        #expect(up > LoupeMagnification.range.lowerBound,
+                "壊れた値からでも、上げ方向のスクロールで下限より上へ戻れなければならない")
+
+        let down = LoupeMagnification.stepped(from: 999, scrollDeltaY: -10, hasPreciseDeltas: false)
+        #expect(down < LoupeMagnification.range.upperBound,
+                "上側に壊れていても、下げ方向のスクロールで上限より下へ戻れなければならない")
+    }
+
     @Test func brokenDeltasLeaveTheValueAlone() {
         #expect(LoupeMagnification.stepped(from: 3.0, scrollDeltaY: .nan, hasPreciseDeltas: false) == 3.0)
         #expect(LoupeMagnification.stepped(from: 3.0, scrollDeltaY: 0, hasPreciseDeltas: false) == 3.0)
