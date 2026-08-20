@@ -36,7 +36,13 @@ final class ViewerCanvasView: NSView {
             needsDisplay = true
         }
     }
-    /// 最後に観測したカーソル位置（View 座標）。ウィンドウ外なら nil。
+    /// 最後に描いたカーソル位置（View 座標）。ウィンドウ外なら nil。
+    ///
+    /// **位置の正ではない。**正は常に実際のポインタ（`pointerInsideView()`）で、`draw(_:)` が
+    /// 毎回そこから引き直す。この値は **dirty rect の記録専用** —— 「前回どこに円を描いたか」を
+    /// 覚えておき、位置が変わったときに旧位置を invalidate するためだけに存在する。
+    /// View 座標のキャッシュはウィンドウのジオメトリ変化を跨いで有効でないため、
+    /// これを正として描くと円が消える／別の場所へ飛ぶ（`draw(_:)` のコメント参照）。
     ///
     /// G38 final review 再描画の最適化: I-1 でルーペの decode target が実質 2 倍（ピクセル数は
     /// 約 4 倍）になった上、この値はマウスが動くたびに変わる＝高頻度。`needsDisplay = true`
@@ -179,7 +185,20 @@ final class ViewerCanvasView: NSView {
         }
 
         // G38: ルーペ。既存の描画の上に円を 1 つ重ねるだけ。
-        guard loupeEnabled, let cursor = loupeCursor else { return }
+        guard loupeEnabled else { return }
+        // ★ 位置は**描画のたびに実際のポインタから引き直す**。`loupeCursor`（mouseMoved が入れる
+        // View 座標のキャッシュ）を正として描くと、ウィンドウのジオメトリが変わったときに
+        // 古い座標のまま描いてしまう。実機で 2 通りの症状として出た（どちらも同じ原因）:
+        //   - フルスクリーン**解除**: 遷移中の偽 `mouseExited` で nil になり、円が消える
+        //   - フルスクリーン**移行**: 座標は残るが新しいジオメトリでは別の場所を指し、
+        //     本の中央に置いた円が黒余白へ飛ぶ（M4 で確認）
+        // 「ジオメトリ変化のたびに直しに行く」方式では前者しか塞がらない（後者は nil にならない）。
+        // View 座標のキャッシュはジオメトリを跨いで有効ではない、という一点に集約して直す。
+        guard let cursor = pointerInsideView() else { return }
+        // キャッシュは dirty rect の記録専用に降格。ここで書き戻すことで、位置が飛んだときも
+        // didSet が**旧位置**を invalidate してくれる（描き残しが出ない）。値が同じなら didSet は
+        // 何もしないので、静止中に再描画が連鎖することはない。
+        loupeCursor = cursor
         let sources = CanvasFitMath.loupeSource(
             images: imageSizes, nativeSizes: images.map { $0.pixelSize },
             viewSize: bounds.size, scale: scale, offset: offset,
@@ -312,14 +331,6 @@ final class ViewerCanvasView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        // AppKit はジオメトリが変わるたびにここを呼ぶ。**取りこぼした偽の退出をここで回復する。**
-        //
-        // 下の `isRealExit` はポインタ位置で裏を取るが、フルスクリーンの出入りの最中は
-        // ウィンドウのフレームと View の bounds が噛み合わない瞬間があり、**真偽判定そのものが
-        // 外れうる**（実機 smoke で、修正済みビルドでもフルスクリーン解除の直後に円が消えた）。
-        // 「あらゆる退出を正しく分類する」のは無理なので、代わりにジオメトリが落ち着いた時点で
-        // 実際のポインタ位置から復帰させる。取りこぼしても次のレイアウトで自然に治る。
-        reacquireLoupeCursorIfNeeded()
         // ★ 毎回 remove → add してはいけない。領域を外した瞬間、AppKit は
         // 「ポインタが古い領域から出た」として **mouseExited を送る**。ポインタは実際には
         // 動いていないので mouseEntered は来ず、`loupeCursor` が nil のまま残る。
@@ -335,12 +346,6 @@ final class ViewerCanvasView: NSView {
             owner: self)
         addTrackingArea(area)
         loupeTrackingArea = area
-    }
-
-    /// ルーペ ON でカーソルを見失っているなら、実際のポインタ位置から復帰させる。
-    private func reacquireLoupeCursorIfNeeded() {
-        guard loupeEnabled, loupeCursor == nil else { return }
-        loupeCursor = pointerInsideView()
     }
 
     /// 現在のポインタ位置（View 座標）。ウィンドウが無い、または `bounds` の外なら nil。
