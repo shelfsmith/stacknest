@@ -50,6 +50,39 @@ struct ViewerSettingsLoupeTests {
         #expect(s.loupeShape == LoupeShape.defaultValue, "未知の形は既定へ")
     }
 
+    /// 範囲外を代入したときも、通知は **1 回だけ**であること。
+    ///
+    /// clamp は「範囲外なら clamped 値で再代入して didSet を再発火させる」方式で、
+    /// 再代入したら **`return` して以降の永続化と通知をスキップする**のが要。
+    /// この `return` を落とすと通知が 2 回飛び、**開いている全ビューア窓が 2 度再描画される**。
+    /// レビューで「`return` を消しても既存テストが全部通る」穴として見つかった。
+    @Test func outOfRangeAssignmentPostsTheNotificationExactlyOnce() {
+        let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
+        let s = ViewerSettings(defaults: ud)
+
+        var received = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .viewerLoupeAppearanceChanged, object: nil, queue: nil) { _ in received += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        s.loupeMagnification = 99      // 範囲外 → clamp して再代入が走る
+        #expect(s.loupeMagnification == Double(LoupeMagnification.range.upperBound))
+        #expect(received == 1, "clamp の再代入で通知が 2 回飛んではいけない")
+    }
+
+    /// 初期化のたびに全ウィンドウが再描画されては無駄なので、`init` からは通知が飛ばないこと。
+    @Test func initDoesNotPostTheNotification() {
+        let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
+
+        var received = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .viewerLoupeAppearanceChanged, object: nil, queue: nil) { _ in received += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+
+        _ = ViewerSettings(defaults: ud)
+        #expect(received == 0, "イニシャライザ内の初回代入で didSet は走らない")
+    }
+
     /// ★ 開いているビューア窓へ変更を届けるための通知。
     /// キーバインドは通知を購読しておらず「変えても開いている窓に効かない」欠陥がある（G38 smoke）。
     /// 同じ誤りを繰り返さないための土台なので、発行されることをテストで固定する。
