@@ -55,31 +55,40 @@ final class ViewerCanvasView: NSView {
     private var loupeCursor: CGPoint? {
         didSet {
             guard oldValue != loupeCursor else { return }
-            invalidateLoupeCircle(at: oldValue)
-            invalidateLoupeCircle(at: loupeCursor)
+            invalidateLoupeFrame(at: oldValue)
+            invalidateLoupeFrame(at: loupeCursor)
         }
     }
 
-    /// `loupeCursor` を中心とするルーペ円（ストロークの線幅分の余白込み）の矩形だけを
-    /// 再描画要求する。`point` が nil なら何もしない（円が存在しない位置は再描画不要）。
-    private func invalidateLoupeCircle(at point: CGPoint?) {
+    /// `loupeCursor` を中心とするルーペ枠（ストロークの線幅分の余白込み）の矩形だけを
+    /// 再描画要求する。`point` が nil なら何もしない（枠が存在しない位置は再描画不要）。
+    /// G40: 正方形も同じ矩形で足りる（外接正方形だから）。
+    private func invalidateLoupeFrame(at point: CGPoint?) {
         guard let point else { return }
-        let pad: CGFloat = 2   // strokeEllipse の lineWidth（2pt）がはみ出す分の余白
+        let pad: CGFloat = 2   // 2 重の縁（外側は frameRect の 1pt 外まで）がはみ出す分の余白
         setNeedsDisplay(CGRect(
             x: point.x - loupeDiameter / 2 - pad,
             y: point.y - loupeDiameter / 2 - pad,
             width: loupeDiameter + pad * 2,
             height: loupeDiameter + pad * 2))
     }
-    /// G38 §5: 倍率は固定。**可変化フェーズで触るのはこの 1 箇所だけ**にするため、
-    /// 再デコードの判定にも `2.0` を直接書かずこの定数を使う。
-    static let loupeMagnification: CGFloat = 2.0
+    /// G40: 現在のルーペ倍率。設定（グローバル）を正とし、スクロールで動かすとそこへ書き戻す。
+    /// controller は実効倍率 `zoomFactor × これ` を再デコード判定に使う。
+    var currentLoupeMagnification: CGFloat {
+        LoupeMagnification.clamp(CGFloat(ViewerSettings.shared.loupeMagnification))
+    }
+
+    /// G40: 倍率が変わったことを controller へ知らせる（HUD 表示と再デコードの予約）。
+    var onLoupeMagnificationChanged: ((CGFloat) -> Void)?
     private let loupeDiameter: CGFloat = 300
 
     /// 実効スケール。常に現在の fitScale から導出するため、zoomFactor==1 のとき
     /// ウィンドウ拡大/縮小の両方向でフィットが追従する（絶対 scale 保持による
     /// "縮小時に user-zoomed と誤判定" を根治。smoke v3 KEEP-ZOOM 誤分類の修正）。
     private var scale: CGFloat { fitScale * zoomFactor }
+
+    /// G40: `.viewerLoupeAppearanceChanged` の購読トークン（`deinit` で外す）。
+    private var loupeAppearanceObserver: NSObjectProtocol?
 
     private var mouseDownLocation: NSPoint?
     private var didDrag = false
@@ -106,6 +115,22 @@ final class ViewerCanvasView: NSView {
     private func setup() {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
+        // G40: 設定（形・倍率）はグローバルなので、**開いている窓にも届かせる**。
+        // キーバインドは通知を購読しておらず「変えても開いている窓に効かない」欠陥がある（G38 smoke）。
+        loupeAppearanceObserver = NotificationCenter.default.addObserver(
+            forName: .viewerLoupeAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.loupeEnabled else { return }
+                    self.invalidateLoupeFrame(at: self.loupeCursor)
+                }
+        }
+    }
+
+    @MainActor
+    deinit {
+        if let loupeAppearanceObserver {
+            NotificationCenter.default.removeObserver(loupeAppearanceObserver)
+        }
     }
 
     override var isFlipped: Bool { false }
@@ -204,19 +229,23 @@ final class ViewerCanvasView: NSView {
             viewSize: bounds.size, scale: scale, offset: offset,
             gutter: gutter, firstOnRight: firstOnRight,
             cursor: cursor, loupeDiameter: loupeDiameter,
-            magnification: Self.loupeMagnification)
+            magnification: currentLoupeMagnification)
         // G38 review I-4: sources が空（カーソルが黒余白の上）でも黒塗り＋縁は描く。spec §3 の
         // 「画像の外（余白）にかかった部分は背景色になる」を満たすには円自体が消えてはいけない
         // （以前は guard で早期 return し、円ごと消えていた）。中身が無ければ下の for ループが
         // 単に何も描かないだけで安全。
 
-        let circle = CGRect(x: cursor.x - loupeDiameter / 2, y: cursor.y - loupeDiameter / 2,
-                            width: loupeDiameter, height: loupeDiameter)
+        let frameRect = CGRect(x: cursor.x - loupeDiameter / 2, y: cursor.y - loupeDiameter / 2,
+                               width: loupeDiameter, height: loupeDiameter)
+        let shape = ViewerSettings.shared.loupeShape
         ctx.saveGState()
-        ctx.addEllipse(in: circle)
+        switch shape {
+        case .circle: ctx.addEllipse(in: frameRect)
+        case .square: ctx.addRect(frameRect)
+        }
         ctx.clip()
         NSColor.black.setFill()
-        ctx.fill(circle)
+        ctx.fill(frameRect)
         for s in sources where s.imageIndex < images.count {
             if let cropped = images[s.imageIndex].cgImage.cropping(to: s.sourceRect) {
                 ctx.draw(cropped, in: s.destRect)
@@ -224,9 +253,22 @@ final class ViewerCanvasView: NSView {
         }
         ctx.restoreGState()
         // 縁を描く。ON であることがこれで分かる（spec §4）。
-        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.8).cgColor)
-        ctx.setLineWidth(2)
-        ctx.strokeEllipse(in: circle)
+        // G40: 縁は 2 重にする。単色の白 80% は**白い紙面の上でほとんど見えなかった**
+        // （G38 smoke で実測。黒い余白の上でははっきり見えていた）。
+        // 内側に暗い線・外側に明るい線を置けば、どちらかが必ず背景とコントラストを持つ。
+        ctx.setLineWidth(1)
+        ctx.setStrokeColor(NSColor.black.withAlphaComponent(0.55).cgColor)
+        strokeLoupeFrame(ctx, frameRect.insetBy(dx: 0.5, dy: 0.5), shape: shape)
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.9).cgColor)
+        strokeLoupeFrame(ctx, frameRect.insetBy(dx: -0.5, dy: -0.5), shape: shape)
+    }
+
+    /// ルーペの枠線を形状に応じて描く。
+    private func strokeLoupeFrame(_ ctx: CGContext, _ rect: CGRect, shape: LoupeShape) {
+        switch shape {
+        case .circle: ctx.strokeEllipse(in: rect)
+        case .square: ctx.stroke(rect)
+        }
     }
 
     /// scale/offset を変えたら再描画を要求する（フレーム juggling 不要）。
@@ -286,6 +328,21 @@ final class ViewerCanvasView: NSView {
     // MARK: - Pan
 
     override func scrollWheel(with event: NSEvent) {
+        // G40: ルーペ ON の間はスクロールが倍率を変える。
+        // フィット表示では下の既存経路が `guard isZoomed` で何もしないので、ルーペの主戦場での
+        // 衝突は無い。重なるのは「ズーム中かつルーペ ON」だけで、そこでもドラッグのパンは生きている。
+        if loupeEnabled {
+            let next = LoupeMagnification.stepped(
+                from: currentLoupeMagnification,
+                scrollDeltaY: event.scrollingDeltaY,
+                hasPreciseDeltas: event.hasPreciseScrollingDeltas)
+            if next != currentLoupeMagnification {
+                ViewerSettings.shared.loupeMagnification = Double(next)
+                invalidateLoupeFrame(at: loupeCursor)
+                onLoupeMagnificationChanged?(next)
+            }
+            return
+        }
         guard isZoomed else { return }
         offset.width  += event.scrollingDeltaX
         offset.height -= event.scrollingDeltaY

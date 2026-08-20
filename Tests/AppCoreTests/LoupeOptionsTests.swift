@@ -103,3 +103,27 @@ struct LoupeShapeTests {
         #expect(LoupeShape.square.rawValue == "square")
     }
 }
+
+@Suite("ルーペの実効倍率（G40）")
+struct LoupeEffectiveZoomFactorTests {
+    @Test func effectiveZoomFactorFollowsTheMagnification() {
+        #expect(LoupeMagnification.effectiveZoomFactor(zoomFactor: 1.0, loupeEnabled: true, magnification: 2.0) == 2.0)
+        #expect(LoupeMagnification.effectiveZoomFactor(zoomFactor: 1.0, loupeEnabled: true, magnification: 6.0) == 6.0,
+                "倍率を上げたら実効倍率も上がる（固定 2.0 が残っていたら落ちる）")
+        #expect(LoupeMagnification.effectiveZoomFactor(zoomFactor: 3.0, loupeEnabled: false, magnification: 6.0) == 3.0,
+                "ルーペ OFF のときは従来と同じ")
+    }
+
+    /// ズーム倍率と掛け合わさる（フィット表示だけの話ではない）。
+    @Test func effectiveZoomFactorMultipliesWithTheZoom() {
+        #expect(LoupeMagnification.effectiveZoomFactor(zoomFactor: 2.0, loupeEnabled: true, magnification: 4.0) == 8.0)
+    }
+
+    /// 壊れた倍率が入っても実効倍率は範囲内に畳まれる（NaN が decode target を汚さない）。
+    @Test func effectiveZoomFactorClampsABrokenMagnification() {
+        #expect(LoupeMagnification.effectiveZoomFactor(zoomFactor: 1.0, loupeEnabled: true, magnification: 99) ==
+                LoupeMagnification.range.upperBound)
+        #expect(LoupeMagnification.effectiveZoomFactor(zoomFactor: 1.0, loupeEnabled: true, magnification: .nan) ==
+                LoupeMagnification.defaultValue)
+    }
+}

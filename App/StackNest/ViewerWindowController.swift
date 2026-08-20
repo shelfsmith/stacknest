@@ -289,6 +289,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         canvas.onZoneClick = { [weak self] leftHalf in self?.handleZoneClick(leftHalf: leftHalf) }
         // G18 C4: ズーム操作のたびにデバウンス付き再デコード判定をスケジュールする。
         canvas.onZoomChanged = { [weak self] _ in self?.scheduleZoomRedecodeCheck() }
+        // G40: 倍率を変えたら、現在値を HUD に出し、高解像度の再デコードを予約する
+        // （倍率が上がると decode target も上がるため。G38 の I-1 と同じ理由）。
+        canvas.onLoupeMagnificationChanged = { [weak self] mag in
+            guard let self else { return }
+            self.hudNote(String(format: "ルーペ %.1f×", mag))
+            self.scheduleZoomRedecodeCheck()
+        }
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         container.addSubview(canvas)
 
@@ -1401,12 +1408,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 遅延させない）。ズームしていない（zoomFactor == 1.0）ときは従来どおりこの経路を使う。
         // G38 final review I-1: この判定は `zoomFactor` だけを見ており `loupeEnabled` を考慮しない
         // ため、フィット表示（zoomFactor==1.0）のままルーペ ON でリサイズすると、ズーム対応の
-        // `checkAndRedecodeForZoom()`（実効倍率 zoomFactor×loupeMagnification を計算できる経路）
+        // `checkAndRedecodeForZoom()`（実効倍率 zoomFactor×ルーペ倍率 を計算できる経路）
         // に委譲されず、この resize 専用経路（ルーペを知らない）に入ってしまう。
         // `checkAndRedecodeForZoom()` 自身が使う effectiveZoomFactor と同じロジックで判定する。
-        let effectiveZoomFactor = canvas.loupeEnabled
-            ? canvas.currentZoomFactor * ViewerCanvasView.loupeMagnification
-            : canvas.currentZoomFactor
+        let effectiveZoomFactor = LoupeMagnification.effectiveZoomFactor(
+            zoomFactor: canvas.currentZoomFactor,
+            loupeEnabled: canvas.loupeEnabled,
+            magnification: canvas.currentLoupeMagnification)
         guard effectiveZoomFactor <= 1.0001 else {
             checkAndRedecodeForZoom()
             return
@@ -1508,11 +1516,15 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 巻スワップ中（await content.pageCount 中）は content/model が差し替わり得るため何もしない。
         guard !isSwapping else { return }
         let zoomFactor = canvas.currentZoomFactor
-        // G38 review I-1: ルーペ ON のときは実効倍率が zoomFactor × loupeMagnification になる
-        // （ルーペ内はさらに拡大して見せているため）。`2.0` を直に書かず canvas 側の定数を使う。
+        // G38 review I-1: ルーペ ON のときは実効倍率が zoomFactor × ルーペ倍率になる
+        // （ルーペ内はさらに拡大して見せているため）。`2.0` を直に書かず、G40 で可変になった
+        // 現在倍率を `LoupeMagnification.effectiveZoomFactor` 経由で使う。
         // guard より前に計算する — フィット表示（zoomFactor==1.0）のままルーペを ON にしても
-        // effectiveZoomFactor は loupeMagnification（2.0）になり、下の guard を通過できる必要がある。
-        let effectiveZoomFactor = canvas.loupeEnabled ? zoomFactor * ViewerCanvasView.loupeMagnification : zoomFactor
+        // effectiveZoomFactor はルーペ倍率（既定 2.0）になり、下の guard を通過できる必要がある。
+        let effectiveZoomFactor = LoupeMagnification.effectiveZoomFactor(
+            zoomFactor: zoomFactor,
+            loupeEnabled: canvas.loupeEnabled,
+            magnification: canvas.currentLoupeMagnification)
         // フィット(1.0)まで戻っていて、かつルーペも OFF なら拡大表示ではない＝縮小版のままで十分
         // なので何もしない。ルーペ OFF のときは effectiveZoomFactor == zoomFactor なので従来と
         // 同じ条件・同じ判断になる（非退行）。
