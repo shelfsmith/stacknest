@@ -3,7 +3,8 @@ import SwiftUI
 import AppCore
 import LibraryStore
 
-/// Phase 2.6c: 内蔵ビューアのグローバル設定 6 項目を描画する共有フォーム。
+/// Phase 2.6c: 内蔵ビューアのグローバル設定を描画する共有フォーム。
+/// （項目数は増えるので数えて書かない。G40 でルーペの形と倍率が加わった）
 /// SettingsView「表示」タブと FirstRunWizardView（③内蔵ビューア設定）の両方から使う。
 /// 各行は `settings.useBuiltInViewer` が false のとき disabled になる（SettingsView での
 /// 既存挙動を保持。ウィザードでは内蔵選択時のみ表示されるため常に enabled）。
@@ -127,6 +128,9 @@ struct BuiltInViewerSettingsForm: View {
                 .controlSize(.small)
             }
             .disabled(!settings.useBuiltInViewer)
+            // 隣接する行（スライドショー間隔・Tab スキップ）と同じ作法。`.disabled` だけでは
+            // `Text` のラベルが暗くならないため、既存行はいずれも opacity を併用している。
+            .opacity(settings.useBuiltInViewer ? 1.0 : 0.5)
         }
     }
 
