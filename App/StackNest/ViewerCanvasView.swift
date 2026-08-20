@@ -32,9 +32,7 @@ final class ViewerCanvasView: NSView {
             // G38 review I-2: loupeCursor は mouseMoved でしか入らないため、ON にした瞬間にマウスが
             // 静止していると円が一切描かれない（「押したのに無反応」に見える）。ON になった時点で
             // 現在のカーソル位置を能動的に取得して補う。ウィンドウ外なら nil のままで構わない。
-            if loupeEnabled, let window {
-                loupeCursor = convert(window.mouseLocationOutsideOfEventStream, from: nil)
-            }
+            if loupeEnabled { loupeCursor = pointerInsideView() }
             needsDisplay = true
         }
     }
@@ -314,6 +312,14 @@ final class ViewerCanvasView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        // AppKit はジオメトリが変わるたびにここを呼ぶ。**取りこぼした偽の退出をここで回復する。**
+        //
+        // 下の `isRealExit` はポインタ位置で裏を取るが、フルスクリーンの出入りの最中は
+        // ウィンドウのフレームと View の bounds が噛み合わない瞬間があり、**真偽判定そのものが
+        // 外れうる**（実機 smoke で、修正済みビルドでもフルスクリーン解除の直後に円が消えた）。
+        // 「あらゆる退出を正しく分類する」のは無理なので、代わりにジオメトリが落ち着いた時点で
+        // 実際のポインタ位置から復帰させる。取りこぼしても次のレイアウトで自然に治る。
+        reacquireLoupeCursorIfNeeded()
         // ★ 毎回 remove → add してはいけない。領域を外した瞬間、AppKit は
         // 「ポインタが古い領域から出た」として **mouseExited を送る**。ポインタは実際には
         // 動いていないので mouseEntered は来ず、`loupeCursor` が nil のまま残る。
@@ -329,6 +335,20 @@ final class ViewerCanvasView: NSView {
             owner: self)
         addTrackingArea(area)
         loupeTrackingArea = area
+    }
+
+    /// ルーペ ON でカーソルを見失っているなら、実際のポインタ位置から復帰させる。
+    private func reacquireLoupeCursorIfNeeded() {
+        guard loupeEnabled, loupeCursor == nil else { return }
+        loupeCursor = pointerInsideView()
+    }
+
+    /// 現在のポインタ位置（View 座標）。ウィンドウが無い、または `bounds` の外なら nil。
+    /// 判定は `isRealExit` と同一の述語を使う（「外にいる」の定義を 1 つに保つ）。
+    private func pointerInsideView() -> CGPoint? {
+        guard let window else { return nil }
+        let p = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        return Self.isRealExit(pointerInView: p, bounds: bounds) ? nil : p
     }
 
     /// 退出イベントが本物か —— ポインタが実際に `bounds` の外にあるか。
