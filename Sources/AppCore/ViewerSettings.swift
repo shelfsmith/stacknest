@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import CoreGraphics
 import Foundation
 import Observation
 import LibraryStore
@@ -31,6 +32,8 @@ public final class ViewerSettings {
     private let openFullScreenByDefaultKey = "viewerOpenFullScreenByDefault"
     private let showBookIDInDetailKey = "showBookIDInDetail"
     private let allowMultipleViewerWindowsKey = "viewerAllowMultipleWindows"
+    private let loupeMagnificationKey = "viewerLoupeMagnification"
+    private let loupeShapeKey = "viewerLoupeShape"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -107,6 +110,28 @@ public final class ViewerSettings {
     /// false=別の本を開くと既存ビューアを閉じて1つに保つ／true=別の本は別ウィンドウ。同一本は常に1つに集約。
     public var allowMultipleViewerWindows: Bool {
         didSet { defaults.set(allowMultipleViewerWindows, forKey: allowMultipleViewerWindowsKey) }
+    }
+
+    /// G40: ルーペの倍率。範囲 1.5...8.0、既定 2.0。setter で clamp する
+    /// （`thickBookThreshold` と同じ「再代入して didSet を再発火させる」方式）。
+    public var loupeMagnification: Double {
+        didSet {
+            let clamped = Double(LoupeMagnification.clamp(CGFloat(loupeMagnification)))
+            if clamped != loupeMagnification {
+                loupeMagnification = clamped
+                return
+            }
+            defaults.set(loupeMagnification, forKey: loupeMagnificationKey)
+            NotificationCenter.default.post(name: .viewerLoupeAppearanceChanged, object: nil)
+        }
+    }
+
+    /// G40: ルーペの形（円 / 正方形）。グローバル設定。
+    public var loupeShape: LoupeShape {
+        didSet {
+            defaults.set(loupeShape.rawValue, forKey: loupeShapeKey)
+            NotificationCenter.default.post(name: .viewerLoupeAppearanceChanged, object: nil)
+        }
     }
 
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
@@ -196,6 +221,18 @@ public final class ViewerSettings {
         // G15 V1: allowMultipleViewerWindows は key 不在で false (defaults.bool(forKey:) の既定と一致するため
         // first-run 特別扱い不要)。
         self.allowMultipleViewerWindows = defaults.bool(forKey: allowMultipleViewerWindowsKey)
+        // G40: 保存値が範囲外／未知でも畳んで読む。キー不在なら既定。
+        if defaults.object(forKey: loupeMagnificationKey) == nil {
+            self.loupeMagnification = Double(LoupeMagnification.defaultValue)
+        } else {
+            self.loupeMagnification = Double(LoupeMagnification.clamp(
+                CGFloat(defaults.double(forKey: loupeMagnificationKey))))
+        }
+        if let raw = defaults.string(forKey: loupeShapeKey), let shape = LoupeShape(rawValue: raw) {
+            self.loupeShape = shape
+        } else {
+            self.loupeShape = .defaultValue
+        }
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve
         // partial state when a BookCategory case is later renamed/removed.
@@ -215,4 +252,10 @@ public final class ViewerSettings {
         }
         return externalViewerAppPath
     }
+}
+
+public extension Notification.Name {
+    /// G40: ルーペの見た目（倍率・形）が変わった。開いているビューア窓が再描画するために使う。
+    static let viewerLoupeAppearanceChanged =
+        Notification.Name("app.shelfsmith.stacknest.viewerLoupeAppearanceChanged")
 }
