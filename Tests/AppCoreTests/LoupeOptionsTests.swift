@@ -149,8 +149,21 @@ struct LoupeSizeTests {
         #expect(LoupeSize.medium.diameter < LoupeSize.large.diameter)
     }
 
-    @Test func everyCaseHasADisplayName() {
-        for s in LoupeSize.allCases { #expect(!s.displayName.isEmpty) }
+    /// spec が決めた直径そのものを固定する。他のテストは順序しか見ていないので、
+    /// **200 → 210 のような変更が誰にも気づかれない**（最終レビューで穴として見つかった）。
+    /// 実機 smoke の感触で値を変えるときは、**spec §6.5 とこのテストを一緒に直す** —— それが狙い。
+    @Test func theDiametersAreTheOnesTheSpecChose() {
+        #expect(LoupeSize.small.diameter == 200)
+        #expect(LoupeSize.medium.diameter == 300)
+        #expect(LoupeSize.large.diameter == 450)
+    }
+
+    /// 表示名は「空でない」だけでは足りない。**小と大が入れ替わっても誰も気づかない**
+    /// （画面上は明らかな誤りなのに）。対応関係まで固定する。
+    @Test func everyCaseHasTheRightDisplayName() {
+        #expect(LoupeSize.small.displayName == "小")
+        #expect(LoupeSize.medium.displayName == "中")
+        #expect(LoupeSize.large.displayName == "大")
     }
 
     /// 設定に保存するので rawValue を勝手に変えてはいけない。
