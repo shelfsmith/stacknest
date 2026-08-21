@@ -118,6 +118,38 @@ struct ViewerKeyBindingsDeletionPersistenceTests {
                 "保存時に既知だったアクションの削除は維持しなければならない")
     }
 
+    /// ★ G40 Codex P2: 旧データ（`knownActions` なし）でも、**G38 以前に外したキーは復活しない**。
+    ///
+    /// 当初は旧データの既知集合を「空」として扱っていた。すると全アクションが「新登場」扱いになり、
+    /// **ユーザーが G38 以前に意図的に外したキーまで補われてしまう**。
+    /// G38 で増えたアクションは `toggleLoupe` 1 つだけなので、それ以前の集合は確定できる
+    /// （`preG38KnownActions`）。旧データにはこれを補ってから判定する。
+    @Test func legacyDataDoesNotResurrectPreG38Deletions() throws {
+        let (ud, name) = freshSuite(); defer { ud.removePersistentDomain(forName: name) }
+
+        var legacy = ViewerKeyBindings.defaults
+        legacy.knownActions = nil                                   // G38 以前の保存データ
+        legacy.characterMap["l"] = nil                              // 当時 toggleLoupe は存在しなかった
+        legacy.remove(.character("s"), from: .toggleAutoAdvance)     // 当時ユーザーが外した
+        ud.set(try JSONEncoder().encode(legacy), forKey: ViewerKeyBindings.userDefaultsKey)
+
+        let loaded = ViewerKeyBindings.load(ud)
+        #expect(loaded.action(forCharacter: "l") == .toggleLoupe,
+                "G38 で増えたアクションのキーは補わなければならない")
+        #expect(loaded.action(forCharacter: "s") == nil,
+                "G38 以前に外したキーを復活させてはいけない")
+    }
+
+    /// 凍結リストの中身を固定する。**新しいアクションを足したときに、うっかりここへ
+    /// 追加してしまう**と旧データの移行判定が壊れる（新アクションが補われなくなる）。
+    @Test func thePreG38ListIsFrozenAndExcludesTheLoupe() {
+        #expect(ViewerKeyBindings.preG38KnownActions.count == 32)
+        #expect(!ViewerKeyBindings.preG38KnownActions.contains(ViewerAction.toggleLoupe.rawValue),
+                "toggleLoupe は G38 で増えたので、当時の集合に含めてはいけない")
+        #expect(ViewerKeyBindings.preG38KnownActions.isSubset(of: ViewerKeyBindings.allActionKeys),
+                "凍結リストに、存在しないアクションが混ざっていないこと")
+    }
+
     /// 旧データ（`knownActions` なし）の移行は 1 度きり。1 回目は従来どおり一律に補い、
     /// その結果を保存すると、2 回目以降の削除は残る。
     @Test func legacyDataMigratesOnceThenDeletionsStick() throws {
