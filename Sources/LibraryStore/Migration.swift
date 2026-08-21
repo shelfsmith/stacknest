@@ -63,6 +63,9 @@ enum Migration {
 
         // v18 — 整合性検査の結果テーブル（Phase G27a）、冪等。
         try migrateV18AddIntegrityTableIfNeeded(db: db)
+
+        // v19 — Finder タグ同期の前回同期値（Phase G39）、冪等。
+        try migrateV19AddFinderTagsSyncedIfNeeded(db: db)
     }
 
     /// Adds `thumbnails_directory_path TEXT` to import_meta if it's not already present.
@@ -317,5 +320,16 @@ enum Migration {
     private static func migrateV18AddIntegrityTableIfNeeded(db: GRDB.Database) throws {
         try db.execute(sql: Tables.createBookIntegrityTable)
         try db.execute(sql: Tables.createBookIntegrityStatusIndex)
+    }
+
+    // MARK: - v19: Finder tag sync baseline (Phase G39)
+
+    /// Adds `finder_tags_synced TEXT` column to `book` if not already present (v19).
+    private static func migrateV19AddFinderTagsSyncedIfNeeded(db: GRDB.Database) throws {
+        let info = try Row.fetchAll(db, sql: "PRAGMA table_info(book)")
+        let hasColumn = info.contains { ($0["name"] as? String) == "finder_tags_synced" }
+        if !hasColumn {
+            try db.execute(sql: Tables.migrateV19AddFinderTagsSynced)
+        }
     }
 }

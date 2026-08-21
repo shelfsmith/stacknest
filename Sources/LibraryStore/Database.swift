@@ -896,6 +896,58 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    // MARK: - Finder tag sync baseline (Phase G39)
+    //
+    // 「前回同期した Finder タグ」を `book.finder_tags_synced` に `MultiValueParser` の
+    // `", "` 区切りで持つ。単純な合併では削除が伝わらない（どちらで消しても片方に残った
+    // ままなので復活してしまう）ため、3 方向マージ（Task 7）が「前回」と比較して初めて
+    // 削除を検出できる。
+    //
+    // NULL と `""`（空文字列）は意味が違う:
+    //   - NULL  … この本はまだ一度も Finder タグと同期していない（3 方向マージで
+    //             baseline として扱わない = 「今回が初回なので何も削除しない」）
+    //   - `""`  … 前回同期はしたが、その時点でタグが 0 件だった（baseline = 空集合。
+    //             今回どちらかにタグが増えていれば正しく追加として扱われる）
+    // この区別を保つため `finderTagBaseline` は `String?` を返し、
+    // `setFinderTagBaseline` は `String?` を受け取る（呼び出し側が nil/"" を明示的に選ぶ）。
+
+    /// 指定した本の「前回同期した Finder タグ」を返す。列が NULL（未同期）なら nil。
+    public func finderTagBaseline(bookID: Int) throws -> String? {
+        guard let q = queue else { return nil }
+        return try q.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT finder_tags_synced FROM book WHERE id = ?",
+                arguments: [bookID]
+            )
+        }
+    }
+
+    /// 指定した本の「前回同期した Finder タグ」を設定する。
+    /// `value: nil` は「未同期」に戻す（通常は同期の度に非 nil を書くので、明示的なリセット用）。
+    /// `value: ""` は「同期済みだが 0 件だった」を表す。
+    public func setFinderTagBaseline(bookID: Int, value: String?) throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            try db.execute(
+                sql: "UPDATE book SET finder_tags_synced = ? WHERE id = ?",
+                arguments: [value, bookID]
+            )
+        }
+    }
+
+    /// 全ての本の「前回同期した Finder タグ」を NULL（未同期）に戻す。
+    ///
+    /// **呼び出し責務**: `library_settings.finderTagSyncField` が変わったとき（Task 7）に
+    /// 呼ぶ。前回値を残したまま項目を切り替えると、別項目の値を「前回のタグ」と誤認し、
+    /// 3 方向マージが実在しない削除を検出して**大量にタグを消しかねない**。
+    public func clearAllFinderTagBaselines() throws {
+        guard let q = queue else { return }
+        try q.write { db in
+            try db.execute(sql: "UPDATE book SET finder_tags_synced = NULL")
+        }
+    }
+
     public func fetchAllPlaylistKinds() throws -> [String] {
         guard let q = queue else { return [] }
         return try q.read { db in
