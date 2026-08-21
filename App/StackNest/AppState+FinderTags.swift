@@ -81,13 +81,21 @@ extension AppState {
         }
 
         isFinderTagSyncRunning = true
+        // ★ 実際に走る子タスクを**保持して**おく。`Task.detached` の子には
+        // 親 `Task` の `cancel()` が伝播しないので、外側だけを持っていても中断できない
+        // （レビューが実測: `detached が見た isCancelled = false`）。
+        // 中断できないと `FinderTagSyncRunner.run` の中断チェックが常に偽になり、
+        // 庫を閉じても最後まで走り切る。
+        let child = Task.detached(priority: .utility) {
+            FinderTagSyncRunner.run(database: db, field: field)
+        }
+        finderTagSyncChild = child
         finderTagSyncTask = Task { @MainActor [weak self] in
-            let outcome = await Task.detached(priority: .utility) {
-                FinderTagSyncRunner.run(database: db, field: field)
-            }.value
+            let outcome = await child.value
             guard let self else { return }
             self.isFinderTagSyncRunning = false
             self.finderTagSyncTask = nil
+            self.finderTagSyncChild = nil
             // 庫が閉じられていたら結果は捨てる（窓はもう無い）。
             guard self.database != nil else { return }
             if outcome.updatedInLibrary > 0 {
@@ -125,6 +133,10 @@ extension AppState {
 
     /// 庫を閉じるときの後始末（`closeBundle()` から呼ぶ）。
     func stopFinderTagSync() {
+        // ★ **子（実際に走っている `Task.detached`）を先に止める。**
+        // 親だけ cancel しても detached の子には伝播せず、中断チェックが効かない。
+        finderTagSyncChild?.cancel()
+        finderTagSyncChild = nil
         finderTagSyncTask?.cancel()
         finderTagSyncTask = nil
         finderTagNoticeClearTask?.cancel()

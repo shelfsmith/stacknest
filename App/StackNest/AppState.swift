@@ -101,6 +101,9 @@ final class AppState {
     /// 走行中フラグ。**手動再照合の二重起動を止める唯一の場所。**
     var isFinderTagSyncRunning = false
     var finderTagSyncTask: Task<Void, Never>?
+    /// G39: 実際に同期を走らせている `Task.detached` の本体。
+    /// **親の `cancel()` は detached の子へ伝播しない**ので、中断するにはこれを持っておく必要がある。
+    var finderTagSyncChild: Task<FinderTagSyncOutcome, Never>?
     var finderTagNoticeClearTask: Task<Void, Never>?
 
     // v0.4a additions
@@ -508,9 +511,11 @@ final class AppState {
         librarySettings?.flushPendingWrites()
         watchSummaryClearTask?.cancel()
         watchSummaryClearTask = nil
-        // G39: 走行中の Finder タグ同期に中断信号を出す（次のボリュームへは進まなくなる）。
-        // 走行中の 1 ボリューム分は最後まで走るが、`Database.close()` は queue の参照を
-        // 落とすだけで飛行中の処理を壊さないので安全に終わる。
+        // G39: 走行中の Finder タグ同期を中断する。
+        // **実際に走っているのは `Task.detached` の子**で、親を cancel しても伝播しないため、
+        // `stopFinderTagSync()` が子を直接止める（レビューが「中断が効いていない」ことを実測）。
+        // 中断は本の境界で効き、`Database.close()` は queue の参照を落とすだけで
+        // 飛行中の処理を壊さないので安全に終わる。
         stopFinderTagSync()
         backupOnCloseIfNeeded()
         database?.close()
