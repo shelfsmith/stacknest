@@ -32,9 +32,17 @@ public struct FinderTagEntry: Equatable, Sendable {
         return "\(name)\n\(colorIndex)"
     }
 
-    /// 同期してよい名前か。`MultiValueParser` の区切り（`", "`）を含むタグは、往復で
-    /// 2 つに分裂して**元に戻らない**ので同期しない（spec §4.4）。空も除く。
+    /// 同期してよい名前か —— **`MultiValueParser` の往復で元に戻るか**で決める（spec §4.4）。
+    ///
+    /// 当初は「区切り文字 `", "` を含むか」で判定していたが、**それでは足りなかった。**
+    /// `MultiValueParser.split` は **`","` で切って前後の空白を trim** するので、
+    /// `"SF,ファンタジー"`（空白なし）や `"SF "`（末尾空白）はその判定を素通りし、
+    /// **1 個の Finder タグが StackNest 側で 2 個の値になる**（レビューで実測）。
+    /// しかも `skippedTags` に載らないのでユーザーは気づけず、
+    /// 毎回「更新した」と報告され続ける（冪等性も壊れる）。
+    ///
+    /// 判定を往復そのものに置き換えれば、区切りの仕様が変わっても自動的に追随する。
     public static func isSyncable(_ name: String) -> Bool {
-        !name.isEmpty && !name.contains(MultiValueParser.separator)
+        !name.isEmpty && MultiValueParser.split(name) == [name]
     }
 }

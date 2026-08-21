@@ -103,6 +103,20 @@ public enum FinderTagSync {
         // キーが無い = NULL = 未同期（`""` = 前回 0 件 とは意味が違う）。
         let baselines = try database.finderTagBaselines()
         var pendingBaselines: [Int: String] = [:]
+        // ★ 図書側の更新も**値でまとめて**書く。1 冊ずつ `updateBook` を呼ぶと GRDB が
+        // 本ごとに 1 コミットし、**12,000 冊で 41 秒**かかる（レビューの実測。うち約 38 秒が
+        // コミット）。前回同期値で同じ問題を 32.8s → 0.62s に直したのに、こちらに適用し忘れていた。
+        // 到達経路は現実的: Finder で大量選択してタグを一括付与／既にタグのある庫でこの機能を
+        // 初めて有効にする／**同期項目を切り替える**（前回値が全消しされるので全件が対象になる）。
+        var pendingLibrary: [String: [Int]] = [:]   // 書き込む値 → 本の id
+        // 成功時も失敗時も同じ順で流す。図書 → 前回同期値の順にするのは、
+        // 途中で落ちても次回のマージが収束する側に倒すため。
+        func flushLibraryUpdates() throws {
+            for (value, ids) in pendingLibrary {
+                try database.updateBooks(ids: ids, patch: Self.patch(field, value))
+            }
+            pendingLibrary.removeAll()
+        }
 
         do {
             for row in try database.fetchAllBooks() {
@@ -206,8 +220,8 @@ public enum FinderTagSync {
                     updatedInFinder += 1
                 }
                 if result.changedInLibrary {
-                    try database.updateBook(id: row.id, patch: patch(field, MultiValueParser.join(
-                        ordered(result.merged, preferring: libraryOrder))))
+                    let value = MultiValueParser.join(ordered(result.merged, preferring: libraryOrder))
+                    pendingLibrary[value, default: []].append(row.id)
                     updatedInLibrary += 1
                 }
                 rememberBaseline(result.merged)
@@ -216,9 +230,11 @@ public enum FinderTagSync {
             // 途中で投げても、そこまでに確定した前回同期値は落とさない
             // （ファイルと DB は既に書き換わっている。前回同期値だけ古いままだと、
             // 次回の 3 方向マージが実在しない削除を見る）。
+            try? flushLibraryUpdates()
             try? database.setFinderTagBaselines(pendingBaselines)
             throw error
         }
+        try flushLibraryUpdates()
         try database.setFinderTagBaselines(pendingBaselines)
 
         return FinderTagSyncReport(updatedInLibrary: updatedInLibrary,
