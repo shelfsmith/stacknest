@@ -34,6 +34,7 @@ public final class ViewerSettings {
     private let allowMultipleViewerWindowsKey = "viewerAllowMultipleWindows"
     private let loupeMagnificationKey = "viewerLoupeMagnification"
     private let loupeShapeKey = "viewerLoupeShape"
+    private let loupeSizeKey = "viewerLoupeSize"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -130,6 +131,14 @@ public final class ViewerSettings {
     public var loupeShape: LoupeShape {
         didSet {
             defaults.set(loupeShape.rawValue, forKey: loupeShapeKey)
+            NotificationCenter.default.post(name: .viewerLoupeAppearanceChanged, object: nil)
+        }
+    }
+
+    /// G40: ルーペの大きさ（小 / 中 / 大）。グローバル設定。
+    public var loupeSize: LoupeSize {
+        didSet {
+            defaults.set(loupeSize.rawValue, forKey: loupeSizeKey)
             NotificationCenter.default.post(name: .viewerLoupeAppearanceChanged, object: nil)
         }
     }
@@ -232,6 +241,11 @@ public final class ViewerSettings {
             self.loupeShape = shape
         } else {
             self.loupeShape = .defaultValue
+        }
+        if let raw = defaults.string(forKey: loupeSizeKey), let size = LoupeSize(rawValue: raw) {
+            self.loupeSize = size
+        } else {
+            self.loupeSize = .defaultValue
         }
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve

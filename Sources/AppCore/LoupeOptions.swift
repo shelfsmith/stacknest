@@ -47,6 +47,37 @@ public enum LoupeMagnification {
     }
 }
 
+/// ルーペの大きさ。**中が従来（G38〜G40 前半）と同じ 300pt** で、これが既定。
+/// 中を基準に約 1.5 倍 / 約 1/1.5 倍の 3 段階。無段階にはしない（使ってから判断する）。
+public enum LoupeSize: String, CaseIterable, Sendable {
+    case small, medium, large
+
+    public static let defaultValue: LoupeSize = .medium
+
+    public var diameter: CGFloat {
+        switch self {
+        case .small:  return 200
+        case .medium: return 300   // ★ 従来と同じ。変えると既存ユーザーの見え方が黙って変わる
+        case .large:  return 450
+        }
+    }
+
+    public var displayName: String {
+        switch self {
+        case .small:  return "小"
+        case .medium: return "中"
+        case .large:  return "大"
+        }
+    }
+
+    /// ★ 一番大きい直径。**縮小したときの描き残しを消すために使う。**
+    /// 大 → 小に変えた直後、新しい（小さい）直径で再描画を要求すると
+    /// **古い大きい円の外周が画面に残る**。最大で消せばどの組み合わせでも取りこぼさない。
+    public static var largestDiameter: CGFloat {
+        allCases.map(\.diameter).max() ?? 300
+    }
+}
+
 public extension LoupeMagnification {
     /// 再デコード判定に使う実効倍率。ルーペ OFF ならズーム倍率そのもの。
     /// **`2.0` を直に書かないための単一の入口。**

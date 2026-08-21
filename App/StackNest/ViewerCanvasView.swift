@@ -60,17 +60,21 @@ final class ViewerCanvasView: NSView {
         }
     }
 
-    /// `loupeCursor` を中心とするルーペ枠（ストロークの線幅分の余白込み）の矩形だけを
-    /// 再描画要求する。`point` が nil なら何もしない（枠が存在しない位置は再描画不要）。
+    /// `loupeCursor` を中心とするルーペの枠（ストロークの線幅分の余白込み）だけを再描画要求する。
+    /// `point` が nil なら何もしない。
     /// G40: 正方形も同じ矩形で足りる（外接正方形だから）。
-    private func invalidateLoupeFrame(at point: CGPoint?) {
+    /// - Parameter diameter: 消したい大きさ。既定は現在の直径。**大きさの設定が変わったときは
+    ///   `LoupeSize.largestDiameter` を渡す** —— 現在（＝新しい）直径で消すと、
+    ///   縮小したときに古い大きい枠の外周が画面に残る。
+    private func invalidateLoupeFrame(at point: CGPoint?, diameter: CGFloat? = nil) {
         guard let point else { return }
+        let d = diameter ?? loupeDiameter
         let pad: CGFloat = 2   // 2 重の縁（外側は frameRect の 1pt 外まで）がはみ出す分の余白
         setNeedsDisplay(CGRect(
-            x: point.x - loupeDiameter / 2 - pad,
-            y: point.y - loupeDiameter / 2 - pad,
-            width: loupeDiameter + pad * 2,
-            height: loupeDiameter + pad * 2))
+            x: point.x - d / 2 - pad,
+            y: point.y - d / 2 - pad,
+            width: d + pad * 2,
+            height: d + pad * 2))
     }
     /// G40: 現在のルーペ倍率。設定（グローバル）を正とし、スクロールで動かすとそこへ書き戻す。
     /// controller は実効倍率 `zoomFactor × これ` を再デコード判定に使う。
@@ -80,7 +84,8 @@ final class ViewerCanvasView: NSView {
 
     /// G40: 倍率が変わったことを controller へ知らせる（HUD 表示と再デコードの予約）。
     var onLoupeMagnificationChanged: ((CGFloat) -> Void)?
-    private let loupeDiameter: CGFloat = 300
+    /// G40: 現在のルーペ直径。設定（グローバル）を正とし、描画のたびに読む。
+    private var loupeDiameter: CGFloat { ViewerSettings.shared.loupeSize.diameter }
 
     /// 実効スケール。常に現在の fitScale から導出するため、zoomFactor==1 のとき
     /// ウィンドウ拡大/縮小の両方向でフィットが追従する（絶対 scale 保持による
@@ -121,7 +126,10 @@ final class ViewerCanvasView: NSView {
             forName: .viewerLoupeAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, self.loupeEnabled else { return }
-                    self.invalidateLoupeFrame(at: self.loupeCursor)
+                    // ★ 現在の直径ではなく最大で消す。大 → 小に変えたとき、
+                    // 新しい（小さい）矩形だけでは古い枠の外周が残る。
+                    self.invalidateLoupeFrame(at: self.loupeCursor,
+                                              diameter: LoupeSize.largestDiameter)
                 }
         }
     }

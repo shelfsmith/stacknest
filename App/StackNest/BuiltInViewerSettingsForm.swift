@@ -4,7 +4,7 @@ import AppCore
 import LibraryStore
 
 /// Phase 2.6c: 内蔵ビューアのグローバル設定を描画する共有フォーム。
-/// （項目数は増えるので数えて書かない。G40 でルーペの形と倍率が加わった）
+/// （項目数は増えるので数えて書かない。G40 でルーペの形・倍率・大きさが加わった）
 /// SettingsView「表示」タブと FirstRunWizardView（③内蔵ビューア設定）の両方から使う。
 /// 各行は `settings.useBuiltInViewer` が false のとき disabled になる（SettingsView での
 /// 既存挙動を保持。ウィザードでは内蔵選択時のみ表示されるため常に enabled）。
@@ -110,6 +110,14 @@ struct BuiltInViewerSettingsForm: View {
             Picker("ルーペの形", selection: $settings.loupeShape) {
                 ForEach(LoupeShape.allCases, id: \.self) { shape in
                     Text(shape.displayName).tag(shape)
+                }
+            }
+            .disabled(!settings.useBuiltInViewer)
+
+            // G40: ルーペの大きさ（グローバル）
+            Picker("ルーペの大きさ", selection: $settings.loupeSize) {
+                ForEach(LoupeSize.allCases, id: \.self) { size in
+                    Text(size.displayName).tag(size)
                 }
             }
             .disabled(!settings.useBuiltInViewer)

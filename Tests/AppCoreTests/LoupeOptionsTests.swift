@@ -135,3 +135,36 @@ struct LoupeEffectiveZoomFactorTests {
                 LoupeMagnification.defaultValue)
     }
 }
+
+@Suite("ルーペの大きさ（G40）")
+struct LoupeSizeTests {
+    /// **中は従来と同じ 300pt。**ここを変えると既存ユーザーの見え方が黙って変わる。
+    @Test func mediumIsTheSizeThatShipped() {
+        #expect(LoupeSize.medium.diameter == 300)
+        #expect(LoupeSize.defaultValue == .medium)
+    }
+
+    @Test func theThreeStepsAreOrderedAndDistinct() {
+        #expect(LoupeSize.small.diameter < LoupeSize.medium.diameter)
+        #expect(LoupeSize.medium.diameter < LoupeSize.large.diameter)
+    }
+
+    @Test func everyCaseHasADisplayName() {
+        for s in LoupeSize.allCases { #expect(!s.displayName.isEmpty) }
+    }
+
+    /// 設定に保存するので rawValue を勝手に変えてはいけない。
+    @Test func rawValuesAreStable() {
+        #expect(LoupeSize.small.rawValue == "small")
+        #expect(LoupeSize.medium.rawValue == "medium")
+        #expect(LoupeSize.large.rawValue == "large")
+    }
+
+    /// ★ 縮小したときの描き残しを消すために使う値。
+    /// **どの段階の直径よりも小さくてはいけない。**
+    @Test func largestDiameterCoversEveryCase() {
+        for s in LoupeSize.allCases {
+            #expect(s.diameter <= LoupeSize.largestDiameter)
+        }
+    }
+}
