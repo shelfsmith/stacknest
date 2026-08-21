@@ -29,10 +29,16 @@ public enum FinderTagStore {
     /// 新しく足すタグは色無し（StackNest 側に色の概念が無いため）。
     public static func apply(names: Set<String>, to url: URL) throws {
         let existing = try read(at: url)
-        var colourByName: [String: Int] = [:]
-        for e in existing { if let c = e.colorIndex { colourByName[e.name] = c } }
-        // 並びは安定させる（毎回同じバイト列になるほうが、無意味な書き込みを避けられる）。
-        let entries = names.sorted().map { FinderTagEntry(name: $0, colorIndex: colourByName[$0]) }
+        // ★ 既にあるタグは**並び順もそのまま**残す。Finder はタグの順序を保持しており、
+        // 同期のたびに並べ替えるのは「触る必要のないユーザーデータを変える」ことになる。
+        // 色番号を引き継ぐのと同じ理由で、こちらが決めてよい値ではない。
+        var entries = existing.filter { names.contains($0.name) }
+        // 増えた分だけを末尾に足す。新しいタグ同士は並びが決まらないので、
+        // 毎回同じバイト列になるようソートしておく（無意味な書き込みを避けられる）。
+        let existingNames = Set(existing.map(\.name))
+        entries += names.subtracting(existingNames).sorted().map {
+            FinderTagEntry(name: $0, colorIndex: nil)
+        }
         try write(entries, to: url)
     }
 

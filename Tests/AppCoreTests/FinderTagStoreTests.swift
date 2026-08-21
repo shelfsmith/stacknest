@@ -50,6 +50,23 @@ struct FinderTagStoreTests {
         #expect(back.first { $0.name == "新規" }?.colorIndex == nil, "新しいタグは色無し")
     }
 
+    /// ★ 既存タグの**並び順**を保つこと。Finder は順序を持っており、同期のたびに
+    /// 並べ替えるのは触る必要のないユーザーデータを変えることになる。
+    /// 色番号を引き継ぐのと同じ理由（こちらが決めてよい値ではない）。
+    @Test func applyKeepsTheExistingOrderAndAppendsNewTags() throws {
+        let f = try tempFile(); defer { try? FileManager.default.removeItem(at: f.deletingLastPathComponent()) }
+        // わざとアルファベット順と逆に並べておく。ソートすると必ず崩れる並び。
+        try FinderTagStore.write([FinderTagEntry(name: "c", colorIndex: 1),
+                                  FinderTagEntry(name: "b", colorIndex: nil),
+                                  FinderTagEntry(name: "a", colorIndex: 3)], to: f)
+
+        try FinderTagStore.apply(names: ["c", "b", "a", "z"], to: f)
+
+        let back = try FinderTagStore.read(at: f).map(\.name)
+        #expect(back == ["c", "b", "a", "z"],
+                "既存の並びを保ち、増えた分だけ末尾に足すこと（ソートし直さない）")
+    }
+
     @Test func applyRemovesTagsThatAreGone() throws {
         let f = try tempFile(); defer { try? FileManager.default.removeItem(at: f.deletingLastPathComponent()) }
         try FinderTagStore.write([FinderTagEntry(name: "a", colorIndex: 1),
