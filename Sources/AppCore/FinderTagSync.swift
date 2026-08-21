@@ -108,14 +108,38 @@ public enum FinderTagSync {
         // コミット）。前回同期値で同じ問題を 32.8s → 0.62s に直したのに、こちらに適用し忘れていた。
         // 到達経路は現実的: Finder で大量選択してタグを一括付与／既にタグのある庫でこの機能を
         // 初めて有効にする／**同期項目を切り替える**（前回値が全消しされるので全件が対象になる）。
-        var pendingLibrary: [String: [Int]] = [:]   // 書き込む値 → 本の id
+        var pendingLibrary: [Int: String] = [:]     // 本の id → 書き込む値
         // 成功時も失敗時も同じ順で流す。図書 → 前回同期値の順にするのは、
         // 途中で落ちても次回のマージが収束する側に倒すため。
         func flushLibraryUpdates() throws {
-            for (value, ids) in pendingLibrary {
-                try database.updateBooks(ids: ids, patch: Self.patch(field, value))
+            var firstError: Error?
+            // `series` だけは空にするとき列を NULL にしたいので、一括経路に載せず個別に扱う
+            // （空文字を書くとファセットに空欄が並ぶ）。それ以外は 1 トランザクションで流す。
+            let (special, bulk) = Self.splitForBulkWrite(field: field, pendingLibrary)
+            for (id, value) in special {
+                do { try database.updateBook(id: id, patch: Self.patch(field, value)) }
+                catch {
+                    pendingBaselines.removeValue(forKey: id)
+                    if firstError == nil { firstError = error }
+                }
+            }
+            for (column, values) in bulk {
+                do {
+                    try database.updateBookColumn(column, values: values)
+                } catch {
+                    let ids = Array(values.keys)
+                    // ★ このグループは図書側が書けていない。**前回同期値も書いてはいけない。**
+                    // 書くと「同期済み」と記録され、次回のマージが図書側の空を
+                    // 「ユーザーが消した」と読んで **Finder のタグを消す**
+                    // （レビューが実測: 部分適用の直後に再同期して `tags=[]` になった。非可逆）。
+                    // グループごとに別トランザクションなので、SQLITE_BUSY や
+                    // CLI/MCP/共有サーバとの競合で部分適用は実際に起こりうる。
+                    for id in ids { pendingBaselines.removeValue(forKey: id) }
+                    if firstError == nil { firstError = error }
+                }
             }
             pendingLibrary.removeAll()
+            if let firstError { throw firstError }
         }
 
         do {
@@ -221,7 +245,7 @@ public enum FinderTagSync {
                 }
                 if result.changedInLibrary {
                     let value = MultiValueParser.join(ordered(result.merged, preferring: libraryOrder))
-                    pendingLibrary[value, default: []].append(row.id)
+                    pendingLibrary[row.id] = value
                     updatedInLibrary += 1
                 }
                 rememberBaseline(result.merged)
@@ -231,11 +255,17 @@ public enum FinderTagSync {
             // （ファイルと DB は既に書き換わっている。前回同期値だけ古いままだと、
             // 次回の 3 方向マージが実在しない削除を見る）。
             try? flushLibraryUpdates()
+            // 書けなかった本は上で `pendingBaselines` から外れている。残りは書いてよい。
             try? database.setFinderTagBaselines(pendingBaselines)
             throw error
         }
-        try flushLibraryUpdates()
+        // 成功経路も**同じ順・同じ方針**にする。以前は「flush が投げたら前回同期値を
+        // 一切書かない」（保守的）で catch 経路と逆だったが、いまは flush が
+        // 書けなかった本だけを外すので、**両方とも「書けた本の分だけ書く」**で揃う。
+        let flushError: Error?
+        do { try flushLibraryUpdates(); flushError = nil } catch { flushError = error }
         try database.setFinderTagBaselines(pendingBaselines)
+        if let flushError { throw flushError }
 
         return FinderTagSyncReport(updatedInLibrary: updatedInLibrary,
                                    updatedInFinder: updatedInFinder,
@@ -274,6 +304,22 @@ public enum FinderTagSync {
         case "keyword_c": return row.keywordC
         default:          return nil
         }
+    }
+
+    /// 一括で書ける分と、個別に扱う分に分ける。
+    ///
+    /// `series` は NULL 許容の単一値列で、空にするときは `BookPatch(clearSeries:)` で
+    /// **NULL にしたい**（空文字を書くとファセットに空欄が並ぶ）。それだけを個別経路へ回し、
+    /// 残りは列名を直に指定して 1 トランザクションで流す。
+    /// 列名は whitelist（`syncableFields`）を通った `field` だけなので SQL への注入は起きない。
+    static func splitForBulkWrite(field: String, _ pending: [Int: String])
+        -> (special: [Int: String], bulk: [String: [Int: String]]) {
+        var special: [Int: String] = [:]
+        var bulk: [Int: String] = [:]
+        for (id, value) in pending {
+            if field == "series" && value.isEmpty { special[id] = value } else { bulk[id] = value }
+        }
+        return (special, bulk.isEmpty ? [:] : [field: bulk])
     }
 
     static func patch(_ field: String, _ value: String) -> BookPatch {

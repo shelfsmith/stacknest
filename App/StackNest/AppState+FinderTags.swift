@@ -37,6 +37,10 @@ extension AppState {
     func loadFinderTagSyncSettingAndSyncOnce() {
         guard let db = database else { return }
         finderTagSyncField = FinderTagSyncSetting.current(db)
+        // ★ 施錠庫では解錠まで走らせない。同期は庫のメタデータを **Finder タグとして
+        // ファイルに書き出す**ので、解錠せずに中身が見えるのでは施錠の意味が無い。
+        // 呼び出し元でも弾いているが、**ここが最後の関門**（呼び出し経路は 3 つある）。
+        guard !needsUnlock else { return }
         startFinderTagSync(trigger: .libraryOpened)
     }
 

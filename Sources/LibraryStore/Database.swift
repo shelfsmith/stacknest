@@ -1915,6 +1915,28 @@ public final class Database: @unchecked Sendable {
 
     /// Bulk update — applies the same patch to all given IDs in one transaction.
     /// Validation rules match `updateBook(id:patch:)`. No-op when ids or patch is empty.
+    /// 本ごとに**違う値**を 1 つの列へ、**1 トランザクションで**書く。
+    ///
+    /// `updateBooks(ids:patch:)` は 1 回のトランザクションだが「同じ patch を複数の本へ」しか
+    /// 扱えない。**値が本ごとに違うと呼び出し側が値の数だけ呼ぶ**ことになり、
+    /// トランザクションもその数だけ張られる —— `author` や `series` のように
+    /// ほぼ全件で値が異なる列では、実測で **4,000 冊 22.5 秒**（同じ値にまとめられる場合は 2.5 秒）。
+    /// `setFinderTagBaselines` と同じく、文をキャッシュして 1 トランザクションで流す。
+    ///
+    /// - Parameter column: `BookPatch` を経由しないので、**受け付ける列を whitelist で縛る**。
+    public func updateBookColumn(_ column: String, values: [Int: String]) throws {
+        guard let q = queue, !values.isEmpty else { return }
+        guard Self.browseColumns.contains(column) else {
+            throw DatabaseError.invalidColumn(column)
+        }
+        try q.write { db in
+            let stmt = try db.cachedStatement(sql: "UPDATE book SET \(column) = ? WHERE id = ?")
+            for (id, value) in values {
+                try stmt.execute(arguments: [value, id])
+            }
+        }
+    }
+
     public func updateBooks(ids: [Int], patch: BookPatch) throws {
         if ids.isEmpty || patch.isEmpty { return }
         let bindings = try validatedBindings(for: patch)
