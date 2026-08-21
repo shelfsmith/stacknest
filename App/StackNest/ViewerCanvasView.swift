@@ -83,7 +83,18 @@ final class ViewerCanvasView: NSView {
     }
 
     /// G40: 倍率が変わったことを controller へ知らせる（HUD 表示と再デコードの予約）。
+    /// **スクロールで変えたときだけ**呼ぶ（HUD を出すのが自然な操作なので）。
     var onLoupeMagnificationChanged: ((CGFloat) -> Void)?
+
+    /// G40 Codex P2: ルーペの見た目が**キャンバスの外から**変わったことを controller へ知らせる。
+    ///
+    /// 設定から倍率を上げた場合（例: 「既定に戻す」で 1.5× → 2.0×）、下の通知購読は
+    /// 再描画するだけで**高解像度の再デコードを予約していなかった**。スクロール経路は
+    /// `onLoupeMagnificationChanged` 経由で予約しているのに、設定経路だけ抜けていた
+    /// —— Intel では低解像度のまま拡大され続け、リサイズ/トグル/スクロールが起きるまで直らない。
+    ///
+    /// HUD は出さない（設定を触っている最中はビューアが前面に無く、通知が邪魔になるだけ）。
+    var onLoupeAppearanceChanged: (() -> Void)?
     /// G40: 現在のルーペ直径。設定（グローバル）を正とし、描画のたびに読む。
     private var loupeDiameter: CGFloat { ViewerSettings.shared.loupeSize.diameter }
 
@@ -130,6 +141,12 @@ final class ViewerCanvasView: NSView {
                     // 新しい（小さい）矩形だけでは古い枠の外周が残る。
                     self.invalidateLoupeFrame(at: self.loupeCursor,
                                               diameter: LoupeSize.largestDiameter)
+                    // 倍率が上がっていれば高解像度の再デコードが要る。形や大きさだけの変更でも
+                    // 呼ぶが、`scheduleZoomRedecodeCheck` は既存タイマーを張り直すだけで冪等、
+                    // その先の判定も target が伸びていなければ何もしない。
+                    // スクロールで変えた場合はここと `onLoupeMagnificationChanged` の両方から
+                    // 呼ばれるが、同じ理由で 1 回の判定に収束する。
+                    self.onLoupeAppearanceChanged?()
                 }
         }
     }

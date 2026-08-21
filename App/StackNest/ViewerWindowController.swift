@@ -291,6 +291,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         canvas.onZoomChanged = { [weak self] _ in self?.scheduleZoomRedecodeCheck() }
         // G40: 倍率を変えたら、現在値を HUD に出し、高解像度の再デコードを予約する
         // （倍率が上がると decode target も上がるため。G38 の I-1 と同じ理由）。
+        // G40 Codex P2: 設定から見た目が変わったときも再デコードを予約する（HUD は出さない）。
+        canvas.onLoupeAppearanceChanged = { [weak self] in
+            self?.scheduleZoomRedecodeCheck()
+        }
         canvas.onLoupeMagnificationChanged = { [weak self] mag in
             guard let self else { return }
             self.hudNote(String(format: "ルーペ %.1f×", mag))
