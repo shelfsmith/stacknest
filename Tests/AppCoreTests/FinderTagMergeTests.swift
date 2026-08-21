@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: MIT
+import Testing
+@testable import AppCore
+
+/// spec §4 の 3 方向マージ。**単純な合併（ユニオン）では削除が伝わらない** ——
+/// 一度付いたタグはどちらで消しても復活してしまう。前回同期値が要る理由がこれ。
+@Suite("Finder タグの 3 方向マージ（G39）")
+struct FinderTagMergeTests {
+    private func m(_ base: Set<String>?, _ finder: Set<String>, _ lib: Set<String>) -> Set<String> {
+        FinderTagMerge.merge(baseline: base, finder: finder, library: lib).merged
+    }
+
+    @Test func addedInFinder()  { #expect(m([], ["a"], []) == ["a"]) }
+    @Test func addedInLibrary() { #expect(m([], [], ["a"]) == ["a"]) }
+
+    /// ★ 削除が伝わること。ユニオンだとここが ["a"] になって復活する。
+    @Test func removedInFinder()  { #expect(m(["a"], [], ["a"]) == []) }
+    @Test func removedInLibrary() { #expect(m(["a"], ["a"], []) == []) }
+
+    @Test func addedIndependentlyOnBothSides() { #expect(m([], ["a"], ["a"]) == ["a"]) }
+    @Test func unchanged() { #expect(m(["a"], ["a"], ["a"]) == ["a"]) }
+
+    /// spec §4.1: 真の競合は**追加を優先**。誤って残るほうが、誤って消えるより回復しやすい。
+    @Test func aTrueConflictKeepsTheTag() {
+        // 前回 ["a"]、Finder は "b" を足し、StackNest は "a" を消した
+        #expect(m(["a"], ["a", "b"], []) == ["b"], "片側だけの削除は伝わる")
+        // 前回なし、Finder が "a" を足し、StackNest も同時に "a" を足して消した…は表現できないので
+        // 「前回あり・両方に無い」= 双方で削除
+        #expect(m(["a"], [], []) == [])
+    }
+
+    /// 初回（前回値が無い）は合併でよい。まだ何も同期していないので削除の情報が無い。
+    @Test func theFirstSyncUnionsBothSides() {
+        #expect(m(nil, ["a"], ["b"]) == ["a", "b"])
+    }
+
+    /// どちら側が変わったかを返す（書き戻しの要否を決めるのに使う）。
+    @Test func reportsWhichSideNeedsWriting() {
+        let r = FinderTagMerge.merge(baseline: ["a"], finder: ["a"], library: ["a", "b"])
+        #expect(r.merged == ["a", "b"])
+        #expect(r.changedInFinder == true, "Finder 側に b を書き足す必要がある")
+        #expect(r.changedInLibrary == false, "StackNest 側は既に一致している")
+    }
+
+    @Test func emptyEverywhereIsANoOp() {
+        let r = FinderTagMerge.merge(baseline: [], finder: [], library: [])
+        #expect(r.merged.isEmpty)
+        #expect(r.changedInFinder == false)
+        #expect(r.changedInLibrary == false)
+    }
+}
