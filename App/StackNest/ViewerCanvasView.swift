@@ -147,7 +147,15 @@ final class ViewerCanvasView: NSView {
         loupeAppearanceObserver = NotificationCenter.default.addObserver(
             forName: .viewerLoupeAppearanceChanged, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.loupeEnabled else { return }
+                    guard let self else { return }
+                    // ★ 作業用の倍率は **`loupeEnabled` の判定より前に**捨てる。
+                    // 後ろに置くと、ルーペが OFF の間に設定が変わったときキャッシュが残り、
+                    // ON に戻した瞬間に**古い値**で描いてしまう（Codex の指摘）。
+                    // ずれは小さいとは限らない —— 5.0 付近でスクロール → OFF →
+                    // 「既定に戻す」で 2.0 → ON、で 3 倍ずれる。
+                    self.liveLoupeMagnification = nil
+                    // 以降の再描画・再デコードは ON のときだけでよい。
+                    guard self.loupeEnabled else { return }
                     // ★ 現在の直径ではなく最大で消す。大 → 小に変えたとき、
                     // 新しい（小さい）矩形だけでは古い枠の外周が残る。
                     self.invalidateLoupeFrame(at: self.loupeCursor,
@@ -157,8 +165,6 @@ final class ViewerCanvasView: NSView {
                     // その先の判定も target が伸びていなければ何もしない。
                     // スクロールで変えた場合はここと `onLoupeMagnificationChanged` の両方から
                     // 呼ばれるが、同じ理由で 1 回の判定に収束する。
-                    // 設定が外から変わった。作業用の値を捨てて、そちらを正に戻す。
-                    self.liveLoupeMagnification = nil
                     self.onLoupeAppearanceChanged?()
                 }
         }
