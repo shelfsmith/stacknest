@@ -12,15 +12,34 @@ public enum SpotlightTagQuery {
     /// **索引が無効なボリュームは実在する**（実測: `DATA04` / `download`）。
     public static func isIndexingEnabled(volume: URL) -> Bool {
         guard FileManager.default.fileExists(atPath: volume.path) else { return false }
+        // 実 I/O はここまで。判定そのものは `parseIndexingState` に切り出してテストで固定する。
         guard let out = try? run("/usr/bin/mdutil", ["-s", volume.path]) else { return false }
         // "Indexing enabled." / "Indexing and searching disabled." / "Indexing disabled."
-        return out.contains("Indexing enabled")
+        return parseIndexingState(out)
     }
 
     /// タグの付いた項目のパス一覧。
     public static func taggedPaths(in volume: URL) throws -> [String] {
         let out = try run("/usr/bin/mdfind", ["-onlyin", volume.path, "kMDItemUserTags == \"*\""])
-        return out.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
+        return parsePaths(out)
+    }
+
+    /// `mdutil -s` の出力から索引の有効・無効を読む。
+    ///
+    /// **ここが誤ると被害が大きい。**索引が無効なのに「有効」と判定すると、`mdfind` は何も
+    /// 返さないので**全ての本が「Finder 側にタグ無し」に見え**、3 方向マージが
+    /// 「ユーザーが全部消した」と解釈して**庫じゅうのタグを消しかねない**（spec §4.5 の
+    /// 対策がこれも救う設計になっている）。実機で確認した 3 表現をテストで固定する。
+    static func parseIndexingState(_ output: String) -> Bool {
+        // "Indexing and searching disabled." が "Indexing" で始まるため、
+        // **無効の表現を先に弾いてから**有効を見ること。
+        if output.contains("disabled") { return false }
+        return output.contains("Indexing enabled")
+    }
+
+    /// `mdfind` の出力（1 行 1 パス）を配列にする。
+    static func parsePaths(_ output: String) -> [String] {
+        output.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     }
 
     private static func run(_ launchPath: String, _ args: [String]) throws -> String {
