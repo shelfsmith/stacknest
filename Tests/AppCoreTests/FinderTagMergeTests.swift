@@ -20,8 +20,12 @@ struct FinderTagMergeTests {
     @Test func addedIndependentlyOnBothSides() { #expect(m([], ["a"], ["a"]) == ["a"]) }
     @Test func unchanged() { #expect(m(["a"], ["a"], ["a"]) == ["a"]) }
 
-    /// spec §4.1: 真の競合は**追加を優先**。誤って残るほうが、誤って消えるより回復しやすい。
-    @Test func aTrueConflictKeepsTheTag() {
+    /// baseline から見て**変化が見える側が勝つ**。
+    ///
+    /// 当初これを「真の競合（追加 vs 削除）は追加を優先」と説明していたが、
+    /// **その状態は到達不能**だった（削除は baseline にあること、追加は無いことを要求するため）。
+    /// ここが固定しているのは「片側の削除が伝わり、もう片側の追加も同時に通る」ことである。
+    @Test func theChangeThatIsVisibleAgainstTheBaselineWins() {
         // 前回 ["a"]、Finder は "b" を足し、StackNest は "a" を消した
         #expect(m(["a"], ["a", "b"], []) == ["b"], "片側だけの削除は伝わる")
         // 前回なし、Finder が "a" を足し、StackNest も同時に "a" を足して消した…は表現できないので
