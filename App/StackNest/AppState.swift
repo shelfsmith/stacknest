@@ -59,6 +59,13 @@ final class AppState {
         verifiedHash = hash
         // G39: 施錠庫は開いた時点では同期していない（メタデータを Finder へ書き出すため）。
         // 解錠できたここで初めて走らせる。同期対象が未設定なら中で即 return する。
+        //
+        // ★ `hash == nil` は「解錠」ではなく**リセット**。呼び出しの 5 箇所のうち 3 箇所が
+        // これで、**施錠庫を開いた直後**（`StackNestApp.swift:701`）と**窓を閉じるとき**
+        // （同 `:1267`）と `closeBundle()` が該当する。無条件に走らせると、
+        // **解錠シートが出ている裏でメタデータが Finder へ書き出され**、
+        // 窓を閉じる瞬間にも同期が始まる。**本人が解錠できたときだけ**にする。
+        guard hash != nil else { return }
         loadFinderTagSyncSettingAndSyncOnce()
     }
 
