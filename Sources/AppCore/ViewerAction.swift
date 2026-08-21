@@ -95,6 +95,51 @@ public struct ViewerKeyBindings: Codable, Sendable {
     /// 現時点で存在する全アクションの `rawValue`。
     public static let allActionKeys: Set<String> = Set(ViewerAction.allCases.map(\.rawValue))
 
+    /// G38 より前から存在したアクション（`rawValue`）。**凍結された履歴。**
+    ///
+    /// `knownActions` を持たない旧データを読むとき、これを「当時の既知集合」として使う。
+    /// 空集合として扱うと、**G38 以前にユーザーが意図的に外したキーまで復活する**
+    /// （Codex の指摘）。G38 で増えたアクションは `toggleLoupe` 1 つだけなので、
+    /// それ以前に存在した集合は確定できる。
+    ///
+    /// **★ 新しいアクションを足しても、このリストには絶対に追加しないこと。**
+    /// これは「今どんなアクションがあるか」ではなく「G38 の時点で何があったか」の記録であり、
+    /// 足すと旧データの移行判定が壊れる（新アクションが『当時からあった』ことになり補われない）。
+    static let preG38KnownActions: Set<String> = [
+        "close",
+        "cycleEndOfBookBehavior",
+        "cyclePageLayout",
+        "firstPage",
+        "fitToWindow",
+        "jumpToPercent0",
+        "jumpToPercent10",
+        "jumpToPercent20",
+        "jumpToPercent30",
+        "jumpToPercent40",
+        "jumpToPercent50",
+        "jumpToPercent60",
+        "jumpToPercent70",
+        "jumpToPercent80",
+        "jumpToPercent90",
+        "lastPage",
+        "nextPage",
+        "nextVolume",
+        "pageLeftward",
+        "pageRightward",
+        "prevVolume",
+        "previousPage",
+        "showHelp",
+        "skipBackward",
+        "skipForward",
+        "toggleAutoAdvance",
+        "toggleCoverOffset",
+        "toggleFullScreen",
+        "togglePageDirection",
+        "toggleSpread",
+        "zoomIn",
+        "zoomOut",
+    ]
+
     public init(
         map: [KeyChord: ViewerAction],
         characterMap: [String: ViewerAction] = [:],
@@ -238,9 +283,9 @@ public struct ViewerKeyBindings: Codable, Sendable {
     ///   アクションなので `knownActions` に載っており、ここで弾かれる（G38 再レビュー Important #1）。
     /// - 既に他のアクションが使っているキーは奪わない（衝突時はそのアクションを未バインドのまま残す）。
     ///
-    /// `knownActions` が nil の旧データだけは「何も既知でない」扱いになり、未バインドの
-    /// アクションを一律に補う。C-1 が塞ぎたかったのはまさにこの状態（`l` がどこにも無い保存済み設定）で、
-    /// かつ当時は削除の意図を記録していなかったので、これが唯一取りうる解釈になる。
+    /// `knownActions` が nil の旧データには、`load()` が `preG38KnownActions` を補ってから
+    /// ここへ渡す。したがって旧データでも**本当に新しいアクションだけ**が補われる
+    /// （当初は空集合として扱っており、G38 以前の削除まで復活させていた —— Codex の指摘で修正）。
     /// 移行は 1 度きり —— 最後に現在の全アクションを既知として刻むので、次回以降は削除が残る。
     ///
     /// 今後 `ViewerAction` を足すたびに同じ穴が開くので、`toggleLoupe` 専用ではなく汎用の仕組みとして書く。
@@ -274,6 +319,12 @@ public struct ViewerKeyBindings: Codable, Sendable {
             return fresh
         }
         var merged = decoded
+        if merged.knownActions == nil {
+            // 旧データ（G38 以前）は「どのアクションが既知だったか」を持たない。
+            // 空のまま fill に入れると全アクションが「新登場」扱いになり、
+            // **当時ユーザーが意図的に外したキーまで復活する**。当時の集合は確定できるので補う。
+            merged.knownActions = Self.preG38KnownActions
+        }
         merged.fillMissingActionsFromDefaults()
         return merged
     }

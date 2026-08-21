@@ -76,10 +76,21 @@ final class ViewerCanvasView: NSView {
             width: d + pad * 2,
             height: d + pad * 2))
     }
-    /// G40: 現在のルーペ倍率。設定（グローバル）を正とし、スクロールで動かすとそこへ書き戻す。
+    /// G40 Codex P2: スクロール中の作業用倍率（メモリ上）。
+    ///
+    /// 設定への書き戻しは**表示が動く粒度でのみ**行う（`ViewerSettings` への代入は
+    /// 全 canvas への通知・HUD の作り直し・Timer の張り直しを伴うため、120Hz では重い）。
+    /// **倍率そのものはここで毎イベント動かす。**保存値を毎回読み直すと、
+    /// 閾値未満の変化が切り捨てられたまま次のイベントも同じ値から始まり、
+    /// **ゆっくりしたトラックパッド操作では倍率が永久に変わらない**（当初の実装の欠陥）。
+    /// 設定が外から変わったら nil に戻して、そちらを正に戻す。
+    private var liveLoupeMagnification: CGFloat?
+
+    /// G40: 現在のルーペ倍率。スクロール中は作業用の値、それ以外は設定（グローバル）を正とする。
     /// controller は実効倍率 `zoomFactor × これ` を再デコード判定に使う。
     var currentLoupeMagnification: CGFloat {
-        LoupeMagnification.clamp(CGFloat(ViewerSettings.shared.loupeMagnification))
+        liveLoupeMagnification
+            ?? LoupeMagnification.clamp(CGFloat(ViewerSettings.shared.loupeMagnification))
     }
 
     /// G40: 倍率が変わったことを controller へ知らせる（HUD 表示と再デコードの予約）。
@@ -146,6 +157,8 @@ final class ViewerCanvasView: NSView {
                     // その先の判定も target が伸びていなければ何もしない。
                     // スクロールで変えた場合はここと `onLoupeMagnificationChanged` の両方から
                     // 呼ばれるが、同じ理由で 1 回の判定に収束する。
+                    // 設定が外から変わった。作業用の値を捨てて、そちらを正に戻す。
+                    self.liveLoupeMagnification = nil
                     self.onLoupeAppearanceChanged?()
                 }
         }
@@ -361,13 +374,18 @@ final class ViewerCanvasView: NSView {
                 from: currentLoupeMagnification,
                 scrollDeltaY: event.scrollingDeltaY,
                 hasPreciseDeltas: event.hasPreciseScrollingDeltas)
-            // トラックパッドは 1 イベントごとに連続値を送ってくる（120Hz にもなる）。素直に毎回
-            // 反映すると、**見た目が一切変わらない 0.003% の変化でも**設定の書き込み・全 canvas への
-            // 通知・HUD の作り直し・Timer の張り直しが走る。HUD は `%.1f` 表示なので、
-            // **表示の 1 桁が動く粒度**より細かい変化は取り込まない（次のイベントで累積して超える）。
-            if abs(next - currentLoupeMagnification) > 0.005 {
+            guard next != currentLoupeMagnification else { return }   // 上下限に張り付いている
+            // ★ 倍率は毎イベント動かす。ここで切り捨てると、閾値未満の変化しか生まない
+            // ゆっくりした操作で**永久に倍率が変わらない**（Codex の指摘で判明）。
+            liveLoupeMagnification = next
+            invalidateLoupeFrame(at: loupeCursor)
+
+            // 重い後処理（設定の書き込み → 全 canvas への通知 → HUD の作り直し → Timer 2 本）は
+            // **表示が動く粒度でだけ**行う。HUD は `%.1f` なので 0.005 未満の差は見えない。
+            // トラックパッドは 120Hz で送ってくるので、ここを毎回通すと無駄が大きい。
+            let persisted = LoupeMagnification.clamp(CGFloat(ViewerSettings.shared.loupeMagnification))
+            if abs(next - persisted) > 0.005 {
                 ViewerSettings.shared.loupeMagnification = Double(next)
-                invalidateLoupeFrame(at: loupeCursor)
                 onLoupeMagnificationChanged?(next)
             }
             return
