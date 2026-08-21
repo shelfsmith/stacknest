@@ -54,12 +54,23 @@ struct FinderTagEntryTests {
         #expect(e.colorIndex == nil)
     }
 
-    /// spec §4.4: 区切り文字を含むタグは同期しない。
-    @Test func tagsContainingTheSeparatorAreNotSyncable() {
+    /// spec §4.4: **往復で元に戻らない名前は同期しない。**
+    ///
+    /// 当初は「`", "` を含むか」で判定していたが、`MultiValueParser.split` は
+    /// **`","` で切って前後の空白を trim** するので、それでは漏れる。
+    /// レビューが実測で見つけた: `"SF,ファンタジー"` は素通りして
+    /// **1 個の Finder タグが 2 個の値に割れ**、しかも `skippedTags` に載らない。
+    @Test func onlyNamesThatSurviveTheRoundTripAreSyncable() {
         #expect(FinderTagEntry.isSyncable("SF") == true)
-        #expect(FinderTagEntry.isSyncable("SF, ファンタジー") == false)
-        #expect(FinderTagEntry.isSyncable("SF,ファンタジー") == true,
-                "区切りは \", \"（カンマ+空白）。カンマだけなら分裂しない")
+        #expect(FinderTagEntry.isSyncable("マンガ") == true)
+
+        #expect(FinderTagEntry.isSyncable("SF, ファンタジー") == false, "区切りそのもの")
+        #expect(FinderTagEntry.isSyncable("SF,ファンタジー") == false,
+                "★ 空白が無くても split はカンマで割る。当初の判定はここを見逃していた")
+        #expect(FinderTagEntry.isSyncable("SF ") == false,
+                "★ 末尾の空白は trim される。往復で戻らない")
+        #expect(FinderTagEntry.isSyncable(" SF") == false, "先頭の空白も同じ")
+        #expect(FinderTagEntry.isSyncable(" ") == false, "空白だけの名前は split が空にする")
         #expect(FinderTagEntry.isSyncable("") == false, "空のタグは同期しない")
     }
 }
