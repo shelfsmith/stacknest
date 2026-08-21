@@ -69,6 +69,11 @@ struct LibrarySettingsSheet: View {
     @State var stagedFieldLabels: [String: String] = [:]
     @State var stagedBookTypeLabels: [String: String] = [:]
 
+    // Phase G39: Finder タグと同期する項目（`""` = 同期しない）。
+    // **ステージしない**（選んだ時点で DB に書き、前回同期値を全消しする）。理由は
+    // `LibrarySettingsSheet+FinderTags.swift` の冒頭コメント。
+    @State var finderTagField: String = LibrarySettingsSheet.finderTagSyncNoneTag
+
     /// 現在表示中の設定タブ (0=一般 / 1=フォーマット / 5=取り込み / 2=ラベル / 3=ロック / 4=監視フォルダ)。
     @State private var settingsTab = 0
     /// C-④b: 取り込みタブの厚さ閾値 override 直接入力用（グローバル設定と同様の TextField+Stepper）。
@@ -131,6 +136,7 @@ struct LibrarySettingsSheet: View {
             useBiometricInput = settings.useBiometric
             stagedFieldLabels = settings.customFieldLabels
             stagedBookTypeLabels = settings.customBookTypeLabels
+            finderTagField = appState?.finderTagSyncField ?? Self.finderTagSyncNoneTag
         }
         .confirmationDialog(
             "全ての表紙を再生成します",
@@ -270,6 +276,7 @@ struct LibrarySettingsSheet: View {
             .padding(8)
         }
         metadataSection()
+        finderTagSection()   // Phase G39
         backupSection()
     }
 

@@ -78,6 +78,19 @@ final class AppState {
     var folderWatcher: FolderWatcher?
     private var watchSummaryClearTask: Task<Void, Never>?
 
+    // MARK: - Phase G39: Finder タグ同期（配線は AppState+FinderTags.swift）
+
+    /// 同期対象のメタデータ項目（`nil` = 同期しない＝既定）。
+    /// **DB を毎回読まずに済むようここに持つ** —— メニュー項目の有効/無効は頻繁に再評価される。
+    /// 書き込みは `setFinderTagSyncField(_:)` 経由に限る（前回同期値の全消しがそこにあるため）。
+    var finderTagSyncField: String?
+    /// 同期結果のバナー（警告は自動で消えない）。
+    var finderTagSyncNotice: FinderTagSyncNotice?
+    /// 走行中フラグ。**手動再照合の二重起動を止める唯一の場所。**
+    var isFinderTagSyncRunning = false
+    var finderTagSyncTask: Task<Void, Never>?
+    var finderTagNoticeClearTask: Task<Void, Never>?
+
     // v0.4a additions
     var selectedSidebarItem: SidebarItem? = .library
     var shelves: [PlaylistRow] = []  // kind != favorites のみ
@@ -343,6 +356,10 @@ final class AppState {
                 }
             }
         }
+        // Phase G39: Finder タグ同期を **1 回だけ・バックグラウンドで**走らせる（spec §1 の契機）。
+        // 同期対象が未設定（既定）なら中で即 return する。ここを `await` しないこと ——
+        // 庫を開く経路はメインスレッドで、待たせると 12,000 冊の庫で目に見えて固まる。
+        loadFinderTagSyncSettingAndSyncOnce()
     }
 
     /// B23: `.recover` による最終手段の修復。入力＝最新の壊れた本体（library.corrupt-* 優先、
@@ -474,6 +491,10 @@ final class AppState {
         librarySettings?.flushPendingWrites()
         watchSummaryClearTask?.cancel()
         watchSummaryClearTask = nil
+        // G39: 走行中の Finder タグ同期に中断信号を出す（次のボリュームへは進まなくなる）。
+        // 走行中の 1 ボリューム分は最後まで走るが、`Database.close()` は queue の参照を
+        // 落とすだけで飛行中の処理を壊さないので安全に終わる。
+        stopFinderTagSync()
         backupOnCloseIfNeeded()
         database?.close()
         database = nil

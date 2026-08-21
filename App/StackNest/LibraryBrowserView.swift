@@ -37,18 +37,27 @@ struct LibraryBrowserView: View {
                 showRelink = true
             }
             .overlay(alignment: .top) {
-                if let summary = appState.watchImportSummary {
-                    Text(summary)
-                        .font(.callout)
-                        .padding(.horizontal, 14).padding(.vertical, 8)
-                        .background(.thinMaterial, in: Capsule())
-                        .overlay(Capsule().stroke(.secondary.opacity(0.3)))
-                        .padding(.top, 10)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .shadow(radius: 4)
+                VStack(spacing: 6) {
+                    if let summary = appState.watchImportSummary {
+                        Text(summary)
+                            .font(.callout)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(.thinMaterial, in: Capsule())
+                            .overlay(Capsule().stroke(.secondary.opacity(0.3)))
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .shadow(radius: 4)
+                    }
+                    // Phase G39: Finder タグ同期の結果。**黙って同期されないのが最悪**なので、
+                    // 索引無効・スキップしたタグ・諦めた本は必ずここに出る（警告は自動で消えない）。
+                    if let notice = appState.finderTagSyncNotice {
+                        FinderTagSyncBanner(notice: notice) { appState.dismissFinderTagSyncNotice() }
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
                 }
+                .padding(.top, 10)
             }
             .animation(.easeInOut, value: appState.watchImportSummary)
+            .animation(.easeInOut, value: appState.finderTagSyncNotice)
     }
 
     /// body の modifier chain を A/B に分割して Swift type-checker のタイムアウトを回避する。

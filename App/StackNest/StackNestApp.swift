@@ -906,6 +906,15 @@ struct FileCommands: Commands {
             }
             .disabled(!(target?.canEditMeta ?? false))
 
+            // Phase G39: Finder タグの手動再照合。**ローカル庫だけ**（リモートはサーバ機の
+            // ファイルにタグが付いており、クライアントからは触れない＝spec §6）なので、
+            // `target`（ローカル/リモート共通）ではなく `appState` を直接見る。
+            // 同期対象が未設定の庫と、走行中の二重起動は `canStartFinderTagSync` が弾く。
+            Button("Finder タグを再照合") {
+                appState?.startFinderTagSync(trigger: .manual)
+            }
+            .disabled(!(appState?.canStartFinderTagSync ?? false))
+
             Divider()
             Button("ライブラリから削除") {
                 NotificationCenter.default.post(name: .stacknestDeleteFromLibraryRequest, object: nil)
