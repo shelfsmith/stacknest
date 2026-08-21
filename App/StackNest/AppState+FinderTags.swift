@@ -37,10 +37,6 @@ extension AppState {
     func loadFinderTagSyncSettingAndSyncOnce() {
         guard let db = database else { return }
         finderTagSyncField = FinderTagSyncSetting.current(db)
-        // ★ 施錠庫では解錠まで走らせない。同期は庫のメタデータを **Finder タグとして
-        // ファイルに書き出す**ので、解錠せずに中身が見えるのでは施錠の意味が無い。
-        // 呼び出し元でも弾いているが、**ここが最後の関門**（呼び出し経路は 3 つある）。
-        guard !needsUnlock else { return }
         startFinderTagSync(trigger: .libraryOpened)
     }
 
@@ -79,6 +75,13 @@ extension AppState {
             }
             return
         }
+
+        // ★ 施錠されたら手動再照合も止める。`canStartFinderTagSync` は
+        // `database != nil && field != nil && !running` しか見ておらず、
+        // **庫を開いた後に外部（CLI/MCP/共有サーバ/別窓）から施錠される**と
+        // `needsUnlock` は true に戻るのに項目設定は残るため、メニューが有効なままだった。
+        // 直したばかりの Critical と**同じ形**（ゲートが実作業の 1 段上にある）。
+        guard !needsUnlock else { return }
 
         isFinderTagSyncRunning = true
         // ★ 実際に走る子タスクを**保持して**おく。`Task.detached` の子には

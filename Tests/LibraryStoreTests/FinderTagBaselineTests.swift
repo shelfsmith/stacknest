@@ -116,3 +116,64 @@ struct FinderTagBaselineTests {
         #expect(try db.getLibrarySetting(key: "finderTagSyncField") == nil, "既定は同期しない")
     }
 }
+
+/// G39 修正波の回帰テスト。**レビューで「5 変異すべてが生き残る」と指摘された箇所。**
+@Suite("一括列更新の安全性（G39 修正波）")
+struct UpdateBookColumnSafetyTests {
+    private func fixture() throws -> (Database, [Int]) {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        for id in 1...3 { try db.insertBook(BookRow.testInstance(id: id, title: "b\(id)")) }
+        return (db, [1, 2, 3])
+    }
+
+    /// ★ 一括経路も `BookPatch` と同じ正規化を通ること。
+    ///
+    /// 通らないと NFD のまま保存され、**SQLite の比較はバイト単位**なので
+    /// 見た目の同じ著者がファセットで 2 行に割れる（レビューが実測した後退）。
+    @Test func bulkWritesAreNormalisedLikeAPatch() throws {
+        let (db, ids) = try fixture()
+        // 同じ文字列の NFD 表現と NFC 表現
+        let nfd = "が".decomposedStringWithCanonicalMapping
+        let nfc = "が".precomposedStringWithCanonicalMapping
+        // Swift の `String ==` は正準等価なので、この 2 つは `==` では区別できない。
+        // **SQLite の比較はバイト単位**なので、そちらで効いてくる。バイトで前提を確認する。
+        #expect(Array(nfd.utf8) != Array(nfc.utf8), "前提: バイト列としては違う")
+
+        try db.updateBookColumn("author", values: [ids[0]: nfd])
+        try db.updateBooks(ids: [ids[1]], patch: BookPatch(author: nfc))
+
+        let a = try db.fetchAllBooks().first { $0.id == ids[0] }?.author ?? ""
+        let b = try db.fetchAllBooks().first { $0.id == ids[1] }?.author ?? ""
+        #expect(Array(a.utf8) == Array(b.utf8),
+                "一括経路と patch 経路で**同じバイト列**になること。違うと DISTINCT で 2 行に割れる")
+    }
+
+    /// 区切りも patch 経路と揃うこと（`"A,B"` → `"A, B"`）。
+    @Test func bulkWritesUseTheCanonicalSeparator() throws {
+        let (db, ids) = try fixture()
+        try db.updateBookColumn("author", values: [ids[0]: "A,B"])
+        #expect(try db.fetchAllBooks().first { $0.id == ids[0] }?.author == "A, B")
+    }
+
+    /// ★ 受け付ける列を絞ること。`browseColumns` は広すぎて `rating` / `book_type` を含み、
+    /// 整数列に文字列を書いて型を壊せる（レビューが実測: `rating` に 9999 が入った）。
+    @Test func onlyMultiValueTextColumnsAreAccepted() throws {
+        let (db, ids) = try fixture()
+        for ok in ["genre", "series", "author", "neta", "keyword_a", "keyword_b", "keyword_c"] {
+            try db.updateBookColumn(ok, values: [ids[0]: "x"])
+        }
+        for bad in ["rating", "book_type", "path", "title", "id", "genre; DROP TABLE book"] {
+            #expect(throws: (any Error).self, "\(bad) を受け付けてはいけない") {
+                try db.updateBookColumn(bad, values: [ids[0]: "9999"])
+            }
+        }
+    }
+
+    /// 1 トランザクションであること —— 途中で失敗したら 1 件も書かれない。
+    @Test func theWholeBatchIsOneTransaction() throws {
+        let (db, ids) = try fixture()
+        try db.updateBookColumn("author", values: [ids[0]: "先", ids[1]: "先"])
+        #expect(try db.fetchAllBooks().filter { $0.author == "先" }.count == 2)
+    }
+}

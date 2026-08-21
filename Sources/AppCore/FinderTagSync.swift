@@ -144,6 +144,12 @@ public enum FinderTagSync {
 
         do {
             for row in try database.fetchAllBooks() {
+                // ★ **本の境界で中断を見る。**ここが無いと、庫を閉じても最後まで走り切る ——
+                // 中断チェックがボリュームの境界にしか無く、**普通の庫はボリュームが 1 個**
+                // なので実質何も止まらなかった（レビューが実測: cancel 済みで 200/200 冊を処理）。
+                // 閉じた DB への書き込みは黙って no-op になるため、
+                // **xattr だけ書かれて図書側が書かれない**状態のまま走り続けることになる。
+                if Task.isCancelled { break }
                 guard let rawPath = row.path, !rawPath.isEmpty else { continue }
                 let url = URL(fileURLWithPath: rawPath)
                 let libraryOrder = MultiValueParser.split(value(of: field, in: row) ?? "")

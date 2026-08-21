@@ -1827,7 +1827,7 @@ public final class Database: @unchecked Sendable {
     /// Ensures values are always stored with `, ` separator regardless of how
     /// the user typed them (e.g. "A,B" without spaces → "A, B").
     /// Returns nil if the input is nil; returns the normalized string otherwise.
-    private static func normalizeMultiValue(_ raw: String?) -> String? {
+    static func normalizeMultiValue(_ raw: String?) -> String? {
         guard let raw = raw else { return nil }
         let parts = MultiValueParser.split(raw)
         return parts.isEmpty ? raw : MultiValueParser.join(parts)
@@ -1923,16 +1923,31 @@ public final class Database: @unchecked Sendable {
     /// ほぼ全件で値が異なる列では、実測で **4,000 冊 22.5 秒**（同じ値にまとめられる場合は 2.5 秒）。
     /// `setFinderTagBaselines` と同じく、文をキャッシュして 1 トランザクションで流す。
     ///
-    /// - Parameter column: `BookPatch` を経由しないので、**受け付ける列を whitelist で縛る**。
+    /// **`BookPatch` を経由しないので、この関数が自前で 2 つの責務を持つ:**
+    ///
+    /// 1. **受け付ける列を絞る。**`browseColumns` は広すぎる —— `rating` / `book_type` を
+    ///    含むため、整数列に文字列を書いて型を壊したり、`BookPatch` の 0...5 クランプを
+    ///    迂回したりできてしまう（レビューが実測: `rating` に "9999" が入った）。
+    ///    **複数値のテキスト列だけ**を受け付ける。
+    /// 2. **値を正規化する。**`validatedBindings` が掛けている NFC と区切りの正規化を
+    ///    通らないので、ここで同じことをする。掛け忘れると、見た目の同じ著者が
+    ///    NFC と NFD で**ファセット上 2 行に割れる**（レビューが実測）。
+    public static let bulkWritableColumns: Set<String> = [
+        "genre", "series", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
+    ]
+
     public func updateBookColumn(_ column: String, values: [Int: String]) throws {
         guard let q = queue, !values.isEmpty else { return }
-        guard Self.browseColumns.contains(column) else {
+        guard Self.bulkWritableColumns.contains(column) else {
             throw DatabaseError.invalidColumn(column)
         }
         try q.write { db in
             let stmt = try db.cachedStatement(sql: "UPDATE book SET \(column) = ? WHERE id = ?")
             for (id, value) in values {
-                try stmt.execute(arguments: [value, id])
+                // `validatedBindings` と同じ正規化。ここを飛ばすと NFD のまま保存され、
+                // SQLite の比較はバイト単位なので `DISTINCT` や絞り込みで割れる。
+                let normalized = TextNormalize.nfc(Self.normalizeMultiValue(value) ?? value)
+                try stmt.execute(arguments: [normalized, id])
             }
         }
     }

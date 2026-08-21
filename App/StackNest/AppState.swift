@@ -514,7 +514,8 @@ final class AppState {
         // G39: 走行中の Finder タグ同期を中断する。
         // **実際に走っているのは `Task.detached` の子**で、親を cancel しても伝播しないため、
         // `stopFinderTagSync()` が子を直接止める（レビューが「中断が効いていない」ことを実測）。
-        // 中断は本の境界で効き、`Database.close()` は queue の参照を落とすだけで
+        // 中断は**本の境界**で効く（ボリュームの境界だけでは、ボリューム 1 個の普通の庫で
+        // 何も止まらない）。`Database.close()` は queue の参照を落とすだけで
         // 飛行中の処理を壊さないので安全に終わる。
         stopFinderTagSync()
         backupOnCloseIfNeeded()
