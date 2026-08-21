@@ -25,6 +25,22 @@ struct FinderTagEntryTests {
         }
     }
 
+    /// ★ 見慣れない色番号でも**そのまま保つ**こと。
+    ///
+    /// Finder が書くのは 0〜7 だけだが、他のアプリが書いた値が入っていることはありうる。
+    /// **理解できない値を 0〜7 に丸めたり捨てたりすると、他人のデータを壊す。**
+    /// 往復で保つのが正しい。レビューで「負値を捨てる改変を誰も検出しない」穴として見つかった。
+    ///
+    /// 保てるのは**整数の正準表記**に限る。`"007"` のような先頭ゼロは `"7"` に正規化されるが、
+    /// Finder はそれを書かないので実害はない（境界としてここに記録しておく）。
+    @Test func keepsAnUnfamiliarColourIndexAsItIs() {
+        for raw in ["名前\n-1", "名前\n0", "名前\n7", "名前\n42"] {
+            #expect(FinderTagEntry.parse(raw).rawValue == raw, "\(raw) を丸めたり捨てたりしてはいけない")
+        }
+        #expect(FinderTagEntry.parse("名前\n007").rawValue == "名前\n7",
+                "先頭ゼロは正準化される（Finder は書かないので実害なし・境界の記録）")
+    }
+
     /// 名前自体に改行が入っている異常データでも壊れない（最初の改行で切る）。
     @Test func onlyTheFirstNewlineSeparatesTheColour() {
         let e = FinderTagEntry.parse("変な\n名前\n6")
