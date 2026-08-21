@@ -112,4 +112,30 @@ struct ViewerSettingsLoupeTests {
         s.loupeMagnification = 3.0
         #expect(received == 2)
     }
+
+    @Test func theSizeSurvivesARoundTripAndDefaultsToMedium() {
+        let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
+        #expect(ViewerSettings(defaults: ud).loupeSize == .medium, "未保存なら中")
+
+        let s = ViewerSettings(defaults: ud)
+        s.loupeSize = .large
+        #expect(ViewerSettings(defaults: ud).loupeSize == .large)
+    }
+
+    @Test func anUnknownStoredSizeFallsBackToMedium() {
+        let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
+        ud.set("gigantic", forKey: "viewerLoupeSize")
+        #expect(ViewerSettings(defaults: ud).loupeSize == .medium)
+    }
+
+    @Test func changingTheSizePostsTheAppearanceNotification() {
+        let (ud, name) = freshDefaults(); defer { ud.removePersistentDomain(forName: name) }
+        let s = ViewerSettings(defaults: ud)
+        var received = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .viewerLoupeAppearanceChanged, object: nil, queue: nil) { _ in received += 1 }
+        defer { NotificationCenter.default.removeObserver(token) }
+        s.loupeSize = .small
+        #expect(received == 1)
+    }
 }
