@@ -31,8 +31,15 @@ public enum SpotlightTagQuery {
     /// 「ユーザーが全部消した」と解釈して**庫じゅうのタグを消しかねない**（spec §4.5 の
     /// 対策がこれも救う設計になっている）。実機で確認した 3 表現をテストで固定する。
     static func parseIndexingState(_ output: String) -> Bool {
-        // "Indexing and searching disabled." が "Indexing" で始まるため、
-        // **無効の表現を先に弾いてから**有効を見ること。
+        // **「disabled」と言っている出力は信じない。**
+        //
+        // 実機で確認した 3 表現に対しては、下の `contains("Indexing enabled")` だけでも
+        // 同じ結果になる（どれも "Indexing enabled" を部分文字列として含まないため）。
+        // **このガードはそれらに対しては何もしていない。**
+        // 効くのは「有効と無効を同時に述べる表現」—— 例えば
+        // "Indexing enabled, searching disabled." のような出力が来たとき。
+        // `mdfind` が使えない状態を「有効」と読むと、**検索結果が空になり
+        // 庫じゅうのタグを消しかねない**（spec §4.5）ので、安全側に倒す。
         if output.contains("disabled") { return false }
         return output.contains("Indexing enabled")
     }

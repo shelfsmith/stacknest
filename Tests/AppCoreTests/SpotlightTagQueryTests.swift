@@ -46,6 +46,22 @@ struct SpotlightOutputParsingTests {
         #expect(SpotlightTagQuery.parseIndexingState("Indexing and searching disabled.") == false)
     }
 
+    /// ★ 有効と無効を同時に述べる出力は「無効」に倒すこと。
+    ///
+    /// 実機の 3 表現に対しては、この判定は素朴な `contains("Indexing enabled")` と同じ結果になる
+    /// ——**ガードは何もしていない**（レビューが変異で確認）。効くのはこの形の入力だけ。
+    /// `mdfind` が使えない状態を「有効」と読むと、検索結果が空になり
+    /// **庫じゅうのタグを消しかねない**ので、安全側に倒す。
+    @Test func anOutputThatSaysBothIsTreatedAsDisabled() {
+        #expect(SpotlightTagQuery.parseIndexingState("Indexing enabled, searching disabled.") == false)
+        #expect(SpotlightTagQuery.parseIndexingState("Indexing enabled. Searching disabled.") == false)
+    }
+
+    /// 実機で見つかった 4 つ目の表現（Time Machine のローカルスナップショット）。
+    @Test func anUnknownStateIsTreatedAsNotIndexed() {
+        #expect(SpotlightTagQuery.parseIndexingState("Error: unknown indexing state.") == false)
+    }
+
     @Test func anUnexpectedOutputIsTreatedAsNotIndexed() {
         #expect(SpotlightTagQuery.parseIndexingState("") == false)
         #expect(SpotlightTagQuery.parseIndexingState("Error: invalid path") == false)
