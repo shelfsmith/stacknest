@@ -55,7 +55,12 @@ final class AppState {
 
     /// G25c: 解錠成功（または本人によるパスワード設定）を記録する。
     /// 呼出点は 2 つだけに保つこと＝①解錠シートの成功 ②設定シートで本人がパスワードを設定したとき。
-    func markUnlocked(hash: String?) { verifiedHash = hash }
+    func markUnlocked(hash: String?) {
+        verifiedHash = hash
+        // G39: 施錠庫は開いた時点では同期していない（メタデータを Finder へ書き出すため）。
+        // 解錠できたここで初めて走らせる。同期対象が未設定なら中で即 return する。
+        loadFinderTagSyncSettingAndSyncOnce()
+    }
 
     /// G25c: この庫が今このウィンドウで解錠を要するか。
     /// **解錠シートのゲートと ⌘⇧O のローカル判定が共有する唯一の述語**（別々に書くと乖離し、
@@ -359,7 +364,12 @@ final class AppState {
         // Phase G39: Finder タグ同期を **1 回だけ・バックグラウンドで**走らせる（spec §1 の契機）。
         // 同期対象が未設定（既定）なら中で即 return する。ここを `await` しないこと ——
         // 庫を開く経路はメインスレッドで、待たせると 12,000 冊の庫で目に見えて固まる。
-        loadFinderTagSyncSettingAndSyncOnce()
+        //
+        // ★ 施錠庫では解錠まで待つ。同じ場所で走る `reloadFolderWatcher()` は解錠前でも動くが、
+        // **性質が違う** —— 監視は見るだけなのに対し、**同期は庫のメタデータを Finder タグとして
+        // 書き出す**。解錠せずに Finder から中身が見えてしまうのでは、施錠の意味が無い。
+        // 解錠時に `markUnlocked` から改めて呼ぶ。
+        if !needsUnlock { loadFinderTagSyncSettingAndSyncOnce() }
     }
 
     /// B23: `.recover` による最終手段の修復。入力＝最新の壊れた本体（library.corrupt-* 優先、
