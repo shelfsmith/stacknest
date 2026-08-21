@@ -385,4 +385,16 @@ enum Tables {
         UPDATE book_viewer_state SET spread_explicit = 1
         WHERE spread_enabled = 1 OR cover_offset = 0
         """
+
+    // MARK: - v19 migrations (Phase G39: Finder タグ同期の前回同期値)
+
+    /// v19 — 前回 Finder タグ同期で書いた名前一覧を `book` に 1 列で持つ。`MultiValueParser`
+    /// の `", "` 区切りで保持する（既存の keyword_a 等と同じ表現）。
+    ///
+    /// NULL と `""`（空文字列）は意味が違う: NULL = まだ一度も同期していない本、
+    /// `""` = 同期済みだがタグが 0 件だった本。3 方向マージ（Task 7）はこの区別で
+    /// 「一度も見ていない」と「前回は空だった」を分ける。
+    static let migrateV19AddFinderTagsSynced = """
+        ALTER TABLE book ADD COLUMN finder_tags_synced TEXT
+        """
 }
