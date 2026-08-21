@@ -484,3 +484,33 @@ struct FinderTagSyncTests {
         #expect(try db.finderTagBaseline(bookID: untouched.id) == nil)
     }
 }
+
+/// レビューが「テストが 1 本も無い」と指摘した箇所を固定する。
+/// いずれも壊れても既存テストが緑のままだった（生存変異）。
+@Suite("Finder タグ同期の細部（G39・レビュー由来）")
+struct FinderTagSyncDetailTests {
+    /// ★ フォルダの本は `path` に末尾 `/` が付きうる。落とさないと `mdfind` の出力と
+    /// 突き合わず、**値の無い本に新しく付いたタグが永久に拾われない**（直読みが起動しないため）。
+    @Test func trailingSlashesAreStrippedSoFolderBooksMatchSpotlight() {
+        #expect(FinderTagSync.normalize("/Volumes/comic/本/") == "/Volumes/comic/本")
+        #expect(FinderTagSync.normalize("/Volumes/comic/本///") == "/Volumes/comic/本")
+        #expect(FinderTagSync.normalize("/Volumes/comic/本.zip") == "/Volumes/comic/本.zip")
+        #expect(FinderTagSync.normalize("/") == "/", "根だけは残す")
+    }
+
+    /// ★ spec §2 が決めた 7 項目そのものを固定する。
+    /// 既存テストは whitelist 自身を回すので、**項目が減っても増えても検出できない**。
+    @Test func theSyncableFieldsAreTheOnesTheSpecChose() {
+        #expect(FinderTagSync.syncableFields == [
+            "genre", "series", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
+        ])
+    }
+
+    /// 既存の並びを保ち、増えた分を末尾に足す（`FinderTagStore.apply` と同じ方針）。
+    @Test func orderedKeepsWhatWasThereAndAppendsTheRest() {
+        #expect(FinderTagSync.ordered(["c", "a", "z"], preferring: ["c", "a"]) == ["c", "a", "z"])
+        #expect(FinderTagSync.ordered(["a"], preferring: ["c", "a"]) == ["a"])
+        #expect(FinderTagSync.ordered(["b", "a"], preferring: []) == ["a", "b"],
+                "元の並びが無ければ決定的に並べる")
+    }
+}
