@@ -160,3 +160,95 @@ struct FinderTagStoreTests {
         #expect(Set(try FinderTagStore.read(at: link).map(\.name)) == ["リンク経由"])
     }
 }
+
+/// レビューが見つけた破壊的経路と、変異が素通りしていた箇所を固定する。
+@Suite("Finder タグの壊さない保証（G39・レビュー由来）")
+struct FinderTagStoreSafetyTests {
+    private func tempDir() throws -> URL {
+        let d = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39s-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+    private func tempFile(_ d: URL) throws -> URL {
+        let f = d.appendingPathComponent("book.zip")
+        try Data("x".utf8).write(to: f)
+        return f
+    }
+
+    /// ★★ Critical: 同期対象外のタグを消さない。
+    ///
+    /// 区切り文字を含む名前は spec §4.4 でマージから外れるので `names` に現れない。
+    /// それを「消された」と解釈すると、**同期しないと決めたタグを削除**してしまう。
+    @Test func applyNeverTouchesATagItWasToldNotToSync() throws {
+        let d = try tempDir(); defer { try? FileManager.default.removeItem(at: d) }
+        let f = try tempFile(d)
+        try FinderTagStore.write([FinderTagEntry(name: "SF, ファンタジー", colorIndex: 6),
+                                  FinderTagEntry(name: "同期対象", colorIndex: nil)], to: f)
+
+        try FinderTagStore.apply(names: ["同期対象"], to: f)
+
+        let back = try FinderTagStore.read(at: f)
+        #expect(back.contains { $0.name == "SF, ファンタジー" && $0.colorIndex == 6 },
+                "同期対象外のタグを色ごと消してはいけない")
+        #expect(back.contains { $0.name == "同期対象" })
+    }
+
+    /// 同期対象外のタグしか無いファイルで `apply([])` しても、それが残ること。
+    @Test func applyingAnEmptySetStillKeepsUnsyncableTags() throws {
+        let d = try tempDir(); defer { try? FileManager.default.removeItem(at: d) }
+        let f = try tempFile(d)
+        try FinderTagStore.write([FinderTagEntry(name: "A, B", colorIndex: 2)], to: f)
+
+        try FinderTagStore.apply(names: [], to: f)
+
+        #expect(try FinderTagStore.read(at: f).map(\.name) == ["A, B"])
+    }
+
+    /// ★ Important: 「読めなかった」を空配列に潰さない。
+    ///
+    /// 潰すとマージ側からは「全部消された」に見え、StackNest 側のタグまで道連れになる。
+    @Test func aPlistThatIsNotStringsIsAnErrorNotAnEmptyList() throws {
+        let d = try tempDir(); defer { try? FileManager.default.removeItem(at: d) }
+        let f = try tempFile(d)
+        // 有効な plist だが要素が String でない
+        let data = try PropertyListSerialization.data(
+            fromPropertyList: [1, 2, 3], format: .binary, options: 0)
+        _ = data.withUnsafeBytes {
+            setxattr(f.path, FinderTagStore.attributeName, $0.baseAddress, data.count, 0, 0)
+        }
+
+        #expect(throws: FinderTagError.corruptedPlist(path: f.path)) {
+            _ = try FinderTagStore.read(at: f)
+        }
+    }
+
+    /// 壊れた plist は**他のエラーと区別できる**こと（spec §4.6）。
+    /// 区別できないと、同期側が `ENOENT` まで一緒に握り潰して全件無言スキップになる。
+    @Test func aMissingFileIsADifferentErrorFromACorruptedPlist() throws {
+        let d = try tempDir(); defer { try? FileManager.default.removeItem(at: d) }
+        let gone = d.appendingPathComponent("no-such-file.zip")
+        #expect(throws: FinderTagError.xattrFailed(errno: ENOENT, path: gone.path)) {
+            _ = try FinderTagStore.read(at: gone)
+        }
+    }
+
+    /// 長さ 0 の属性は「タグ無し」（壊れているとは言わない）。
+    @Test func aZeroLengthAttributeMeansNoTags() throws {
+        let d = try tempDir(); defer { try? FileManager.default.removeItem(at: d) }
+        let f = try tempFile(d)
+        _ = setxattr(f.path, FinderTagStore.attributeName, "", 0, 0, 0)
+        #expect(try FinderTagStore.read(at: f).isEmpty)
+    }
+
+    /// ★ タグの無いファイルに `apply([])` しても throw しないこと。
+    ///
+    /// **12,000 冊のほとんどがこの経路を通る。**`removexattr` が `ENOATTR` で失敗するのを
+    /// エラー扱いにすると、同期が最初の 1 冊で止まる。変異が素通りしていた箇所。
+    @Test func applyingAnEmptySetToAnUntaggedFileIsNotAnError() throws {
+        let d = try tempDir(); defer { try? FileManager.default.removeItem(at: d) }
+        let f = try tempFile(d)
+        try FinderTagStore.apply(names: [], to: f)   // throw しなければ合格
+        #expect(try FinderTagStore.read(at: f).isEmpty)
+    }
+}
