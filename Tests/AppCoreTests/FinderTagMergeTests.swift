@@ -46,6 +46,20 @@ struct FinderTagMergeTests {
         #expect(r.changedInLibrary == false, "StackNest 側は既に一致している")
     }
 
+    /// ★ 件数が同じでも中身が違えば「変わった」と判定すること。
+    ///
+    /// `merged != finder` を `merged.count != finder.count` に壊しても、既存のテストは
+    /// **全部通ってしまう**（レビューで見つかった穴）。既存テストはどれも要素数が動くケースだけを
+    /// 作っていたため。実害は明白で、**Finder への書き戻しが起きない**。
+    /// 反例: 前回 {a}・Finder {a}・StackNest {b} → merged は {b}（a は StackNest 側で消された）。
+    /// 件数はどちらも 1 だが、Finder には b を書かなければならない。
+    @Test func aSameSizedButDifferentSetStillCountsAsChanged() {
+        let r = FinderTagMerge.merge(baseline: ["a"], finder: ["a"], library: ["b"])
+        #expect(r.merged == ["b"])
+        #expect(r.changedInFinder == true, "件数が同じでも中身が違えば書き戻しが要る")
+        #expect(r.changedInLibrary == false, "StackNest 側は既に一致している")
+    }
+
     @Test func emptyEverywhereIsANoOp() {
         let r = FinderTagMerge.merge(baseline: [], finder: [], library: [])
         #expect(r.merged.isEmpty)
