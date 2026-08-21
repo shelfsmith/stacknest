@@ -936,6 +936,48 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// 全ての本の「前回同期した Finder タグ」を 1 クエリでまとめて返す。
+    ///
+    /// **`finderTagBaseline(bookID:)` を 12,000 冊分ループしてはいけない**（実測 約 2.8 秒。
+    /// spec §7 の「12,000 冊の庫を開いても体感で待たされない」を満たせない）。同期の入口で
+    /// 一度だけ呼ぶ。
+    ///
+    /// **NULL（未同期）の本はキーごと含めない。**`nil`（未同期）と `""`（同期済みだが 0 件）の
+    /// 区別は消してはならず（この区別が「今回が初回なので何も削除しない」を決める）、
+    /// 辞書では「キーが無い = NULL」で表す。
+    public func finderTagBaselines() throws -> [Int: String] {
+        guard let q = queue else { return [:] }
+        return try q.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: "SELECT id, finder_tags_synced FROM book WHERE finder_tags_synced IS NOT NULL"
+            )
+            var out: [Int: String] = [:]
+            out.reserveCapacity(rows.count)
+            for row in rows {
+                out[row["id"]] = row["finder_tags_synced"]
+            }
+            return out
+        }
+    }
+
+    /// 複数の本の「前回同期した Finder タグ」を**1 トランザクション**で書く。
+    ///
+    /// 1 冊ずつ `setFinderTagBaseline` を呼ぶと 12,000 冊で約 6.8 秒（実測）。
+    /// 書くのは**値が変わった本だけ**にすること（呼び出し側の責務）。
+    public func setFinderTagBaselines(_ values: [Int: String]) throws {
+        guard let q = queue, !values.isEmpty else { return }
+        try q.write { db in
+            // 文をキャッシュして使い回す（毎回 `execute(sql:)` すると 12,000 冊で
+            // コンパイルのコストが効いてくる）。
+            let stmt = try db.cachedStatement(
+                sql: "UPDATE book SET finder_tags_synced = ? WHERE id = ?")
+            for (id, value) in values {
+                try stmt.execute(arguments: [value, id])
+            }
+        }
+    }
+
     /// 全ての本の「前回同期した Finder タグ」を NULL（未同期）に戻す。
     ///
     /// **呼び出し責務**: `library_settings.finderTagSyncField` が変わったとき（Task 7）に
