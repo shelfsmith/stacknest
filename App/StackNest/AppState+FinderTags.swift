@@ -59,12 +59,20 @@ extension AppState {
     /// `Task.detached(priority: .utility)` を使うのは G34a/G35a-1 と同じ理由 ——
     /// **非構造 `Task {}` は呼び出し元（MainActor）の優先度を継承する**ので、
     /// 定期的な保守処理が user-interactive 相当で走ってしまう。
-    func startFinderTagSync(trigger: FinderTagSyncTrigger) {
+    /// - Parameter completion: 同期が**終わった**ところで結果を受け取る（CLI/MCP からの
+    ///   再照合が「何件動いたか」を返せるようにするためのもの。UI は使わない）。
+    ///   **`self` が消えていても必ず呼ばれる** —— 呼ばれないと待っている側が永久に待つ。
+    /// - Returns: 始められたか、始められなかったならその理由。
+    @discardableResult
+    func startFinderTagSync(
+        trigger: FinderTagSyncTrigger,
+        completion: (@MainActor @Sendable (FinderTagSyncOutcome) -> Void)? = nil
+    ) -> FinderTagSyncStart {
         guard !isFinderTagSyncRunning else {
             Self.finderTagLogger.debug("G39: sync already running; ignoring re-entry")
-            return
+            return .alreadyRunning
         }
-        guard let db = database else { return }
+        guard let db = database else { return .noLibrary }
         guard let field = finderTagSyncField else {
             // 未設定（既定）は「同期しない」。庫を開いた契機では黙って何もしない。
             if trigger == .manual {
@@ -73,7 +81,7 @@ extension AppState {
                     text: String(localized: "Finder タグと同期する項目が選ばれていません（ライブラリの設定で選べます）。"),
                     detail: nil))
             }
-            return
+            return .noField
         }
 
         // ★ 施錠されたら手動再照合も止める。`canStartFinderTagSync` は
@@ -81,7 +89,7 @@ extension AppState {
         // **庫を開いた後に外部（CLI/MCP/共有サーバ/別窓）から施錠される**と
         // `needsUnlock` は true に戻るのに項目設定は残るため、メニューが有効なままだった。
         // 直したばかりの Critical と**同じ形**（ゲートが実作業の 1 段上にある）。
-        guard !needsUnlock else { return }
+        guard !needsUnlock else { return .locked }
 
         isFinderTagSyncRunning = true
         // ★ 実際に走る子タスクを**保持して**おく。`Task.detached` の子には
@@ -95,6 +103,10 @@ extension AppState {
         finderTagSyncChild = child
         finderTagSyncTask = Task { @MainActor [weak self] in
             let outcome = await child.value
+            // ★ **`self` を確かめる前に返す。**待っているのは CLI/MCP の HTTP ハンドラで、
+            // 庫が閉じられて `AppState` が消えたときこそ結果を返さないと永久に待たせる
+            // （中断で終わった場合も `FinderTagSyncRunner.run` は途中までの outcome を返す）。
+            completion?(outcome)
             guard let self else { return }
             self.isFinderTagSyncRunning = false
             self.finderTagSyncTask = nil
@@ -112,6 +124,7 @@ extension AppState {
                 self.presentFinderTagSyncNotice(notice)
             }
         }
+        return .started
     }
 
     /// バナーを出す。**警告は自動で消さない** —— 索引無効やスキップは見逃したら分からなくなる。

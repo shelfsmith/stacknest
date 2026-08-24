@@ -11,7 +11,7 @@ struct Stacknest: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "stacknest-cli",
         abstract: "StackNest ライブラリ操作 CLI",
-        subcommands: [Libraries.self, List.self, Add.self, Rm.self, Set.self,
+        subcommands: [Libraries.self, FinderTagsCmd.self, List.self, Add.self, Rm.self, Set.self,
                       Detail.self, Facets.self, Shelves.self, Me.self,
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
                       ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self,
@@ -1152,4 +1152,89 @@ struct LabelSet: ParsableCommand {
         let lib = try resolveLibrary(client: client, libArg: common.library)
         print(String(data: try client.labelPut(uuid: lib.id, json: body), encoding: .utf8) ?? "")
     } }
+}
+
+
+// MARK: - finder-tags グループ（ローカル制御専用・admin）
+
+/// Finder タグ同期を CLI/MCP から触るためのグループ。
+///
+/// **同期そのものは走らせない。**稼働中のアプリに「メニューの再照合」を押させ、
+/// 終わるまで待って結果を受け取るだけ（spec §5「照合 1 本に集約」）。
+/// だから庫がアプリで開いていないと 404 になる —— それが正しい。
+/// ここで CLI が自前に同期を回すと、施錠ゲートも二重起動の抑止も通らない
+/// 2 本目の経路ができてしまう。
+struct FinderTagsCmd: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "finder-tags",
+        abstract: "Finder タグ同期の状態確認と手動再照合（ローカル制御専用・共有サーバでは使えない）",
+        subcommands: [FinderTagsStatus.self, FinderTagsResync.self])
+}
+
+struct FinderTagsStatus: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "status", abstract: "同期対象の項目・走行中か・施錠中かを表示する")
+    @OptionGroup var common: CommonOptions
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let data = try client.finderTagStatus(uuid: lib.id)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let reply = try JSONDecoder().decode(FinderTagSyncStatusReply.self, from: data)
+            print("項目: \(reply.field ?? "（同期しない）")")
+            print("走行中: \(reply.running ? "はい" : "いいえ")")
+            print("施錠中: \(reply.locked ? "はい" : "いいえ")")
+        }
+    }
+}
+
+struct FinderTagsResync: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "resync",
+        abstract: "今すぐ再照合する（メニューの「Finder タグを再照合」と同じ経路・終わるまで待つ）")
+    @OptionGroup var common: CommonOptions
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let data = try client.finderTagResync(uuid: lib.id)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let reply = try JSONDecoder().decode(FinderTagResyncReply.self, from: data)
+            switch reply.status {
+            case "started":
+                print("再照合しました（Finder → 庫 \(reply.updatedInLibrary) 件 / 庫 → Finder \(reply.updatedInFinder) 件）")
+            case "noField":
+                print("同期する項目が選ばれていません（何もしていません）")
+            case "locked":
+                print("施錠されています（解錠するまで再照合しません）")
+            case "alreadyRunning":
+                print("すでに再照合が走っています")
+            case "noLibrary":
+                print("庫が開いていません")
+            default:
+                print(reply.status)
+            }
+            if !reply.skippedTags.isEmpty {
+                print("同期できなかったタグ: " + reply.skippedTags.joined(separator: " / "))
+            }
+            if !reply.skippedBooks.isEmpty {
+                print("タグを読めなかった本: \(reply.skippedBooks.count) 冊")
+            }
+            if !reply.indexingDisabledVolumes.isEmpty {
+                print("Spotlight 索引が無効: " + reply.indexingDisabledVolumes.joined(separator: "・"))
+            }
+            if let failure = reply.failure {
+                print("失敗: \(failure)")
+            }
+        }
+    }
 }

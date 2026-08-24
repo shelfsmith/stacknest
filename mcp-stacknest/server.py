@@ -216,6 +216,29 @@ def stacknest_lock_clear(library: str, current_password: str | None = None,
     return f"lock cleared for library {library!r}"
 
 
+# --- Finder タグ同期（finder-tags）---
+
+@mcp.tool()
+def stacknest_finder_tags_status(library: str, library_token: str | None = None) -> Any:
+    """Finder タグ同期の状態を返す（field=同期対象の列名/None、running=走行中か、locked=施錠中か）。
+    アプリで開いている庫にしか使えない（開いていなければエラー）。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.finder_tags_status(library, library_token=library_token)
+
+
+@mcp.tool()
+def stacknest_finder_tags_resync(library: str, library_token: str | None = None) -> Any:
+    """Finder タグを今すぐ再照合し、終わるまで待って結果を返す。
+    アプリのメニュー「Finder タグを再照合」と全く同じ経路を通る（施錠中は走らない）。
+    返り値の status は started / noField / locked / alreadyRunning / noLibrary。
+    started 以外のとき件数はすべて 0（「変化なし」と「断られた」を件数で区別しないこと）。
+    updatedInLibrary=Finder→庫、updatedInFinder=庫→Finder、
+    skippedTags=区切り文字「, 」を含むため同期しなかったタグ、
+    indexingDisabledVolumes=Spotlight 索引が無効なボリューム（空でなければ Finder→庫は動いていない）。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.finder_tags_resync(library, library_token=library_token)
+
+
 # --- インポート設定（import-config）---
 
 @mcp.tool()

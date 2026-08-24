@@ -1012,3 +1012,60 @@ public struct CloseLibraryRequest: Codable, Sendable {
     public var uuid: String
     public init(uuid: String) { self.uuid = uuid }
 }
+
+// MARK: - G39: Finder タグ同期のローカル制御（CLI/MCP）
+
+/// GET /local/libraries/:uuid/finder-tags の応答。
+///
+/// **稼働中のアプリが持っている状態をそのまま映す。**DB を直接読んで組み立てるのではない ——
+/// 「施錠されているか」「今走っているか」はアプリ側にしか無く、そこを別経路で作り直すと
+/// 必ず食い違う（G39 の Critical は 2 件ともゲートが実作業と別の場所にあったことが原因）。
+public struct FinderTagSyncStatusReply: Codable, Sendable, Equatable {
+    /// 同期対象の列名（`keyword_a` など）。nil＝同期しない。
+    public var field: String?
+    /// 今この庫の同期が走っているか。
+    public var running: Bool
+    /// 施錠中か（true なら再照合は断られる）。
+    public var locked: Bool
+    public init(field: String?, running: Bool, locked: Bool) {
+        self.field = field
+        self.running = running
+        self.locked = locked
+    }
+}
+
+/// POST /local/libraries/:uuid/finder-tags/resync の応答。
+///
+/// `status` は「始まったか、始まらなかったならなぜか」（App 層の `FinderTagSyncStart` の生値）。
+/// **`started` 以外のとき件数はすべて 0** —— 走っていないので当然だが、
+/// 「変化なし」と「断られた」を件数だけで見分けようとすると必ず取り違える。
+public struct FinderTagResyncReply: Codable, Sendable, Equatable {
+    /// started / alreadyRunning / noLibrary / noField / locked
+    public var status: String
+    /// 同期対象の列名（断られた場合も、分かっていれば入れる）。
+    public var field: String?
+    public var updatedInLibrary: Int
+    public var updatedInFinder: Int
+    /// 区切り文字（`", "`）を含むため同期しなかったタグ名。
+    public var skippedTags: [String]
+    /// タグを読めなかった本のパス。
+    public var skippedBooks: [String]
+    /// Spotlight 索引が無効だったボリューム名。**空でなければ Finder → 庫の方向は動いていない。**
+    public var indexingDisabledVolumes: [String]
+    /// 同期そのものが失敗した理由（表示用）。nil なら失敗していない。
+    public var failure: String?
+
+    public init(status: String, field: String? = nil,
+                updatedInLibrary: Int = 0, updatedInFinder: Int = 0,
+                skippedTags: [String] = [], skippedBooks: [String] = [],
+                indexingDisabledVolumes: [String] = [], failure: String? = nil) {
+        self.status = status
+        self.field = field
+        self.updatedInLibrary = updatedInLibrary
+        self.updatedInFinder = updatedInFinder
+        self.skippedTags = skippedTags
+        self.skippedBooks = skippedBooks
+        self.indexingDisabledVolumes = indexingDisabledVolumes
+        self.failure = failure
+    }
+}

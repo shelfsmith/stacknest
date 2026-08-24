@@ -36,3 +36,5 @@ extension BookRestoreDTO: ResponseEncodable {}
 extension RestoreResultDTO: ResponseEncodable {}
 extension MaintenanceStatusReply: ResponseEncodable {}
 extension OpenLibraryReply: ResponseEncodable {}
+extension FinderTagSyncStatusReply: ResponseEncodable {}
+extension FinderTagResyncReply: ResponseEncodable {}

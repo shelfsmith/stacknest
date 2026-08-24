@@ -72,6 +72,16 @@ public struct LibraryServerConfig: Sendable {
     public var openLibrary: (@Sendable (URL) async throws -> String)?
     /// 庫を「閉じる」実装（App 層が注入）。該当 UUID のウィンドウを閉じる。
     public var closeLibrary: (@Sendable (String) async throws -> Void)?
+    /// G39: 稼働中アプリが持つ Finder タグ同期の状態を返す（App 層が注入）。
+    /// nil を返したら「その UUID の庫はアプリで開いていない」の意（ハンドラが 404 にする）。
+    public var finderTagSyncStatus: (@Sendable (String) async -> FinderTagSyncStatusReply?)?
+    /// G39: 稼働中アプリに手動再照合をさせ、**終わるまで待って**結果を返す（App 層が注入）。
+    ///
+    /// ★ **アプリの `startFinderTagSync` をそのまま呼ぶこと。**ここでサーバが自前に
+    /// `FinderTagSync.sync` を回すと、施錠ゲート・二重起動の抑止・通知という
+    /// App 層の不変条件を丸ごと迂回する 2 本目の経路ができる。spec §5 が
+    /// 「照合 1 本に集約」と決めているのはまさにこれを避けるため。
+    public var resyncFinderTags: (@Sendable (String) async -> FinderTagResyncReply?)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -90,7 +100,9 @@ public struct LibraryServerConfig: Sendable {
                 sweepRuntimeTempOnStartup: Bool = false,
                 enableLocalLibraryControl: Bool = false,
                 openLibrary: (@Sendable (URL) async throws -> String)? = nil,
-                closeLibrary: (@Sendable (String) async throws -> Void)? = nil) {
+                closeLibrary: (@Sendable (String) async throws -> Void)? = nil,
+                finderTagSyncStatus: (@Sendable (String) async -> FinderTagSyncStatusReply?)? = nil,
+                resyncFinderTags: (@Sendable (String) async -> FinderTagResyncReply?)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -110,6 +122,8 @@ public struct LibraryServerConfig: Sendable {
         self.enableLocalLibraryControl = enableLocalLibraryControl
         self.openLibrary = openLibrary
         self.closeLibrary = closeLibrary
+        self.finderTagSyncStatus = finderTagSyncStatus
+        self.resyncFinderTags = resyncFinderTags
     }
 }
 
@@ -2054,6 +2068,29 @@ public struct LibraryServerCore: Sendable {
                     }
                 }
                 return HTTPResponse.Status.noContent
+            }
+            // G39: Finder タグ同期の状態確認と手動再照合。
+            //
+            // **共有サーバには出さない。**タグは「サーバ機のファイル」に付いており、
+            // リモートのクライアントからは触れない（spec §6）。加えて再照合は
+            // **ユーザーのファイルを書き換える**ので、任意パスを開ける open/close と
+            // 同じ扱い（127.0.0.1 限定・admin）にする。
+            local.get("libraries/:uuid/finder-tags") { [finderTagSyncStatus = config.finderTagSyncStatus] _, context in
+                try context.requireAdmin()
+                guard let finderTagSyncStatus else { throw HTTPError(.notImplemented) }
+                let uuid = try context.parameters.require("uuid", as: String.self)
+                guard let reply = await finderTagSyncStatus(uuid) else { throw HTTPError(.notFound) }
+                return reply
+            }
+            local.post("libraries/:uuid/finder-tags/resync") { [resyncFinderTags = config.resyncFinderTags] _, context in
+                try context.requireAdmin()
+                guard let resyncFinderTags else { throw HTTPError(.notImplemented) }
+                let uuid = try context.parameters.require("uuid", as: String.self)
+                // **同期が終わるまで待って結果を返す**（12,000 冊で実測 0.4 秒）。
+                // 待たずに 202 を返すと、呼び出し側は「何件動いたか」を別経路で
+                // 数えるほかなくなり、それは同期の結果ではなく DB の観察になってしまう。
+                guard let reply = await resyncFinderTags(uuid) else { throw HTTPError(.notFound) }
+                return reply
             }
         }
         // 静的 Web クライアント配信（認証不要 — ペアリング前にアプリ本体を読み込むため）。

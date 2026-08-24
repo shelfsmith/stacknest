@@ -341,4 +341,19 @@ struct APIClient {
         let url = URL(string: endpoint.baseURL + "/local/libraries/close")!
         _ = try request(url, method: "POST", body: body)
     }
+
+    /// G39: GET /local/libraries/:uuid/finder-tags → 同期対象・走行中・施錠中。
+    func finderTagStatus(uuid: String) throws -> Data {
+        let url = URL(string: endpoint.baseURL + "/local/libraries/\(uuid)/finder-tags")!
+        return try request(url)
+    }
+
+    /// G39: POST /local/libraries/:uuid/finder-tags/resync → 同期の結果。
+    ///
+    /// **同期が終わるまでサーバが応答を返さない。**12,000 冊で実測 0.4 秒だが、
+    /// `mdfind` が遅いといくらでも伸びるので、既定より長い待ちを与える。
+    func finderTagResync(uuid: String) throws -> Data {
+        let url = URL(string: endpoint.baseURL + "/local/libraries/\(uuid)/finder-tags/resync")!
+        return try request(url, method: "POST", timeout: 600)
+    }
 }

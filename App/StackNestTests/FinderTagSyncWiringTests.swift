@@ -299,3 +299,111 @@ struct FinderTagSyncWiringTests {
         #expect(state.canStartFinderTagSync == false)
     }
 }
+
+/// G39 追補: **CLI/MCP からの再照合**（`startFinderTagSync` が「始めたか・なぜ始めなかったか」を
+/// 返し、始めたなら結果を渡すこと）。
+///
+/// なぜ返り値と完了通知が要るか —— ローカル制御の HTTP ハンドラは
+/// 「変化が無かった」と「施錠されていたので断った」を区別して返す必要がある。
+/// 件数だけを見て区別しようとすると**どちらも 0 件**なので必ず取り違える。
+///
+/// ★ **`.locked` はこのブランチで直したばかりの穴**（`canStartFinderTagSync` は施錠を見ておらず、
+/// 庫を開いた後に外部から施錠されるとメニューが有効なまま走った）。修正時にテストが無かったので
+/// ここで固定する。
+@Suite("G39: 再照合の開始可否と結果の受け渡し")
+struct FinderTagSyncStartOutcomeTests {
+
+    /// 完了通知が呼ばれた回数を数える箱（`@Sendable` クロージャからローカル var は触れない）。
+    @MainActor private final class CallCount {
+        var value = 0
+    }
+
+    @MainActor
+    private func makeState(db: Database?) -> AppState {
+        let state = AppState(bundleURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("g39-\(UUID().uuidString).stacknest"))
+        state.database = db
+        return state
+    }
+
+    @Test("庫が開いていなければ .noLibrary")
+    @MainActor
+    func reportsNoLibrary() {
+        let state = makeState(db: nil)
+        state.finderTagSyncField = "genre"
+        let calls = CallCount()
+        #expect(state.startFinderTagSync(trigger: .manual) { _ in calls.value += 1 } == .noLibrary)
+        #expect(calls.value == 0, "始まっていないのに完了通知が来たら、待っている側が二重に返る")
+    }
+
+    @Test("同期対象が未設定なら .noField")
+    @MainActor
+    func reportsNoField() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = makeState(db: db)
+        state.finderTagSyncField = nil
+        let calls = CallCount()
+        #expect(state.startFinderTagSync(trigger: .manual) { _ in calls.value += 1 } == .noField)
+        #expect(calls.value == 0)
+    }
+
+    @Test("走行中なら .alreadyRunning")
+    @MainActor
+    func reportsAlreadyRunning() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = makeState(db: db)
+        state.finderTagSyncField = "genre"
+        state.isFinderTagSyncRunning = true
+        let calls = CallCount()
+        #expect(state.startFinderTagSync(trigger: .manual) { _ in calls.value += 1 } == .alreadyRunning)
+        #expect(calls.value == 0)
+        #expect(state.finderTagSyncTask == nil, "再入で新しいタスクを起こしていない")
+    }
+
+    /// ★ 施錠中は**手動再照合でも**走らせない。
+    /// 同期は庫のメタデータを Finder タグとして**ファイルに書き出す**ので、
+    /// 解錠せずに中身が読めるのでは施錠の意味が無い。
+    @Test("施錠中は .locked（メニューが有効でも走らせない）")
+    @MainActor
+    func reportsLocked() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = makeState(db: db)
+        let settings = try LibrarySettings(database: db)
+        _ = try settings.setLock(hash: "hash", salt: "salt", expectedHash: nil)
+        state.librarySettings = settings
+        state.finderTagSyncField = "genre"
+
+        #expect(state.needsUnlock, "前提: この状態が『解錠待ち』であること")
+        // メニューの有効/無効は施錠を見ていない ―― だからこそ実作業の側で止める必要がある。
+        #expect(state.canStartFinderTagSync, "前提: メニューは有効に見えている")
+
+        let calls = CallCount()
+        #expect(state.startFinderTagSync(trigger: .manual) { _ in calls.value += 1 } == .locked)
+        #expect(calls.value == 0)
+        #expect(state.isFinderTagSyncRunning == false, "走行フラグを立てていない")
+        #expect(state.finderTagSyncTask == nil)
+    }
+
+    /// 始まったら、終わったときに結果が渡ること。
+    /// **本が 0 冊の庫**を使う ―― ボリュームが 1 つも導出されないので `mdfind` に触れず、
+    /// 実マシンの Spotlight 状態に左右されずに完了まで走らせられる。
+    @Test("始まったら完了時に結果が渡る")
+    @MainActor
+    func deliversTheOutcomeWhenItRuns() async throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = makeState(db: db)
+        state.finderTagSyncField = "genre"
+
+        let outcome: FinderTagSyncOutcome = await withCheckedContinuation { continuation in
+            let start = state.startFinderTagSync(trigger: .manual) { continuation.resume(returning: $0) }
+            #expect(start == .started)
+        }
+        #expect(outcome.updatedInLibrary == 0)
+        #expect(outcome.updatedInFinder == 0)
+        #expect(outcome.failure == nil)
+    }
+}
