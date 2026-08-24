@@ -514,3 +514,84 @@ struct FinderTagSyncDetailTests {
                 "元の並びが無ければ決定的に並べる")
     }
 }
+
+/// G39 追補: **中断が本の境界で効くこと**（`FinderTagSync.sync` の `Task.isCancelled`）。
+///
+/// ここに至るまでの経緯: 中断チェックは当初**ボリュームの境界にしか無かった**。
+/// 普通の庫はボリュームが 1 個なので、庫を閉じても実質何も止まらない
+/// （レビューが実測: cancel 済みで 200/200 冊を処理した）。本の境界に移して直したが、
+/// **その修正にテストが無かった** —— このプロジェクトが繰り返し踏んできた
+/// 「守っていると称して何もしていない分岐」と同じ形なので、ここで固定する。
+///
+/// **実機 smoke では確かめられない。** 484 冊の庫で同期は 0.4 秒で終わり、
+/// 外から「途中で閉じる」を当てられない（2026-08-24 に実測して断念した）。
+@Suite("Finder タグ同期の中断（G39）")
+struct FinderTagSyncCancellationTests {
+    private static let field = "keyword_a"
+
+    private func tempDir() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-cancel-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 書き出す仕事が確実にある庫を作る（図書側に値があり、Finder 側は空）。
+    private func makeFixture(_ dir: URL, count: Int) throws -> (Database, [URL]) {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        var files: [URL] = []
+        for i in 0..<count {
+            let f = dir.appendingPathComponent("book\(i).cbz")
+            try Data("x".utf8).write(to: f)
+            _ = try db.insertBookReturningID(BookRecord(
+                id: 0, title: "book\(i)", path: f.path, dateAdded: Date(), keywordA: "書き出す値"))
+            files.append(f)
+        }
+        return (db, files)
+    }
+
+    /// 対照: 中断していなければ全冊に書き出す。
+    /// **これが無いと次のテストの「0 件」が「そもそも仕事が無かった」と区別できない。**
+    @Test("中断していなければ全冊書き出す（対照）")
+    func writesEverythingWhenNotCancelled() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (db, files) = try makeFixture(dir, count: 5)
+
+        let r = try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
+                                       isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] })
+
+        #expect(r.updatedInFinder == 5)
+        for f in files {
+            #expect(try FinderTagStore.read(at: f).map(\.name) == ["書き出す値"])
+        }
+    }
+
+    /// ★ 本命: 既に中断されたタスクの中では**1 冊も触らない**。
+    ///
+    /// xattr を見るのが要点 —— 閉じた庫への DB 書き込みは黙って no-op になるので、
+    /// 図書側の件数では「中断できた」と「書けなかっただけ」を区別できない。
+    /// **ファイルに書いてしまったかどうか**だけが非可逆な事実。
+    @Test("中断済みなら 1 冊も書き出さない")
+    func writesNothingWhenAlreadyCancelled() async throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (db, files) = try makeFixture(dir, count: 5)
+
+        let task = Task<FinderTagSyncReport, Error> {
+            // 走り出す前に中断されているので、最初の本の境界で抜ける。
+            while !Task.isCancelled { await Task.yield() }
+            return try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
+                                          isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] })
+        }
+        task.cancel()
+        let r = try await task.value
+
+        #expect(r.updatedInFinder == 0, "中断済みなのに Finder へ書いた")
+        #expect(r.updatedInLibrary == 0)
+        for f in files {
+            #expect(try FinderTagStore.read(at: f).isEmpty, "ファイルにタグが書かれてしまった")
+        }
+    }
+}
