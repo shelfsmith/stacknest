@@ -227,6 +227,18 @@ def stacknest_finder_tags_status(library: str, library_token: str | None = None)
 
 
 @mcp.tool()
+def stacknest_finder_tags_set(library: str, field: str | None = None,
+                              library_token: str | None = None) -> Any:
+    """Finder タグと同期する項目を変える。
+    field は genre / series / author / neta / keyword_a / keyword_b / keyword_c のいずれか、
+    または None・"none"（同期しない）。知らない列名はエラーになる。
+    ★ 項目を変えると前回同期値が全消しされる（設計上の安全策・元に戻せない）。
+    ★ この機能は Finder タグとして庫のメタデータをファイルに書き出す。捨ててよい庫で使うこと。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.finder_tags_set(library, field, library_token=library_token)
+
+
+@mcp.tool()
 def stacknest_finder_tags_resync(library: str, library_token: str | None = None) -> Any:
     """Finder タグを今すぐ再照合し、終わるまで待って結果を返す。
     アプリのメニュー「Finder タグを再照合」と全く同じ経路を通る（施錠中は走らない）。

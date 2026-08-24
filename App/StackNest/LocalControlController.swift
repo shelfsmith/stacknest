@@ -107,7 +107,8 @@ final class LocalControlController {
             openLibrary: { url in try await Self.openLibrary(at: url) },
             closeLibrary: { uuid in try await Self.closeLibrary(uuid: uuid) },
             finderTagSyncStatus: { uuid in await Self.finderTagSyncStatus(uuid: uuid) },
-            resyncFinderTags: { uuid in await Self.resyncFinderTags(uuid: uuid) }
+            resyncFinderTags: { uuid in await Self.resyncFinderTags(uuid: uuid) },
+            setFinderTagSyncField: { uuid, field in await Self.setFinderTagSyncField(uuid: uuid, field: field) }
         )
         // 外部レビュー Low 指摘の是正: `SharedMaintenanceRegistry` のコメントは以前から
         // 「`ServerController`／`LocalControlController` はどちらも `maintenanceRegistry:` と
@@ -324,6 +325,19 @@ final class LocalControlController {
     @MainActor
     static func finderTagSyncStatus(uuid: String) -> FinderTagSyncStatusReply? {
         guard let state = appState(libraryUUID: uuid) else { return nil }
+        return FinderTagSyncStatusReply(field: state.finderTagSyncField,
+                                        running: state.isFinderTagSyncRunning,
+                                        locked: state.needsUnlock)
+    }
+
+    /// `PUT /local/libraries/:uuid/finder-tags` の実装。
+    ///
+    /// **`AppState.setFinderTagSyncField` をそのまま呼ぶ**（設定シートの Picker と同じ 1 本）。
+    /// 前回同期値の全消しはその先の `FinderTagSyncSetting.update` の中だけで起きる。
+    @MainActor
+    static func setFinderTagSyncField(uuid: String, field: String?) -> FinderTagSyncStatusReply? {
+        guard let state = appState(libraryUUID: uuid) else { return nil }
+        state.setFinderTagSyncField(field)
         return FinderTagSyncStatusReply(field: state.finderTagSyncField,
                                         running: state.isFinderTagSyncRunning,
                                         locked: state.needsUnlock)

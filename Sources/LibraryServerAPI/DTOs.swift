@@ -1034,6 +1034,17 @@ public struct FinderTagSyncStatusReply: Codable, Sendable, Equatable {
     }
 }
 
+/// PUT /local/libraries/:uuid/finder-tags のリクエストボディ。
+///
+/// `field` が nil または空文字なら「同期しない」。**知らない列名は 400 で弾く**（黙って
+/// 「同期しない」に落とさない）—— `keyword_b` を `keyword_bb` と打ち間違えたときに
+/// 同期が静かに切れ、しかも前回同期値まで消える（`FinderTagSyncSetting.update` が消す）のは
+/// 取り返しがつかない。
+public struct FinderTagSyncFieldRequest: Codable, Sendable {
+    public var field: String?
+    public init(field: String?) { self.field = field }
+}
+
 /// POST /local/libraries/:uuid/finder-tags/resync の応答。
 ///
 /// `status` は「始まったか、始まらなかったならなぜか」（App 層の `FinderTagSyncStart` の生値）。

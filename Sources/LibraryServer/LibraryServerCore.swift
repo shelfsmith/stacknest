@@ -82,6 +82,10 @@ public struct LibraryServerConfig: Sendable {
     /// App 層の不変条件を丸ごと迂回する 2 本目の経路ができる。spec §5 が
     /// 「照合 1 本に集約」と決めているのはまさにこれを避けるため。
     public var resyncFinderTags: (@Sendable (String) async -> FinderTagResyncReply?)?
+    /// G39: 同期対象の項目を変える（App 層が注入）。第 2 引数 nil＝同期しない。
+    /// **`AppState.setFinderTagSyncField` を呼ぶこと** —— 前回同期値の全消しはその中でしか
+    /// 行われず、迂回すると別項目の値を「前回のタグ」と誤認して実在しない削除を検出する。
+    public var setFinderTagSyncField: (@Sendable (String, String?) async -> FinderTagSyncStatusReply?)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -102,7 +106,8 @@ public struct LibraryServerConfig: Sendable {
                 openLibrary: (@Sendable (URL) async throws -> String)? = nil,
                 closeLibrary: (@Sendable (String) async throws -> Void)? = nil,
                 finderTagSyncStatus: (@Sendable (String) async -> FinderTagSyncStatusReply?)? = nil,
-                resyncFinderTags: (@Sendable (String) async -> FinderTagResyncReply?)? = nil) {
+                resyncFinderTags: (@Sendable (String) async -> FinderTagResyncReply?)? = nil,
+                setFinderTagSyncField: (@Sendable (String, String?) async -> FinderTagSyncStatusReply?)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -124,6 +129,7 @@ public struct LibraryServerConfig: Sendable {
         self.closeLibrary = closeLibrary
         self.finderTagSyncStatus = finderTagSyncStatus
         self.resyncFinderTags = resyncFinderTags
+        self.setFinderTagSyncField = setFinderTagSyncField
     }
 }
 
@@ -2080,6 +2086,21 @@ public struct LibraryServerCore: Sendable {
                 guard let finderTagSyncStatus else { throw HTTPError(.notImplemented) }
                 let uuid = try context.parameters.require("uuid", as: String.self)
                 guard let reply = await finderTagSyncStatus(uuid) else { throw HTTPError(.notFound) }
+                return reply
+            }
+            local.put("libraries/:uuid/finder-tags") { [setFinderTagSyncField = config.setFinderTagSyncField] request, context in
+                try context.requireAdmin()
+                guard let setFinderTagSyncField else { throw HTTPError(.notImplemented) }
+                let uuid = try context.parameters.require("uuid", as: String.self)
+                let body = try await request.decode(as: FinderTagSyncFieldRequest.self, context: context)
+                let raw = body.field?.trimmingCharacters(in: .whitespacesAndNewlines)
+                let field: String? = (raw?.isEmpty ?? true) ? nil : raw
+                // 知らない列名は弾く。素通しすると `normalize` が nil に落として
+                // **同期が静かに切れ、前回同期値まで消える**。
+                if let field, !FinderTagSync.syncableFields.contains(field) {
+                    throw HTTPError(.badRequest)
+                }
+                guard let reply = await setFinderTagSyncField(uuid, field) else { throw HTTPError(.notFound) }
                 return reply
             }
             local.post("libraries/:uuid/finder-tags/resync") { [resyncFinderTags = config.resyncFinderTags] _, context in
