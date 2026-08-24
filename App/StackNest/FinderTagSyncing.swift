@@ -123,6 +123,27 @@ struct FinderTagSyncOutcome: Sendable, Equatable {
     var hasChanges: Bool { updatedInLibrary > 0 || updatedInFinder > 0 }
 }
 
+/// 「再照合を始められたか、始められなかったならなぜか」。
+///
+/// **`canStartFinderTagSync`（メニューの有効/無効）とは別物。**あちらは押せるかどうかの
+/// 見た目で、こちらは `startFinderTagSync` が実際に何をしたかの事実。両者は食い違いうる ——
+/// 庫を開いた後に外部から施錠されると**メニューは有効なのに `.locked` で断られる**
+/// （G39 修正波で塞いだ穴が、まさにこの食い違いを見ずに走らせていたもの）。
+///
+/// 拒否理由を値として返すのは、CLI/MCP からの再照合で「何も起きなかった」と
+/// 「施錠されていたので断った」を**呼び出し側が区別できるようにする**ため。
+enum FinderTagSyncStart: String, Sendable, Equatable {
+    case started
+    /// 既に走行中（二重起動の抑止）。
+    case alreadyRunning
+    /// 庫が開いていない（`database == nil`）。
+    case noLibrary
+    /// 同期する項目が選ばれていない（既定＝同期しない）。
+    case noField
+    /// 施錠されている（解錠するまで走らせない）。
+    case locked
+}
+
 // MARK: - 実行
 
 /// `FinderTagSync.sync` を呼ぶだけの薄い層。**メインスレッドの外で呼ぶこと**（`AppState` の責務）。

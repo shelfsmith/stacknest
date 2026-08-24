@@ -3,6 +3,7 @@ import AppKit
 import Foundation
 import SwiftUI
 import LibraryServer
+import LibraryServerAPI
 import AppCore
 
 /// 127.0.0.1 専用のローカル制御エンドポイント（CLI/MCP 用）。ネットワーク共有とは独立。
@@ -104,7 +105,9 @@ final class LocalControlController {
             // （詳細は LibraryServerConfig.enableLocalLibraryControl のコメント）。
             enableLocalLibraryControl: true,
             openLibrary: { url in try await Self.openLibrary(at: url) },
-            closeLibrary: { uuid in try await Self.closeLibrary(uuid: uuid) }
+            closeLibrary: { uuid in try await Self.closeLibrary(uuid: uuid) },
+            finderTagSyncStatus: { uuid in await Self.finderTagSyncStatus(uuid: uuid) },
+            resyncFinderTags: { uuid in await Self.resyncFinderTags(uuid: uuid) }
         )
         // 外部レビュー Low 指摘の是正: `SharedMaintenanceRegistry` のコメントは以前から
         // 「`ServerController`／`LocalControlController` はどちらも `maintenanceRegistry:` と
@@ -304,5 +307,53 @@ final class LocalControlController {
             throw LocalLibraryControlError.notFound
         }
         window.close()
+    }
+
+    // MARK: - G39: Finder タグ同期（CLI/MCP からの状態確認と手動再照合）
+
+    /// UUID からアプリが開いている庫の `AppState` を引く。開いていなければ nil。
+    @MainActor
+    private static func appState(libraryUUID uuid: String) -> AppState? {
+        AppState.activeInstances.allObjects.first { $0.librarySettings?.libraryUUID == uuid }
+    }
+
+    /// `GET /local/libraries/:uuid/finder-tags` の実装。
+    ///
+    /// **アプリが持っている値をそのまま映す**（DB から組み直さない）。「施錠中か」
+    /// 「走行中か」はアプリ側にしか無い状態で、別経路で再現しようとすると必ずずれる。
+    @MainActor
+    static func finderTagSyncStatus(uuid: String) -> FinderTagSyncStatusReply? {
+        guard let state = appState(libraryUUID: uuid) else { return nil }
+        return FinderTagSyncStatusReply(field: state.finderTagSyncField,
+                                        running: state.isFinderTagSyncRunning,
+                                        locked: state.needsUnlock)
+    }
+
+    /// `POST /local/libraries/:uuid/finder-tags/resync` の実装。
+    ///
+    /// **メニューの「Finder タグを再照合」と同じ 1 本を呼ぶ**（`trigger: .manual`）。
+    /// 施錠ゲートも二重起動の抑止もバナーも、すべてそちらに入っているものがそのまま効く。
+    @MainActor
+    static func resyncFinderTags(uuid: String) async -> FinderTagResyncReply? {
+        guard let state = appState(libraryUUID: uuid) else { return nil }
+        let field = state.finderTagSyncField
+        return await withCheckedContinuation { continuation in
+            let start = state.startFinderTagSync(trigger: .manual) { outcome in
+                continuation.resume(returning: FinderTagResyncReply(
+                    status: FinderTagSyncStart.started.rawValue,
+                    field: field,
+                    updatedInLibrary: outcome.updatedInLibrary,
+                    updatedInFinder: outcome.updatedInFinder,
+                    skippedTags: outcome.skippedTags,
+                    skippedBooks: outcome.skippedBooks,
+                    indexingDisabledVolumes: outcome.indexingDisabledVolumes,
+                    failure: outcome.failure))
+            }
+            // 始まらなかったときは completion が呼ばれないので、ここで一度だけ返す。
+            // 始まったときは completion 側が返すので**ここでは返さない**（二重 resume は crash）。
+            if start != .started {
+                continuation.resume(returning: FinderTagResyncReply(status: start.rawValue, field: field))
+            }
+        }
     }
 }

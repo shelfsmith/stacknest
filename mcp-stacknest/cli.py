@@ -577,3 +577,20 @@ def library_open(path: str) -> Any:
 def library_close(uuid: str) -> None:
     """uuid を指定してライブラリウィンドウを閉じる。"""
     run(build_argv("library", sub="close", text=uuid, json_output=False))
+
+
+def finder_tags_status(library: str, *, library_token: str | None = None) -> Any:
+    """Finder タグ同期の状態（同期対象の項目・走行中か・施錠中か）を返す。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("finder-tags", sub="status", library=library),
+                        library_token=tok)))
+
+
+def finder_tags_resync(library: str, *, library_token: str | None = None) -> Any:
+    """今すぐ再照合し、終わるまで待って結果を返す。
+
+    アプリのメニュー「Finder タグを再照合」と同じ経路を通るので、施錠中は走らない。
+    12,000 冊で実測 0.4 秒だが mdfind 次第で伸びるため、CLI 側で長めの待ちを取っている。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("finder-tags", sub="resync", library=library),
+                        library_token=tok, timeout=660)))
