@@ -120,3 +120,70 @@ struct LocalControlControllerOpenSerializationTests {
         #expect(hookCallCount == 2, "1 回目のタイムアウト後、in-flight エントリが解放されず 2 回目が hook を呼ばないのは不合格")
     }
 }
+
+/// G39 の smoke で見つかった別件（2026-08-24）: `library close` が**成功を返すのに閉じない**。
+///
+/// **再現規則（実測 3/3）**: アプリ起動後、ある庫の 1 回目の close は効き、**2 回目以降は効かない**。
+/// `NSWindow.stacknestBundleURL`（associated object）は**窓が閉じても消えない**うえ、
+/// `WindowGroup` は窓を保持・再利用するため、一度閉じた庫の窓が同じ関連付けを持ったまま
+/// `NSApp.windows` に残る。`closeLibrary` が `first` で 1 個だけ拾っていたので、
+/// 2 回目以降は**既に閉じた古い窓**を掴んで `close()` が no-op になっていた。
+///
+/// **なぜ純粋関数を対象にするか**: App ターゲットのテストで実 `NSWindow` を作ると
+/// テストホストが落ちる（このファイル冒頭の但し書きと同じ制約）。`LibrarySettingsSheet.
+/// lockChangeIsAuthorized` と同じく、判定だけを切り出してそちらを固定する。
+@Suite("LocalControlController.closeLibrary の窓選び（2026-08-24 の欠陥）")
+struct LocalControlControllerCloseTests {
+
+    private func url(_ p: String) -> URL { URL(fileURLWithPath: p) }
+
+    /// ★ 本命: 同じ庫の窓が複数あるとき、**全部**閉じる（`first` で 1 個だけではない）。
+    /// これがこの欠陥そのもの —— 古い窓が先頭にいると生きている窓が残る。
+    @Test func closesEveryWindowBoundToTheLibrary() {
+        let stale = url("/tmp/lib.stacknest")      // 既に閉じた窓（関連付けが残っている）
+        let live = url("/tmp/lib.stacknest")       // 開き直した窓
+        let other = url("/tmp/other.stacknest")
+        let indexes = LocalControlController.windowIndexesToClose(
+            bundleURLs: [stale, other, live, nil], bundlePath: "/tmp/lib.stacknest")
+        #expect(indexes == [0, 2], "古い窓だけ閉じて生きている窓を残してはいけない")
+    }
+
+    /// 一致する窓が無ければ空（呼び出し側が `.notFound` にする）。
+    @Test func returnsNothingWhenNoWindowIsBound() {
+        #expect(LocalControlController.windowIndexesToClose(
+            bundleURLs: [url("/tmp/other.stacknest"), nil], bundlePath: "/tmp/lib.stacknest").isEmpty)
+    }
+
+    /// 末尾スラッシュ等の表現差で取りこぼさない（`standardizedFileURL` を通していること）。
+    @Test func matchesRegardlessOfPathSpelling() {
+        #expect(LocalControlController.windowIndexesToClose(
+            bundleURLs: [url("/tmp/./lib.stacknest")], bundlePath: "/tmp/lib.stacknest") == [0])
+    }
+
+    /// ★ 閉じたことを確認できなければ false を返す（呼び出し側が `.timeout` を投げる）。
+    /// **成功を黙って返していたのが被害を大きくした部分。**
+    @Test @MainActor func reportsFailureWhenTheLibraryStaysOpen() async throws {
+        let bundleURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lc-close-\(UUID().uuidString).stacknestlib")
+        try LibraryBundleCreator.createEmpty(at: bundleURL)
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+        let db = try Database.openExisting(at: LibraryBundle(url: bundleURL).databaseURL)
+        let settings = try LibrarySettings(database: db)
+        let uuid = settings.ensureLibraryUUID()
+        let state = AppState(bundleURL: bundleURL)      // 強参照で生かす（弱参照テーブルのため）
+        state.librarySettings = settings
+        AppState.activeInstances.add(state)
+        defer { AppState.activeInstances.remove(state) }
+
+        // 登録が残ったまま＝窓が閉じていない。
+        let closed = await LocalControlController.waitUntilLibraryClosed(uuid: uuid, attempts: 2)
+        #expect(closed == false, "閉じていないのに成功を返してはいけない")
+    }
+
+    /// 逆に、登録が消えていれば即座に成功と分かる。
+    @Test @MainActor func reportsSuccessWhenTheLibraryIsGone() async {
+        let closed = await LocalControlController.waitUntilLibraryClosed(
+            uuid: "no-such-library-\(UUID().uuidString)", attempts: 1)
+        #expect(closed)
+    }
+}

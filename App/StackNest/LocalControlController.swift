@@ -302,12 +302,49 @@ final class LocalControlController {
             throw LocalLibraryControlError.notFound
         }
         let path = match.bundleURL.standardizedFileURL.path
-        guard let window = NSApp.windows.first(where: {
-            $0.stacknestBundleURL?.standardizedFileURL.path == path
-        }) else {
+        let indexes = Self.windowIndexesToClose(
+            bundleURLs: NSApp.windows.map(\.stacknestBundleURL), bundlePath: path)
+        guard !indexes.isEmpty else {
             throw LocalLibraryControlError.notFound
         }
-        window.close()
+        let windows = NSApp.windows
+        for i in indexes where i < windows.count { windows[i].close() }
+
+        guard await Self.waitUntilLibraryClosed(uuid: uuid) else {
+            throw LocalLibraryControlError.timeout
+        }
+    }
+
+    /// 閉じるべき窓の添字を選ぶ。**`NSWindow` を作らずに検証できるよう純粋関数に切り出してある**
+    /// （App ターゲットのテストで実 `NSWindow` を作るとテストホストが落ちる）。
+    ///
+    /// ★ **`first` で 1 個だけ拾ってはいけない。**`stacknestBundleURL`（associated object）は
+    /// **窓が閉じても消えず**、`WindowGroup` は窓を保持・再利用するため、一度閉じた庫の窓が
+    /// 同じ関連付けを持ったまま `NSApp.windows` に残る。`first` だと 2 回目以降は
+    /// **既に閉じた古い窓**を掴んで `close()` が no-op になり、生きている窓は開いたままになる
+    /// （2026-08-24 実測: アプリ起動後 1 回目の close だけ効き、2 回目以降は 3/3 で失敗した）。
+    /// 一致する窓を**全部**返す。閉じ済みの窓へ `close()` を呼んでも無害。
+    nonisolated static func windowIndexesToClose(bundleURLs: [URL?], bundlePath: String) -> [Int] {
+        bundleURLs.enumerated().compactMap { index, url in
+            url?.standardizedFileURL.path == bundlePath ? index : nil
+        }
+    }
+
+    /// 庫が本当に閉じたかを待つ。閉じたら true、待ち切れなければ false。
+    ///
+    /// ★ **確認せずに成功を返していたのが被害を大きくした。**CLI/MCP には「閉じました」と
+    /// 表示されるのに庫は開いたままで、呼び出し側は閉じたつもりで次の操作に進む。
+    /// `closeBundle()` は `activeInstances` から自分を外すので（`AppState.swift:536`）、
+    /// **登録が消えたこと**が「窓が閉じて後始末まで走った」ことの証拠になる。
+    static func waitUntilLibraryClosed(uuid: String, attempts: Int = 50) async -> Bool {
+        for _ in 0..<attempts {
+            let stillOpen = await MainActor.run {
+                AppState.activeInstances.allObjects.contains { $0.librarySettings?.libraryUUID == uuid }
+            }
+            if !stillOpen { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)   // 50 × 50ms = 2.5s（open と同じ待ち幅）
+        }
+        return false
     }
 
     // MARK: - G39: Finder タグ同期（CLI/MCP からの状態確認と手動再照合）

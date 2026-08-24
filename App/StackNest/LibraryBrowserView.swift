@@ -174,6 +174,18 @@ struct LibraryBrowserView: View {
                     }
                     .help("詳細ペインの表紙表示を切り替え")
                 }
+                // G39: Finder タグの手動再照合。**同期を有効にしている庫でだけ出す** ——
+                // 既定は「同期しない」で、その庫では押しても意味がないボタンになる
+                // （2026-08-24・実機 smoke の要望）。設定シートの「今すぐ再照合」と同じ 1 本を呼ぶ。
+                if appState.finderTagSyncField != nil {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button { appState.startFinderTagSync(trigger: .manual) } label: {
+                            Label("Finder タグを再照合", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .help("Finder タグと「\(appState.finderTagSyncFieldLabel)」を照合し直す")
+                        .disabled(!appState.canStartFinderTagSync)
+                    }
+                }
             }
             .onAppear { startModifierMonitor() }
             .onDisappear { stopModifierMonitor() }
