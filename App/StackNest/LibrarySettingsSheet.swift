@@ -98,6 +98,10 @@ struct LibrarySettingsSheet: View {
                     VStack(alignment: .leading, spacing: 16) {
                         importSection()
                         watchSection()
+                        // G39: Finder タグ同期は「一般」ではなくここ。監視フォルダと同じく
+                        // **外の世界とファイルをやり取りする設定**で、「一般」の
+                        // 名前・メタデータ・バックアップとは性質が違う（2026-08-24・実機 smoke の指摘）。
+                        finderTagSection()
                     }
                     .padding(16)
                 }
@@ -276,7 +280,6 @@ struct LibrarySettingsSheet: View {
             .padding(8)
         }
         metadataSection()
-        finderTagSection()   // Phase G39
         backupSection()
     }
 

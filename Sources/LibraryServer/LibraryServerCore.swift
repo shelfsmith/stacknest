@@ -2070,7 +2070,10 @@ public struct LibraryServerCore: Sendable {
                 } catch let e as LocalLibraryControlError {
                     switch e {
                     case .notFound: throw HTTPError(.notFound)
-                    case .invalidPath, .timeout, .bridgeUnavailable: throw HTTPError(.badRequest)
+                    // timeout =「閉じろと言ったのに閉じたことを確認できなかった」。
+                    // 呼び出し側の入力は正しいので 400 ではなくサーバ側の失敗として返す。
+                    case .timeout: throw HTTPError(.internalServerError)
+                    case .invalidPath, .bridgeUnavailable: throw HTTPError(.badRequest)
                     }
                 }
                 return HTTPResponse.Status.noContent
