@@ -586,6 +586,17 @@ def finder_tags_status(library: str, *, library_token: str | None = None) -> Any
                         library_token=tok)))
 
 
+def finder_tags_set(library: str, field: str | None, *, library_token: str | None = None) -> Any:
+    """同期する項目を変える（None / "none" で同期しない）。
+
+    ★ 項目を変えると前回同期値が全消しされる（別項目の値を「前回のタグ」と誤認しないため）。
+    知らない列名は CLI/サーバが 400 で弾く（黙って「同期しない」に落とさない）。"""
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(build_argv("finder-tags", sub="set", library=library,
+                                   text=(field or "none")),
+                        library_token=tok)))
+
+
 def finder_tags_resync(library: str, *, library_token: str | None = None) -> Any:
     """今すぐ再照合し、終わるまで待って結果を返す。
 

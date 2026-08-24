@@ -1168,7 +1168,7 @@ struct FinderTagsCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "finder-tags",
         abstract: "Finder タグ同期の状態確認と手動再照合（ローカル制御専用・共有サーバでは使えない）",
-        subcommands: [FinderTagsStatus.self, FinderTagsResync.self])
+        subcommands: [FinderTagsStatus.self, FinderTagsSet.self, FinderTagsResync.self])
 }
 
 struct FinderTagsStatus: ParsableCommand {
@@ -1235,6 +1235,31 @@ struct FinderTagsResync: ParsableCommand {
             if let failure = reply.failure {
                 print("失敗: \(failure)")
             }
+        }
+    }
+}
+
+
+struct FinderTagsSet: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "set",
+        abstract: "同期する項目を変える（none で同期しない・前回同期値は消える）")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "項目の列名（genre / series / author / neta / keyword_a / keyword_b / keyword_c）または none")
+    var field: String
+    func run() throws {
+        try mappingAPIErrors {
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let value: String? = (field == "none" || field.isEmpty) ? nil : field
+            let data = try client.finderTagSetField(uuid: lib.id, field: value)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let reply = try JSONDecoder().decode(FinderTagSyncStatusReply.self, from: data)
+            print("項目: \(reply.field ?? "（同期しない）")")
         }
     }
 }
