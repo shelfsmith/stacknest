@@ -108,6 +108,8 @@ extension AppState {
             FinderTagSyncRunner.run(database: db, field: field)
         }
         finderTagSyncChild = child
+        finderTagSyncRunID &+= 1
+        let runID = finderTagSyncRunID
         finderTagSyncTask = Task { @MainActor [weak self] in
             let outcome = await child.value
             // ★ **`self` を確かめる前に返す。**待っているのは CLI/MCP の HTTP ハンドラで、
@@ -115,23 +117,37 @@ extension AppState {
             // （中断で終わった場合も `FinderTagSyncRunner.run` は途中までの outcome を返す）。
             completion?(outcome)
             guard let self else { return }
-            self.isFinderTagSyncRunning = false
-            self.finderTagSyncTask = nil
-            self.finderTagSyncChild = nil
-            // 庫が閉じられていたら結果は捨てる（窓はもう無い）。
-            guard self.database != nil else { return }
-            if outcome.updatedInLibrary > 0 {
-                do { try self.refreshDisplayedBooks() }
-                catch { self.error = .unexpected(error) }
-            }
-            Self.finderTagLogger.info(
-                "G39: sync done field=\(field, privacy: .public) lib=\(outcome.updatedInLibrary, privacy: .public) finder=\(outcome.updatedInFinder, privacy: .public) skippedTags=\(outcome.skippedTags.count, privacy: .public) skippedBooks=\(outcome.skippedBooks.count, privacy: .public) indexingDisabled=\(outcome.indexingDisabledVolumes.joined(separator: ","), privacy: .public)")
-            if let notice = FinderTagSyncNotice.make(outcome: outcome, trigger: trigger,
-                                                    fieldLabel: self.finderTagSyncFieldLabel) {
-                self.presentFinderTagSyncNotice(notice)
-            }
+            self.finishFinderTagSync(runID: runID, outcome: outcome, trigger: trigger, field: field)
         }
         return .started
+    }
+
+    /// 1 回の同期の後始末（走行フラグを落とし、結果を見せる）。
+    ///
+    /// ★ **自分の回かどうかを必ず確かめる。**`stopFinderTagSync()` は子を cancel するだけで
+    /// **待ち受けタスクの完了は待たない**ので、止めた直後に次の同期が始まると、
+    /// 古い回の後始末が**新しい回の走行フラグとタスク参照を消してしまう**。
+    /// そうなると `isFinderTagSyncRunning` が false に戻り、二重起動の抑止が破れて
+    /// 同じ庫に 2 本の同期が並走する（そのうえ古い結果をバナーに出す）。
+    /// 項目を変えたときに `stopFinderTagSync()` → 再照合、という順で普通に起こる経路。
+    func finishFinderTagSync(runID: Int, outcome: FinderTagSyncOutcome,
+                             trigger: FinderTagSyncTrigger, field: String) {
+        guard runID == finderTagSyncRunID else { return }
+        isFinderTagSyncRunning = false
+        finderTagSyncTask = nil
+        finderTagSyncChild = nil
+        // 庫が閉じられていたら結果は捨てる（窓はもう無い）。
+        guard database != nil else { return }
+        if outcome.updatedInLibrary > 0 {
+            do { try refreshDisplayedBooks() }
+            catch { self.error = .unexpected(error) }
+        }
+        Self.finderTagLogger.info(
+            "G39: sync done field=\(field, privacy: .public) lib=\(outcome.updatedInLibrary, privacy: .public) finder=\(outcome.updatedInFinder, privacy: .public) skippedTags=\(outcome.skippedTags.count, privacy: .public) skippedBooks=\(outcome.skippedBooks.count, privacy: .public) indexingDisabled=\(outcome.indexingDisabledVolumes.joined(separator: ","), privacy: .public)")
+        if let notice = FinderTagSyncNotice.make(outcome: outcome, trigger: trigger,
+                                                fieldLabel: finderTagSyncFieldLabel) {
+            presentFinderTagSyncNotice(notice)
+        }
     }
 
     /// バナーを出す。**警告は自動で消さない** —— 索引無効やスキップは見逃したら分からなくなる。
@@ -156,6 +172,10 @@ extension AppState {
 
     /// 庫を閉じるときの後始末（`closeBundle()` から呼ぶ）。
     func stopFinderTagSync() {
+        // ★ **番号を進めて、止めた回の後始末を無効にする。**cancel は子に「止まれ」と言うだけで、
+        // 待ち受けタスクはこの後も走り終える。番号を進めておかないと、次の同期が始まった後に
+        // 古い回が `isFinderTagSyncRunning` を false に戻し、二重起動の抑止が破れる。
+        finderTagSyncRunID &+= 1
         // ★ **子（実際に走っている `Task.detached`）を先に止める。**
         // 親だけ cancel しても detached の子には伝播せず、中断チェックが効かない。
         finderTagSyncChild?.cancel()

@@ -104,6 +104,10 @@ final class AppState {
     /// G39: 実際に同期を走らせている `Task.detached` の本体。
     /// **親の `cancel()` は detached の子へ伝播しない**ので、中断するにはこれを持っておく必要がある。
     var finderTagSyncChild: Task<FinderTagSyncOutcome, Never>?
+    /// 走らせるたびに増える通し番号。**中断した回の後始末が、次の回を壊さないようにするため**。
+    /// `stopFinderTagSync()` は子を cancel するが**待ち受けタスクの完了は待たない**ので、
+    /// 次の同期が始まった後に古い回の後始末が走りうる。番号が合わない後始末は何もしない。
+    var finderTagSyncRunID = 0
     var finderTagNoticeClearTask: Task<Void, Never>?
 
     // v0.4a additions
