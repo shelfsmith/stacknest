@@ -40,12 +40,18 @@ enum WatchImportNotice {
         let isWarning = !result.failed.isEmpty || !result.coverFailures.isEmpty || result.cancelled
         guard !parts.isEmpty || result.cancelled else { return nil }
 
-        var text = parts.joined(separator: " / ")
+        // 中断は他の件数に**掛かる**情報なので、並べずに文の主語にする
+        // （「3 件追加したが、全部は見ていない」）。件数を括弧に入れるのは、
+        // 他の parts が体言止めの見出し調で、「中断しました。」（句点付きの完結した文）と
+        // 直に繋ぐと文体が途中で切り替わって読みにくいため。
+        // `parts` が空の場合と同じ文型に揃うという利点もある。
+        let text: String
         if result.cancelled {
-            // 中断は全体に掛かる情報なので前に置く（「3 件追加したが、全部は見ていない」）。
-            text = text.isEmpty
+            text = parts.isEmpty
                 ? String(localized: "取り込みを中断しました")
-                : String(localized: "中断しました。") + text
+                : String(localized: "取り込みを中断しました（\(parts.joined(separator: " / "))）")
+        } else {
+            text = parts.joined(separator: " / ")
         }
 
         return Notice(kind: isWarning ? .warning : .info,
