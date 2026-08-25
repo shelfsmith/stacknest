@@ -610,3 +610,34 @@ struct FinderTagSyncFieldChangeWaitsTests {
         #expect(FinderTagSyncSetting.current(db) == "keyword_a")
     }
 }
+
+/// Codex レビュー 7 巡目（2026-08-25）: **項目が変わったら、次のボリュームへ進まない。**
+///
+/// `FinderTagSyncRunner` はボリュームごとに `sync` を呼び、1 つ失敗しても残りを続ける
+/// （未マウントのボリュームを含む庫でも他は同期されたほうがよいため）。
+/// ただし `fieldChangedDuringSync` だけは意味が違う ——
+/// **「このラウンドが握っている `field` はもう正しくない」**ので、次へ進むと
+/// 古い項目の値を Finder と図書に書くことになり、1 つ目で中断した意味が無くなる。
+///
+/// **なぜ純粋関数を対象にするか**: 2 ボリュームに跨る庫をテストから作れない
+/// （`FinderTagVolumes.root` は `/Volumes/<名前>` で切るが `sync` はその実在を要求し、
+/// `/Volumes` の下は作れない）。`lockChangeIsAuthorized` と同じ扱い。
+@Suite("項目が変わったらボリュームを跨がない（G39・Codex 7 巡目）")
+struct FinderTagSyncRunnerAbortsAllVolumesTests {
+
+    @Test("項目の変更は庫全体を打ち切る")
+    func aFieldChangeStopsEveryVolume() {
+        #expect(FinderTagSyncRunner.stopsEveryVolume(FinderTagSyncError.fieldChangedDuringSync))
+    }
+
+    /// 対照: ボリュームごとの失敗は打ち切らない（未マウントが 1 つあっても残りは同期する）。
+    @Test("ボリュームごとの失敗は打ち切らない（対照）")
+    func otherFailuresDoNotStopTheRest() {
+        #expect(FinderTagSyncRunner.stopsEveryVolume(
+            FinderTagSyncError.volumeUnavailable("/Volumes/gone")) == false)
+        #expect(FinderTagSyncRunner.stopsEveryVolume(
+            FinderTagSyncError.unsupportedField("nope")) == false)
+        struct Other: Error {}
+        #expect(FinderTagSyncRunner.stopsEveryVolume(Other()) == false)
+    }
+}
