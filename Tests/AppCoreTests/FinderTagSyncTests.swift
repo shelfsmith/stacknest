@@ -871,3 +871,51 @@ struct FinderTagSyncCommitCountTests {
                 "書けていないのに前回同期値を書いてはいけない（次回が実在しない削除を見る）")
     }
 }
+
+/// Codex レビュー 8 巡目（2026-08-25）: **同期中に庫を閉じると、xattr だけ先に進む。**
+///
+/// `closeBundle()` は子を cancel してすぐ `database.close()` へ進む。同期は
+/// **xattr は 1 冊ずつ即座に書く**が、図書側と前回同期値は**最後にまとめて**書くので、
+/// この瞬間に閉じられると DB 側の書き込みが黙って no-op になり、
+/// **Finder のほうが図書より進んだ**状態が残る。
+///
+/// **その状態は次の照合で安全側に収束する**（＝削除は起きない）ことをここで固定する。
+/// 前回同期値も書かれていないので、次回は「Finder 側が変わった」と読んで**取り込む**。
+/// 逆（図書側の欠落を「ユーザーが消した」と読んで Finder から消す）にはならない。
+///
+/// この性質があるので、`closeBundle()` を async にして待つ改修は見送っている
+/// （DB を閉じる順序に手を入れる риск のほうが大きい）。**受け入れている挙動**。
+@Suite("閉庫で xattr だけ進んだ状態は次回に収束する（G39・Codex 8 巡目）")
+struct FinderTagSyncCloseMidFlightConvergenceTests {
+    private static let field = "keyword_a"
+
+    @Test("Finder が図書より進んでいても、次の照合は取り込む（消さない）")
+    func theNextRoundImportsRatherThanDeletes() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-conv-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let f = dir.appendingPathComponent("b.cbz")
+        try Data("x".utf8).write(to: f)
+        // 閉庫直後の状態を作る: 図書側は古いまま・前回同期値も古いまま・**xattr だけ新しい**。
+        let id = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "b", path: f.path, dateAdded: Date(), keywordA: "元の値"))
+        try db.setFinderTagBaseline(bookID: id, value: "元の値")
+        try FinderTagStore.apply(names: ["元の値", "あとから付いた"], to: f)
+
+        let r = try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
+                                       isIndexingEnabled: { _ in true },
+                                       taggedPaths: { _ in [f.path] })
+
+        let after = try db.fetchAllBooks().first { $0.id == id }?.keywordA ?? ""
+        #expect(Set(MultiValueParser.split(after)) == ["元の値", "あとから付いた"],
+                "Finder が進んでいた分を取り込むこと（実際: \(after)）")
+        #expect(r.updatedInLibrary == 1)
+        #expect(try FinderTagStore.read(at: f).map(\.name).sorted()
+                == ["あとから付いた", "元の値"].sorted(),
+                "Finder のタグを消してはいけない")
+    }
+}
