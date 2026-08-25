@@ -257,7 +257,7 @@ struct FinderTagSyncWiringTests {
         state.startFinderTagSync(trigger: .libraryOpened)
 
         #expect(state.isFinderTagSyncRunning == false)
-        #expect(state.finderTagSyncNotice == nil, "庫を開いた契機では黙っている")
+        #expect(state.finderTagNotice.notice == nil, "庫を開いた契機では黙っている")
         #expect(state.canStartFinderTagSync == false, "メニュー項目も無効")
     }
 
@@ -273,7 +273,7 @@ struct FinderTagSyncWiringTests {
 
         state.startFinderTagSync(trigger: .manual)
 
-        let notice = try #require(state.finderTagSyncNotice)
+        let notice = try #require(state.finderTagNotice.notice)
         #expect(notice.kind == .warning)
     }
 
@@ -510,7 +510,7 @@ struct FinderTagSyncStaleCompletionTests {
                                   trigger: .manual, field: "genre")
 
         #expect(state.isFinderTagSyncRunning, "走行中の回のフラグを落としてはいけない")
-        #expect(state.finderTagSyncNotice == nil, "古い回の結果をバナーに出してはいけない")
+        #expect(state.finderTagNotice.notice == nil, "古い回の結果をバナーに出してはいけない")
     }
 
     /// 対照: 自分の回の後始末はちゃんと効く（守りすぎて何もしなくなっていない）。
@@ -528,7 +528,7 @@ struct FinderTagSyncStaleCompletionTests {
         #expect(state.isFinderTagSyncRunning == false)
         #expect(state.finderTagSyncTask == nil)
         #expect(state.finderTagSyncChild == nil)
-        #expect(state.finderTagSyncNotice != nil, "手動なら「変更なし」を知らせる")
+        #expect(state.finderTagNotice.notice != nil, "手動なら「変更なし」を知らせる")
     }
 
     /// 止めたら番号が進む（＝止めた回の後始末が無効になる）。

@@ -254,22 +254,18 @@ enum FinderTagSyncTrigger: Equatable {
     case manual
 }
 
-/// 同期結果のバナー 1 枚分。
-struct FinderTagSyncNotice: Equatable {
-    enum Kind: Equatable { case info, warning }
-
-    var kind: Kind
-    var text: String
-    /// 「詳細」で開くアラートの本文（スキップしたタグ名・本のパスの一覧）。
-    var detail: String?
-
+/// 同期結果 → バナーの文言（純粋関数だけを持つ）。
+///
+/// G41 で値の型は汎用の `Notice` に移した。**判定はここに残す** ——
+/// 何を警告とみなすかは Finder タグ同期に固有の知識だから。
+enum FinderTagSyncNotice {
     /// 報告するに値するか（値しないなら nil）を含めて文言を組む。
     ///
     /// - **黙って同期されないのが最悪**なので、索引無効・スキップは必ず出す（`.warning`）。
     /// - 変化も警告も無いときは、庫を開いた契機なら**出さない**。手動なら「変更なし」と出す。
     static func make(outcome: FinderTagSyncOutcome,
                      trigger: FinderTagSyncTrigger,
-                     fieldLabel: String) -> FinderTagSyncNotice? {
+                     fieldLabel: String) -> Notice? {
         var lines: [String] = []
         var details: [String] = []
 
@@ -307,53 +303,8 @@ struct FinderTagSyncNotice: Equatable {
             lines.append(String(localized: "Finder タグ: 変更はありませんでした"))
         }
 
-        return FinderTagSyncNotice(kind: isWarning ? .warning : .info,
-                                   text: lines.joined(separator: " "),
-                                   detail: details.isEmpty ? nil : details.joined(separator: "\n\n"))
-    }
-}
-
-// MARK: - バナー
-
-/// `LibraryBrowserView` の上端に出す通知バナー。
-///
-/// **警告は自動で消さない**（`AppState` 側で消去タイマを張らない）。索引無効やスキップは
-/// 「5 秒見逃したら二度と分からない」種類の情報で、それでは黙って同期されないのと大差ない。
-struct FinderTagSyncBanner: View {
-    let notice: FinderTagSyncNotice
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: notice.kind == .warning ? "exclamationmark.triangle.fill" : "tag")
-                .foregroundStyle(notice.kind == .warning ? Color.orange : Color.secondary)
-            Text(notice.text)
-                .font(.callout)
-                .lineLimit(3)
-                .frame(maxWidth: 520, alignment: .leading)
-            if notice.detail != nil {
-                Button("詳細") { showDetail() }
-                    .buttonStyle(.link)
-            }
-            Button {
-                onDismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-            }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.secondary)
-            .help("この通知を閉じる")
-        }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.thinMaterial, in: Capsule())
-        .overlay(Capsule().stroke(.secondary.opacity(0.3)))
-        .shadow(radius: 4)
-    }
-
-    private func showDetail() {
-        let alert = NSAlert()
-        alert.messageText = notice.text
-        alert.informativeText = notice.detail ?? ""
-        alert.runModal()
+        return Notice(kind: isWarning ? .warning : .info,
+                      text: lines.joined(separator: " "),
+                      detail: details.isEmpty ? nil : details.joined(separator: "\n\n"))
     }
 }

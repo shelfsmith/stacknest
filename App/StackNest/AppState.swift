@@ -83,12 +83,13 @@ final class AppState {
     /// リモート経路の `RemoteLibraryState.pendingOpenBookID` に対応する。
     var pendingResumeBookID: Int?
 
-    /// 監視フォルダ自動取込の要約（バナー表示用・一定時間で自動クリア）。
-    var watchImportSummary: String?
+    /// 監視フォルダの自動取り込みの結果（G41）。
+    var watchNotice = NoticeSlot()
+    /// Finder タグ同期の結果（G39・枠は G41 で共通化）。
+    var finderTagNotice = NoticeSlot()
     // G37 ③: テストが `closeBundle()` の停止順序を検証できるよう internal にしてある
     // （`database` / `librarySettings` と同様、テストからの直接注入・読み取りを許す）。
     var folderWatcher: FolderWatcher?
-    private var watchSummaryClearTask: Task<Void, Never>?
 
     // MARK: - Phase G39: Finder タグ同期（配線は AppState+FinderTags.swift）
 
@@ -96,8 +97,6 @@ final class AppState {
     /// **DB を毎回読まずに済むようここに持つ** —— メニュー項目の有効/無効は頻繁に再評価される。
     /// 書き込みは `setFinderTagSyncField(_:)` 経由に限る（前回同期値の全消しがそこにあるため）。
     var finderTagSyncField: String?
-    /// 同期結果のバナー（警告は自動で消えない）。
-    var finderTagSyncNotice: FinderTagSyncNotice?
     /// 走行中フラグ。**手動再照合の二重起動を止める唯一の場所。**
     var isFinderTagSyncRunning = false
     var finderTagSyncTask: Task<Void, Never>?
@@ -108,7 +107,6 @@ final class AppState {
     /// `stopFinderTagSync()` は子を cancel するが**待ち受けタスクの完了は待たない**ので、
     /// 次の同期が始まった後に古い回の後始末が走りうる。番号が合わない後始末は何もしない。
     var finderTagSyncRunID = 0
-    var finderTagNoticeClearTask: Task<Void, Never>?
 
     // v0.4a additions
     var selectedSidebarItem: SidebarItem? = .library
@@ -513,8 +511,7 @@ final class AppState {
         // 閉じた後では `setLibrarySetting` が no-op になり、設定が失われる。
         // **backupOnCloseIfNeeded() より前に置くこと** ―― 後だとバックアップに古い設定が入る。
         librarySettings?.flushPendingWrites()
-        watchSummaryClearTask?.cancel()
-        watchSummaryClearTask = nil
+        watchNotice.dismiss()
         // G39: 走行中の Finder タグ同期を中断する。
         // **実際に走っているのは `Task.detached` の子**で、親を cancel しても伝播しないため、
         // `stopFinderTagSync()` が子を直接止める（レビューが「中断が効いていない」ことを実測）。
@@ -1985,17 +1982,9 @@ final class AppState {
         if !result.addedIDs.isEmpty, let uuid = librarySettings?.libraryUUID {
             ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
         }
-        var parts: [String] = []
-        if !result.addedIDs.isEmpty { parts.append("\(result.addedIDs.count) 件を自動追加") }
-        if !result.failed.isEmpty { parts.append("\(result.failed.count) 件失敗") }
-        if !result.coverFailures.isEmpty { parts.append("表紙なし \(result.coverFailures.count) 件") }
-        guard !parts.isEmpty else { return }
-        watchImportSummary = parts.joined(separator: " / ")
-        watchSummaryClearTask?.cancel()
-        watchSummaryClearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(5))
-            self?.watchImportSummary = nil
-        }
+        // 文言と種別の判断は `WatchImportNotice.make` に閉じる（純粋関数なのでテストできる）。
+        guard let notice = WatchImportNotice.make(result) else { return }
+        watchNotice.present(notice)
     }
 
     // MARK: - Phase 4.1c: external book change handler

@@ -92,7 +92,7 @@ extension AppState {
         guard let field = finderTagSyncField else {
             // 未設定（既定）は「同期しない」。庫を開いた契機では黙って何もしない。
             if trigger == .manual {
-                presentFinderTagSyncNotice(FinderTagSyncNotice(
+                finderTagNotice.present(Notice(
                     kind: .warning,
                     text: String(localized: "Finder タグと同期する項目が選ばれていません（ライブラリの設定で選べます）。"),
                     detail: nil))
@@ -160,28 +160,8 @@ extension AppState {
             "G39: sync done field=\(field, privacy: .public) lib=\(outcome.updatedInLibrary, privacy: .public) finder=\(outcome.updatedInFinder, privacy: .public) skippedTags=\(outcome.skippedTags.count, privacy: .public) skippedBooks=\(outcome.skippedBooks.count, privacy: .public) indexingDisabled=\(outcome.indexingDisabledVolumes.joined(separator: ","), privacy: .public)")
         if let notice = FinderTagSyncNotice.make(outcome: outcome, trigger: trigger,
                                                 fieldLabel: finderTagSyncFieldLabel) {
-            presentFinderTagSyncNotice(notice)
+            finderTagNotice.present(notice)
         }
-    }
-
-    /// バナーを出す。**警告は自動で消さない** —— 索引無効やスキップは見逃したら分からなくなる。
-    /// 変化の報告（info）だけ 6 秒で消す。
-    func presentFinderTagSyncNotice(_ notice: FinderTagSyncNotice) {
-        finderTagNoticeClearTask?.cancel()
-        finderTagNoticeClearTask = nil
-        finderTagSyncNotice = notice
-        guard notice.kind == .info else { return }
-        finderTagNoticeClearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(6))
-            guard !Task.isCancelled else { return }
-            self?.finderTagSyncNotice = nil
-        }
-    }
-
-    func dismissFinderTagSyncNotice() {
-        finderTagNoticeClearTask?.cancel()
-        finderTagNoticeClearTask = nil
-        finderTagSyncNotice = nil
     }
 
     /// 庫を閉じるときの後始末（`closeBundle()` から呼ぶ）。
@@ -196,9 +176,7 @@ extension AppState {
         finderTagSyncChild = nil
         finderTagSyncTask?.cancel()
         finderTagSyncTask = nil
-        finderTagNoticeClearTask?.cancel()
-        finderTagNoticeClearTask = nil
-        finderTagSyncNotice = nil
+        finderTagNotice.dismiss()
         isFinderTagSyncRunning = false
         finderTagSyncField = nil
     }
