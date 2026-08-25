@@ -202,10 +202,28 @@ enum FinderTagSyncRunner {
             } catch {
                 // 1 ボリュームが失敗しても残りは続ける（未マウントのボリュームを 1 つ含む庫でも
                 // 他のボリュームは同期されるほうがよい）。最初の理由だけ報告する。
-                if outcome.failure == nil { outcome.failure = message(for: error) }
+                if outcome.failure == nil || stopsEveryVolume(error) {
+                    outcome.failure = message(for: error)
+                }
+                // ★ **項目が変わったときだけは打ち切る**（Codex 7 巡目）。
+                if stopsEveryVolume(error) { break }
             }
         }
         return outcome
+    }
+
+    /// その失敗は**庫全体を打ち切るべきか**（このボリュームだけ諦めればよいのか）。
+    ///
+    /// ボリュームごとの失敗（未マウント等）は残りを続けたほうがよい。
+    /// **`fieldChangedDuringSync` だけは違う** —— 「このラウンドが握っている `field` は
+    /// もう正しくない」という意味なので、次のボリュームへ進むと**古い項目の値を
+    /// Finder と図書に書く**ことになり、1 つ目で中断した意味が無くなる。
+    ///
+    /// 純粋関数にしてあるのは、**2 ボリュームに跨る庫をテストから作れない**ため
+    /// （`FinderTagVolumes.root` は `/Volumes/<名前>` で切るが、`sync` はその実在を要求する）。
+    static func stopsEveryVolume(_ error: Error) -> Bool {
+        if case FinderTagSyncError.fieldChangedDuringSync = error { return true }
+        return false
     }
 
     /// 表示用のエラー文言。`FinderTagSyncError` は `LocalizedError` ではないので
