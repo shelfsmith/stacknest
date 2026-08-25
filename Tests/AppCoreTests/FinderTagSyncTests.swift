@@ -498,12 +498,19 @@ struct FinderTagSyncDetailTests {
         #expect(FinderTagSync.normalize("/") == "/", "根だけは残す")
     }
 
-    /// ★ spec §2 が決めた 7 項目そのものを固定する。
+    /// ★ 同期できる項目そのものを固定する。
     /// 既存テストは whitelist 自身を回すので、**項目が減っても増えても検出できない**。
+    ///
+    /// **`series` は 2026-08-25 に外した**（Codex レビュー 4 巡目）。spec §2 は当初 7 項目
+    /// としていたが、§4.4 の前提「StackNest 側の値に `", "` は構造上あり得ない」が
+    /// **単一値の `series` にだけ当てはまらない**。実測: `Love, Chunibyo & Other Delusions`
+    /// が Finder 上で 2 個のタグに分裂し、**片方を消すと series が `Love` になる**（非可逆）。
     @Test func theSyncableFieldsAreTheOnesTheSpecChose() {
         #expect(FinderTagSync.syncableFields == [
-            "genre", "series", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
+            "genre", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
         ])
+        #expect(FinderTagSync.syncableFields.contains("series") == false,
+                "単一値の列を区切りで分割してはいけない")
     }
 
     /// 既存の並びを保ち、増えた分を末尾に足す（`FinderTagStore.apply` と同じ方針）。

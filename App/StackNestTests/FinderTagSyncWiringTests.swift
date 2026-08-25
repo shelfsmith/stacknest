@@ -27,12 +27,24 @@ struct FinderTagSyncWiringTests {
 
     // MARK: - 設定キーの解釈
 
-    /// UI に並べる 7 項目が、同期本体の whitelist と**同じ集合**であること。
-    /// 片方だけ増減すると「選べるのに `unsupportedField` で失敗する」項目が生まれる。
+    /// UI に並べる項目が、同期本体の whitelist と**同じ集合**であること。
+    /// 片方だけ増減すると「選べるのに `unsupportedField` で失敗する」項目や、
+    /// 逆に「外したはずなのに UI には残っている」項目が生まれる。
     @Test("選択肢は FinderTagSync の whitelist と一致する")
     func theChoicesMatchTheSyncableFields() {
         #expect(Set(FinderTagSyncSetting.fields) == FinderTagSync.syncableFields)
-        #expect(FinderTagSyncSetting.fields.count == 7)
+        #expect(FinderTagSyncSetting.fields.count == 6)
+    }
+
+    /// ★ `series` は選べない（2026-08-25・Codex レビュー 4 巡目）。
+    /// 単一値の列なのに区切り `", "` を含みうるので、Finder 上で複数タグに分裂し、
+    /// **片方を消すと series が半分になる**（実測）。UI にも whitelist にも出さない。
+    @Test("series は同期対象に出てこない")
+    func seriesIsNotOffered() {
+        #expect(FinderTagSyncSetting.fields.contains("series") == false)
+        #expect(FinderTagSync.syncableFields.contains("series") == false)
+        // 既に "series" を保存済みの庫は「同期しない」に落ちる（黙って壊さない側へ）。
+        #expect(FinderTagSyncSetting.normalize("series") == nil)
     }
 
     @Test("未設定・空・whitelist 外はすべて『同期しない』に落ちる")

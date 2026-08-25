@@ -60,8 +60,23 @@ public enum FinderTagSyncError: Error, Equatable {
 ///   **全件 xattr 読みへのフォールバックはしない** —— 12,000 冊で「庫を開くたびに待たされる」
 public enum FinderTagSync {
     /// 同期対象にできるメタデータ項目（`Database` の browse whitelist と一致・spec §2）。
+    /// 同期できる項目。**`series` は入っていない**（2026-08-25・Codex レビュー 4 巡目）。
+    ///
+    /// §4.4 は「StackNest 側の値に `", "` が含まれることは構造上あり得ない（それが区切りだから）」
+    /// を前提にしているが、**`series` にだけこれが当てはまらない** —— 単一値の列で、
+    /// `Love, Chunibyo & Other Delusions` のような正当な値が区切りを含みうる。
+    ///
+    /// 実測（2026-08-25）: その series は Finder 上で
+    /// `["Chunibyo & Other Delusions", "Love"]` の**2 個のタグに分裂**し、
+    /// **Finder で片方を消すと series が `Love` になる**（非可逆）。
+    /// 往復しただけなら図書側の順序で並べ直されて元に戻るが、
+    /// タグを独立に触れてしまう時点で成立していない。
+    ///
+    /// 単一値の列を「タグ 1 個 = 値の全体」として同期する設計はありうるが、
+    /// 「区切りを含むタグは飛ばす」（§4.4）を単一値列には適用しない、という条件分けが要り、
+    /// 別フェーズで設計し直す（ロードマップ参照）。**それまでは外しておく。**
     public static let syncableFields: Set<String> = [
-        "genre", "series", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
+        "genre", "author", "neta", "keyword_a", "keyword_b", "keyword_c",
     ]
 
     /// 「いま保存されている前回同期値は、どの項目に対するものか」を覚えておくキー。
