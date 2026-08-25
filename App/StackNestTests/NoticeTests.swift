@@ -30,9 +30,16 @@ struct NoticeSlotTests {
 
     /// ★ 本命。索引無効・取り込み失敗は**見逃したら二度と分からない**。
     ///
-    /// **固定時間で待たない。**「30ms のタイマーがこの環境で発火し終わったか」を
+    /// **固定時間で待たない。**「対象のタイマーがこの環境で発火し終わったか」を
     /// **別の枠で実際に観測**してから判定する。負荷が高くて発火が遅れただけの状況で
     /// 「まだ在る＝合格」と誤判定するのを防ぐ（変異注入 5 回中 1 回すり抜けた実測がある）。
+    ///
+    /// **対象（warned・仮に guard が壊れて動いた場合の締切）は 30ms、見張りは 60ms**
+    /// と締切を分けてある。同じ 30ms 同士だと「見張りが消えた」が「対象のタイマーも
+    /// 発火し終えた」を**厳密には含意しない**（同一 MainActor 上の 2 つの Task が
+    /// 同じ長さのスリープから同じ順序で目覚める保証はない）。見張りを対象より長くすれば、
+    /// 見張りの 60ms が経過した時点で対象の 30ms は壁時計上必ず経過済みなので、
+    /// 論理的に含意する形になる。
     @Test("warning は時間で消えない")
     @MainActor
     func warningStays() async throws {
@@ -41,14 +48,14 @@ struct NoticeSlotTests {
         warned.present(Notice(kind: .warning, text: "2 件失敗", detail: "…"),
                        autoDismissAfter: .milliseconds(30))
         canary.present(Notice(kind: .info, text: "見張り", detail: nil),
-                       autoDismissAfter: .milliseconds(30))
+                       autoDismissAfter: .milliseconds(60))
 
-        // 見張りが消えた ＝ 同じ長さのタイマーが確かに発火し終えた、という事象。
+        // 見張りが消えた ＝ 見張りより短い対象のタイマーは、壁時計上すでに発火し終えている。
         let deadline = Date().addingTimeInterval(3)
         while canary.notice != nil && Date() < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
-        #expect(canary.notice == nil, "前提: 30ms のタイマーが発火し終えていること")
+        #expect(canary.notice == nil, "前提: 60ms のタイマーが発火し終えていること")
 
         #expect(warned.notice != nil, "警告が勝手に消えた")
     }
@@ -64,27 +71,32 @@ struct NoticeSlotTests {
 
     /// 新しいお知らせを出したら、前のタイマーは止まっていること。
     /// 止まっていないと、**後から出した警告を前の info のタイマーが消してしまう**。
+    ///
+    /// **canary 事象同期にしてある**（`warningStays` と同じ方式）。以前は固定 3 秒の
+    /// ポーリング上限を否定的な主張（「消えないこと」）に使っていたため、**正しい実装のときは
+    /// 必ず 3 秒を実消費**していた（172 本中このテストだけ突出して遅い）。対象（前の info の
+    /// 30ms タイマー、もし解除し損ねていれば発火する）より**長い 60ms の見張りタイマー**を
+    /// 別の枠に張り、見張りが消えるのを待ってから判定する。見張りの 60ms が経過した時点で
+    /// 対象の 30ms は壁時計上必ず発火し終えているので、「見張りが消えた」は「対象のタイマーが
+    /// あれば既に発火している」を論理的に含意する（`warningStays` と揃えて締切を分ける理由も同じ）。
     @Test("新しいお知らせは前のタイマーを止める")
     @MainActor
     func presentingAgainCancelsThePreviousTimer() async throws {
         let slot = NoticeSlot()
+        let canary = NoticeSlot()
         slot.present(Notice(kind: .info, text: "先", detail: nil),
                      autoDismissAfter: .milliseconds(30))
         slot.present(Notice(kind: .warning, text: "後", detail: nil),
                      autoDismissAfter: .milliseconds(30))
+        canary.present(Notice(kind: .info, text: "見張り", detail: nil),
+                       autoDismissAfter: .milliseconds(60))
 
-        // ★ この主張は否定的（「勝手に消えないこと」）なので、待ち時間を延ばしても
-        // 正しい実装側が誤って落ちる方向にはならない（cancel は present() 内で同期的に
-        // 行われるので、正しければ notice は自発的に変化しない）。一方で、前の info の
-        // タイマーが解除し損ねている壊れ方（あるいは guard 欠落で新しい warning にも
-        // タイマーが張られる壊れ方）を確実に捕まえるには、CPU が混んでいても 30ms の
-        // タイマーが発火しきるだけの時間を確保する必要がある——Step 3 でフルスイート
-        // 並列実行下では 300ms 固定待ちで実際に不足する例が出た。そこで「変化した瞬間に
-        // 即座に検知」しつつ、上限は余裕を持って 3 秒までポーリングする。
         let deadline = Date().addingTimeInterval(3)
-        while Date() < deadline, slot.notice?.text == "後" {
+        while canary.notice != nil && Date() < deadline {
             try await Task.sleep(for: .milliseconds(10))
         }
+        #expect(canary.notice == nil, "前提: 60ms のタイマーが発火し終えていること")
+
         #expect(slot.notice?.text == "後", "前の info のタイマーが後の警告を消した")
     }
 }

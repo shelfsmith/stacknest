@@ -124,4 +124,26 @@ struct CloseBundleFlushOrderTests {
         // stop() が呼ばれていること
         #expect(watcher.scanning == false, "closeBundle が folderWatcher を停止すること")
     }
+
+    /// G41: `closeBundle()` は 2 つのお知らせ枠を**両方とも**片付けること。
+    ///
+    /// `closeBundle()` 本体は `watchNotice.dismiss()` しか直接呼んでいない ――
+    /// `finderTagNotice` の後始末は `stopFinderTagSync()`（`AppState+FinderTags.swift`）の
+    /// 中にある。動作としては正しいが、`closeBundle()` だけを読むと片方しか片付けていない
+    /// ように見えるので、コメントより強い保護としてここで両方が nil になることを固定する。
+    @Test("closeBundle は watchNotice と finderTagNotice の両方を閉じる")
+    func closeBundleClearsBothNoticeSlots() throws {
+        let (state, bundle, db) = try makeState()
+        defer { try? FileManager.default.removeItem(at: bundle); db.close() }
+
+        state.watchNotice.present(Notice(kind: .warning, text: "取り込み失敗", detail: nil))
+        state.finderTagNotice.present(Notice(kind: .warning, text: "同期できません", detail: nil))
+        #expect(state.watchNotice.notice != nil, "前提: watchNotice が出ていること")
+        #expect(state.finderTagNotice.notice != nil, "前提: finderTagNotice が出ていること")
+
+        state.closeBundle()
+
+        #expect(state.watchNotice.notice == nil, "closeBundle が watchNotice を閉じていない")
+        #expect(state.finderTagNotice.notice == nil, "closeBundle が finderTagNotice を閉じていない（stopFinderTagSync() 経由のはず）")
+    }
 }

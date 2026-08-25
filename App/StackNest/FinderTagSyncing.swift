@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
 import Foundation
-import SwiftUI
-import AppKit
 import AppCore
 import LibraryStore
 
