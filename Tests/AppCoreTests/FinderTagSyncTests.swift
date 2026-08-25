@@ -672,3 +672,131 @@ struct FinderTagBaselineGenerationTests {
                 "消したはずの前回同期値が書き戻されている（次回の照合が実在しない削除を見る）")
     }
 }
+
+/// Codex レビュー 2 巡目（2026-08-25）: 前回同期値を書かないだけでは足りない。
+///
+/// 1 巡目の修正は「書き戻さない」までしか守っておらず、**このラウンドは古い項目のまま
+/// Finder のタグと図書の値を書き換えながら進み続けていた**。項目が変わった後も書くと、
+/// 古い項目の値が Finder に残り、次の照合で**新しい項目へ流れ込む**（非可逆の混入）。
+///
+/// 直したのは 2 箇所。**64 冊ごとに世代を見て抜ける**（ここのテスト）と、
+/// **`AppState.setFinderTagSyncField` が先に走行中の同期を止める**（App 層のテスト）。
+@Suite("項目が変わったら書き込みごと止める（G39・Codex 2 巡目）")
+struct FinderTagSyncFieldChangeAbortTests {
+    private static let field = "keyword_a"
+
+    private func tempDir() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-abort-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// 世代の確認は 64 冊ごとなので、確実に跨ぐ数を用意する。
+    private func fixture(_ dir: URL, count: Int) throws -> (Database, [URL]) {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        var files: [URL] = []
+        for i in 0..<count {
+            let f = dir.appendingPathComponent("b\(i).cbz")
+            try Data("x".utf8).write(to: f)
+            _ = try db.insertBookReturningID(BookRecord(
+                id: 0, title: "b\(i)", path: f.path, dateAdded: Date(), keywordA: "値\(i)"))
+            files.append(f)
+        }
+        return (db, files)
+    }
+
+    /// ★ 本命: 走っている最中に項目が変えられたら**投げて止まる**。
+    /// 図書の値は 1 冊も書かれない（溜めた分を捨てるので）。
+    @Test("走行中に項目が変わったら中断して溜めた分を捨てる")
+    func abortsAndDiscardsWhenTheFieldChanges() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (db, _) = try fixture(dir, count: 200)
+
+        #expect(throws: FinderTagSyncError.fieldChangedDuringSync) {
+            _ = try FinderTagSync.sync(
+                database: db, volume: dir, field: Self.field,
+                isIndexingEnabled: { _ in true },
+                taggedPaths: { _ in
+                    // 走り出した直後に設定シート / CLI / MCP が項目を変えた、を模す。
+                    try db.clearAllFinderTagBaselines()
+                    return []
+                })
+        }
+        #expect(try db.finderTagBaselines().isEmpty, "前回同期値を書き戻していない")
+    }
+
+    /// 対照: 誰も変えなければ最後まで走って前回同期値が入る。
+    @Test("誰も変えなければ完走する（対照）")
+    func completesWhenNobodyChangesTheField() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (db, _) = try fixture(dir, count: 200)
+
+        let r = try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
+                                       isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] })
+        #expect(r.updatedInFinder == 200)
+        #expect(try db.finderTagBaselines().count == 200)
+    }
+}
+
+/// Codex レビュー 2 巡目 P2: **ボリュームごとの回で、そのボリュームの本だけを見る。**
+///
+/// 渡さないと `sync` はボリュームごとに庫の全冊を回すので、仕事が `ボリューム数 × 冊数` になる。
+/// 加えて、あるボリュームの回で別のボリュームの本を**そのボリュームの索引状態で**処理してしまい、
+/// 「索引が無効なら Finder → StackNest 方向は動かさない」（spec §3.3）が本ごとに崩れる。
+@Suite("ボリュームごとに担当の本だけ見る（G39・Codex 2 巡目 P2）")
+struct FinderTagSyncVolumeScopeTests {
+    private static let field = "keyword_a"
+
+    @Test("担当外の本には触らない")
+    func leavesBooksOnOtherVolumesAlone() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-scope-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let mine = dir.appendingPathComponent("mine.cbz")
+        let theirs = dir.appendingPathComponent("theirs.cbz")
+        try Data("x".utf8).write(to: mine)
+        try Data("x".utf8).write(to: theirs)
+        _ = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "mine", path: mine.path, dateAdded: Date(), keywordA: "書く"))
+        _ = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "theirs", path: theirs.path, dateAdded: Date(), keywordA: "書かない"))
+
+        let r = try FinderTagSync.sync(
+            database: db, volume: dir, field: Self.field,
+            isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] },
+            includesPath: { $0 == mine.path })
+
+        #expect(r.updatedInFinder == 1, "担当の 1 冊だけ書く")
+        #expect(try FinderTagStore.read(at: mine).map(\.name) == ["書く"])
+        #expect(try FinderTagStore.read(at: theirs).isEmpty, "担当外の本にタグを書いてしまった")
+    }
+
+    /// 既定は全件（既存の呼び出しの挙動を変えていないこと）。
+    @Test("既定では全件を見る")
+    func defaultsToEveryBook() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-scope-all-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let db = try Database.openInMemory()
+        try db.migrate()
+        for i in 0..<3 {
+            let f = dir.appendingPathComponent("b\(i).cbz")
+            try Data("x".utf8).write(to: f)
+            _ = try db.insertBookReturningID(BookRecord(
+                id: 0, title: "b\(i)", path: f.path, dateAdded: Date(), keywordA: "値"))
+        }
+        let r = try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
+                                       isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] })
+        #expect(r.updatedInFinder == 3)
+    }
+}

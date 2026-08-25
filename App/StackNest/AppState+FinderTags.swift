@@ -44,6 +44,13 @@ extension AppState {
     /// **前回同期値の全消しは `FinderTagSyncSetting.update` の中で行う**（そこが唯一の窓口）。
     func setFinderTagSyncField(_ field: String?) {
         guard let db = database else { return }
+        // ★ **先に走行中の同期を止める**（Codex P1・2 巡目）。
+        // 項目を変えると `FinderTagSyncSetting.update` が前回同期値を全消しするが、
+        // 飛行中のラウンドは**古い項目で Finder のタグと図書の値を書き換えながら**進んでいる。
+        // 止めずに変えると、古い項目の値が Finder に残り、次の照合で新しい項目へ流れ込む。
+        // `FinderTagSync` 側にも 64 冊ごとの関門があるが、**あちらは最後の砦**で、
+        // ここで止めるほうが速い（本 1 冊分で止まる）。
+        if isFinderTagSyncRunning { stopFinderTagSync() }
         do {
             try FinderTagSyncSetting.update(db, to: field)
             finderTagSyncField = FinderTagSyncSetting.current(db)

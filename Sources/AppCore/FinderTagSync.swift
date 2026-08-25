@@ -26,6 +26,9 @@ public struct FinderTagSyncReport: Sendable, Equatable {
 }
 
 public enum FinderTagSyncError: Error, Equatable {
+    /// 走っている最中に同期対象の項目が変えられた（前回同期値が全消しされた）。
+    /// **このラウンドの結果はもう使えない**ので、書き込みを止めて捨てる。
+    case fieldChangedDuringSync
     /// 同期対象にできない項目。**何もせずに投げる**（spec §2 の whitelist）。
     case unsupportedField(String)
     /// 庫のボリュームが見当たらない（未マウント等）。
@@ -65,12 +68,19 @@ public enum FinderTagSync {
     /// ユーザーが選んだ項目そのもの（Task 7 が持つ設定）とは別に持つ。
     static let baselineFieldKey = "finderTagBaselineField"
 
+    /// - Parameter includesPath: **このボリュームの担当かどうか**（Codex P2）。
+    ///   既定は全件。庫が複数ボリュームに跨るとき、これが無いと `sync` は
+    ///   **ボリュームごとに庫の全冊を回す**ので、仕事が `ボリューム数 × 冊数` に膨らむ。
+    ///   加えて、あるボリュームの回で**別のボリュームの本**をそのボリュームの索引状態で
+    ///   処理してしまい（索引無効な庫の本を「有効」の経路で扱う）、spec §3.3 の
+    ///   「索引が無効なら Finder → StackNest 方向は動かさない」が本ごとに崩れる。
     public static func sync(
         database: Database,
         volume: URL,
         field: String,
         isIndexingEnabled: (URL) -> Bool = { SpotlightTagQuery.isIndexingEnabled(volume: $0) },
-        taggedPaths: (URL) throws -> [String] = { try SpotlightTagQuery.taggedPaths(in: $0) }
+        taggedPaths: (URL) throws -> [String] = { try SpotlightTagQuery.taggedPaths(in: $0) },
+        includesPath: (String) -> Bool = { _ in true }
     ) throws -> FinderTagSyncReport {
         guard syncableFields.contains(field) else {
             throw FinderTagSyncError.unsupportedField(field)
@@ -120,6 +130,8 @@ public enum FinderTagSync {
         // 到達経路は現実的: Finder で大量選択してタグを一括付与／既にタグのある庫でこの機能を
         // 初めて有効にする／**同期項目を切り替える**（前回値が全消しされるので全件が対象になる）。
         var pendingLibrary: [Int: String] = [:]     // 本の id → 書き込む値
+        var inspected = 0                          // 世代の再確認を 64 冊ごとに行うためのカウンタ
+        var fieldChanged = false                   // 走行中に項目が変えられた（結果を捨てる）
         // 成功時も失敗時も同じ順で流す。図書 → 前回同期値の順にするのは、
         // 途中で落ちても次回のマージが収束する側に倒すため。
         func flushLibraryUpdates() throws {
@@ -168,7 +180,23 @@ public enum FinderTagSync {
                 // 閉じた DB への書き込みは黙って no-op になるため、
                 // **xattr だけ書かれて図書側が書かれない**状態のまま走り続けることになる。
                 if Task.isCancelled { break }
+                // ★ **項目が変えられていないか、ときどき見る**（Codex P1・2 巡目）。
+                // 前回同期値を書かないだけでは足りない —— このラウンドは
+                // **Finder のタグと図書の値を実際に書き換えながら**進むので、
+                // 項目が変わった後も書き続けると、古い項目の値が Finder に残り、
+                // 次の照合で**新しい項目へ流れ込む**（非可逆の混入）。
+                // 毎冊 DB を読むと 12,000 冊で数秒掛かるので 64 冊ごと（実測 1 回 0.2ms 程度）。
+                // 変更を即座に捕まえるのは `AppState.setFinderTagSyncField` の cancel の役目で、
+                // ここは**そこを通らない経路のための最後の関門**。
+                inspected += 1
+                if inspected % 64 == 0,
+                   try database.finderTagBaselineGeneration() != baselineGeneration {
+                    fieldChanged = true
+                    break
+                }
                 guard let rawPath = row.path, !rawPath.isEmpty else { continue }
+                // このボリュームの担当でなければ触らない（Codex P2）。
+                guard includesPath(rawPath) else { continue }
                 let url = URL(fileURLWithPath: rawPath)
                 let libraryOrder = MultiValueParser.split(value(of: field, in: row) ?? "")
                 let library = Set(libraryOrder)
@@ -282,6 +310,14 @@ public enum FinderTagSync {
             // 書けなかった本は上で `pendingBaselines` から外れている。残りは書いてよい。
             try? writeBaselinesUnlessCleared()
             throw error
+        }
+        // ★ 項目が変わっていたら、**溜めた分を書かずに捨てる**。
+        // 古い項目で計算した結果を新しい設定の下で流し込むと、図書の値も Finder のタグも
+        // 混ざる。書かなければ次の照合が「初回」としてやり直すだけで済む（安全側）。
+        if fieldChanged {
+            pendingLibrary.removeAll()
+            pendingBaselines.removeAll()
+            throw FinderTagSyncError.fieldChangedDuringSync
         }
         // 成功経路も**同じ順・同じ方針**にする。以前は「flush が投げたら前回同期値を
         // 一切書かない」（保守的）で catch 経路と逆だったが、いまは flush が
