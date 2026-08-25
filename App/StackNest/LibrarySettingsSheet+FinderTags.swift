@@ -27,7 +27,11 @@ extension LibrarySettingsSheet {
                             finderTagField = newValue
                             // ★ 項目を変えたら前回同期値を全消しする（`setFinderTagSyncField` の中）。
                             // 残したままだと、別項目の値を「前回のタグ」と誤認して大量に消しかねない。
-                            appState?.setFinderTagSyncField(newValue.isEmpty ? nil : newValue)
+                            // 走行中の同期が止まるのを待つので `async`。**UI は待たせない** ——
+                            // `finderTagField`（上の行）は先に更新済みなので Picker は即座に動く。
+                            Task { @MainActor in
+                                await appState?.setFinderTagSyncField(newValue.isEmpty ? nil : newValue)
+                            }
                         }
                     )) {
                         Text("同期しない").tag(Self.finderTagSyncNoneTag)

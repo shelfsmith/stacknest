@@ -372,9 +372,11 @@ final class LocalControlController {
     /// **`AppState.setFinderTagSyncField` をそのまま呼ぶ**（設定シートの Picker と同じ 1 本）。
     /// 前回同期値の全消しはその先の `FinderTagSyncSetting.update` の中だけで起きる。
     @MainActor
-    static func setFinderTagSyncField(uuid: String, field: String?) -> FinderTagSyncStatusReply? {
+    static func setFinderTagSyncField(uuid: String, field: String?) async -> FinderTagSyncStatusReply? {
         guard let state = appState(libraryUUID: uuid) else { return nil }
-        state.setFinderTagSyncField(field)
+        // **待つ**（走行中の同期が止まってから設定が変わる）。待たずに応答を組むと、
+        // 変えたつもりの項目ではなく古い項目を返してしまう。
+        await state.setFinderTagSyncField(field)
         return FinderTagSyncStatusReply(field: state.finderTagSyncField,
                                         running: state.isFinderTagSyncRunning,
                                         locked: state.needsUnlock)
