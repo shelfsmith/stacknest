@@ -4,7 +4,8 @@ import AppKit
 
 /// ライブラリ窓の上端に出すお知らせ 1 枚分。
 ///
-/// G39 の `FinderTagSyncNotice` を一般化したもの。**入口（文言を組む純粋関数）は
+/// G39 の `FinderTagSyncNotice` が持っていた**値の型**を一般化したもの
+/// （判定は `FinderTagSyncNotice.make` に残る）。**入口（文言を組む純粋関数）は
 /// 用途ごとに分かれるが、出口（この型と表示と寿命）は 1 つにそろえる。**
 struct Notice: Equatable {
     enum Kind: Equatable { case info, warning }
@@ -53,7 +54,7 @@ final class NoticeSlot {
 
 /// 上端に出すバナー 1 枚。
 ///
-/// **見た目は G39 の `FinderTagSyncBanner` そのまま**（実機 smoke で確認済みの表示なので変えない）。
+/// **見た目は G39 の実機 smoke（F1〜F3）で確認済みのものをそのまま踏襲**（表示は変えない）。
 struct NoticeBanner: View {
     let notice: Notice
     let onDismiss: () -> Void

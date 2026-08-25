@@ -512,6 +512,7 @@ final class AppState {
         // **backupOnCloseIfNeeded() より前に置くこと** ―― 後だとバックアップに古い設定が入る。
         librarySettings?.flushPendingWrites()
         watchNotice.dismiss()
+        // `finderTagNotice` はここでは触らない ―― 下の stopFinderTagSync() が dismiss() する。
         // G39: 走行中の Finder タグ同期を中断する。
         // **実際に走っているのは `Task.detached` の子**で、親を cancel しても伝播しないため、
         // `stopFinderTagSync()` が子を直接止める（レビューが「中断が効いていない」ことを実測）。

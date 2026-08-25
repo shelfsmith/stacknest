@@ -8,7 +8,18 @@ import AppCore
 /// **DB も UI も触らない純粋関数**にして、文言と種別の判断をテストで固定できるようにする。
 ///
 /// ★ **これまで `ImportResult` の情報を捨てていた。**「N 件失敗」としか言わず、
-/// `failed` が持っている URL とエラーも、`cancelled` の印も届いていなかった。
+/// `failed` が持っている URL とエラーも届いていなかった。
+///
+/// `cancelled` はここで判定・分岐こそするが、**現状この枝には実際には届かない**。
+/// `cancelled` は G36 が「部分実行を完全と誤認させない」ために `ImportResult` へ足した印。
+/// ただし `cancelled` が立つのは `FolderWatcher` の `scanTask` を cancel したときだけで
+/// （`Sources/AppCore/BookImporter.swift` の `Task.isCancelled` チェック）、その cancel は
+/// リポジトリ中で `FolderWatcher.stop()`（`FolderWatcher.swift`）の 1 箇所しかない。
+/// `stop()` はその cancel の直前で `scanGeneration` を進めており、`onImported` への到達直前の
+/// 世代ガード（`FolderWatcher.swift` の `guard generation == scanGeneration else { return }`）が
+/// 中断した回の結果を必ず捨てる。分岐とテストは、①この不変条件が将来崩れたとき、②世代ガードを
+/// 持たない `AppState.importWatchedCandidatesNow` 経由の取り込みが将来 cancel されるようになった
+/// ときのための備えとして残す。
 enum WatchImportNotice {
     /// 詳細に並べる最大件数。これを超えたら `…` で打ち切る（G39 と同じ）。
     static let detailLimit = 50

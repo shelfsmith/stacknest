@@ -8,8 +8,10 @@ import AppCore
 ///
 /// ★ **今までこの経路は「N 件失敗」としか言わず、どのファイルがなぜ失敗したかを
 /// 知る手段がゼロだった**（`ImportResult.failed` は URL とエラーを持っているのに捨てていた）。
-/// `cancelled` に至っては一切報告していなかった —— G36 が
-/// 「全部処理したと誤認させないため」に足した印が、ここで初めてユーザーに届く。
+///
+/// `cancelled` の分岐もここで固定するが、**現状この枝には実際には届かない**
+/// （理由は `WatchImportNotice` のコメントを参照。中断した回の結果は世代ガードが捨てる）。
+/// 分岐そのものは正しく妥当な防御なので、テストごと残す。
 @Suite("取り込み結果のお知らせ（G41）")
 struct WatchImportNoticeTests {
 
@@ -66,7 +68,9 @@ struct WatchImportNoticeTests {
         #expect(try #require(n.detail).contains("/tmp/中身なし.zip"))
     }
 
-    /// G36 が足した印。**これまで一度もユーザーに届いていなかった。**
+    /// G36 が足した印。**現状は世代ガードに守られて実際には届かない枝**だが、
+    /// `WatchImportNotice.make` の判定自体は正しいので固定しておく
+    /// （詳細は `WatchImportNotice` のコメント）。
     @Test("中断したら warning で、そうと分かる")
     func cancellationIsReported() throws {
         let n = try #require(WatchImportNotice.make(result(added: 2, cancelled: true)))
