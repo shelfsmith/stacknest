@@ -19,6 +19,10 @@ extension AppState {
     private static let finderTagLogger = Logger(subsystem: "app.shelfsmith.stacknest",
                                                 category: "FinderTagSync")
 
+    /// テストだけが差し替える同期本体。nil なら `FinderTagSyncRunner.run`。
+    /// **本番では絶対に設定しない**（`AppState` の外から見えるのはテストのため）。
+    nonisolated(unsafe) static var testSyncRunner: (@Sendable (Database, String) -> FinderTagSyncOutcome)?
+
     /// 手動再照合を今すぐ始められるか（メニュー項目の有効/無効）。
     var canStartFinderTagSync: Bool {
         database != nil && finderTagSyncField != nil && !isFinderTagSyncRunning
@@ -42,15 +46,20 @@ extension AppState {
 
     /// 同期対象の項目を変更する（`nil` = 同期しない）。
     /// **前回同期値の全消しは `FinderTagSyncSetting.update` の中で行う**（そこが唯一の窓口）。
-    func setFinderTagSyncField(_ field: String?) {
+    /// ★ **`async` なのは、走行中の同期が本当に止まるのを待つため**（Codex 6 巡目）。
+    /// `cancel` は「止まれ」と言うだけなので、止めた直後に項目を変えると、飛行中のラウンドが
+    /// **まだ 1 冊分**古い項目のタグをファイルに書きうる。**xattr は書いたら戻せない。**
+    /// 中断は本の境界で効くので、待ちは高々 1 冊分（`mdfind` の途中ならその残り時間）。
+    func setFinderTagSyncField(_ field: String?) async {
+        if isFinderTagSyncRunning {
+            // 子を掴んでから止める（`stopFinderTagSync()` が参照を nil にするため）。
+            // 走行フラグは子の有無に関わらず必ず落とす —— 子が無いのにフラグだけ立っている
+            // 状態を残すと、以後この庫は二度と同期できない（`alreadyRunning` で断り続ける）。
+            let child = finderTagSyncChild
+            stopFinderTagSync()
+            _ = await child?.value
+        }
         guard let db = database else { return }
-        // ★ **先に走行中の同期を止める**（Codex P1・2 巡目）。
-        // 項目を変えると `FinderTagSyncSetting.update` が前回同期値を全消しするが、
-        // 飛行中のラウンドは**古い項目で Finder のタグと図書の値を書き換えながら**進んでいる。
-        // 止めずに変えると、古い項目の値が Finder に残り、次の照合で新しい項目へ流れ込む。
-        // `FinderTagSync` 側にも 64 冊ごとの関門があるが、**あちらは最後の砦**で、
-        // ここで止めるほうが速い（本 1 冊分で止まる）。
-        if isFinderTagSyncRunning { stopFinderTagSync() }
         do {
             try FinderTagSyncSetting.update(db, to: field)
             finderTagSyncField = FinderTagSyncSetting.current(db)
@@ -104,8 +113,13 @@ extension AppState {
         // （レビューが実測: `detached が見た isCancelled = false`）。
         // 中断できないと `FinderTagSyncRunner.run` の中断チェックが常に偽になり、
         // 庫を閉じても最後まで走り切る。
+        // テスト用の差し込み口（`LocalControlController.testOpenWindowHook` と同じ作法）。
+        // **同期の所要時間を握れないと「止まるまで待つ」ことを検証できない** ——
+        // 本が 0 冊の庫では待っても待たなくても結果が同じで、変異注入が素通りする（実測）。
+        let runner = Self.testSyncRunner
         let child = Task.detached(priority: .utility) {
-            FinderTagSyncRunner.run(database: db, field: field)
+            if let runner { return runner(db, field) }
+            return FinderTagSyncRunner.run(database: db, field: field)
         }
         finderTagSyncChild = child
         finderTagSyncRunID &+= 1

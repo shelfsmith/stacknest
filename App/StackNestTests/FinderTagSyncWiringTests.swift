@@ -296,17 +296,17 @@ struct FinderTagSyncWiringTests {
     /// 設定の変更は `AppState` のキャッシュにも反映される（メニューの有効/無効がこれを見る）。
     @Test("項目を選ぶと AppState のキャッシュも追従する")
     @MainActor
-    func settingTheFieldUpdatesTheCachedValue() throws {
+    func settingTheFieldUpdatesTheCachedValue() async throws {
         let db = try makeDatabase()
         let state = AppState(bundleURL: FileManager.default.temporaryDirectory
             .appendingPathComponent("g39-\(UUID().uuidString).stacknest"))
         state.database = db
 
-        state.setFinderTagSyncField("keyword_b")
+        await state.setFinderTagSyncField("keyword_b")
         #expect(state.finderTagSyncField == "keyword_b")
         #expect(state.canStartFinderTagSync)
 
-        state.setFinderTagSyncField(nil)
+        await state.setFinderTagSyncField(nil)
         #expect(state.finderTagSyncField == nil)
         #expect(state.canStartFinderTagSync == false)
     }
@@ -441,14 +441,14 @@ struct FinderTagSyncFieldChangeStopsRunTests {
 
     @Test("走行中に項目を変えると、走行フラグとタスクが落ちる")
     @MainActor
-    func changingTheFieldStopsARunningSync() throws {
+    func changingTheFieldStopsARunningSync() async throws {
         let db = try Database.openInMemory()
         try db.migrate()
         let state = makeState(db)
         state.finderTagSyncField = "genre"
         state.isFinderTagSyncRunning = true       // 走行中を模す
 
-        state.setFinderTagSyncField("keyword_a")
+        await state.setFinderTagSyncField("keyword_a")
 
         #expect(state.isFinderTagSyncRunning == false, "走行中のまま項目だけ変わってはいけない")
         #expect(state.finderTagSyncTask == nil)
@@ -458,14 +458,14 @@ struct FinderTagSyncFieldChangeStopsRunTests {
     /// 止めた後にちゃんと新しい項目が入っていること（止めるだけで終わっていない）。
     @Test("止めたうえで新しい項目が反映される")
     @MainActor
-    func theNewFieldIsStillApplied() throws {
+    func theNewFieldIsStillApplied() async throws {
         let db = try Database.openInMemory()
         try db.migrate()
         let state = makeState(db)
         state.finderTagSyncField = "genre"
         state.isFinderTagSyncRunning = true
 
-        state.setFinderTagSyncField("keyword_a")
+        await state.setFinderTagSyncField("keyword_a")
 
         #expect(state.finderTagSyncField == "keyword_a")
         #expect(FinderTagSyncSetting.current(db) == "keyword_a")
@@ -539,5 +539,74 @@ struct FinderTagSyncStaleCompletionTests {
         let before = state.finderTagSyncRunID
         state.stopFinderTagSync()
         #expect(state.finderTagSyncRunID != before)
+    }
+}
+
+/// Codex レビュー 6 巡目（2026-08-25）: **項目を変える前に、止めた同期が本当に止まるまで待つ。**
+///
+/// `cancel` は「止まれ」と言うだけ。止めた直後に項目を変えると、飛行中のラウンドが
+/// **まだ 1 冊分**古い項目のタグをファイルに書きうる。**xattr は書いたら戻せない。**
+/// 中断は本の境界で効くので、待ちは高々 1 冊分。
+///
+/// （6 巡目が併せて指摘した「古い項目の値が新項目へ混入する」ほうは、**競合と無関係に
+/// 100% 起きる設計どおりの挙動**だと実測で分かった —— 前回同期値を消すと次の照合が
+/// 合併になるため。spec §4.4 の直前の節に記録した。競合が足すのは高々 1 冊分。）
+@Suite("項目変更は走行中の同期の停止を待つ（G39・Codex 6 巡目）")
+struct FinderTagSyncFieldChangeWaitsTests {
+
+    /// ★ 本命: **同期が止まるまで `setFinderTagSyncField` は戻らない。**
+    /// 同期本体を差し替えて、こちらが放すまで終わらないようにしてから確かめる
+    /// （本が 0 冊の庫では待っても待たなくても同じ結果になり、検証にならない）。
+    @Test("止まるまで戻ってこない")
+    @MainActor
+    func doesNotReturnUntilTheRunHasStopped() async throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = AppState(bundleURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("g39-\(UUID().uuidString).stacknest"))
+        state.database = db
+        state.finderTagSyncField = "genre"
+
+        // **必ず自分で終わる**遅い同期にする。セマフォで止めると協調プールのスレッドを
+        // 塞いでテストがハングする（実測でハングした）。
+        AppState.testSyncRunner = { _, _ in
+            Thread.sleep(forTimeInterval: 0.6)
+            return FinderTagSyncOutcome()
+        }
+        defer { AppState.testSyncRunner = nil }
+
+        #expect(state.startFinderTagSync(trigger: .manual) == .started)
+
+        let started = Date()
+        await state.setFinderTagSyncField("keyword_a")
+        let waited = Date().timeIntervalSince(started)
+
+        // 待たずに戻っていれば一瞬で返る。**0.6 秒の同期が終わるまで戻らない**こと。
+        #expect(waited > 0.4, "同期の停止を待たずに戻っている（実測 \(waited) 秒）")
+        #expect(FinderTagSyncSetting.current(db) == "keyword_a")
+        #expect(state.isFinderTagSyncRunning == false)
+    }
+
+    @Test("走行中に変えても、戻ってきた時点で新しい項目になっている")
+    @MainActor
+    func theFieldIsAppliedOnlyAfterTheRunStops() async throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = AppState(bundleURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("g39-\(UUID().uuidString).stacknest"))
+        state.database = db
+        state.finderTagSyncField = "genre"
+
+        // 本が 0 冊の庫なので同期はすぐ終わる（ボリュームが導出されない）。
+        #expect(state.startFinderTagSync(trigger: .manual) == .started)
+        #expect(state.isFinderTagSyncRunning)
+
+        await state.setFinderTagSyncField("keyword_a")
+
+        // **戻ってきた時点で**止まっていて、設定も新しくなっていること。
+        #expect(state.isFinderTagSyncRunning == false, "止まる前に戻ってきている")
+        #expect(state.finderTagSyncChild == nil)
+        #expect(state.finderTagSyncField == "keyword_a")
+        #expect(FinderTagSyncSetting.current(db) == "keyword_a")
     }
 }
