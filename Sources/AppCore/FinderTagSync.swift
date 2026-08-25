@@ -106,6 +106,9 @@ public enum FinderTagSync {
         // 「無効にしていた間の編集は削除とみなさない」という安全策（spec §4.2）が破れて、
         // **Finder のタグが実際に消える**（非可逆）。
         let baselineGeneration = try database.finderTagBaselineGeneration()
+        // 同じものをプロセス内カウンタでも捕まえる。**こちらは毎冊読んでよい**（メモリなので無料）。
+        // DB 側は 1 回 188.6µs で、12,000 冊分読むと 2.26 秒＝ spec §7 を壊す（実測）。
+        let baselineGenerationInMemory = database.finderTagBaselineGenerationInMemory()
 
         let indexingEnabled = isIndexingEnabled(volume)
         // 索引が無効なら `mdfind` は呼ばない（呼んでも exit 0 で空を返すだけで、
@@ -143,6 +146,11 @@ public enum FinderTagSync {
                 do { try database.updateBook(id: id, patch: Self.patch(field, value)) }
                 catch {
                     pendingBaselines.removeValue(forKey: id)
+                    // ★ **書けなかった分は件数からも引く**（Codex P2）。
+                    // `updatedInLibrary` は溜めた時点で足しているので、引かないと
+                    // 「N 件更新しました」と**書けていない本を数えて報告する**。
+                    // 前回同期値を外すのと同じ理由 —— 起きていないことを起きたことにしない。
+                    updatedInLibrary -= 1
                     if firstError == nil { firstError = error }
                 }
             }
@@ -158,6 +166,7 @@ public enum FinderTagSync {
                     // グループごとに別トランザクションなので、SQLITE_BUSY や
                     // CLI/MCP/共有サーバとの競合で部分適用は実際に起こりうる。
                     for id in ids { pendingBaselines.removeValue(forKey: id) }
+                    updatedInLibrary -= ids.count     // 同上（Codex P2）
                     if firstError == nil { firstError = error }
                 }
             }
@@ -188,6 +197,15 @@ public enum FinderTagSync {
                 // 毎冊 DB を読むと 12,000 冊で数秒掛かるので 64 冊ごと（実測 1 回 0.2ms 程度）。
                 // 変更を即座に捕まえるのは `AppState.setFinderTagSyncField` の cancel の役目で、
                 // ここは**そこを通らない経路のための最後の関門**。
+                // **毎冊**見る（プロセス内カウンタ）。項目を変えうる経路は設定シート / CLI /
+                // MCP / 共有サーバ / 別窓のいずれも**同じプロセスの中**なので、実際に起こる
+                // 変更はここで 1 冊以内に捕まる。
+                if database.finderTagBaselineGenerationInMemory() != baselineGenerationInMemory {
+                    fieldChanged = true
+                    break
+                }
+                // DB 側は 64 冊ごと。**別プロセスが同じ庫を触った場合の最後の砦**で、
+                // 毎冊読むと 12,000 冊で 2.26 秒掛かる（実測）ので間引く（187 回 ≒ 35ms）。
                 inspected += 1
                 if inspected % 64 == 0,
                    try database.finderTagBaselineGeneration() != baselineGeneration {
@@ -314,6 +332,15 @@ public enum FinderTagSync {
         // ★ 項目が変わっていたら、**溜めた分を書かずに捨てる**。
         // 古い項目で計算した結果を新しい設定の下で流し込むと、図書の値も Finder のタグも
         // 混ざる。書かなければ次の照合が「初回」としてやり直すだけで済む（安全側）。
+        // ★ **最後にもう一度見る**（Codex P1・3 巡目）。64 冊ごとの確認だけだと、
+        // 最後の確認より後に変えられた場合を捕まえられないまま flush してしまう。
+        // ここは 1 回だけなので、いくら読んでも安い。
+        if !fieldChanged {
+            let movedInMemory =
+                database.finderTagBaselineGenerationInMemory() != baselineGenerationInMemory
+            let movedInDatabase = try database.finderTagBaselineGeneration() != baselineGeneration
+            if movedInMemory || movedInDatabase { fieldChanged = true }
+        }
         if fieldChanged {
             pendingLibrary.removeAll()
             pendingBaselines.removeAll()

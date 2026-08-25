@@ -653,20 +653,27 @@ struct FinderTagBaselineGenerationTests {
 
     /// ★ 本命: 同期の**最中に**全消しされたら、そのラウンドの前回同期値は書かない。
     /// `taggedPaths` の中で消す —— 本を回し始める前の、実際に起こりうる位置。
-    @Test("飛行中に全消しされたら前回同期値を書き戻さない")
+    ///
+    /// **2 巡目で保護が強くなった**: 当初は「書き戻さない」だけだったが、
+    /// Codex の 2・3 巡目の指摘を受けて**そのラウンド自体を中断して溜めた分を捨てる**ようにした
+    /// （書き戻さないだけでは、古い項目のまま Finder と図書を書き換え続けてしまう）。
+    /// ここではその両方 —— 投げること と 前回同期値が残らないこと —— を見る。
+    @Test("飛行中に全消しされたら中断し、前回同期値も書き戻さない")
     func doesNotResurrectBaselinesClearedMidFlight() throws {
         let dir = try tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }
         let (db, _, id) = try fixture(dir)
 
-        _ = try FinderTagSync.sync(
-            database: db, volume: dir, field: Self.field,
-            isIndexingEnabled: { _ in true },
-            taggedPaths: { _ in
-                // ここで設定シート / CLI / MCP が同期項目を変えた、を模す。
-                try db.clearAllFinderTagBaselines()
-                return []
-            })
+        #expect(throws: FinderTagSyncError.fieldChangedDuringSync) {
+            _ = try FinderTagSync.sync(
+                database: db, volume: dir, field: Self.field,
+                isIndexingEnabled: { _ in true },
+                taggedPaths: { _ in
+                    // ここで設定シート / CLI / MCP が同期項目を変えた、を模す。
+                    try db.clearAllFinderTagBaselines()
+                    return []
+                })
+        }
 
         #expect(try db.finderTagBaseline(bookID: id) == nil,
                 "消したはずの前回同期値が書き戻されている（次回の照合が実在しない削除を見る）")
@@ -798,5 +805,62 @@ struct FinderTagSyncVolumeScopeTests {
         let r = try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
                                        isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] })
         #expect(r.updatedInFinder == 3)
+    }
+}
+
+/// 図書側の書き込みが失敗したときに**前回同期値を残さない**こと。
+///
+/// レビューが実測で見つけた欠陥（部分適用の直後に再同期すると `tags=[]` になる）を守るもので、
+/// **これまでテストが無かった**（「実測した」で終わっていた）。書き込み失敗はトリガで
+/// 確実に起こす（`SQLITE_BUSY` はテストから狙って作れない）。
+///
+/// **Codex 3 巡目 P2 の扱い**: 「`updatedInLibrary` が未コミット分を数えたまま報告される」と
+/// 指摘されたが、**その値は外に出ない** —— flush が失敗すると `sync` は必ず投げるので、
+/// `FinderTagSyncReport` は生成されない（このテストがまさにそれを示している）。
+/// 数え方は念のため直した（書けなかった分を引く）が、**報告に現れる欠陥ではなかった。**
+@Suite("書き込み失敗時に前回同期値を残さない（G39）")
+struct FinderTagSyncCommitCountTests {
+    private static let field = "keyword_a"
+
+    @Test("図書側の書き込みが失敗したら前回同期値も残さない")
+    func failedWritesLeaveNoBaseline() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-count-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let db = try Database.openInMemory()
+        try db.migrate()
+        var files: [URL] = []
+        for i in 0..<3 {
+            let f = dir.appendingPathComponent("b\(i).cbz")
+            try Data("x".utf8).write(to: f)
+            // 図書側は空・Finder 側にタグ ＝ Finder → 図書の更新が 3 件出る状況。
+            _ = try db.insertBookReturningID(BookRecord(
+                id: 0, title: "b\(i)", path: f.path, dateAdded: Date()))
+            try FinderTagStore.apply(names: ["取り込む"], to: f)
+            files.append(f)
+        }
+        // 図書側の UPDATE を必ず失敗させる。
+        try db.queue?.write { conn in
+            try conn.execute(sql: """
+                CREATE TRIGGER block_update BEFORE UPDATE OF keyword_a ON book
+                BEGIN SELECT RAISE(ABORT, 'blocked'); END;
+                """)
+        }
+
+        var report: FinderTagSyncReport?
+        #expect(throws: (any Error).self) {
+            report = try FinderTagSync.sync(
+                database: db, volume: dir, field: Self.field,
+                isIndexingEnabled: { _ in true }, taggedPaths: { _ in files.map(\.path) })
+        }
+        // ★ **投げるので report は受け取れない。**Codex P2 が言う「不正確な件数」は
+        // ここから外へ出ない、ということでもある。DB を直接見て確かめる。
+        #expect(report == nil)
+        let written = try db.fetchAllBooks().filter { $0.keywordA != nil }.count
+        #expect(written == 0, "前提: 図書側には 1 件も書けていない")
+        #expect(try db.finderTagBaselines().isEmpty,
+                "書けていないのに前回同期値を書いてはいけない（次回が実在しない削除を見る）")
     }
 }
