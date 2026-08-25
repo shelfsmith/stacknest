@@ -80,3 +80,38 @@ struct SpotlightOutputParsingTests {
                 == ["/Volumes/comic/(一般コミック) [作者] 本 第01巻.zip"])
     }
 }
+
+/// Codex レビュー P2（2026-08-25）: **起動できたことと、成功したことは別。**
+///
+/// `run` が `terminationStatus` を見ていなかったため、`mdfind` が失敗して空を返しただけの状態を
+/// 「タグの付いた項目は 0 件」と読み、**Finder → 庫の取り込みが黙って行われないまま
+/// 成功と報告されて**いた。「空」を根拠に何かを決めてはいけないという点で spec §4.5 と同じ話
+/// （あちらは削除、こちらは追加）。
+///
+/// **実コマンド経由では作れない**: `mdfind` は存在しないボリュームでも壊れたクエリでも
+/// exit 0 を返す（2026-08-25 実測）。だから `run` を直接叩く。
+@Suite("Spotlight コマンドの終了コード（G39・Codex P2）")
+struct SpotlightTagQueryExitStatusTests {
+
+    @Test("非 0 終了は失敗として投げる")
+    func nonZeroExitThrows() {
+        #expect(throws: SpotlightQueryError.commandFailed(command: "false", status: 1)) {
+            _ = try SpotlightTagQuery.run("/usr/bin/false", [])
+        }
+    }
+
+    /// 対照: 0 終了なら標準出力をそのまま返す（投げない）。
+    @Test("0 終了なら出力を返す（対照）")
+    func zeroExitReturnsOutput() throws {
+        let out = try SpotlightTagQuery.run("/bin/echo", ["/a/b.cbz"])
+        #expect(SpotlightTagQuery.parsePaths(out) == ["/a/b.cbz"])
+    }
+
+    /// 起動そのものに失敗した場合は従来どおり投げる（挙動を変えていない）。
+    @Test("起動できなければ投げる")
+    func launchFailureStillThrows() {
+        #expect(throws: (any Error).self) {
+            _ = try SpotlightTagQuery.run("/usr/bin/no-such-command-\(UUID().uuidString)", [])
+        }
+    }
+}

@@ -595,3 +595,80 @@ struct FinderTagSyncCancellationTests {
         }
     }
 }
+
+/// Codex レビュー P1（2026-08-25）: **同期の飛行中に前回同期値が全消しされたら、
+/// このラウンドの分を書き戻さない。**
+///
+/// 消す経路は設定シート / CLI / MCP / 共有サーバ / 別窓と複数あり（spec §5）、
+/// 消す側で飛行中の同期を止めるのは漏れる。だから**書き戻す側**が世代番号を見て降りる。
+///
+/// 書き戻さなければ次回は「初回」として合併するだけで**削除は起きない**（安全側）。
+/// 逆に書き戻してしまうと「無効にしていた間の編集は削除とみなさない」という
+/// spec §4.2 の安全策が破れ、**Finder のタグが実際に消える**（非可逆）。
+@Suite("Finder タグ同期と前回同期値の全消しの競合（G39・Codex P1）")
+struct FinderTagBaselineGenerationTests {
+    private static let field = "keyword_a"
+
+    private func tempDir() throws -> URL {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("g39-gen-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    private func fixture(_ dir: URL) throws -> (Database, URL, Int) {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let f = dir.appendingPathComponent("book.cbz")
+        try Data("x".utf8).write(to: f)
+        let id = try db.insertBookReturningID(BookRecord(
+            id: 0, title: "book", path: f.path, dateAdded: Date(), keywordA: "値"))
+        return (db, f, id)
+    }
+
+    @Test("全消しは世代番号を上げる")
+    func clearingBumpsTheGeneration() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        #expect(try db.finderTagBaselineGeneration() == 0)
+        try db.clearAllFinderTagBaselines()
+        #expect(try db.finderTagBaselineGeneration() == 1)
+        try db.clearAllFinderTagBaselines()
+        #expect(try db.finderTagBaselineGeneration() == 2)
+    }
+
+    /// 対照: 誰も消さなければ前回同期値は普通に書かれる。
+    /// **これが無いと次のテストの「書かれない」が「そもそも書く物が無かった」と区別できない。**
+    @Test("誰も消さなければ前回同期値は書かれる（対照）")
+    func writesTheBaselineWhenNobodyClears() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (db, _, id) = try fixture(dir)
+
+        _ = try FinderTagSync.sync(database: db, volume: dir, field: Self.field,
+                                   isIndexingEnabled: { _ in true }, taggedPaths: { _ in [] })
+
+        #expect(try db.finderTagBaseline(bookID: id) == "値")
+    }
+
+    /// ★ 本命: 同期の**最中に**全消しされたら、そのラウンドの前回同期値は書かない。
+    /// `taggedPaths` の中で消す —— 本を回し始める前の、実際に起こりうる位置。
+    @Test("飛行中に全消しされたら前回同期値を書き戻さない")
+    func doesNotResurrectBaselinesClearedMidFlight() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (db, _, id) = try fixture(dir)
+
+        _ = try FinderTagSync.sync(
+            database: db, volume: dir, field: Self.field,
+            isIndexingEnabled: { _ in true },
+            taggedPaths: { _ in
+                // ここで設定シート / CLI / MCP が同期項目を変えた、を模す。
+                try db.clearAllFinderTagBaselines()
+                return []
+            })
+
+        #expect(try db.finderTagBaseline(bookID: id) == nil,
+                "消したはずの前回同期値が書き戻されている（次回の照合が実在しない削除を見る）")
+    }
+}

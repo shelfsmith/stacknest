@@ -86,6 +86,17 @@ public enum FinderTagSync {
             try database.setLibrarySetting(key: baselineFieldKey, value: field)
         }
 
+        // ★ **前回同期値を書き戻してよいかを判定するための世代番号**（Codex P1）。
+        // 自分の clear（上）より後に捕まえる。以後に誰かが `clearAllFinderTagBaselines()` を
+        // 呼んだら値が変わり、**このラウンドの前回同期値は書いてはいけない**ものになる。
+        //
+        // なぜ要るか: 同期が飛行している最中に同期項目が変えられる（設定シート / CLI / MCP /
+        // 共有サーバ / 別窓）と、`FinderTagSyncSetting.update` が前回同期値を全消しする。
+        // その後にこのラウンドが自分の分を書き戻すと**消したことが取り消され**、
+        // 「無効にしていた間の編集は削除とみなさない」という安全策（spec §4.2）が破れて、
+        // **Finder のタグが実際に消える**（非可逆）。
+        let baselineGeneration = try database.finderTagBaselineGeneration()
+
         let indexingEnabled = isIndexingEnabled(volume)
         // 索引が無効なら `mdfind` は呼ばない（呼んでも exit 0 で空を返すだけで、
         // 「本当に 0 件」と区別が付かない）。
@@ -140,6 +151,13 @@ public enum FinderTagSync {
             }
             pendingLibrary.removeAll()
             if let firstError { throw firstError }
+        }
+
+        /// 前回同期値を書く。**自分が読んだ後に誰かが全消ししていたら書かない。**
+        /// 書かなければ次回は「初回」として合併するだけで、削除は起きない（安全側）。
+        func writeBaselinesUnlessCleared() throws {
+            guard try database.finderTagBaselineGeneration() == baselineGeneration else { return }
+            try database.setFinderTagBaselines(pendingBaselines)
         }
 
         do {
@@ -262,7 +280,7 @@ public enum FinderTagSync {
             // 次回の 3 方向マージが実在しない削除を見る）。
             try? flushLibraryUpdates()
             // 書けなかった本は上で `pendingBaselines` から外れている。残りは書いてよい。
-            try? database.setFinderTagBaselines(pendingBaselines)
+            try? writeBaselinesUnlessCleared()
             throw error
         }
         // 成功経路も**同じ順・同じ方針**にする。以前は「flush が投げたら前回同期値を
@@ -270,7 +288,7 @@ public enum FinderTagSync {
         // 書けなかった本だけを外すので、**両方とも「書けた本の分だけ書く」**で揃う。
         let flushError: Error?
         do { try flushLibraryUpdates(); flushError = nil } catch { flushError = error }
-        try database.setFinderTagBaselines(pendingBaselines)
+        try writeBaselinesUnlessCleared()
         if let flushError { throw flushError }
 
         return FinderTagSyncReport(updatedInLibrary: updatedInLibrary,

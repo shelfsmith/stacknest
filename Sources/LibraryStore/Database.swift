@@ -987,6 +987,31 @@ public final class Database: @unchecked Sendable {
         guard let q = queue else { return }
         try q.write { db in
             try db.execute(sql: "UPDATE book SET finder_tags_synced = NULL")
+            // ★ **消したことを世代番号で残す**（同じトランザクションで上げる）。
+            // 消しても、**飛行中の同期がその後に自分の前回同期値を書き戻せば消したことにならない**。
+            // 消す側で走行中の同期を止めるのは無理 —— 消す経路は設定シート / CLI / MCP /
+            // 共有サーバ / 別窓と複数あり、1 つずつ塞ぐと必ず漏れる（spec §5）。
+            // だから**書き戻す側**（`FinderTagSync.sync`）が世代を見て降りる。
+            let current = try Int.fetchOne(
+                db, sql: "SELECT value FROM library_settings WHERE key = ?",
+                arguments: [Self.finderTagBaselineGenerationKey]) ?? 0
+            try db.execute(
+                sql: "INSERT INTO library_settings (key, value) VALUES (?, ?) "
+                   + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                arguments: [Self.finderTagBaselineGenerationKey, String(current + 1)])
+        }
+    }
+
+    /// 前回同期値を全消しした回数。**`FinderTagSync.sync` が「自分が読んだ後に誰かが消したか」を
+    /// 見分けるためだけに使う。**値そのものに意味は無く、変わったかどうかだけを見る。
+    public static let finderTagBaselineGenerationKey = "finderTagBaselineGeneration"
+
+    /// 現在の世代番号。未設定は 0。
+    public func finderTagBaselineGeneration() throws -> Int {
+        guard let q = queue else { return 0 }
+        return try q.read { db in
+            try Int.fetchOne(db, sql: "SELECT value FROM library_settings WHERE key = ?",
+                             arguments: [Self.finderTagBaselineGenerationKey]) ?? 0
         }
     }
 
