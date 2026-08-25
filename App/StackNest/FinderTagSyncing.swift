@@ -172,7 +172,16 @@ enum FinderTagSyncRunner {
             // （同期そのものは同期関数なので途中では止まらない）。
             if Task.isCancelled { break }
             do {
-                let report = try FinderTagSync.sync(database: database, volume: volume, field: field)
+                // ★ **そのボリュームの本だけ**を渡す（Codex P2）。渡さないと `sync` は
+                // ボリュームごとに庫の全冊を回し、仕事が `ボリューム数 × 冊数` になる。
+                // それだけでなく、あるボリュームの回で別のボリュームの本を
+                // **そのボリュームの索引状態で**処理してしまい、
+                // 「索引が無効なら Finder → StackNest 方向は動かさない」（spec §3.3）が
+                // 本ごとに崩れる。普通の庫はボリュームが 1 個なので、この判定は常に真になる。
+                let volumePath = volume.path
+                let report = try FinderTagSync.sync(
+                    database: database, volume: volume, field: field,
+                    includesPath: { FinderTagVolumes.root(forPath: $0) == volumePath })
                 outcome.updatedInLibrary += report.updatedInLibrary
                 outcome.updatedInFinder += report.updatedInFinder
                 for tag in report.skippedTags where seenTags.insert(tag).inserted {
@@ -204,6 +213,8 @@ enum FinderTagSyncRunner {
             return String(localized: "「\(field)」は Finder タグと同期できない項目です。")
         case FinderTagSyncError.volumeUnavailable(let path):
             return String(localized: "ボリューム「\(path)」が見つかりません（未マウント？）。")
+        case FinderTagSyncError.fieldChangedDuringSync:
+            return String(localized: "同期する項目が変わったため中断しました（もう一度「再照合」してください）。")
         default:
             return error.localizedDescription
         }

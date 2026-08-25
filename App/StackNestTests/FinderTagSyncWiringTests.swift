@@ -407,3 +407,55 @@ struct FinderTagSyncStartOutcomeTests {
         #expect(outcome.failure == nil)
     }
 }
+
+/// Codex レビュー 2 巡目（2026-08-25）: **項目を変える前に、走行中の同期を止める。**
+///
+/// `FinderTagSyncSetting.update` は前回同期値を全消しするが、飛行中のラウンドは
+/// **古い項目のまま Finder のタグと図書の値を書き換えながら**進んでいる。止めずに変えると、
+/// 古い項目の値が Finder に残り、次の照合で新しい項目へ流れ込む（非可逆の混入）。
+///
+/// `FinderTagSync` 側にも 64 冊ごとの関門があるが**あちらは最後の砦**で、
+/// ここで止めるほうが速い（本 1 冊分で止まる）。
+@Suite("項目を変えるときは走行中の同期を止める（G39・Codex 2 巡目）")
+struct FinderTagSyncFieldChangeStopsRunTests {
+
+    @MainActor
+    private func makeState(_ db: Database) -> AppState {
+        let state = AppState(bundleURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("g39-\(UUID().uuidString).stacknest"))
+        state.database = db
+        return state
+    }
+
+    @Test("走行中に項目を変えると、走行フラグとタスクが落ちる")
+    @MainActor
+    func changingTheFieldStopsARunningSync() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = makeState(db)
+        state.finderTagSyncField = "genre"
+        state.isFinderTagSyncRunning = true       // 走行中を模す
+
+        state.setFinderTagSyncField("keyword_a")
+
+        #expect(state.isFinderTagSyncRunning == false, "走行中のまま項目だけ変わってはいけない")
+        #expect(state.finderTagSyncTask == nil)
+        #expect(state.finderTagSyncChild == nil)
+    }
+
+    /// 止めた後にちゃんと新しい項目が入っていること（止めるだけで終わっていない）。
+    @Test("止めたうえで新しい項目が反映される")
+    @MainActor
+    func theNewFieldIsStillApplied() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = makeState(db)
+        state.finderTagSyncField = "genre"
+        state.isFinderTagSyncRunning = true
+
+        state.setFinderTagSyncField("keyword_a")
+
+        #expect(state.finderTagSyncField == "keyword_a")
+        #expect(FinderTagSyncSetting.current(db) == "keyword_a")
+    }
+}
