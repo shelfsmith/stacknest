@@ -25,10 +25,16 @@ enum FinderTagSyncSetting {
     /// （前回同期値がどの項目のものかの記録）とは別物**なので混同しないこと。
     static let key = "finderTagSyncField"
 
-    /// UI に並べる選択肢（順序付き）。`BrowseField` の 7 項目は
-    /// `FinderTagSync.syncableFields`（集合）と同じ内容で、こちらは順序を持つ。
-    /// 両者が食い違っていないことは `FinderTagSyncSettingTests` が固定している。
-    static let fields: [String] = BrowserPaneState.BrowseField.allCases.map(\.sqlColumn)
+    /// UI に並べる選択肢（順序付き）。`BrowseField` の並び順から
+    /// **`FinderTagSync.syncableFields` に入っているものだけ**を取る。
+    ///
+    /// **`series` は入らない**（2026-08-25）—— 単一値の列なのに区切り `", "` を含みうるため、
+    /// Finder 上で複数タグに分裂して非可逆に壊れる（理由は `syncableFields` のコメント）。
+    /// 選択肢の側で `BrowseField` を直に並べていると、**外したはずの項目が UI にだけ残る**。
+    /// 両者が一致していることは `FinderTagSyncSettingTests` が固定している。
+    static let fields: [String] = BrowserPaneState.BrowseField.allCases
+        .map(\.sqlColumn)
+        .filter { FinderTagSync.syncableFields.contains($0) }
 
     /// 保存されている値を「同期対象の項目」として解釈する。
     /// **未設定・空文字・whitelist 外はすべて nil（＝同期しない）**にする ——
