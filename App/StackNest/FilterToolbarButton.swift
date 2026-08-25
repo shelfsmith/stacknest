@@ -15,19 +15,27 @@ struct FilterToolbarButton: View {
         Button {
             isPopoverPresented.toggle()
         } label: {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: filter.isEmpty
-                    ? "line.3.horizontal.decrease.circle"
-                    : "line.3.horizontal.decrease.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                if !filter.isEmpty {
-                    Text("\(filter.activeCount)")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 4)
-                        .background(Color.accentColor)
-                        .foregroundColor(.white)
-                        .clipShape(Capsule())
-                        .offset(x: 4, y: -4)
+            // G42: **`Label` にする。**ツールバーを右クリックして「アイコンとテキスト」に
+            // したとき、テキストが出るのは `Label` を持つ項目だけ。ここは `ZStack` を直に
+            // ラベルにしていたので、この項目だけ名前が出なかった。
+            // バッジは `icon:` 側に入れたままなので**見た目は変わらない**。
+            Label {
+                Text("フィルタ")
+            } icon: {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: filter.isEmpty
+                        ? "line.3.horizontal.decrease.circle"
+                        : "line.3.horizontal.decrease.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                    if !filter.isEmpty {
+                        Text("\(filter.activeCount)")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 4)
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                            .offset(x: 4, y: -4)
+                    }
                 }
             }
         }

@@ -568,9 +568,13 @@ struct LibraryWindowContainer: View {
                     .searchable(text: Bindable(appState).searchQuery, placement: .toolbar, prompt: "検索")
                     .toolbar {
                         ToolbarItem(placement: .principal) {
-                            Picker("", selection: Bindable(appState).viewMode) {
-                                Image(systemName: "square.grid.2x2").tag(ViewMode.grid)
-                                Image(systemName: "list.bullet").tag(ViewMode.list)
+                            // G42: ラベルを空文字から実名に。ツールバーの「アイコンとテキスト」で
+                            // 名前が出るかを**実機で確かめる**（セグメントは `Label` を持てないので、
+                            // Picker 自身のラベルが使われるかどうかが分かれ目）。
+                            // 各セグメントにも名前を付ける —— 裸の `Image` は読み上げにも出ない。
+                            Picker("表示", selection: Bindable(appState).viewMode) {
+                                Image(systemName: "square.grid.2x2").accessibilityLabel("グリッド").tag(ViewMode.grid)
+                                Image(systemName: "list.bullet").accessibilityLabel("リスト").tag(ViewMode.list)
                             }
                             .pickerStyle(.segmented)
                         }
@@ -579,10 +583,10 @@ struct LibraryWindowContainer: View {
                                 FilterToolbarButton(filter: Bindable(settings).filterState, settings: settings)
                             }
                             ToolbarItem(placement: .primaryAction) {
-                                Picker("", selection: Bindable(settings).topPaneMode) {
-                                    Image(systemName: "rectangle.split.3x1").tag("browse")
-                                    Image(systemName: "tag").tag("stamp")
-                                    Image(systemName: "eye.slash").tag("hidden")
+                                Picker("上ペイン", selection: Bindable(settings).topPaneMode) {
+                                    Image(systemName: "rectangle.split.3x1").accessibilityLabel("ファセット").tag("browse")
+                                    Image(systemName: "tag").accessibilityLabel("スタンプ").tag("stamp")
+                                    Image(systemName: "eye.slash").accessibilityLabel("伏せ字").tag("hidden")
                                 }
                                 .pickerStyle(.segmented)
                                 .frame(width: 120)
