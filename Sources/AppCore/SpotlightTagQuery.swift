@@ -49,7 +49,9 @@ public enum SpotlightTagQuery {
         output.split(separator: "\n").map(String.init).filter { !$0.isEmpty }
     }
 
-    private static func run(_ launchPath: String, _ args: [String]) throws -> String {
+    /// **`internal` にしてあるのはテストのため。**`mdfind` は存在しないボリュームでも壊れた
+    /// クエリでも exit 0 を返す（2026-08-25 実測）ので、**実コマンド経由では非 0 終了を作れない**。
+    static func run(_ launchPath: String, _ args: [String]) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
         p.arguments = args
@@ -62,6 +64,21 @@ public enum SpotlightTagQuery {
         // 先に wait すると親子で永久待ちになる）。
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
+        // ★ **終了コードを見る**（Codex P2）。起動できたことと、成功したことは別。
+        // 見ないと `mdfind` が失敗して**空を返しただけ**なのを「タグの付いた項目は 0 件」と
+        // 読んでしまい、Finder → 庫の取り込みが**黙って行われないまま成功と報告される**。
+        // 「空」を根拠に何かを決めてはいけない、というのは §4.5 と同じ話
+        //（あちらは削除、こちらは追加）。
+        guard p.terminationStatus == 0 else {
+            throw SpotlightQueryError.commandFailed(
+                command: (launchPath as NSString).lastPathComponent,
+                status: p.terminationStatus)
+        }
         return String(decoding: data, as: UTF8.self)
     }
+}
+
+/// Spotlight のコマンドが**起動はできたが失敗した**とき。
+public enum SpotlightQueryError: Error, Equatable {
+    case commandFailed(command: String, status: Int32)
 }
