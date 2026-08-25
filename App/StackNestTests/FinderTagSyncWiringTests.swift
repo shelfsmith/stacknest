@@ -471,3 +471,73 @@ struct FinderTagSyncFieldChangeStopsRunTests {
         #expect(FinderTagSyncSetting.current(db) == "keyword_a")
     }
 }
+
+/// Codex レビュー 5 巡目（2026-08-25）: **中断した回の後始末が、次の回を壊さないこと。**
+///
+/// `stopFinderTagSync()` は子を cancel するだけで**待ち受けタスクの完了は待たない**。
+/// 止めた直後に次の同期が始まると、古い回の後始末が**新しい回の走行フラグとタスク参照を消し**、
+/// `isFinderTagSyncRunning` が false に戻って**二重起動の抑止が破れる**（同じ庫に 2 本並走し、
+/// おまけに古い結果をバナーに出す）。項目を変えたときの
+/// `stopFinderTagSync()` → 再照合 という順で普通に起こる。
+///
+/// この欠陥は 2 巡目で私が `setFinderTagSyncField` に `stopFinderTagSync()` を足したことで
+/// 現実的な経路になった。後始末を `finishFinderTagSync(runID:...)` に切り出して直接検証する
+/// （タイミングを races させずに「番号の合わない後始末は何もしない」を固定できる）。
+@Suite("中断した回の後始末が次の回を壊さない（G39・Codex 5 巡目）")
+struct FinderTagSyncStaleCompletionTests {
+
+    @MainActor
+    private func makeState() throws -> (AppState, Database) {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        let state = AppState(bundleURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("g39-\(UUID().uuidString).stacknest"))
+        state.database = db
+        return (state, db)
+    }
+
+    /// ★ 本命: 古い回の後始末は、走行中の新しい回に触らない。
+    @Test("番号の合わない後始末は何もしない")
+    @MainActor
+    func aStaleCompletionLeavesTheCurrentRunAlone() throws {
+        let (state, _) = try makeState()
+        state.finderTagSyncField = "keyword_a"
+        state.isFinderTagSyncRunning = true          // 新しい回が走っている
+        state.finderTagSyncRunID = 7                 // その回の番号
+
+        // 止められた古い回（番号 6）が今ごろ終わった。
+        state.finishFinderTagSync(runID: 6, outcome: FinderTagSyncOutcome(),
+                                  trigger: .manual, field: "genre")
+
+        #expect(state.isFinderTagSyncRunning, "走行中の回のフラグを落としてはいけない")
+        #expect(state.finderTagSyncNotice == nil, "古い回の結果をバナーに出してはいけない")
+    }
+
+    /// 対照: 自分の回の後始末はちゃんと効く（守りすぎて何もしなくなっていない）。
+    @Test("番号が合う後始末はきちんと片付ける（対照）")
+    @MainActor
+    func theCurrentRunsCompletionStillCleansUp() throws {
+        let (state, _) = try makeState()
+        state.finderTagSyncField = "keyword_a"
+        state.isFinderTagSyncRunning = true
+        state.finderTagSyncRunID = 7
+
+        state.finishFinderTagSync(runID: 7, outcome: FinderTagSyncOutcome(),
+                                  trigger: .manual, field: "keyword_a")
+
+        #expect(state.isFinderTagSyncRunning == false)
+        #expect(state.finderTagSyncTask == nil)
+        #expect(state.finderTagSyncChild == nil)
+        #expect(state.finderTagSyncNotice != nil, "手動なら「変更なし」を知らせる")
+    }
+
+    /// 止めたら番号が進む（＝止めた回の後始末が無効になる）。
+    @Test("stopFinderTagSync は番号を進める")
+    @MainActor
+    func stoppingInvalidatesTheRun() throws {
+        let (state, _) = try makeState()
+        let before = state.finderTagSyncRunID
+        state.stopFinderTagSync()
+        #expect(state.finderTagSyncRunID != before)
+    }
+}
