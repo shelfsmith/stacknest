@@ -7,6 +7,7 @@
 
 import Foundation
 import GRDB
+import Synchronization
 import StackroomFormat
 
 public enum OpenMode: Sendable {
@@ -1000,11 +1001,30 @@ public final class Database: @unchecked Sendable {
                    + "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 arguments: [Self.finderTagBaselineGenerationKey, String(current + 1)])
         }
+        // プロセス内カウンタも上げる。飛行中の同期はこちらを毎冊見ている。
+        inMemoryBaselineGeneration.withLock { $0 += 1 }
     }
 
     /// 前回同期値を全消しした回数。**`FinderTagSync.sync` が「自分が読んだ後に誰かが消したか」を
     /// 見分けるためだけに使う。**値そのものに意味は無く、変わったかどうかだけを見る。
     public static let finderTagBaselineGenerationKey = "finderTagBaselineGeneration"
+
+    /// 同じ内容の**プロセス内カウンタ**。
+    ///
+    /// **なぜ 2 つ持つか**: DB から読むと 1 回 188.6µs 掛かる（実測）。12,000 冊で毎冊読むと
+    /// **2.26 秒**になり、spec §7 の「庫を開いても待たされない」（定常 0.4 秒）を自分で壊す。
+    /// 一方こちらはメモリなので**毎冊読んでも無料**。
+    ///
+    /// **これで足りる理由**: 項目を変えうる経路（設定シート / CLI / MCP / 共有サーバ / 別窓）は
+    /// **すべて同じアプリプロセスの中**にあり、同じ `Database` インスタンスを共有する。
+    /// 別プロセスが同じ庫を触る場合だけこのカウンタでは見えないので、
+    /// **DB 側の世代番号を 64 冊ごとに読む**のを併用する（そちらが最後の砦）。
+    private let inMemoryBaselineGeneration = Mutex<Int>(0)
+
+    /// プロセス内カウンタの現在値（**毎冊読んでよい**）。
+    public func finderTagBaselineGenerationInMemory() -> Int {
+        inMemoryBaselineGeneration.withLock { $0 }
+    }
 
     /// 現在の世代番号。未設定は 0。
     public func finderTagBaselineGeneration() throws -> Int {
