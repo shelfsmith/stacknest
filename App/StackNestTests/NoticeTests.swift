@@ -29,15 +29,28 @@ struct NoticeSlotTests {
     }
 
     /// ★ 本命。索引無効・取り込み失敗は**見逃したら二度と分からない**。
+    ///
+    /// **固定時間で待たない。**「30ms のタイマーがこの環境で発火し終わったか」を
+    /// **別の枠で実際に観測**してから判定する。負荷が高くて発火が遅れただけの状況で
+    /// 「まだ在る＝合格」と誤判定するのを防ぐ（変異注入 5 回中 1 回すり抜けた実測がある）。
     @Test("warning は時間で消えない")
     @MainActor
     func warningStays() async throws {
-        let slot = NoticeSlot()
-        slot.present(Notice(kind: .warning, text: "2 件失敗", detail: "…"),
-                     autoDismissAfter: .milliseconds(30))
+        let warned = NoticeSlot()
+        let canary = NoticeSlot()
+        warned.present(Notice(kind: .warning, text: "2 件失敗", detail: "…"),
+                       autoDismissAfter: .milliseconds(30))
+        canary.present(Notice(kind: .info, text: "見張り", detail: nil),
+                       autoDismissAfter: .milliseconds(30))
 
-        try await Task.sleep(for: .milliseconds(300))
-        #expect(slot.notice != nil, "警告が勝手に消えた")
+        // 見張りが消えた ＝ 同じ長さのタイマーが確かに発火し終えた、という事象。
+        let deadline = Date().addingTimeInterval(3)
+        while canary.notice != nil && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(canary.notice == nil, "前提: 30ms のタイマーが発火し終えていること")
+
+        #expect(warned.notice != nil, "警告が勝手に消えた")
     }
 
     @Test("× で閉じられる")
