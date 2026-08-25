@@ -19,7 +19,12 @@ struct NoticeSlotTests {
                      autoDismissAfter: .milliseconds(30))
         #expect(slot.notice != nil, "出した直後は見えていること")
 
-        try await Task.sleep(for: .milliseconds(300))
+        // ★ 固定時間で判定しない。**消えるまで待つ**（混んでいて遅れただけ、で落とさないため）。
+        // 締切を過ぎても消えなければ本物の失敗。
+        let deadline = Date().addingTimeInterval(3)
+        while slot.notice != nil && Date() < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(slot.notice == nil, "info が消えていない")
     }
 
@@ -55,7 +60,18 @@ struct NoticeSlotTests {
         slot.present(Notice(kind: .warning, text: "後", detail: nil),
                      autoDismissAfter: .milliseconds(30))
 
-        try await Task.sleep(for: .milliseconds(300))
+        // ★ この主張は否定的（「勝手に消えないこと」）なので、待ち時間を延ばしても
+        // 正しい実装側が誤って落ちる方向にはならない（cancel は present() 内で同期的に
+        // 行われるので、正しければ notice は自発的に変化しない）。一方で、前の info の
+        // タイマーが解除し損ねている壊れ方（あるいは guard 欠落で新しい warning にも
+        // タイマーが張られる壊れ方）を確実に捕まえるには、CPU が混んでいても 30ms の
+        // タイマーが発火しきるだけの時間を確保する必要がある——Step 3 でフルスイート
+        // 並列実行下では 300ms 固定待ちで実際に不足する例が出た。そこで「変化した瞬間に
+        // 即座に検知」しつつ、上限は余裕を持って 3 秒までポーリングする。
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline, slot.notice?.text == "後" {
+            try await Task.sleep(for: .milliseconds(10))
+        }
         #expect(slot.notice?.text == "後", "前の info のタイマーが後の警告を消した")
     }
 }
