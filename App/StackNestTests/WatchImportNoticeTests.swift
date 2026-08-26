@@ -106,3 +106,45 @@ struct WatchImportNoticeTests {
         #expect(WatchImportNotice.make(r) == nil)
     }
 }
+
+/// Codex レビュー P2（2026-08-26）: **未読の警告を「ついで」の成功報告で消さない。**
+///
+/// 監視フォルダは繰り返し走る。失敗の警告が次の成功報告（info）に置き換えられ、
+/// その 6 秒後には何も残らない —— 「警告は自動で消さない」という約束が黙って破れ、
+/// **どのファイルが失敗したかを見る機会が永久に失われる**。
+///
+/// ★ この規則は **`NoticeSlot` ではなく producer 側**にある。Finder タグ同期の枠では
+/// 警告のあとの info は「警告の条件が消えた」ことを意味するので、そちらは置き換わるのが正しい。
+@Suite("警告を成功報告で消さない（G41・Codex P2）")
+struct WatchImportNoticeReplacementTests {
+    private func info(_ t: String = "3 件を自動追加") -> Notice { Notice(kind: .info, text: t, detail: nil) }
+    private func warn(_ t: String = "2 件失敗") -> Notice { Notice(kind: .warning, text: t, detail: "…") }
+
+    /// ★ 本命。ここが false でないと、失敗の報告が次の成功で流れる。
+    @Test("警告が出ているとき、info では置き換えない")
+    func infoDoesNotDisplaceAWarning() {
+        #expect(WatchImportNotice.shouldReplace(current: warn(), with: info()) == false)
+    }
+
+    @Test("警告は新しい警告で置き換える")
+    func warningReplacesWarning() {
+        #expect(WatchImportNotice.shouldReplace(current: warn("古い"), with: warn("新しい")))
+    }
+
+    @Test("info は info で置き換える")
+    func infoReplacesInfo() {
+        #expect(WatchImportNotice.shouldReplace(current: info("先"), with: info("後")))
+    }
+
+    @Test("何も出ていなければ何でも出す")
+    func anythingShowsOnAnEmptySlot() {
+        #expect(WatchImportNotice.shouldReplace(current: nil, with: info()))
+        #expect(WatchImportNotice.shouldReplace(current: nil, with: warn()))
+    }
+
+    /// 警告のあとに警告が来たら、**新しい方の内容**が見えること（古いのが居座らない）。
+    @Test("新しい失敗の内容が見える")
+    func theNewerFailureIsWhatYouSee() {
+        #expect(WatchImportNotice.shouldReplace(current: warn("1 件失敗"), with: warn("5 件失敗")))
+    }
+}
