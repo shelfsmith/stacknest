@@ -1985,6 +1985,8 @@ final class AppState {
         }
         // 文言と種別の判断は `WatchImportNotice.make` に閉じる（純粋関数なのでテストできる）。
         guard let notice = WatchImportNotice.make(result) else { return }
+        // 未読の警告を、後から来た成功報告で消さない（理由は `shouldReplace` のコメント）。
+        guard WatchImportNotice.shouldReplace(current: watchNotice.notice, with: notice) else { return }
         watchNotice.present(notice)
     }
 

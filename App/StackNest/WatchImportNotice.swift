@@ -70,6 +70,24 @@ enum WatchImportNotice {
                       detail: details.isEmpty ? nil : details.joined(separator: "\n\n"))
     }
 
+    /// 既に出ているお知らせを、新しいお知らせで置き換えてよいか。
+    ///
+    /// ★ **未読の警告を「ついで」の成功報告で消さない**（Codex レビュー P2）。
+    /// 監視フォルダは**繰り返し走る**ので、失敗の警告が次の成功報告（info）に置き換えられ、
+    /// その 6 秒後には何も残らない —— 「警告は自動で消さない」という約束が黙って破れ、
+    /// **どのファイルが失敗したかを見る機会が永久に失われる**。
+    ///
+    /// **新しい警告は置き換えてよい。**より新しい失敗のほうが重要で、
+    /// 同じファイルが失敗し続けているならその警告にも同じ情報が入っている。
+    ///
+    /// ★ **この規則を `NoticeSlot` に置いてはいけない。**Finder タグ同期の枠では、
+    /// 警告のあとに来る info は「**警告の条件が消えた**」ことを意味する（索引が有効に戻った等）ので、
+    /// そちらは置き換わるのが正しい。**繰り返し走るかどうかが producer ごとに違う**ため、
+    /// 判断は producer 側に置く。
+    static func shouldReplace(current: Notice?, with new: Notice) -> Bool {
+        !(current?.kind == .warning && new.kind == .info)
+    }
+
     /// 行頭に `・` を付けて並べ、`detailLimit` を超えたら `…` で打ち切る。
     private static func list(_ lines: [String]) -> String {
         lines.prefix(detailLimit).map { "  ・\($0)" }.joined(separator: "\n")
