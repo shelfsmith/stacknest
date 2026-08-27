@@ -7,6 +7,65 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.13.0] - 2026-08-27 — Two-way Finder tag sync, a loupe, and notices rebuilt (Phases G37–G42)
+
+> Six phases and 74 commits since `0.12.1`. **The two headline features are Finder tag sync and
+> the viewer loupe**, both asked for in a 5ch thread.
+
+### Added
+
+- **★ Finder tags and library metadata, kept in sync both ways** (G39): pick one field per
+  library and it stays in step with the file's macOS Finder tags. Tags added in Finder reach
+  the library; edits in the library reach Finder. **A tag removed on either side is removed on
+  the other** — the sync remembers what it last saw, so a deletion is a deletion rather than
+  something a plain union quietly restores.
+  - It runs when a library opens, and when you ask for it (toolbar button, or the library settings).
+  - **Cost does not grow with the library.** Spotlight returns only the tagged items, so a
+    12,000-book library reconciles in 0.4 seconds measured. Nothing walks every file's xattrs.
+  - **Tag colours survive.** StackNest has no notion of colour, and does not strip the ones you set.
+  - **Six fields can sync** (genre, author, neta, keywords A/B/C). **Series cannot**: it holds one
+    value, and a legitimate name like `Love, Chunibyo & Other Delusions` splits into two Finder
+    tags — delete one and half the series name goes with it.
+  - On a volume with Spotlight indexing off, **only the library-to-Finder direction works**, and
+    the app says so. Being told it cannot work beats syncing silently failing.
+  - A Finder tag whose name contains `, ` collides with the field separator, so it is left alone
+    and reported rather than broken in half.
+- **★ A loupe in the built-in viewer** (G38 / G40): a magnifier over part of the page, bound to
+  whichever key you like in the viewer key settings.
+  - **Scroll to change magnification** — continuous on a trackpad, stepped on a wheel.
+  - **Shape** (circle or square) and **size** (small, medium, large) are settings.
+  - The magnified area is re-decoded, so it stays sharp instead of enlarging blur.
+- **Finder tag reconciliation from the CLI and MCP** (G39): `stacknest-cli finder-tags`
+  (`status` / `set` / `resync`) and the matching MCP tools. They call **the same routine the menu
+  does**, so a locked library still refuses and two runs still cannot overlap. 127.0.0.1 only.
+
+### Changed
+
+- **How a failed import tells you** (G41): the watch-folder summary used to disappear after five
+  seconds and that was all. **A run with failures now stays until dismissed**, and "Details"
+  lists **which files failed and why** — information that previously had nowhere to go. A close
+  button is always there. **A later success no longer buries a failure you have not read.**
+- **Toolbar labels** (G42): right-click → Icon and Text left some controls unnamed. They all have
+  names now, and the segmented controls gained accessibility labels as well.
+- **Settings writes hold on longer** (G37): a write is now flushed every two seconds during a long
+  drag, where the old 500ms-after-the-last-change rule meant a continuous drag never wrote at all.
+  The remote settings database waits up to two seconds on `SQLITE_BUSY`.
+
+### Fixed
+
+- **`stacknest-cli library close` sometimes did not close** (found while building G39): it
+  reported success and did nothing, and once that happened the library could not be closed until
+  the app restarted. It now **confirms the library closed before reporting success**.
+- The loupe vanishing or drifting on page turns and layout changes (G38).
+- Closing a library now stops the folder watcher before flushing settings (G37).
+
+### Development notes
+
+- Three device smoke rounds (G39, G40, G41). **Codex reviewed G39 nine times**, finding real
+  defects in seven of them; severity fell from "could lose every tag in a library" to "one book"
+  to "only libraries spanning several volumes".
+- Tests: `swift test` **2140** (2046 at `0.12.1`), App layer **178** (116).
+
 ## [0.12.1] - 2026-08-14 — Lighter drag interactions, and cleanup when an import is interrupted (Phases G34–G36)
 
 > Rolls up three maintenance phases since `0.12.0`. No new features.
