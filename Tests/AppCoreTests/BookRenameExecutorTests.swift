@@ -98,4 +98,94 @@ struct BookRenameExecutorTests {
         #expect(result.applied == 0)
         #expect(result.failed.count == 1)
     }
+
+    @Test("updatePath が投げたらファイルは元の名前に戻る")
+    func updateThrowsRollsBackFile() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.zip")
+        let newPath = dir.appendingPathComponent("新.zip")
+        try touch(a, "content")
+        struct E: Error {}
+        let row = RenamePlanRow(id: 1, oldPath: a.path, newPath: newPath.path,
+                                oldName: "a.zip", newName: "新.zip", status: .ok)
+        let result = BookRenameExecutor.apply(rows: [row]) { _, _ in throw E() }
+
+        #expect(result.applied == 0)
+        #expect(result.failed.count == 1)
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        #expect(!FileManager.default.fileExists(atPath: newPath.path))
+    }
+
+    @Test("大文字小文字だけの改名の 2 歩目が落ちたら元に戻る")
+    func caseOnlyRenameStagingFails() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("abc.zip")
+        try touch(a, "content")
+
+        let row = RenamePlanRow(id: 1, oldPath: a.path,
+                                newPath: dir.appendingPathComponent("ABC.zip").path,
+                                oldName: "abc.zip", newName: "ABC.zip", status: .ok)
+        let fm = FailingFileManager(failOnlyOnCall: 2)  // 2回目だけ失敗、3回目は成功
+        let result = BookRenameExecutor.apply(rows: [row], fileManager: fm) { _, _ in }
+
+        #expect(result.applied == 0)
+        #expect(result.failed.count == 1)
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(!names.contains { $0.contains(".stacknest-rename-") })
+    }
+
+    @Test("巻き戻しにも失敗したら理由でそれと分かる")
+    func stagingAndRollbackBothFail() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("abc.zip")
+        try touch(a, "content")
+
+        let row = RenamePlanRow(id: 1, oldPath: a.path,
+                                newPath: dir.appendingPathComponent("ABC.zip").path,
+                                oldName: "abc.zip", newName: "ABC.zip", status: .ok)
+        let fm = FailingFileManager(failOnCallsFrom: 2)  // 2 回目以降全て失敗
+        let result = BookRenameExecutor.apply(rows: [row], fileManager: fm) { _, _ in }
+
+        #expect(result.applied == 0)
+        #expect(result.failed.count == 1)
+        #expect(result.failed[0].reason.contains(".stacknest-rename-"))
+    }
+
+    /// 指定した回数目の moveItem だけ失敗させる FileManager。
+    private final class FailingFileManager: FileManager, @unchecked Sendable {
+        private let failOnlyOnCall: Int?
+        private let failOnCallsFrom: Int?
+        private var calls = 0
+
+        init(failOnlyOnCall: Int) {
+            self.failOnlyOnCall = failOnlyOnCall
+            self.failOnCallsFrom = nil
+            super.init()
+        }
+
+        init(failOnCallsFrom: Int) {
+            self.failOnlyOnCall = nil
+            self.failOnCallsFrom = failOnCallsFrom
+            super.init()
+        }
+
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            calls += 1
+            var shouldFail = false
+            if let only = failOnlyOnCall {
+                shouldFail = calls == only
+            } else if let from = failOnCallsFrom {
+                shouldFail = calls >= from
+            }
+            if shouldFail {
+                throw NSError(domain: "test", code: 1,
+                              userInfo: [NSLocalizedDescriptionKey: "injected"])
+            }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+    }
 }

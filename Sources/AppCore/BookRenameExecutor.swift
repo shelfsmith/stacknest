@@ -30,9 +30,9 @@ public enum BookRenameExecutor {
         var failed: [RenameFailure] = []
 
         for row in rows where row.status == .ok {
+            let from = URL(fileURLWithPath: row.oldPath)
+            let to = URL(fileURLWithPath: row.newPath)
             do {
-                let from = URL(fileURLWithPath: row.oldPath)
-                let to = URL(fileURLWithPath: row.newPath)
                 if row.isCaseOnlyRename {
                     // 大文字小文字を区別しないファイルシステムでは from → to の
                     // 直接 move が「既に存在する」で落ちる。一時名を経由する。
@@ -42,19 +42,48 @@ public enum BookRenameExecutor {
                     do {
                         try fileManager.moveItem(at: staging, to: to)
                     } catch {
-                        // 2 歩目で落ちたら元に戻す（一時名のまま残さない）。
-                        try? fileManager.moveItem(at: staging, to: from)
+                        // 2 歩目で落ちた。元の名前へ戻す。
+                        // **戻せなかったときは黙らない** —— ファイルが一時名のまま残り、
+                        // 人が探しに行かないと見つからないため。
+                        do {
+                            try fileManager.moveItem(at: staging, to: from)
+                        } catch {
+                            failed.append(RenameFailure(
+                                id: row.id,
+                                reason: Self.orphanReason(stagingPath: staging.path, underlying: error)))
+                            continue
+                        }
                         throw error
                     }
                 } else {
                     try fileManager.moveItem(at: from, to: to)
                 }
+            } catch {
+                failed.append(RenameFailure(id: row.id, reason: error.localizedDescription))
+                continue
+            }
+            // ここから先はファイルが動いている。DB の更新に失敗したら**ファイルを戻す**
+            // （DB が正。パスが合わない本は開けなくなる）。
+            do {
                 try updatePath(row.id, row.newPath)
                 applied += 1
             } catch {
-                failed.append(RenameFailure(id: row.id, reason: error.localizedDescription))
+                do {
+                    try fileManager.moveItem(at: to, to: from)
+                    failed.append(RenameFailure(id: row.id, reason: error.localizedDescription))
+                } catch {
+                    failed.append(RenameFailure(
+                        id: row.id,
+                        reason: Self.orphanReason(stagingPath: to.path, underlying: error)))
+                }
             }
         }
         return RenameApplyResult(applied: applied, failed: failed)
+    }
+
+    /// 巻き戻しに失敗したときの理由。**人が探しに行けるようにパスを必ず含める。**
+    static func orphanReason(stagingPath: String, underlying: Error) -> String {
+        "手動確認が必要: ファイルが \(stagingPath) のまま残っている可能性があります"
+            + "（\(underlying.localizedDescription)）"
     }
 }
