@@ -4,6 +4,7 @@ import Foundation
 import SwiftUI
 import LibraryServer
 import LibraryServerAPI
+import LibraryStore
 import AppCore
 
 /// 127.0.0.1 専用のローカル制御エンドポイント（CLI/MCP 用）。ネットワーク共有とは独立。
@@ -108,7 +109,8 @@ final class LocalControlController {
             closeLibrary: { uuid in try await Self.closeLibrary(uuid: uuid) },
             finderTagSyncStatus: { uuid in await Self.finderTagSyncStatus(uuid: uuid) },
             resyncFinderTags: { uuid in await Self.resyncFinderTags(uuid: uuid) },
-            setFinderTagSyncField: { uuid, field in await Self.setFinderTagSyncField(uuid: uuid, field: field) }
+            setFinderTagSyncField: { uuid, field in await Self.setFinderTagSyncField(uuid: uuid, field: field) },
+            renameFiles: { uuid, body in await Self.renameFiles(uuid: uuid, body: body) }
         )
         // 外部レビュー Low 指摘の是正: `SharedMaintenanceRegistry` のコメントは以前から
         // 「`ServerController`／`LocalControlController` はどちらも `maintenanceRegistry:` と
@@ -408,5 +410,82 @@ final class LocalControlController {
                 continuation.resume(returning: FinderTagResyncReply(status: start.rawValue, field: field))
             }
         }
+    }
+
+    // MARK: - G47: メタデータでのファイル名変更（ローカル制御専用）
+
+    /// `POST /local/libraries/:uuid/rename-files` の実装。
+    ///
+    /// **判断は `BookRenamePlanner` に任せる**（GUI のシートと同じ 1 本）。
+    /// ここがやるのは、庫を見つける・施錠を見る・材料を DB から集める・
+    /// `apply` のときだけ実行する、の 4 つだけ。
+    @MainActor
+    static func renameFiles(uuid: String, body: RenameFilesRequest) async -> RenameFilesReply? {
+        guard let state = appState(libraryUUID: uuid),
+              let settings = state.librarySettings,
+              let database = state.database else { return nil }
+
+        // 施錠中は走らない（Finder タグの再照合と同じ規則）。
+        if settings.lockPasswordHash != nil && !state.isUnlocked {
+            return RenameFilesReply(status: "locked")
+        }
+
+        let raw: String
+        if let f = body.format {
+            raw = f
+        } else {
+            raw = FilenameFormatPresetLogic.defaultFormat(
+                in: settings.filenameFormatPresets,
+                defaultID: body.presetID ?? settings.defaultFilenameFormatPresetID)
+        }
+        guard let format = try? FilenameFormat(raw: raw) else {
+            return RenameFilesReply(status: "badFormat")
+        }
+
+        let rows: [BookRow]
+        let widths: [String: Int]
+        do {
+            rows = try database.bookRows(ids: body.ids)
+            let seriesNames = rows.compactMap { $0.series }.filter { !$0.isEmpty }
+            widths = VolumeWidth.widths(fromMaxVolumes: try database.maxVolumeBySeries(seriesNames))
+        } catch {
+            return RenameFilesReply(status: "badFormat")
+        }
+        let missing = body.ids.filter { id in !rows.contains { $0.id == id } }
+
+        let plan = BookRenamePlanner.plan(
+            books: rows.map { $0.toRecord() },
+            format: format,
+            bookTypeLabels: settings.bookTypeLabelOverrides,
+            volumeWidths: widths,
+            fileExists: { FileManager.default.fileExists(atPath: $0) })
+
+        guard body.apply else {
+            // 計画のみ。**ここで返る限りファイルは 1 バイトも動いていない。**
+            return RenameFilesReply(
+                status: "ok", applied: false,
+                rows: plan.map { RenamePlanRowDTO(id: $0.id, oldName: $0.oldName,
+                                                  newName: $0.newName, status: $0.status.rawValue) },
+                missingIDs: missing, renamed: 0,
+                skipped: plan.filter { $0.status != .ok }.count)
+        }
+
+        // 早期 return と合わせて二重の守り。`guard body.apply` を消しても
+        // ここで空になるので、ファイルは動かない。
+        let result = BookRenameExecutor.apply(
+            rows: BookRenamePlanner.rowsToApply(plan: plan, apply: body.apply)
+        ) { id, newPath in
+            try database.updateBookPath(id: id, newPath: newPath)
+        }
+        let failureByID = Dictionary(uniqueKeysWithValues: result.failed.map { ($0.id, $0.reason) })
+        let dtoRows = plan.map { row in
+            RenamePlanRowDTO(id: row.id, oldName: row.oldName, newName: row.newName,
+                             status: row.status.rawValue, failure: failureByID[row.id])
+        }
+        try? state.refreshDisplayedBooks()
+        ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
+        return RenameFilesReply(status: "ok", applied: true, rows: dtoRows, missingIDs: missing,
+                                renamed: result.applied,
+                                skipped: plan.count - result.applied)
     }
 }

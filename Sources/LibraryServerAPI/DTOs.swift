@@ -1080,3 +1080,61 @@ public struct FinderTagResyncReply: Codable, Sendable, Equatable {
         self.failure = failure
     }
 }
+
+// MARK: - G47: メタデータでのファイル名変更（ローカル制御専用）
+
+/// POST /local/libraries/:uuid/rename-files のリクエストボディ。
+///
+/// **`apply` が true でない限りファイルは 1 つも動かない。**既定は計画を返すだけ。
+/// `presetID` と `format` は**どちらか一方だけ**（両方来たら 400）。
+/// どちらも無ければ庫の既定プリセットを使う。
+public struct RenameFilesRequest: Codable, Sendable {
+    public var ids: [Int]
+    public var presetID: String?
+    public var format: String?
+    public var apply: Bool
+
+    public init(ids: [Int], presetID: String? = nil, format: String? = nil, apply: Bool = false) {
+        self.ids = ids; self.presetID = presetID; self.format = format; self.apply = apply
+    }
+}
+
+/// 改名 1 冊分の結果。
+public struct RenamePlanRowDTO: Codable, Sendable, Equatable {
+    public var id: Int
+    public var oldName: String
+    public var newName: String
+    /// ok / unchanged / conflictExisting / conflictInBatch / emptyName / tooLong / noPath
+    public var status: String
+    /// 実行して失敗したときの理由。計画だけのときは nil。
+    public var failure: String?
+
+    public init(id: Int, oldName: String, newName: String, status: String, failure: String? = nil) {
+        self.id = id; self.oldName = oldName; self.newName = newName
+        self.status = status; self.failure = failure
+    }
+}
+
+/// POST /local/libraries/:uuid/rename-files の応答。
+///
+/// `status` が `ok` 以外のとき `rows` は空で `applied` は 0。
+/// **庫に無い ID は `rows` に混ぜず `missingIDs` に入れる** ——
+/// 「改名できなかった本」と「そもそも居ない本」は別の話で、混ぜると呼び出し側が気づけない。
+public struct RenameFilesReply: Codable, Sendable, Equatable {
+    /// ok / locked / noLibrary / badFormat
+    public var status: String
+    /// 実際にファイルを動かしたか（false なら計画のみ）。
+    public var applied: Bool
+    public var rows: [RenamePlanRowDTO]
+    public var missingIDs: [Int]
+    /// 改名した件数（applied が false なら 0）。
+    public var renamed: Int
+    /// 改名しなかった件数（ok 以外の行 ＋ 失敗した行）。
+    public var skipped: Int
+
+    public init(status: String, applied: Bool = false, rows: [RenamePlanRowDTO] = [],
+                missingIDs: [Int] = [], renamed: Int = 0, skipped: Int = 0) {
+        self.status = status; self.applied = applied; self.rows = rows
+        self.missingIDs = missingIDs; self.renamed = renamed; self.skipped = skipped
+    }
+}
