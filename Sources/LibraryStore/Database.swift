@@ -2089,6 +2089,52 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// ID を指定して本を取り出す。**返す順序は指定した ID の順**（結果を並べ替えない）。
+    /// 居ない ID は黙って落ちる —— 呼び出し側が「何が返ってこなかったか」を
+    /// 引き算で知れるようにするため（`Set(ids).subtracting(rows.map(\.id))`）。
+    public func bookRows(ids: [Int]) throws -> [BookRow] {
+        guard !ids.isEmpty, let q = queue else { return [] }
+        let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
+        let found: [Int: BookRow] = try q.read { db in
+            let rows = try Row.fetchAll(
+                db, sql: "SELECT * FROM book WHERE id IN (\(placeholders))",
+                arguments: StatementArguments(ids))
+            var map: [Int: BookRow] = [:]
+            for r in rows {
+                let book = Self.bookRow(from: r)
+                map[book.id] = book
+            }
+            return map
+        }
+        return ids.compactMap { found[$0] }
+    }
+
+    /// シリーズごとの最大巻。**巻数の桁を決めるために庫全体から引く**
+    /// （改名対象の中の最大ではない ―― ディスク上に既に並んでいるファイルと桁を揃えるため）。
+    /// 突き合わせは NFC 正規化した文字列で行う。
+    public func maxVolumeBySeries(_ series: [String]) throws -> [String: Double] {
+        guard !series.isEmpty, let q = queue else { return [:] }
+        let normalized = Array(Set(series.map { TextNormalize.nfc($0) })).filter { !$0.isEmpty }
+        guard !normalized.isEmpty else { return [:] }
+        let placeholders = Array(repeating: "?", count: normalized.count).joined(separator: ",")
+        return try q.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT series, MAX(volume) AS max_volume FROM book
+                WHERE series IN (\(placeholders)) AND volume IS NOT NULL
+                GROUP BY series
+                """,
+                arguments: StatementArguments(normalized))
+            var out: [String: Double] = [:]
+            for r in rows {
+                guard let name: String = r["series"], let max: Double = r["max_volume"] else { continue }
+                out[TextNormalize.nfc(name)] = max
+            }
+            return out
+        }
+    }
+
     // MARK: - Series distinct values
 
     /// book.series の DISTINCT 値を大文字小文字を無視した順序で取得。NULL と空文字は除外。
