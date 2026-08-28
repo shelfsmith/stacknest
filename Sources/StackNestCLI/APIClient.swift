@@ -363,4 +363,13 @@ struct APIClient {
         let url = URL(string: endpoint.baseURL + "/local/libraries/\(uuid)/finder-tags/resync")!
         return try request(url, method: "POST", timeout: 600)
     }
+
+    /// G47: POST /local/libraries/:uuid/rename-files → 改名の計画／実行結果。
+    ///
+    /// `apply` が false（既定）ならファイルは 1 つも動かず、計画のみが返る。
+    func renameFiles(uuid: String, body: RenameFilesRequest) throws -> Data {
+        let url = URL(string: endpoint.baseURL + "/local/libraries/\(uuid)/rename-files")!
+        let payload = try encoder.encode(body)
+        return try request(url, method: "POST", body: payload, timeout: 600)
+    }
 }
