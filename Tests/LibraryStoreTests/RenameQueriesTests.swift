@@ -66,4 +66,12 @@ struct RenameQueriesTests {
         #expect(try db.bookRows(ids: []).isEmpty)
         #expect(try db.maxVolumeBySeries([]).isEmpty)
     }
+
+    @Test("重複した ID は最初の 1 つだけ返る")
+    func duplicateIDs() throws {
+        let db = try makeDB()
+        try db.insertBook(book(1, path: "/x/a.zip"))
+        try db.insertBook(book(2, path: "/x/b.zip"))
+        #expect(try db.bookRows(ids: [1, 1, 2, 1]).map(\.id) == [1, 2])
+    }
 }
