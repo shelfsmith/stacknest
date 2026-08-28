@@ -60,14 +60,21 @@ public enum FormatToken: String, CaseIterable, Sendable {
 
     /// 巻数の文字列化。整数部を `width` 桁までゼロ埋めし、小数部があれば後ろに付ける。
     /// 7・幅 2 → "07" / 7.5・幅 2 → "07.5" / 120・幅 3 → "120"
-    static func renderVolume(_ v: Double, width: Int) -> String {
-        let intPart = Int(v.rounded(.towardZero))
-        let padded = String(format: "%0\(Swift.max(width, 1))d", intPart)
-        let frac = v - Double(intPart)
-        if frac == 0 { return padded }
-        var s = String(format: "%g", frac)   // "0.5"
-        if s.hasPrefix("0") { s.removeFirst() }  // ".5"
-        return padded + s
+    ///
+    /// **`%d` を使わない。**C の可変長引数では 32 ビットとして読まれ、
+    /// 大きな値が黙って切り詰められる（1e10 → "1410065408"）。
+    /// **整数部と小数部は同じ丸めから取り出す。**別々に計算すると、
+    /// 6.999999999999 が整数部 6・小数部 "1" になって "061" と壊れる。
+    private static func renderVolume(_ v: Double, width: Int) -> String {
+        guard v >= 0 else { return "" }
+        // 小数 4 桁で 1 度だけ丸め、以降はこの文字列だけを見る。
+        var s = String(format: "%.4f", v)
+        while s.hasSuffix("0") { s.removeLast() }
+        if s.hasSuffix(".") { s.removeLast() }
+        let parts = s.split(separator: ".", maxSplits: 1)
+        let intStr = String(parts[0])
+        let pad = String(repeating: "0", count: Swift.max(0, width - intStr.count))
+        return pad + intStr + (parts.count > 1 ? "." + parts[1] : "")
     }
 }
 
