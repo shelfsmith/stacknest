@@ -10,6 +10,9 @@ public enum FormatToken: String, CaseIterable, Sendable {
     case keywordB
     case relation
     case type
+    case series
+    case volume
+    case keywordC
 
     public init?(raw: String) {
         guard raw.hasPrefix("@") else { return nil }
@@ -27,7 +30,11 @@ public enum FormatToken: String, CaseIterable, Sendable {
     ///   When a key matches `record.bookType`, the override label is used instead of the
     ///   canonical label. Defaults to empty (canonical labels only). Pass
     ///   `LibrarySettings.bookTypeLabelOverrides` for WYSIWYG filename generation.
-    public func value(in record: BookRecord, bookTypeLabels: [Int: String] = [:]) -> String? {
+    /// - Parameter volumeWidth: `@volume` をゼロ埋めする桁数。既定 2。
+    ///   シリーズごとの値は `VolumeWidth.widths(fromMaxVolumes:)` で作る。
+    public func value(in record: BookRecord,
+                      bookTypeLabels: [Int: String] = [:],
+                      volumeWidth: Int = VolumeWidth.minimum) -> String? {
         let raw: String?
         switch self {
         case .title:    raw = record.title
@@ -35,14 +42,32 @@ public enum FormatToken: String, CaseIterable, Sendable {
         case .genre:    raw = record.genre
         case .keywordA: raw = record.keywordA
         case .keywordB: raw = record.keywordB
+        case .keywordC: raw = record.keywordC
+        case .series:   raw = record.series
         // Stackroom legacy: "Relation" field is stored as `neta` column (Phase 2.4 schema decision)
         case .relation: raw = record.neta
         case .type:
             // Use custom override if provided; fall back to canonical label for in-range types.
             raw = bookTypeLabels[record.bookType] ?? BookTypeLabel.label(for: record.bookType)
+        case .volume:
+            // 巻数だけは幅に依存するのでここで組み立てて返す（raw を経由しない）。
+            guard let v = record.volume, v >= 0 else { return nil }
+            return Self.renderVolume(v, width: volumeWidth)
         }
         guard let s = raw, !s.isEmpty else { return nil }
         return s
+    }
+
+    /// 巻数の文字列化。整数部を `width` 桁までゼロ埋めし、小数部があれば後ろに付ける。
+    /// 7・幅 2 → "07" / 7.5・幅 2 → "07.5" / 120・幅 3 → "120"
+    static func renderVolume(_ v: Double, width: Int) -> String {
+        let intPart = Int(v.rounded(.towardZero))
+        let padded = String(format: "%0\(Swift.max(width, 1))d", intPart)
+        let frac = v - Double(intPart)
+        if frac == 0 { return padded }
+        var s = String(format: "%g", frac)   // "0.5"
+        if s.hasPrefix("0") { s.removeFirst() }  // ".5"
+        return padded + s
     }
 }
 
