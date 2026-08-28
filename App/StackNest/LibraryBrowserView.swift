@@ -75,7 +75,10 @@ struct LibraryBrowserView: View {
                             do { try appState.refreshDisplayedBooks() }
                             catch { appState.error = .unexpected(error) }
                         },
-                        bookTypeLabelOverrides: settings.bookTypeLabelOverrides
+                        bookTypeLabelOverrides: settings.bookTypeLabelOverrides,
+                        volumeWidths: (try? db.maxVolumeBySeries(
+                            sel.books.compactMap { $0.series }.filter { !$0.isEmpty }))
+                            .map { VolumeWidth.widths(fromMaxVolumes: $0) } ?? [:]
                     )
                 }
             }
