@@ -124,27 +124,3 @@ struct BookFileRenameSheet: View {
     }
 }
 
-// MARK: - BookRow → BookRecord conversion
-
-private extension BookRow {
-    func toRecord() -> BookRecord {
-        BookRecord(
-            id: id,
-            title: title,
-            author: author,
-            genre: genre,
-            path: path,
-            dateAdded: dateAdded,
-            playDate: playDate,
-            bookType: bookType,
-            fileType: fileType,
-            pages: pages,
-            myRate: rating,
-            unseen: unseen,
-            keywordA: keywordA,
-            keywordB: keywordB,
-            keywordC: keywordC,
-            neta: neta
-        )
-    }
-}
