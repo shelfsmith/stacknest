@@ -1314,6 +1314,8 @@ struct RenameFiles: ParsableCommand {
                 print("施錠されています（解錠するまで改名しません）")
             case "badFormat":
                 print("書式が不正です")
+            case "failed":
+                print("失敗しました: " + (reply.failure ?? "理由不明"))
             case "noLibrary":
                 print("庫が開いていません")
             default:

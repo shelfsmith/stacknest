@@ -43,4 +43,13 @@ struct RenameFilesControlTests {
         #expect(reply.applied == false)
         #expect(reply.rows.isEmpty)
     }
+
+    @Test("DB の失敗は badFormat ではなく failed として返る")
+    func dbFailureIsNotBadFormat() {
+        let reply = RenameFilesReply(status: "failed", failure: "disk I/O error")
+        #expect(reply.status == "failed")
+        #expect(reply.failure == "disk I/O error")
+        #expect(reply.applied == false)
+        #expect(reply.rows.isEmpty)
+    }
 }
