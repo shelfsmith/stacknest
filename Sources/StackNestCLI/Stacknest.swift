@@ -16,7 +16,7 @@ struct Stacknest: ParsableCommand {
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
                       ImportConfigGlobal.self, Relink.self, Dedup.self, Unlock.self,
                       Grant.self, Stamp.self, StampDefinitions.self, Label.self,
-                      Integrity.self, Library.self]
+                      Integrity.self, Library.self, RenameFiles.self]
     )
 }
 
@@ -1260,6 +1260,65 @@ struct FinderTagsSet: ParsableCommand {
             }
             let reply = try JSONDecoder().decode(FinderTagSyncStatusReply.self, from: data)
             print("項目: \(reply.field ?? "（同期しない）")")
+        }
+    }
+}
+
+// MARK: - rename-files（ローカル制御専用・admin）
+
+/// メタデータでファイル名を変える。
+///
+/// **`--apply` を書かない限りファイルは 1 つも動かない。**既定は計画を出すだけ。
+struct RenameFiles: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "rename-files",
+        abstract: "メタデータでファイル名を変える（既定は計画のみ・--apply で実行）")
+    @OptionGroup var common: CommonOptions
+    @Argument(help: "対象の書籍 ID（複数可）") var bookIDs: [Int]
+    @Option(name: .long, help: "使う命名プリセットの ID（省略時は庫の既定）") var preset: String?
+    @Option(name: .long, help: "その場で使う書式（例: \"@series v@volume\"）。--preset とは併用できない")
+    var format: String?
+    @Flag(name: .long, help: "実際にファイルを改名する（付けなければ計画のみ）") var apply = false
+
+    func run() throws {
+        try mappingAPIErrors {
+            if preset != nil && format != nil {
+                throw ValidationError("--preset と --format は同時に指定できません")
+            }
+            let ep = try resolveEndpoint(common: common)
+            let client = APIClient(endpoint: ep)
+            let lib = try resolveLibrary(client: client, libArg: common.library)
+            let body = RenameFilesRequest(ids: bookIDs, presetID: preset, format: format, apply: apply)
+            let data = try client.renameFiles(uuid: lib.id, body: body)
+            if common.json {
+                print(String(data: data, encoding: .utf8) ?? "")
+                return
+            }
+            let reply = try JSONDecoder().decode(RenameFilesReply.self, from: data)
+            switch reply.status {
+            case "ok":
+                for row in reply.rows {
+                    let mark = row.status == "ok" ? "→" : "×"
+                    let reason = row.status == "ok" ? "" : "（\(row.status)）"
+                    print("\(mark) \(row.oldName) → \(row.newName)\(reason)")
+                }
+                if reply.applied {
+                    print("改名しました: \(reply.renamed) 件 / 見送り \(reply.skipped) 件")
+                } else {
+                    print("計画のみ（--apply を付けると実行します）: 改名 \(reply.rows.filter { $0.status == "ok" }.count) 件予定")
+                }
+                if !reply.missingIDs.isEmpty {
+                    print("庫に無い ID: " + reply.missingIDs.map(String.init).joined(separator: ", "))
+                }
+            case "locked":
+                print("施錠されています（解錠するまで改名しません）")
+            case "badFormat":
+                print("書式が不正です")
+            case "noLibrary":
+                print("庫が開いていません")
+            default:
+                print(reply.status)
+            }
         }
     }
 }

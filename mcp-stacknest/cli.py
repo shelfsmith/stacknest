@@ -605,3 +605,20 @@ def finder_tags_resync(library: str, *, library_token: str | None = None) -> Any
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("finder-tags", sub="resync", library=library),
                         library_token=tok, timeout=660)))
+
+
+def rename_files(library: str, ids: list[int], *,
+                 preset: str | None = None,
+                 fmt: str | None = None,
+                 apply: bool = False,
+                 library_token: str | None = None) -> Any:
+    """メタデータでファイル名を変える。apply=False なら計画のみ（ファイルは動かない）。"""
+    argv = ["rename-files"] + [str(i) for i in ids]
+    argv += _opt("--library", library)
+    argv += _opt("--preset", preset)
+    argv += _opt("--format", fmt)
+    if apply:
+        argv.append("--apply")
+    argv.append("--json")
+    return json.loads(_with_library(library, library_token,
+        lambda tok: run(argv, library_token=tok, timeout=660)))

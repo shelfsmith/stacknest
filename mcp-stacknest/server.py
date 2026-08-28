@@ -251,6 +251,27 @@ def stacknest_finder_tags_resync(library: str, library_token: str | None = None)
     return cli.finder_tags_resync(library, library_token=library_token)
 
 
+@mcp.tool()
+def stacknest_rename_files(library: str, ids: list[int],
+                           preset: str | None = None,
+                           format: str | None = None,
+                           apply: bool = False,
+                           library_token: str | None = None) -> Any:
+    """メタデータからファイル名を作り直す。**apply=False（既定）ではファイルは 1 つも動かない。**
+    まず apply を省いて呼び、返ってきた rows を見てから apply=True で実行すること。
+    ids は書籍 ID の配列（stacknest_list で調べる）。
+    preset は庫の命名プリセット ID、format は "@series v@volume" のような書式。
+    **preset と format は同時に指定できない。**どちらも省略すると庫の既定プリセットを使う。
+    使えるトークン: @title @author @genre @keywordA @keywordB @keywordC @relation @type @series @volume。
+    @volume は max(2, シリーズ内最大巻の桁数) でゼロ埋めされる。
+    rows[].status は ok / unchanged / conflictExisting / conflictInBatch / emptyName / tooLong / noPath。
+    missingIDs は庫に無かった ID（rows には現れない）。
+    庫が開いていなければ 404、施錠中は status=locked で何もしない。
+    library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
+    return cli.rename_files(library, ids, preset=preset, fmt=format,
+                            apply=apply, library_token=library_token)
+
+
 # --- インポート設定（import-config）---
 
 @mcp.tool()
