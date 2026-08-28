@@ -87,6 +87,15 @@ struct BookRenamePlannerTests {
         #expect(only[0].status == .emptyName)
     }
 
+    @Test("空白を挟んだ先頭ドットも落とす")
+    func leadingDotsWithSpaces() throws {
+        let rows = try plan([book(1, path: "/x/a.zip", title: ". . 名前")])
+        #expect(rows[0].status == .ok)
+        #expect(rows[0].newName == "名前.zip")
+        let only = try plan([book(1, path: "/x/a.zip", title: ". . .")])
+        #expect(only[0].status == .emptyName)
+    }
+
     @Test("255 バイトを超えたら tooLong（日本語は 1 文字 3 バイト）")
     func tooLong() throws {
         let long = String(repeating: "あ", count: 85)   // 255 バイト + ".zip" で超える
