@@ -46,4 +46,23 @@ struct FilenameFormatNewTokenTests {
         let r = BookRecord(id: 1, title: "本", author: "著", dateAdded: Date())
         #expect(FilenameFormatter.format(r, with: f) == "[著] 本")
     }
+
+    @Test("★ 括弧の中の @volume にも桁が届く")
+    func volumeInsideBracketGroup() throws {
+        let f = try FilenameFormat(raw: "@title[ v@volume]")
+        let result = FilenameFormatter.format(record(volume: 7, title: "T"), with: f, volumeWidth: 3)
+        #expect(result == "T[ v007]")
+    }
+
+    @Test("大きな巻数が切り詰められない")
+    func largeVolume() throws {
+        let f = try FilenameFormat(raw: "v@volume")
+        #expect(FilenameFormatter.format(record(volume: 10_000_000_000), with: f, volumeWidth: 2) == "v10000000000")
+    }
+
+    @Test("整数のすぐ下の値でも桁が混ざらない")
+    func nearIntegerVolume() throws {
+        let f = try FilenameFormat(raw: "v@volume")
+        #expect(FilenameFormatter.format(record(volume: 6.999999999999), with: f, volumeWidth: 2) == "v07")
+    }
 }
