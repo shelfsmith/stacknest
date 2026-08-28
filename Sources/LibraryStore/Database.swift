@@ -2092,6 +2092,9 @@ public final class Database: @unchecked Sendable {
     /// ID を指定して本を取り出す。**返す順序は指定した ID の順**（結果を並べ替えない）。
     /// 居ない ID は黙って落ちる —— 呼び出し側が「何が返ってこなかったか」を
     /// 引き算で知れるようにするため（`Set(ids).subtracting(rows.map(\.id))`）。
+    ///
+    /// **重複した ID は最初の 1 つだけを返す。**呼び出し側は改名の対象リストとして使うので、
+    /// 同じ本が 2 行になると応答に同じ本が 2 度並ぶ。ここで閉じておく。
     public func bookRows(ids: [Int]) throws -> [BookRow] {
         guard !ids.isEmpty, let q = queue else { return [] }
         let placeholders = Array(repeating: "?", count: ids.count).joined(separator: ",")
@@ -2106,7 +2109,11 @@ public final class Database: @unchecked Sendable {
             }
             return map
         }
-        return ids.compactMap { found[$0] }
+        var seen: Set<Int> = []
+        return ids.compactMap { id in
+            guard seen.insert(id).inserted else { return nil }
+            return found[id]
+        }
     }
 
     /// シリーズごとの最大巻。**巻数の桁を決めるために庫全体から引く**
