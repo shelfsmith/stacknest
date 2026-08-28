@@ -14,6 +14,8 @@ struct BookFileRenameSheet: View {
     /// Custom bookType label overrides for WYSIWYG @type token rendering.
     /// Pass `LibrarySettings.bookTypeLabelOverrides`; defaults to canonical labels.
     var bookTypeLabelOverrides: [Int: String] = [:]
+    /// シリーズごとの巻数の桁。**庫全体から引いた最大巻**を渡す（呼び出し側が用意する）。
+    var volumeWidths: [String: Int] = [:]
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedPresetID: String = ""
@@ -25,32 +27,13 @@ struct BookFileRenameSheet: View {
         return (try? FilenameFormat(raw: raw)) ?? (try! FilenameFormat(raw: "@title"))
     }
 
-    private struct PreviewRow: Identifiable {
-        let id: Int  // book ID
-        let oldName: String
-        let newName: String
-        let conflict: Bool
-        let url: URL
-        let newURL: URL
-    }
-
-    private var previews: [PreviewRow] {
-        var seen: Set<String> = []
-        return books.map { book -> PreviewRow in
-            let url = URL(fileURLWithPath: book.path ?? "")
-            let ext = url.pathExtension
-            let oldName = url.lastPathComponent
-            let bookRecord = book.toRecord()
-            let baseName = FilenameFormatter.format(bookRecord, with: activeFormat, bookTypeLabels: bookTypeLabelOverrides)
-            let finalName = ext.isEmpty ? baseName : "\(baseName).\(ext)"
-            let newURL = url.deletingLastPathComponent().appendingPathComponent(finalName)
-            let exists = FileManager.default.fileExists(atPath: newURL.path) && newURL.path != url.path
-            let dup = !seen.insert(newURL.path).inserted
-            return PreviewRow(
-                id: book.id, oldName: oldName, newName: finalName,
-                conflict: exists || dup, url: url, newURL: newURL
-            )
-        }
+    private var plan: [RenamePlanRow] {
+        BookRenamePlanner.plan(
+            books: books.map { $0.toRecord() },
+            format: activeFormat,
+            bookTypeLabels: bookTypeLabelOverrides,
+            volumeWidths: volumeWidths,
+            fileExists: { FileManager.default.fileExists(atPath: $0) })
     }
 
     var body: some View {
@@ -65,9 +48,9 @@ struct BookFileRenameSheet: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 4) {
-                    ForEach(previews) { row in
+                    ForEach(plan, id: \.id) { row in
                         HStack(alignment: .top) {
-                            if row.conflict {
+                            if row.status != .ok && row.status != .unchanged {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.orange)
                             }
@@ -76,7 +59,7 @@ struct BookFileRenameSheet: View {
                                     .font(.caption.monospaced())
                                 Text("→ \(row.newName)")
                                     .font(.caption.monospaced())
-                                    .foregroundStyle(row.conflict ? .orange : .primary)
+                                    .foregroundStyle(row.status != .ok && row.status != .unchanged ? .orange : .primary)
                             }
                         }
                     }
@@ -84,7 +67,7 @@ struct BookFileRenameSheet: View {
             }
             .frame(maxHeight: 240)
 
-            Text("コロン (:) は ： に自動変換、衝突する項目はスキップされます")
+            Text("コロン (:) は ： に自動変換。同名が既にある・名前を作れない・長すぎる項目はスキップされます")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 
@@ -101,24 +84,17 @@ struct BookFileRenameSheet: View {
     }
 
     private func apply() {
-        var renamed: [Int] = []
-        for row in previews {
-            guard !row.conflict else { continue }
-            do {
-                try FileManager.default.moveItem(at: row.url, to: row.newURL)
-                try database.updateBookPath(id: row.id, newPath: row.newURL.path)
-                renamed.append(row.id)
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "\(row.oldName) のリネームに失敗しました"
-                alert.informativeText = error.localizedDescription
-                alert.runModal()
-            }
+        let result = BookRenameExecutor.apply(rows: plan) { id, newPath in
+            try database.updateBookPath(id: id, newPath: newPath)
         }
-        onComplete(renamed)
+        onComplete(plan.filter { $0.status == .ok }.map(\.id))
         let alert = NSAlert()
         alert.messageText = "リネーム結果"
-        alert.informativeText = "\(renamed.count) 件成功 / \(previews.count - renamed.count) 件スキップ"
+        var text = "\(result.applied) 件成功 / \(plan.count - result.applied) 件スキップ"
+        if !result.failed.isEmpty {
+            text += "\n\n失敗:\n" + result.failed.map { "・\($0.reason)" }.joined(separator: "\n")
+        }
+        alert.informativeText = text
         alert.runModal()
         dismiss()
     }
