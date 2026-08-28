@@ -1086,6 +1086,9 @@ public struct FinderTagResyncReply: Codable, Sendable, Equatable {
 /// POST /local/libraries/:uuid/rename-files のリクエストボディ。
 ///
 /// **`apply` が true でない限りファイルは 1 つも動かない。**既定は計画を返すだけ。
+/// **`apply` キー自体は省略できない** —— `Codable` の合成イニシャライザにデフォルト値は
+/// 反映されないため、JSON から `apply` を省くとデコードが失敗し **400** になる（この動作は
+/// 安全側なので変更しない。呼び出し側は必ず `apply` を明示すること）。
 /// `presetID` と `format` は**どちらか一方だけ**（両方来たら 400）。
 /// どちらも無ければ庫の既定プリセットを使う。
 public struct RenameFilesRequest: Codable, Sendable {

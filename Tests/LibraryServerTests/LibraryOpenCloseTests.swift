@@ -24,13 +24,15 @@ struct LibraryOpenCloseTests {
         enableLocalLibraryControl: Bool,
         adminTier: Bool = true,
         openLibrary: (@Sendable (URL) async throws -> String)? = nil,
-        closeLibrary: (@Sendable (String) async throws -> Void)? = nil
+        closeLibrary: (@Sendable (String) async throws -> Void)? = nil,
+        renameFiles: (@Sendable (String, RenameFilesRequest) async -> RenameFilesReply?)? = nil
     ) -> LibraryServerCore {
         LibraryServerCore(
             config: .init(
                 port: 0, token: "R", editToken: "W", adminTier: adminTier,
                 enableLocalLibraryControl: enableLocalLibraryControl,
-                openLibrary: openLibrary, closeLibrary: closeLibrary),
+                openLibrary: openLibrary, closeLibrary: closeLibrary,
+                renameFiles: renameFiles),
             dataSource: StaticLibraryDataSource(libraries: [])
         )
     }
@@ -207,6 +209,74 @@ struct LibraryOpenCloseTests {
             }
         }
     }
+
+    // MARK: - 5) G47: rename-files のセキュリティ境界・入力検証
+
+    /// 共有サーバ相当（フラグ false）では rename-files ルートも存在しない。
+    /// open/close と同じ「ローカル制御専用」を守る唯一の構造的な保険。
+    @Test func sharedServerDoesNotExposeRenameFilesRoute() async throws {
+        let calls = RenameFilesCallBox()
+        let core = makeCore(
+            enableLocalLibraryControl: false,
+            renameFiles: { uuid, body in await calls.record(uuid, body); return RenameFilesReply(status: "ok") }
+        )
+        try await core.buildApplication().test(.router) { client in
+            let body = try JSONEncoder().encode(RenameFilesRequest(ids: [1]))
+            try await client.execute(
+                uri: "/local/libraries/some-uuid/rename-files", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .notFound)
+            }
+        }
+        let count = await calls.count
+        #expect(count == 0, "ルートに到達していない証拠として closure は一度も呼ばれない")
+    }
+
+    /// 読み取り専用（admin tier 未満）トークンは拒否される（他の admin 専用ルートと同じ扱い）。
+    @Test func readOnlyTokenCannotRenameFiles() async throws {
+        let calls = RenameFilesCallBox()
+        let core = makeCore(
+            enableLocalLibraryControl: true, adminTier: false,
+            renameFiles: { uuid, body in await calls.record(uuid, body); return RenameFilesReply(status: "ok") }
+        )
+        try await core.buildApplication().test(.router) { client in
+            let body = try JSONEncoder().encode(RenameFilesRequest(ids: [1]))
+            try await client.execute(
+                uri: "/local/libraries/some-uuid/rename-files", method: .post,
+                headers: [.authorization: "Bearer R", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .forbidden)
+            }
+        }
+        let count = await calls.count
+        #expect(count == 0, "ルートに到達していない証拠として closure は一度も呼ばれない")
+    }
+
+    /// `presetID` と `format` を同時に指定したら 400（片方を黙って無視すると
+    /// 「指定したはずの書式と違う名前が付いた」に化ける）。
+    @Test func renameFilesRejectsPresetIDAndFormatTogether() async throws {
+        let calls = RenameFilesCallBox()
+        let core = makeCore(
+            enableLocalLibraryControl: true,
+            renameFiles: { uuid, body in await calls.record(uuid, body); return RenameFilesReply(status: "ok") }
+        )
+        try await core.buildApplication().test(.router) { client in
+            let body = try JSONEncoder().encode(
+                RenameFilesRequest(ids: [1], presetID: "preset-a", format: "@title"))
+            try await client.execute(
+                uri: "/local/libraries/some-uuid/rename-files", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .badRequest)
+            }
+        }
+        let count = await calls.count
+        #expect(count == 0, "presetID/format の同時指定はルート到達前に弾かれる")
+    }
 }
 
 /// close() の呼び出しを記録する actor（テスト用フェイク）。
@@ -227,5 +297,14 @@ private actor FakeAlreadyOpenRegistry {
         let uuid = "uuid-\(openCallCount)"
         openPathsToUUID[path] = uuid
         return uuid
+    }
+}
+
+/// renameFiles closure の呼び出しを記録する actor（テスト用フェイク）。
+/// 404/403/400 のケースでこれが一度も呼ばれないことが「ルートに到達していない」証拠になる。
+private actor RenameFilesCallBox {
+    private(set) var count = 0
+    func record(_ uuid: String, _ body: RenameFilesRequest) {
+        count += 1
     }
 }

@@ -111,10 +111,14 @@ public enum BookRenamePlanner {
         apply ? plan.filter { $0.status == .ok } : []
     }
 
-    /// 先頭のドットを落とす（隠しファイルを作らない）。
+    /// 先頭のドットと空白を落とす（隠しファイルを作らない）。
+    /// **空白を挟んだドット（". . x"）も落とす** —— ドットだけを見て止めると、
+    /// 落とした後にまたドットが現れて隠しファイルになる。
     static func stripLeadingDots(_ s: String) -> String {
         var out = Substring(s)
-        while out.first == "." { out = out.dropFirst() }
+        while let f = out.first, f == "." || f == " " || f == "\u{3000}" {
+            out = out.dropFirst()
+        }
         return out.trimmingCharacters(in: .whitespaces)
     }
 }

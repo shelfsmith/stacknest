@@ -84,13 +84,16 @@ struct BookFileRenameSheet: View {
     }
 
     private func apply() {
-        let result = BookRenameExecutor.apply(rows: plan) { id, newPath in
+        // ★ 計画は 1 度だけ評価する。`plan` は計算プロパティで毎回ディスクを見るため、
+        //   改名を実行した後に読み直すと、成功した行が conflictExisting に化ける。
+        let rows = plan
+        let result = BookRenameExecutor.apply(rows: rows) { id, newPath in
             try database.updateBookPath(id: id, newPath: newPath)
         }
-        onComplete(plan.filter { $0.status == .ok }.map(\.id))
+        onComplete(rows.filter { $0.status == .ok }.map(\.id))
         let alert = NSAlert()
         alert.messageText = "リネーム結果"
-        var text = "\(result.applied) 件成功 / \(plan.count - result.applied) 件スキップ"
+        var text = "\(result.applied) 件成功 / \(rows.count - result.applied) 件スキップ"
         if !result.failed.isEmpty {
             text += "\n\n失敗:\n" + result.failed.map { "・\($0.reason)" }.joined(separator: "\n")
         }

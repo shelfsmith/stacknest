@@ -453,9 +453,10 @@ final class LocalControlController {
             // （"badFormat" のままだと呼び出し側が「フォーマット文字列を直せば直る」と誤解する）。
             return RenameFilesReply(status: "failed", failure: error.localizedDescription)
         }
+        let presentIDs = Set(rows.map(\.id))
         var seenMissing: Set<Int> = []
         let missing = body.ids.filter { id in
-            !rows.contains { $0.id == id } && seenMissing.insert(id).inserted
+            !presentIDs.contains(id) && seenMissing.insert(id).inserted
         }
 
         let plan = BookRenamePlanner.plan(
