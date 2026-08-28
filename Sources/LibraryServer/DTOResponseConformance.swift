@@ -38,3 +38,4 @@ extension MaintenanceStatusReply: ResponseEncodable {}
 extension OpenLibraryReply: ResponseEncodable {}
 extension FinderTagSyncStatusReply: ResponseEncodable {}
 extension FinderTagResyncReply: ResponseEncodable {}
+extension RenameFilesReply: ResponseEncodable {}

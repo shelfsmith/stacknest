@@ -86,6 +86,9 @@ public struct LibraryServerConfig: Sendable {
     /// **`AppState.setFinderTagSyncField` を呼ぶこと** —— 前回同期値の全消しはその中でしか
     /// 行われず、迂回すると別項目の値を「前回のタグ」と誤認して実在しない削除を検出する。
     public var setFinderTagSyncField: (@Sendable (String, String?) async -> FinderTagSyncStatusReply?)?
+    /// G47: メタデータでのファイル名変更（ローカル制御専用）。
+    /// **`apply` が true でない限りファイルを動かさないこと。**
+    public var renameFiles: (@Sendable (String, RenameFilesRequest) async -> RenameFilesReply?)?
     // dual-stack 化は呼び出し側が host: "::" を明示注入する
     // （Linux は v6only sysctl 依存のため既定は互換性優先の 0.0.0.0）。
     public init(host: String = "0.0.0.0", port: Int, token: String,
@@ -107,7 +110,8 @@ public struct LibraryServerConfig: Sendable {
                 closeLibrary: (@Sendable (String) async throws -> Void)? = nil,
                 finderTagSyncStatus: (@Sendable (String) async -> FinderTagSyncStatusReply?)? = nil,
                 resyncFinderTags: (@Sendable (String) async -> FinderTagResyncReply?)? = nil,
-                setFinderTagSyncField: (@Sendable (String, String?) async -> FinderTagSyncStatusReply?)? = nil) {
+                setFinderTagSyncField: (@Sendable (String, String?) async -> FinderTagSyncStatusReply?)? = nil,
+                renameFiles: (@Sendable (String, RenameFilesRequest) async -> RenameFilesReply?)? = nil) {
         self.host = host
         self.port = port
         self.token = token
@@ -130,6 +134,7 @@ public struct LibraryServerConfig: Sendable {
         self.finderTagSyncStatus = finderTagSyncStatus
         self.resyncFinderTags = resyncFinderTags
         self.setFinderTagSyncField = setFinderTagSyncField
+        self.renameFiles = renameFiles
     }
 }
 
@@ -2114,6 +2119,21 @@ public struct LibraryServerCore: Sendable {
                 // 待たずに 202 を返すと、呼び出し側は「何件動いたか」を別経路で
                 // 数えるほかなくなり、それは同期の結果ではなく DB の観察になってしまう。
                 guard let reply = await resyncFinderTags(uuid) else { throw HTTPError(.notFound) }
+                return reply
+            }
+            // G47: メタデータでファイル名を変える。
+            //
+            // **共有サーバには出さない。**ユーザーのファイルを書き換えるので
+            // Finder タグの再照合と同じ扱い（127.0.0.1 限定・admin）。
+            local.post("libraries/:uuid/rename-files") { [renameFiles = config.renameFiles] request, context in
+                try context.requireAdmin()
+                guard let renameFiles else { throw HTTPError(.notImplemented) }
+                let uuid = try context.parameters.require("uuid", as: String.self)
+                let body = try await request.decode(as: RenameFilesRequest.self, context: context)
+                // presetID と format の同時指定は弾く。片方を黙って無視すると
+                // 「指定したはずの書式と違う名前が付いた」に化ける。
+                if body.presetID != nil && body.format != nil { throw HTTPError(.badRequest) }
+                guard let reply = await renameFiles(uuid, body) else { throw HTTPError(.notFound) }
                 return reply
             }
         }
