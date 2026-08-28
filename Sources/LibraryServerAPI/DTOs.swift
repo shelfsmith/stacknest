@@ -1121,7 +1121,9 @@ public struct RenamePlanRowDTO: Codable, Sendable, Equatable {
 /// **庫に無い ID は `rows` に混ぜず `missingIDs` に入れる** ——
 /// 「改名できなかった本」と「そもそも居ない本」は別の話で、混ぜると呼び出し側が気づけない。
 public struct RenameFilesReply: Codable, Sendable, Equatable {
-    /// ok / locked / noLibrary / badFormat
+    /// ok / locked / badFormat / failed
+    ///
+    /// 庫が開いていないときは本文を返さず **HTTP 404** に落ちる（`noLibrary` という値の本文は存在しない）。
     public var status: String
     /// 実際にファイルを動かしたか（false なら計画のみ）。
     public var applied: Bool
@@ -1131,10 +1133,15 @@ public struct RenameFilesReply: Codable, Sendable, Equatable {
     public var renamed: Int
     /// 改名しなかった件数（ok 以外の行 ＋ 失敗した行）。
     public var skipped: Int
+    /// `status == "failed"` のときだけ入る、失敗の理由（表示用）。
+    /// **`badFormat` と分けてあるのは、書式の誤りと DB/ディスクの障害を混ぜないため** ——
+    /// 混ぜると呼び出し側が「書式を直せば直る」と誤解する。
+    public var failure: String?
 
     public init(status: String, applied: Bool = false, rows: [RenamePlanRowDTO] = [],
-                missingIDs: [Int] = [], renamed: Int = 0, skipped: Int = 0) {
+                missingIDs: [Int] = [], renamed: Int = 0, skipped: Int = 0, failure: String? = nil) {
         self.status = status; self.applied = applied; self.rows = rows
         self.missingIDs = missingIDs; self.renamed = renamed; self.skipped = skipped
+        self.failure = failure
     }
 }

@@ -449,9 +449,14 @@ final class LocalControlController {
             let seriesNames = rows.compactMap { $0.series }.filter { !$0.isEmpty }
             widths = VolumeWidth.widths(fromMaxVolumes: try database.maxVolumeBySeries(seriesNames))
         } catch {
-            return RenameFilesReply(status: "badFormat")
+            // 書式は正しいのに書式のせいにしない。DB/ディスクの障害は "failed" ＋理由で返す
+            // （"badFormat" のままだと呼び出し側が「フォーマット文字列を直せば直る」と誤解する）。
+            return RenameFilesReply(status: "failed", failure: error.localizedDescription)
         }
-        let missing = body.ids.filter { id in !rows.contains { $0.id == id } }
+        var seenMissing: Set<Int> = []
+        let missing = body.ids.filter { id in
+            !rows.contains { $0.id == id } && seenMissing.insert(id).inserted
+        }
 
         let plan = BookRenamePlanner.plan(
             books: rows.map { $0.toRecord() },
