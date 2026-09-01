@@ -247,10 +247,14 @@ struct BookRenameExecutorTests {
     }
 
     /// 大文字小文字だけ違う直接 move だけを「既に存在する」で失敗させる FileManager。
-    /// この開発機の実ファイルシステムでは大文字小文字だけの直接 move が偶然成功するため
-    /// （`caseOnlyRenameRollsBackWhenUpdateThrows` のコメント参照）、巻き戻しが一時名を
-    /// 経由する分岐を確実に通すために使う。ステージング用の一時名は大文字小文字以外の
-    /// 差分（UUID 付き）を持つため、この fake では素通りする。
+    ///
+    /// **実測（2026-09-01）で判明**: 実ファイルシステムでは大文字小文字だけの直接 move は
+    /// **成功してしまう** —— 起動ディスク（APFS）でも `/Volumes/comic` 等（HFS+）でも同じ。
+    /// つまり `caseAwareMove` の一時名経由の分岐（`from`→`to` が大文字小文字だけ違う場合）は、
+    /// **この fake が無いと実 FileManager では一度も試験できない**（直接 move が通ってしまうため
+    /// ステージングの成功/失敗パスに到達しない）。この fake がその経路を確実に踏ませ、
+    /// `caseOnlyRenameRollsBackWhenUpdateThrows` を修正前後で意味のある回帰テストにしている。
+    /// ステージング用の一時名は大文字小文字以外の差分（UUID 付き）を持つため、この fake では素通りする。
     private final class CaseCollisionFileManager: FileManager, @unchecked Sendable {
         override func moveItem(at srcURL: URL, to dstURL: URL) throws {
             if srcURL.path != dstURL.path, srcURL.path.lowercased() == dstURL.path.lowercased() {
