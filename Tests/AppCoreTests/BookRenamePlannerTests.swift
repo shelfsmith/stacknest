@@ -25,6 +25,18 @@ struct BookRenamePlannerTests {
         #expect(rows.map(\.status) == [.noPath, .noPath])
     }
 
+    @Test("元のファイルが無ければ missingFile（名前を組み立てる前に判定する）")
+    func missingFile() throws {
+        let rows = BookRenamePlanner.plan(
+            books: [book(1, path: "/x/居ない.zip", title: "新")],
+            format: try FilenameFormat(raw: "@title"),
+            bookTypeLabels: [:], volumeWidths: [:],
+            oldFileExists: { _ in false },
+            fileExists: { _ in false })
+        #expect(rows[0].status == .missingFile)
+        #expect(rows[0].newPath == "")
+    }
+
     @Test("普通に改名できる")
     func ok() throws {
         let rows = try plan([book(1, path: "/x/old.zip", title: "新しい名前")])

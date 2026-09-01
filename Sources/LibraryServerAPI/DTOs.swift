@@ -1124,9 +1124,11 @@ public struct RenamePlanRowDTO: Codable, Sendable, Equatable {
 /// **庫に無い ID は `rows` に混ぜず `missingIDs` に入れる** ——
 /// 「改名できなかった本」と「そもそも居ない本」は別の話で、混ぜると呼び出し側が気づけない。
 public struct RenameFilesReply: Codable, Sendable, Equatable {
-    /// ok / locked / badFormat / failed
+    /// ok / badFormat / failed
     ///
     /// 庫が開いていないときは本文を返さず **HTTP 404** に落ちる（`noLibrary` という値の本文は存在しない）。
+    /// 施錠庫でライブラリトークンが無い/失効しているときも本文を返さず **HTTP 403** に落ちる
+    /// （`/api/v1` の全ルートと同じ resolver ゲート。`locked` という値の本文はもう返らない）。
     public var status: String
     /// 実際にファイルを動かしたか（false なら計画のみ）。
     public var applied: Bool

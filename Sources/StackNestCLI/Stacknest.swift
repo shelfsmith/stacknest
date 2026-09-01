@@ -1310,8 +1310,6 @@ struct RenameFiles: ParsableCommand {
                 if !reply.missingIDs.isEmpty {
                     print("庫に無い ID: " + reply.missingIDs.map(String.init).joined(separator: ", "))
                 }
-            case "locked":
-                print("施錠されています（解錠するまで改名しません）")
             case "badFormat":
                 print("書式が不正です")
             case "failed":

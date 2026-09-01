@@ -25,7 +25,8 @@ struct LibraryOpenCloseTests {
         adminTier: Bool = true,
         openLibrary: (@Sendable (URL) async throws -> String)? = nil,
         closeLibrary: (@Sendable (String) async throws -> Void)? = nil,
-        renameFiles: (@Sendable (String, RenameFilesRequest) async -> RenameFilesReply?)? = nil
+        renameFiles: (@Sendable (String, RenameFilesRequest) async -> RenameFilesReply?)? = nil,
+        libraries: [ServedLibrary] = []
     ) -> LibraryServerCore {
         LibraryServerCore(
             config: .init(
@@ -33,7 +34,7 @@ struct LibraryOpenCloseTests {
                 enableLocalLibraryControl: enableLocalLibraryControl,
                 openLibrary: openLibrary, closeLibrary: closeLibrary,
                 renameFiles: renameFiles),
-            dataSource: StaticLibraryDataSource(libraries: [])
+            dataSource: StaticLibraryDataSource(libraries: libraries)
         )
     }
 
@@ -276,6 +277,80 @@ struct LibraryOpenCloseTests {
         }
         let count = await calls.count
         #expect(count == 0, "presetID/format の同時指定はルート到達前に弾かれる")
+    }
+
+    /// smoke 修正 1（E1）: 施錠庫の扱いを `/api/v1` の他ルートと揃える。
+    ///
+    /// これまでは `LocalControlController.renameFiles` が `state.isUnlocked`（GUI の解錠シートでしか
+    /// 立たない）を見ていたため、CLI/MCP からは有効なライブラリトークンを持っていても常に `locked` に
+    /// なっていた。ルート側で `resolver.resolve(uuid:libraryToken:)` を通すよう直したので、
+    /// **他の全ルートと同じ規則**（有効なライブラリトークンが無ければ 403・フックは呼ばれない）が
+    /// rename-files にも効くことをここで固定する。
+    @Test func renameFilesRejectedWhenLibraryLockedWithoutToken() async throws {
+        let fixture = try TestLibraryFixture(name: "施錠棚", bookCount: 0, locked: true, password: "pw123")
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let calls = RenameFilesCallBox()
+        let core = makeCore(
+            enableLocalLibraryControl: true,
+            renameFiles: { uuid, body in await calls.record(uuid, body); return RenameFilesReply(status: "ok") },
+            libraries: [lib]
+        )
+        try await core.buildApplication().test(.router) { client in
+            let body = try JSONEncoder().encode(RenameFilesRequest(ids: [1]))
+            // ライブラリトークン無し（X-Library-Token も ?lt= も無い）。
+            try await client.execute(
+                uri: "/local/libraries/\(lib.uuid)/rename-files", method: .post,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .forbidden)
+            }
+        }
+        let count = await calls.count
+        #expect(count == 0, "施錠庫でトークンが無ければフックに到達しない")
+    }
+
+    /// 上のテストと対で、**有効なライブラリトークンがあれば通る**ことも固定する
+    /// （resolver ゲートは「常に拒否」ではなく「他ルートと同じ規則」であることの確認）。
+    @Test func renameFilesAllowedWithValidLibraryToken() async throws {
+        let fixture = try TestLibraryFixture(name: "施錠棚2", bookCount: 0, locked: true, password: "pw123")
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let calls = RenameFilesCallBox()
+        let core = makeCore(
+            enableLocalLibraryControl: true,
+            renameFiles: { uuid, body in await calls.record(uuid, body); return RenameFilesReply(status: "ok") },
+            libraries: [lib]
+        )
+        try await core.buildApplication().test(.router) { client in
+            // /api/v1 の unlock と同じ経路でライブラリトークンを取得する
+            // （他ルートと同じ resolver・同じ tokenStore を共有している証拠にもなる）。
+            var libraryToken = ""
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/unlock", method: .post,
+                headers: [.authorization: "Bearer R"],
+                body: .init(string: #"{"password":"pw123"}"#)
+            ) { resp in
+                #expect(resp.status == .ok)
+                struct R: Decodable { let libraryToken: String }
+                libraryToken = try JSONDecoder().decode(R.self, from: Data(buffer: resp.body)).libraryToken
+            }
+
+            let body = try JSONEncoder().encode(RenameFilesRequest(ids: [1]))
+            try await client.execute(
+                uri: "/local/libraries/\(lib.uuid)/rename-files", method: .post,
+                headers: [
+                    .authorization: "Bearer W", .contentType: "application/json",
+                    .init("X-Library-Token")!: libraryToken
+                ],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .ok)
+            }
+        }
+        let count = await calls.count
+        #expect(count == 1, "有効なライブラリトークンがあればフックに到達する")
     }
 }
 
