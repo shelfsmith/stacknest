@@ -62,6 +62,38 @@ struct BookRenameExecutorTests {
         #expect(text == "content")   // 一時名を経由しても中身は失われない
     }
 
+    /// Codex レビュー P1: 大文字小文字だけの改名が成功した後に `updatePath` が投げると、
+    /// 巻き戻し（新名 → 旧名）も「大文字小文字だけ違う」move になる。これも一時名を
+    /// 経由しないと「既に存在する」で落ち、ファイルは新名のまま・DB は旧名のままという
+    /// 食い違いが残っていた（まさに修正 2 で塞いだはずの状態）。
+    ///
+    /// **この開発機の実ファイルシステムでは、大文字小文字だけの直接 move が偶然成功してしまい**
+    /// （実測済み）、実 FileManager だけでは修正前後の違いを再現できない。`CaseCollisionFileManager`
+    /// で「大文字小文字だけ違う直接 move」だけを確実に失敗させ、コードが一時名を経由する分岐を
+    /// 通ることを固定する（`FailingFileManager` が call 番号でステージング内部の失敗を再現するのと
+    /// 同じ考え方）。
+    @Test("★ 大文字小文字だけの改名で updatePath が投げても、元の名前に戻る")
+    func caseOnlyRenameRollsBackWhenUpdateThrows() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("abc.zip")
+        try touch(a, "本体")
+        struct E: Error {}
+        let row = RenamePlanRow(id: 1, oldPath: a.path,
+                                newPath: dir.appendingPathComponent("ABC.zip").path,
+                                oldName: "abc.zip", newName: "ABC.zip", status: .ok)
+        let fm = CaseCollisionFileManager()
+        let result = BookRenameExecutor.apply(rows: [row], fileManager: fm) { _, _ in throw E() }
+
+        #expect(result.applied == 0)
+        #expect(result.failed.count == 1)
+        // ★ 元の名前に戻っていること（大文字小文字まで一致）。ステージングを経由せず
+        //   直接 move だけで戻そうとすると、この fake の上では必ず失敗する。
+        let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        #expect(names == ["abc.zip"])
+        #expect(try String(contentsOf: a, encoding: .utf8) == "本体")
+    }
+
     /// smoke 修正 5（D1 自走確認）: 計画（`plan`）の時点では宛先が無かったのに、
     /// 実行（`apply`）の直前に誰かが同じ名前のファイルを作ってしまった場合でも、
     /// 双方のファイルが壊れない/失われないことを固定する。
@@ -209,6 +241,21 @@ struct BookRenameExecutorTests {
             if shouldFail {
                 throw NSError(domain: "test", code: 1,
                               userInfo: [NSLocalizedDescriptionKey: "injected"])
+            }
+            try super.moveItem(at: srcURL, to: dstURL)
+        }
+    }
+
+    /// 大文字小文字だけ違う直接 move だけを「既に存在する」で失敗させる FileManager。
+    /// この開発機の実ファイルシステムでは大文字小文字だけの直接 move が偶然成功するため
+    /// （`caseOnlyRenameRollsBackWhenUpdateThrows` のコメント参照）、巻き戻しが一時名を
+    /// 経由する分岐を確実に通すために使う。ステージング用の一時名は大文字小文字以外の
+    /// 差分（UUID 付き）を持つため、この fake では素通りする。
+    private final class CaseCollisionFileManager: FileManager, @unchecked Sendable {
+        override func moveItem(at srcURL: URL, to dstURL: URL) throws {
+            if srcURL.path != dstURL.path, srcURL.path.lowercased() == dstURL.path.lowercased() {
+                throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteFileExistsError,
+                              userInfo: [NSLocalizedDescriptionKey: "既に存在します"])
             }
             try super.moveItem(at: srcURL, to: dstURL)
         }
