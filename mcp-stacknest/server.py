@@ -264,9 +264,9 @@ def stacknest_rename_files(library: str, ids: list[int],
     **preset と format は同時に指定できない。**どちらも省略すると庫の既定プリセットを使う。
     使えるトークン: @title @author @genre @keywordA @keywordB @keywordC @relation @type @series @volume。
     @volume は max(2, シリーズ内最大巻の桁数) でゼロ埋めされる。
-    rows[].status は ok / unchanged / conflictExisting / conflictInBatch / emptyName / tooLong / noPath。
+    rows[].status は ok / unchanged / conflictExisting / conflictInBatch / emptyName / tooLong / noPath / missingFile。
     missingIDs は庫に無かった ID（rows には現れない）。
-    庫が開いていなければ 404、施錠中は status=locked で何もしない。
+    庫が開いていなければ 404。施錠庫は他の操作と同じくライブラリトークンが無い/失効していれば 403。
     library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
     return cli.rename_files(library, ids, preset=preset, fmt=format,
                             apply=apply, library_token=library_token)

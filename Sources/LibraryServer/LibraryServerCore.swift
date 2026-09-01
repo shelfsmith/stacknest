@@ -2129,6 +2129,11 @@ public struct LibraryServerCore: Sendable {
                 try context.requireAdmin()
                 guard let renameFiles else { throw HTTPError(.notImplemented) }
                 let uuid = try context.parameters.require("uuid", as: String.self)
+                // 施錠庫の扱いを **/api/v1 の全ルートと同じ規則**に揃える。
+                // 有効なライブラリトークンがあれば通し、無ければ resolver が 403 を投げる。
+                // GUI の解錠状態（AppState.isUnlocked）に依存しない —— それだと
+                // CLI/MCP からは解錠しようがない（トークンを持っていても断られる）。
+                _ = try await resolver.resolve(uuid: uuid, libraryToken: libraryToken(from: request))
                 let body = try await request.decode(as: RenameFilesRequest.self, context: context)
                 // presetID と format の同時指定は弾く。片方を黙って無視すると
                 // 「指定したはずの書式と違う名前が付いた」に化ける。

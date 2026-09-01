@@ -425,10 +425,10 @@ final class LocalControlController {
               let settings = state.librarySettings,
               let database = state.database else { return nil }
 
-        // 施錠中は走らない（Finder タグの再照合と同じ規則）。
-        if settings.lockPasswordHash != nil && !state.isUnlocked {
-            return RenameFilesReply(status: "locked")
-        }
+        // 施錠庫のゲートはルート側（LibraryServerCore.swift の resolver.resolve）で
+        // 既にかかっている（有効なライブラリトークンが無ければ 403）。ここで
+        // `state.isUnlocked`（GUI 専用の状態）を重ねて見ると二重の門になり、
+        // トークンを持つ CLI/MCP からの呼び出しが常に断られてしまう。
 
         let raw: String
         if let f = body.format {
@@ -464,6 +464,7 @@ final class LocalControlController {
             format: format,
             bookTypeLabels: settings.bookTypeLabelOverrides,
             volumeWidths: widths,
+            oldFileExists: { FileManager.default.fileExists(atPath: $0) },
             fileExists: { FileManager.default.fileExists(atPath: $0) })
 
         guard body.apply else {

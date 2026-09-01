@@ -62,6 +62,31 @@ struct BookRenameExecutorTests {
         #expect(text == "content")   // 一時名を経由しても中身は失われない
     }
 
+    /// smoke 修正 5（D1 自走確認）: 計画（`plan`）の時点では宛先が無かったのに、
+    /// 実行（`apply`）の直前に誰かが同じ名前のファイルを作ってしまった場合でも、
+    /// 双方のファイルが壊れない/失われないことを固定する。
+    @Test("計画の後に宛先が生まれても、ファイルは壊れない")
+    func conflictAppearsAfterPlanning() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let a = dir.appendingPathComponent("a.zip")
+        try touch(a, "本体")
+        // 計画時点では宛先が無かったので ok。
+        let row = RenamePlanRow(id: 1, oldPath: a.path,
+                                newPath: dir.appendingPathComponent("新.zip").path,
+                                oldName: "a.zip", newName: "新.zip", status: .ok)
+        // 実行の直前に、誰かが同じ名前のファイルを作った。
+        try touch(dir.appendingPathComponent("新.zip"), "先客")
+
+        let result = BookRenameExecutor.apply(rows: [row]) { _, _ in }
+
+        #expect(result.applied == 0)
+        #expect(result.failed.count == 1)
+        // ★ どちらのファイルも失われていない。
+        #expect(try String(contentsOf: a, encoding: .utf8) == "本体")
+        #expect(try String(contentsOf: dir.appendingPathComponent("新.zip"), encoding: .utf8) == "先客")
+    }
+
     @Test("1 件失敗しても残りは続ける")
     func continuesAfterFailure() throws {
         let dir = try makeDir()

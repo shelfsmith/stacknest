@@ -33,6 +33,7 @@ struct BookFileRenameSheet: View {
             format: activeFormat,
             bookTypeLabels: bookTypeLabelOverrides,
             volumeWidths: volumeWidths,
+            oldFileExists: { FileManager.default.fileExists(atPath: $0) },
             fileExists: { FileManager.default.fileExists(atPath: $0) })
     }
 
@@ -93,7 +94,13 @@ struct BookFileRenameSheet: View {
         onComplete(rows.filter { $0.status == .ok }.map(\.id))
         let alert = NSAlert()
         alert.messageText = "リネーム結果"
-        var text = "\(result.applied) 件成功 / \(rows.count - result.applied) 件スキップ"
+        // smoke 修正 3（B5）: 「既に正しい名前で直す必要が無かった本」と
+        // 「衝突などで見送った本」は意味が違う。ひとまとめの「スキップ」に混ぜない。
+        let unchanged = rows.filter { $0.status == .unchanged }.count
+        let skipped = rows.count - result.applied - unchanged
+        var text = "\(result.applied) 件を変更しました"
+        if unchanged > 0 { text += " / 変更不要 \(unchanged) 件" }
+        if skipped > 0 { text += " / 見送り \(skipped) 件" }
         if !result.failed.isEmpty {
             text += "\n\n失敗:\n" + result.failed.map { "・\($0.reason)" }.joined(separator: "\n")
         }

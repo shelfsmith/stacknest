@@ -12,6 +12,7 @@ public enum RenameStatus: String, Equatable, Sendable, Codable {
     case emptyName          // 全トークンが空で名前が作れない
     case tooLong            // 255 バイトを超える
     case noPath             // path が無い（未リンク）
+    case missingFile        // 元のファイルが見つからない（リンク切れ）
 }
 
 public struct RenamePlanRow: Equatable, Sendable {
@@ -50,6 +51,9 @@ public enum BookRenamePlanner {
         format: FilenameFormat,
         bookTypeLabels: [Int: String],
         volumeWidths: [String: Int],
+        /// 元のファイルが実在するかを見る。**既定は「実在する」** ——
+        /// 既存の呼び出しとテストの意味を変えないため。実運用では FileManager を渡す。
+        oldFileExists: (String) -> Bool = { _ in true },
         fileExists: (String) -> Bool
     ) -> [RenamePlanRow] {
         var claimed: Set<String> = []   // この回で既に使われた新パス（小文字化して比較）
@@ -59,6 +63,12 @@ public enum BookRenamePlanner {
             guard let rawPath = book.path, !rawPath.isEmpty else {
                 rows.append(RenamePlanRow(id: book.id, oldPath: book.path ?? "", newPath: "",
                                           oldName: "", newName: "", status: .noPath))
+                continue
+            }
+            guard oldFileExists(rawPath) else {
+                let oldName = URL(fileURLWithPath: rawPath).lastPathComponent
+                rows.append(RenamePlanRow(id: book.id, oldPath: rawPath, newPath: "",
+                                          oldName: oldName, newName: "", status: .missingFile))
                 continue
             }
             let url = URL(fileURLWithPath: rawPath)
