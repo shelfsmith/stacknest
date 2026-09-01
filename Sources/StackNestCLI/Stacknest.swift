@@ -1298,9 +1298,16 @@ struct RenameFiles: ParsableCommand {
             switch reply.status {
             case "ok":
                 for row in reply.rows {
-                    let mark = row.status == "ok" ? "→" : "×"
-                    let reason = row.status == "ok" ? "" : "（\(row.status)）"
-                    print("\(mark) \(row.oldName) → \(row.newName)\(reason)")
+                    // Codex レビュー P2: 実行時に move / DB 更新が失敗した行は
+                    // status が "ok" のまま failure に理由が入る。failure を見ずに
+                    // status だけで分岐すると、失敗した行にも成功の矢印が出てしまう。
+                    if let failure = row.failure {
+                        print("× \(row.oldName) → \(row.newName)（失敗: \(failure)）")
+                    } else if row.status == "ok" {
+                        print("→ \(row.oldName) → \(row.newName)")
+                    } else {
+                        print("× \(row.oldName) → \(row.newName)（\(row.status)）")
+                    }
                 }
                 if reply.applied {
                     print("改名しました: \(reply.renamed) 件 / 見送り \(reply.skipped) 件")
