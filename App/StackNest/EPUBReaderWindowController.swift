@@ -12,6 +12,16 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private let persist: (EPUBLocatorValue) -> Void
     var onClose: (() -> Void)?
 
+    /// G48-2 レビュー修正ラウンド 1: `ViewerWindowController` の `persistDebounceTimer` /
+    /// `flushPersistNow`（`ViewerWindowController.swift:156, 838-853, 1301`）と同じ作法で、
+    /// Washi の `onLocatorChange`（ページ確定ごとに発火）を 0.4 秒デバウンスして DB 書き込みを
+    /// まとめる。キーリピートでの連続ページ送り時に同期 UPSERT が連発するのを避ける。
+    private var persistTimer: Timer?
+    /// デバウンス待ちの直近の位置。タイマー発火時／close 時 flush でこれを書き込む。
+    private var pending: EPUBLocatorValue?
+    /// 永続化デバウンス遅延（秒）。画像本（`persistDebounceDelay`）と同じ値。
+    private let persistDebounceDelay: TimeInterval = 0.4
+
     init(book: BookRow, reader: any EPUBReaderViewing, persist: @escaping (EPUBLocatorValue) -> Void) {
         self.reader = reader
         self.persist = persist
@@ -24,15 +34,37 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         window.setFrameAutosaveName("EPUBReaderWindow")
         super.init(window: window)
         window.delegate = self
-        reader.onLocatorChange = { [weak self] loc in self?.persist(loc) }
+        reader.onLocatorChange = { [weak self] loc in self?.schedulePersist(loc) }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func focus() { window?.makeKeyAndOrderFront(nil) }
+
+    /// 位置変化を即座には書かず、0.4 秒後に 1 回だけ書き込むよう予約する（画像本の
+    /// `persistCurrent()` と同じ作法）。連続発火時は前のタイマーを無効化して張り直す。
+    private func schedulePersist(_ loc: EPUBLocatorValue) {
+        pending = loc
+        persistTimer?.invalidate()
+        persistTimer = Timer.scheduledTimer(withTimeInterval: persistDebounceDelay, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.flushPersist() }
+        }
+    }
+
+    /// デバウンス待ちを取り消し、直近の位置（無ければ `reader.locator`）を即時書き込む。
+    private func flushPersist() {
+        persistTimer?.invalidate()
+        persistTimer = nil
+        if let loc = pending ?? reader.locator {
+            persist(loc)
+        }
+        pending = nil
+    }
+
     func windowWillClose(_ notification: Notification) {
         // レビュー申し送り #2: reader.locator は最初のページ変化まで nil。
-        // nil のまま保存すると既存値を消してしまうので、非 nil のときだけ保存する。
-        if let loc = reader.locator { persist(loc) }
+        // pending も reader.locator も nil のときは何も書かない（既存値を残す）ことを
+        // flushPersist() 内の if let で保証する。
+        flushPersist()
         onClose?()
     }
 }
