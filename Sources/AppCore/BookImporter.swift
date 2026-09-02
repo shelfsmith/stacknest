@@ -3,6 +3,7 @@ import Foundation
 import LibraryStore
 import ArchiveAdapter
 import StackroomFormat
+import EPUBAdapter
 import OSLog
 
 /// 取り込み時のエラー。
@@ -137,6 +138,16 @@ public struct BookImporter: Sendable {
                         pageCount = content.pageCount
                         coverDataOverride = content.coverJPEG(maxPixelSize: 1200)
                     }
+                } else if url.pathExtension.lowercased() == "epub" {
+                    // G48 修正ラウンド1: EPUB は契約 EPUBAdapter.reader に表紙を頼む
+                    // （Washi は AppCore から見えない）。未登録・表紙なし・失敗はすべて nil →
+                    // 既存の coverFailures 経路に落ちる（取り込みは続く）。
+                    // 注: 同じループの後段でメタデータ用にもう一度 reader.open(url:) を呼ぶため、
+                    // EPUB 1 冊につき Washi を 2 回開くことになる（spike 中央値 63 ms）。
+                    // 1 回にまとめる最適化は契約を太らせるので見送る。
+                    if let reader = EPUBAdapter.reader {
+                        coverDataOverride = try? await reader.coverImageData(url: url, maxPixelSize: 1200)
+                    }
                 } else if BookCategory.classify(path: url.path) == .image {
                     // Phase 2.5g+h+i fixup v1: 単独 image を追加した場合、その image を
                     // そのまま thumbnail として使う (resize は CoverImageResizer で 1200 px 化)。
@@ -176,7 +187,12 @@ public struct BookImporter: Sendable {
                 }
 
                 // 3. insert (bookType を引数で渡す)
-                let id = try insertBookRecord(for: url, bookType: bookType)
+                // G48: EPUB はメタデータを読み、空の欄だけ埋める（読めなくても取り込みは続ける）。
+                var epubInfo: EPUBBookInfo? = nil
+                if url.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader {
+                    epubInfo = try? await reader.open(url: url)
+                }
+                let id = try insertBookRecord(for: url, bookType: bookType, epubInfo: epubInfo)
                 result.addedIDs.append(id)
 
                 if let pagesToWrite = TruncatedReadPolicy.pageCountToWrite(
@@ -194,8 +210,10 @@ public struct BookImporter: Sendable {
                 }
 
                 if let cover = coverDataOverride {
-                    // 表紙 data override 経路 — PDFBookContent.coverJPEG / CoverImageResizer.resizeJPEG
-                    // のいずれかで生成済 (どちらも 1200 px 上限を保証)。
+                    // 表紙 data override 経路 — PDF・単独画像は PDFBookContent.coverJPEG /
+                    // CoverImageResizer.resizeJPEG のいずれかで生成済で 1200 px 上限を保証。
+                    // EPUB は EPUBReading.coverImageData(maxPixelSize: 1200) に任せる
+                    // （契約上は JPEG/PNG）。
                     do {
                         try FileManager.default.createDirectory(at: bookThumbDir, withIntermediateDirectories: true)
                         try cover.write(to: staleThumb)
@@ -230,7 +248,7 @@ public struct BookImporter: Sendable {
 
     /// Builds a BookRecord from the URL and inserts it, returning the auto-assigned row id.
     /// `bookType` は caller 側で自動分類済みの値を渡す (Phase 2.5g).
-    private func insertBookRecord(for url: URL, bookType: Int) throws -> Int {
+    private func insertBookRecord(for url: URL, bookType: Int, epubInfo: EPUBBookInfo? = nil) throws -> Int {
         let basename = url.deletingPathExtension().lastPathComponent
         // Parse format fields for non-title metadata (author, genre, keywords, etc.).
         // Title is always set to basename verbatim — FilenameFormatter reverse-parse may split
@@ -275,8 +293,8 @@ public struct BookImporter: Sendable {
 
         let record = BookRecord(
             id: 0,  // placeholder — insertBookReturningID uses auto-assign (omits id column)
-            title: resolvedTitle,
-            author: fields[.author],
+            title: EPUBMetadataMerge.merged(existing: resolvedTitle, fromEPUB: epubInfo?.title) ?? resolvedTitle,
+            author: EPUBMetadataMerge.merged(existing: fields[.author], fromEPUB: epubInfo?.author),
             genre: fields[.genre],
             path: url.path,
             coverImagePath: "",

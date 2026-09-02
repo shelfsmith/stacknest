@@ -17,11 +17,14 @@ let package = Package(
         .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
         .executable(name: "stacknest-cli", targets: ["StackNestCLI"]),
+        .library(name: "EPUBAdapter", targets: ["EPUBAdapter"]),
+        .library(name: "WashiEPUBAdapter", targets: ["WashiEPUBAdapter"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
+        .package(url: "https://github.com/shunnag/Washi", revision: "8247b1dc73519207a2c1f4c6d950d302ecc6fb47"),
     ],
     targets: [
         .target(
@@ -57,7 +60,7 @@ let package = Package(
         ),
         .target(
             name: "AppCore",
-            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI", "StackroomFormat"],
+            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI", "StackroomFormat", "EPUBAdapter"],
             path: "Sources/AppCore"
         ),
         .target(name: "LibraryServerAPI", dependencies: ["StackroomFormat"], path: "Sources/LibraryServerAPI"),
@@ -125,7 +128,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AppCoreTests",
-            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI", "ArchiveAdapter"],
+            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI", "ArchiveAdapter", "EPUBAdapter"],
             path: "Tests/AppCoreTests",
             resources: [.copy("PDFFixtures")]
         ),
@@ -147,6 +150,17 @@ let package = Package(
             path: "Tests/StackroomImportCLITests",
             resources: [.copy("../Fixtures")]
         ),
+        .target(name: "EPUBAdapter", path: "Sources/EPUBAdapter"),
+        .testTarget(name: "EPUBAdapterTests", dependencies: ["EPUBAdapter", "EPUBAdapterTestSupport"], path: "Tests/EPUBAdapterTests"),
+        .target(name: "EPUBAdapterTestSupport", dependencies: ["EPUBAdapter"], path: "Sources/EPUBAdapterTestSupport"),
+        .target(
+            name: "WashiEPUBAdapter",
+            dependencies: ["EPUBAdapter", .product(name: "WashiCore", package: "Washi")],
+            path: "Sources/WashiEPUBAdapter"
+        ),
+        .testTarget(name: "WashiEPUBAdapterTests",
+                    dependencies: ["WashiEPUBAdapter", "EPUBAdapter", "EPUBAdapterTestSupport"],
+                    path: "Tests/WashiEPUBAdapterTests"),
     ],
     swiftLanguageModes: [.v6]
 )
