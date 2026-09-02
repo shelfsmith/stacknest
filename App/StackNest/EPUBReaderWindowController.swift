@@ -31,14 +31,23 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         window.title = book.title
         window.contentView = reader.view
         window.center()
-        window.setFrameAutosaveName("EPUBReaderWindow")
+        // G48-2 最終レビュー E: 本ごとに一意な autosave name にする。固定名のままだと 2 冊目の窓で
+        // AppKit が「同名の autosave は 1 窓しか保持できない」ため false を返す
+        // （`NSWindow.setFrameAutosaveName(_:)` のドキュメント挙動）。
+        window.setFrameAutosaveName("EPUBReaderWindow-\(book.id)")
         super.init(window: window)
         window.delegate = self
         reader.onLocatorChange = { [weak self] loc in self?.schedulePersist(loc) }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func focus() { window?.makeKeyAndOrderFront(nil) }
+    /// G48-2 最終レビュー D: `ViewerWindowController.focus()`（画像ビューア、
+    /// `ViewerWindowController.swift:387-390`）と同型。dedup で既存窓を前面化するとき
+    /// アプリ自体が非アクティブだと窓だけ前に出てキー入力を受け取らないことがある。
+    func focus() {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
 
     /// 位置変化を即座には書かず、0.4 秒後に 1 回だけ書き込むよう予約する（画像本の
     /// `persistCurrent()` と同じ作法）。連続発火時は前のタイマーを無効化して張り直す。
