@@ -18,6 +18,7 @@ let package = Package(
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
         .executable(name: "stacknest-cli", targets: ["StackNestCLI"]),
         .library(name: "EPUBAdapter", targets: ["EPUBAdapter"]),
+        .library(name: "WashiEPUBAdapter", targets: ["WashiEPUBAdapter"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -150,7 +151,16 @@ let package = Package(
             resources: [.copy("../Fixtures")]
         ),
         .target(name: "EPUBAdapter", path: "Sources/EPUBAdapter"),
-        .testTarget(name: "EPUBAdapterTests", dependencies: ["EPUBAdapter"], path: "Tests/EPUBAdapterTests"),
+        .testTarget(name: "EPUBAdapterTests", dependencies: ["EPUBAdapter", "EPUBAdapterTestSupport"], path: "Tests/EPUBAdapterTests"),
+        .target(name: "EPUBAdapterTestSupport", dependencies: ["EPUBAdapter"], path: "Sources/EPUBAdapterTestSupport"),
+        .target(
+            name: "WashiEPUBAdapter",
+            dependencies: ["EPUBAdapter", .product(name: "WashiCore", package: "Washi")],
+            path: "Sources/WashiEPUBAdapter"
+        ),
+        .testTarget(name: "WashiEPUBAdapterTests",
+                    dependencies: ["WashiEPUBAdapter", "EPUBAdapter", "EPUBAdapterTestSupport"],
+                    path: "Tests/WashiEPUBAdapterTests"),
     ],
     swiftLanguageModes: [.v6]
 )
