@@ -37,10 +37,6 @@ public struct BookListItemDTO: Codable, Sendable {
     public private(set) var bookType: Int
     public private(set) var pages: Int?
     public private(set) var lastPage: Int?
-    /// G48-2: EPUB の読書位置（spine index・進捗率・任意で CFI/engine）。EPUB 以外や未読の本は nil。
-    /// `EPUBAdapter.EPUBLocatorValue` と同じ JSON 形だが、`LibraryServerAPI` を `EPUBAdapter` に
-    /// 依存させないため型を独立に持つ。
-    public private(set) var epubLocator: EPUBLocatorDTO?
     public private(set) var lastReadAt: Date?
     public private(set) var dateAdded: Date
     public private(set) var hasCover: Bool
@@ -78,8 +74,7 @@ public struct BookListItemDTO: Codable, Sendable {
         genre: String? = nil, neta: String? = nil,
         keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil, memo: String? = nil,
         coverCropRectJSON: String? = nil,
-        filename: String? = nil,
-        epubLocator: EPUBLocatorDTO? = nil
+        filename: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -91,7 +86,6 @@ public struct BookListItemDTO: Codable, Sendable {
         self.bookType = bookType
         self.pages = pages
         self.lastPage = lastPage
-        self.epubLocator = epubLocator
         self.lastReadAt = lastReadAt
         self.dateAdded = dateAdded
         self.hasCover = hasCover
@@ -131,11 +125,6 @@ extension BookListItemDTO {
     /// 一覧を再取得しなくても再オープン時に続きから開くために使う）。
     public func withLastPage(_ page: Int?) -> BookListItemDTO {
         var c = self; c.lastPage = page; return c
-    }
-
-    /// epubLocator を差し替えた複製（リモート閲覧の EPUB 読書位置をメモリ上の一覧へ反映するために使う）。
-    public func withEPUBLocator(_ locator: EPUBLocatorDTO?) -> BookListItemDTO {
-        var c = self; c.epubLocator = locator; return c
     }
 
     /// unseen フラグだけ差し替えた複製（リモート閲覧で未読マーカーを楽観的に消すために使う）。
