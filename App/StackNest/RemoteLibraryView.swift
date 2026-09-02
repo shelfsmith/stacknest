@@ -1003,30 +1003,14 @@ private struct RemoteBookCell: View {
     @State private var coverPhase: CoverPhase = .loading
 
     var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.secondary.opacity(0.15))
-                switch coverPhase {
-                case .loaded(let cg):
-                    // 4.2c-6b smoke R2: ローカル BookCell と同じ croppedImage でクロップ適用。
-                    Image(decorative: BookCell.croppedImage(
-                        cg, rect: BookRow.decodeCoverCropRect(json: book.coverCropRectJSON)), scale: 1)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                case .loading:
-                    ProgressView().controlSize(.small)
-                case .noCover:
-                    // 詳細ペインの無表紙アイコン（DetailPaneView.CoverImageView）と同じ SF Symbol に合わせる。
-                    Image(systemName: "book.closed")
-                        .font(.largeTitle)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            // 4.2c-4: 表紙を 2:3 の枠で列幅に追従させる（gridItemSize スライダーで拡縮・ローカル相当）。
-            .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .frame(maxWidth: .infinity)
-            .overlay(alignment: .topTrailing) {
+        BookGridCellShell(
+            cover: shellCover,
+            title: book.title,
+            author: book.author,
+            favorited: favorited,
+            unseen: book.unseen,
+            selectionStroke: selected,
+            topTrailing: {
                 if downloaded {
                     Image(systemName: "arrow.down.circle.fill")
                         .foregroundStyle(.tint)
@@ -1035,24 +1019,9 @@ private struct RemoteBookCell: View {
                         .padding(4)
                         .help("オフライン保存済み")
                 }
-            }
-            .overlay(alignment: .topLeading) {
-                // G14 fu(smoke バグ2): お気に入りをグリッドでも視認できるように（favorited 依存の可視化も兼ねる）。
-                if favorited {
-                    Image(systemName: "heart.fill")
-                        .foregroundStyle(.pink)
-                        .padding(4)
-                        .background(.thinMaterial, in: Circle())
-                        .padding(4)
-                        .help("お気に入り")
-                }
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(selected ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
-            // 自由記載#3: ダウンロード中の本にはリスト DL 列と同じ進捗リングを重ねる。
-            .overlay {
+            },
+            center: {
+                // 自由記載#3: ダウンロード中の本にはリスト DL 列と同じ進捗リングを重ねる。
                 if let prog = state.downloadProgress, prog.bookID == book.id {
                     ProgressView(value: prog.fraction)
                         .progressViewStyle(.circular)
@@ -1061,16 +1030,7 @@ private struct RemoteBookCell: View {
                         .background(.thinMaterial, in: Circle())
                 }
             }
-
-            // smoke v2 自由記載: タイトルは「最大2行」だと1行で収まる本だけセル全高が低くなり、
-            // LazyVGrid が行内の高さ違いセルを縦中央寄せするため左端等が上下にずれて見える。
-            // reservesSpace: true で常に2行分の高さを確保し、全セル高さを統一してずれを解消する。
-            Text(book.title)
-                .font(.caption)
-                .lineLimit(2, reservesSpace: true)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: .infinity)
-        }
+        )
         // 4.2c-6b smoke A4/R2: 表紙差し替えで book.id は不変だが coverVersion（thumbnail
         // mtime+size 由来）が変わる。クロップのみの変更は coverVersion を変えない（thumbnail
         // 非再生成）ため coverCropRectJSON も複合キーに含め、両方の変化で再取得・再クロップさせる。
@@ -1088,6 +1048,16 @@ private struct RemoteBookCell: View {
                 // 取得失敗も spinner に留めずプレースホルダへ解決する。
                 coverPhase = .noCover
             }
+        }
+    }
+
+    private var shellCover: BookGridCover {
+        switch coverPhase {
+        case .loaded(let cg):
+            // 4.2c-6b smoke R2: ローカル BookCell と同じ croppedImage でクロップ適用。
+            return .image(BookCell.croppedImage(cg, rect: BookRow.decodeCoverCropRect(json: book.coverCropRectJSON)))
+        case .loading: return .loading
+        case .noCover: return .none
         }
     }
 }
