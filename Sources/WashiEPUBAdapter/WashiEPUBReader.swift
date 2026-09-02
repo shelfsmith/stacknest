@@ -26,7 +26,9 @@ public struct WashiEPUBReader: EPUBReading {
     }
 
     private func publication(_ url: URL) async throws -> EPUBPublication {
-        do { return try await EPUBPublication.open(url: url) }
+        // NAS 上のファイルを mmap すると切断時に SIGBUS で落ちる。EPUB は数 MB
+        // なのでコピーの代償は無視できる（Washi 自身が headless/server 文脈で推奨）。
+        do { return try await EPUBPublication.open(url: url, readStrategy: .alwaysCopy) }
         catch { throw EPUBAdapterError.cannotOpen("\(type(of: error)): \(error)") }
     }
 
