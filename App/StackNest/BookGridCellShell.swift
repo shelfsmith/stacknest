@@ -17,14 +17,20 @@ enum BookGridCover: Equatable {
 /// G46: ローカル `BookCell` とリモート `RemoteBookCell` が共有する「殻」。
 /// 見た目をここ 1 本に書く（2 箇所に書くと食い違う —— G47 で判断と実行を 1 本にしたのと同じ理由）。
 ///
-/// 決定（spec §2）:
-/// - 表紙の枠は **2:3 固定**、画像は fit・角丸で切り抜き・影あり
+/// 決定（spec §2・G46 smoke 指摘を受けて修正）:
+/// - 表紙の **2:3 領域は高さを揃えるための透明な枠**（`Color.clear` + `aspectRatio`）。下地は描かない
+///   —— 画像が 2:3 でないと灰色の余白が見えて違和感が出るため（G46 smoke 自由記載）。
+///   無表紙・読み込み中のときだけ灰色の箱（`grayBox`）を出す
+/// - 画像は枠の中央に fit・角丸で切り抜き・影あり
+/// - 影・角丸・ハート・未読の印・`topTrailing` / `center` slot・`selectionStroke` はすべて
+///   **枠ではなく画像（または灰色の箱）そのものに付ける**（`decorate(_:)`）。下地が無いと枠基準では
+///   印が画像から浮いてしまうため
 /// - タイトルは `lineLimit(2, reservesSpace: true)`・中央
 /// - 著者は常に行を確保（`gridAuthorLine` ＋ `reservesSpace`）
 /// - 左上ハート・右下の未読緑丸（未読のときだけ・表示のみ）
 /// - リモート固有の重ね物（DL 済み印＝右上・DL 進捗＝中央）は呼び出し側から差し込む
-/// - `selectionStroke`（controller 判断）: true のとき表紙の枠に選択枠線を重ねる。
-///   リモートのセルは従来から表紙枠に選択の枠線を描いており、殻の中で表紙枠にぴったり描くほうが確実。
+/// - `selectionStroke`（controller 判断）: true のとき画像に選択枠線を重ねる。
+///   リモートのセルは従来から表紙に選択の枠線を描いており、殻の中でも同じ位置に描くほうが確実。
 ///   ローカルは既定 false のまま。
 struct BookGridCellShell<TopTrailing: View, Center: View>: View {
     let cover: BookGridCover
@@ -52,30 +58,44 @@ struct BookGridCellShell<TopTrailing: View, Center: View>: View {
 
     private var badges: GridCellBadges { GridCellBadges.derive(favorited: favorited, unseen: unseen) }
 
-    var body: some View {
-        VStack(spacing: 6) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.secondary.opacity(0.15))
-                switch cover {
-                case .image(let cg):
-                    Image(decorative: cg, scale: 1)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                case .loading:
-                    ProgressView().controlSize(.small)
-                case .placeholder:
-                    // 詳細ペインと同じ SF Symbol。大きさはセル幅に追従させる（gridItemSize のスライダー対応）。
+    /// 無表紙・読み込み中だけ灰色の箱を出す（2:3）。表紙画像そのものには下地を敷かない。
+    private var grayBox: some View {
+        RoundedRectangle(cornerRadius: 4)
+            .fill(Color.secondary.opacity(0.15))
+            .aspectRatio(2.0 / 3.0, contentMode: .fit)
+    }
+
+    @ViewBuilder private var coverContent: some View {
+        switch cover {
+        case .image(let cg):
+            decorate(
+                Image(decorative: cg, scale: 1)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            )
+        case .loading:
+            decorate(
+                grayBox.overlay { ProgressView().controlSize(.small) }
+            )
+        case .placeholder:
+            // 詳細ペインと同じ SF Symbol。大きさはセル幅に追従させる（gridItemSize のスライダー対応）。
+            decorate(
+                grayBox.overlay {
                     Image(systemName: "book.closed")
                         .resizable()
                         .scaledToFit()
                         .padding(20)
                         .foregroundStyle(.secondary)
                 }
-            }
-            .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .frame(maxWidth: .infinity)
+            )
+        }
+    }
+
+    /// 影・角丸に付随する印・selectionStroke を画像（または灰色の箱）そのものに掛ける共通ヘルパ。
+    /// `clipShape` の後に `shadow` を掛ける（順序が逆だと影が切れる）。
+    @ViewBuilder private func decorate<V: View>(_ content: V) -> some View {
+        content
             .shadow(radius: 2, y: 1)
             .overlay(alignment: .topLeading) {
                 if badges.showFavorite {
@@ -109,6 +129,14 @@ struct BookGridCellShell<TopTrailing: View, Center: View>: View {
                         .stroke(Color.accentColor, lineWidth: 2)
                 }
             }
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Color.clear
+                .aspectRatio(2.0 / 3.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay { coverContent }
 
             // smoke v2 自由記載: 1 行の本だけセルが低くなると LazyVGrid が縦中央寄せしてずれる。常に 2 行分を確保。
             Text(title)
