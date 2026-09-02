@@ -5,4 +5,7 @@ public enum EPUBAdapter {
     /// `nonisolated(unsafe)` の根拠: 合成点（App 起動時）で一度だけ書き、以後は読み取りのみ。
     /// 書き込みが 1 箇所・起動時に限られるため、この変数についてデータ競合は起きない。
     nonisolated(unsafe) public static var reader: (any EPUBReading)?
+
+    /// 読書ビューの実装。合成点（App 起動時）で一度だけ書き、以後は読むだけ。
+    nonisolated(unsafe) public static var renderer: (any EPUBRendering)?
 }
