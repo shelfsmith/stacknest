@@ -35,11 +35,11 @@ struct EPUBReaderGlobalTests {
             #expect(data == Data([0xFF, 0xD8, 0x01]))
         }
 
-        @Test("表紙の無い EPUB は unsupportedFormat（既存の『作れない』経路）")
-        func noCoverFallsToUnsupported() async throws {
+        @Test("表紙の無い EPUB は noCoverImage（reader は読めているので unsupportedFormat とは区別）")
+        func noCoverImage() async throws {
             let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
             EPUBAdapter.reader = StubReader(cover: nil)
-            await #expect(throws: CoverRefreshError.unsupportedFormat) {
+            await #expect(throws: CoverRefreshError.noCoverImage) {
                 _ = try await CoverRefresher.extractCoverData(sourceURL: try tmpEPUB(), preferredName: nil)
             }
         }

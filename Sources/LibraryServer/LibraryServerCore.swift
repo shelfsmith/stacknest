@@ -2257,6 +2257,8 @@ public struct LibraryServerCore: Sendable {
         } catch CoverRefreshError.unsupportedFormat {
             let ext = sourceURL.pathExtension
             throw HTTPError(.badRequest, message: "この形式（.\(ext.isEmpty ? "?" : ext)）は表紙を自動生成できません")
+        } catch CoverRefreshError.noCoverImage {
+            throw HTTPError(.badRequest, message: "この本には表紙画像がありません")
         }
         let resized = await CoverRefresher.resizeCoverDataOffMain(data, maxPixelSize: 1200)
         let url = coverURL(bundleURL: bundleURL, bookID: bookID)
