@@ -155,7 +155,7 @@ let package = Package(
         .target(name: "EPUBAdapterTestSupport", dependencies: ["EPUBAdapter"], path: "Sources/EPUBAdapterTestSupport"),
         .target(
             name: "WashiEPUBAdapter",
-            dependencies: ["EPUBAdapter", .product(name: "WashiCore", package: "Washi")],
+            dependencies: ["EPUBAdapter", .product(name: "WashiCore", package: "Washi"), .product(name: "Washi", package: "Washi")],
             path: "Sources/WashiEPUBAdapter"
         ),
         .testTarget(name: "WashiEPUBAdapterTests",
