@@ -1777,6 +1777,15 @@ final class RemoteLibraryState {
         errorText = nil
         // G15 V3: 内蔵ビューア非対応の形式は開く前にカテゴリ別メッセージで弾く（filename 欠落の旧サーバは従来動作）。
         if let name = book.filename {
+            // G48-2 最終レビュー A: `builtInViewerSupport` はローカル/リモート共通のためローカル対応化に
+            // 合わせて .epub を .supported に倒したが、リモートは G48-3 まで従来どおり非対応。
+            // ここで先に弾かないと switch を素通りして ①未読フラグが消える ②LastReadTracker に記録され
+            // ⌘⇧O がこの本を開こうとする ③manifest 取得が失敗し「本を開けませんでした」に劣化する
+            // ——のいずれも下のガードより後（beginOpen 以降）で起きる副作用なので、必ずここで早期 return する。
+            if (name as NSString).pathExtension.lowercased() == "epub" {
+                errorText = "この形式（EPUB・テキストなど）はリモートビューアでは開けません。"
+                return
+            }
             switch BookCategory.builtInViewerSupport(filename: name) {
             case .supported: break
             case .unsupportedVideo:
