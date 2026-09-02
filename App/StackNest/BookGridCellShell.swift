@@ -76,12 +76,6 @@ struct BookGridCellShell<TopTrailing: View, Center: View>: View {
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .shadow(radius: 2, y: 1)
-            .overlay {
-                if selectionStroke {
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.accentColor, lineWidth: 2)
-                }
-            }
             .overlay(alignment: .topLeading) {
                 if badges.showFavorite {
                     Image(systemName: "heart.fill")
@@ -106,6 +100,14 @@ struct BookGridCellShell<TopTrailing: View, Center: View>: View {
             }
             .overlay(alignment: .topTrailing) { topTrailing() }
             .overlay { center() }
+            // controller 判断（G46 Task 4 レビュー）: selectionStroke は印（ハート・未読・DL 印・進捗）より
+            // 最上位に描く。旧 RemoteBookCell は選択枠を印より上に描いていたため、殻でも overlay 群の最後に置く。
+            .overlay {
+                if selectionStroke {
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.accentColor, lineWidth: 2)
+                }
+            }
 
             // smoke v2 自由記載: 1 行の本だけセルが低くなると LazyVGrid が縦中央寄せしてずれる。常に 2 行分を確保。
             Text(title)
