@@ -4,6 +4,7 @@ import CoreGraphics
 import LibraryStore
 import ImageCache
 import OSLog
+import AppCore
 
 struct BookCell: View {
     let book: BookRow
@@ -19,54 +20,16 @@ struct BookCell: View {
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "CoverReflow")
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Group {
-                if let cgImage = thumbnail {
-                    Image(decorative: Self.croppedImage(cgImage, rect: book.coverCropRect), scale: 1)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                } else {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.15))
-                        .aspectRatio(2.0/3.0, contentMode: .fit)
-                        .overlay(
-                            Image(systemName: "book.closed")
-                                .resizable()
-                                .scaledToFit()
-                                .padding(20)
-                                .foregroundStyle(.secondary)
-                        )
-                }
-            }
-            // coverImageName 変化時に view identity を更新して SwiftUI に強制再描画させる。
-            // .task(id:) だけでは @State thumbnail 更新後も view が skip される場合がある。
-            .id("\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)")
-            .frame(maxWidth: .infinity)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .shadow(radius: 2, y: 1)
-            .overlay(alignment: .topLeading) {
-                // G14 fu: お気に入りをグリッドで視認できるように（リモート grid と同じ見た目）。
-                if favorited {
-                    Image(systemName: "heart.fill")
-                        .foregroundStyle(.pink)
-                        .padding(4)
-                        .background(.thinMaterial, in: Circle())
-                        .padding(4)
-                        .help("お気に入り")
-                }
-            }
-
-            Text(book.title)
-                .font(.caption)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-            if let author = book.author {
-                Text(author)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
+        BookGridCellShell(
+            cover: thumbnail.map { .image(Self.croppedImage($0, rect: book.coverCropRect)) } ?? .none,
+            title: book.title,
+            author: book.author,
+            favorited: favorited,
+            unseen: book.unseen
+        )
+        // coverImageName 変化時に view identity を更新して SwiftUI に強制再描画させる。
+        // .task(id:) だけでは @State thumbnail 更新後も view が skip される場合がある。
+        .id("\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)")
         .task(id: "\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)") {
             let taskID = "\(book.id):\(book.coverImageName ?? ""):\(book.coverCropRect.map { "\($0.origin.x),\($0.origin.y),\($0.size.width),\($0.size.height)" } ?? ""):\(coverVersion)"
             Self.logger.info("BookCell.task: id=\(taskID)")
