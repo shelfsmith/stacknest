@@ -106,6 +106,32 @@ struct EPUBProgressEndpointTests {
         }
     }
 
+    /// レビュー修正ラウンド 1: 壊れた epub_locator JSON が DB に入っていても /detail は
+    /// 落ちず 200 を返し、epubLocator は nil に落ちる（他フィールドは正常）。
+    /// LibraryServerCore の `try? JSONDecoder().decode(...)` の安全側動作を固定する回帰テスト。
+    @Test func detailToleratesCorruptEPUBLocatorJSON() async throws {
+        let fixture = try TestLibraryFixture(name: "EPUBProg6", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addUnsupportedFormatBook(extension: "epub")
+        try fixture.db.updateEPUBLocator(bookID: bookID, json: "not json")
+        let lib = fixture.servedLibrary()
+        let app = LibraryServerCore(
+            config: .init(port: 0, token: "tk"),
+            dataSource: StaticLibraryDataSource(libraries: [lib])
+        ).buildApplication()
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/detail", method: .get,
+                headers: [.authorization: "Bearer tk"]
+            ) { response in
+                #expect(response.status == .ok)
+                let detail = try decodeDetail(response.body)
+                #expect(detail.epubLocator == nil)
+                #expect(detail.id == bookID)
+            }
+        }
+    }
+
     // MARK: - 異常系
 
     /// 認証なし → 401。
