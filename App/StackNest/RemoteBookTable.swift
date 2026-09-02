@@ -203,7 +203,16 @@ final class RemoteBookTableCoordinator: NSObject {
     @objc private func toggleColumnVisibility(_ sender: NSMenuItem) {
         guard let col = sender.representedObject as? BookColumn else { return }
         settings.toggleColumn(col)
-        if let table = tableView { installColumns(in: table) }
+        if let table = tableView {
+            installColumns(in: table)
+            // G44: ON にしたらその列が見える位置へ（ローカルと同じ判断を同じ関数で）。
+            if let idx = ColumnRevealPolicy.indexToReveal(
+                toggled: col,
+                nowVisible: settings.listViewColumns.contains(col),
+                columnIdentifiers: table.tableColumns.map { $0.identifier.rawValue }) {
+                table.scrollColumnToVisible(idx)
+            }
+        }
         syncRequestedFields(forceReloadIfChanged: true)
     }
 
