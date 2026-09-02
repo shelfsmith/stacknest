@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
+import EPUBAdapter
 import ObjectiveC
 import os
 import RemoteClient
 import SwiftUI
 import UniformTypeIdentifiers
+import WashiEPUBAdapter
 
 // C-④a: 庫ウィンドウに bundleURL を関連付ける。NSWindow.willCloseNotification のグローバル観測で
 // 「閉じられた窓が庫かどうか」を判定し open-set から削除するために使う（SwiftUI の onDisappear は
@@ -71,6 +73,12 @@ extension FocusedValues {
 @main
 struct StackNestApp: App {
     @NSApplicationDelegateAdaptor(StackNestAppDelegate.self) var appDelegate
+
+    init() {
+        // G48: EPUB の読み手を登録する。リポジトリでここだけが WashiEPUBAdapter を知る。
+        // 差し替えはこの 1 行と実装ターゲットの入れ替えで閉じる。
+        EPUBAdapter.reader = WashiEPUBReader()
+    }
 
     var body: some Scene {
         // Hidden bridge window — always spawns at launch, captures openWindow, decides Title spawn.
