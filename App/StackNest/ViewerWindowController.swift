@@ -1587,6 +1587,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
+/// G48-2: `ViewerWindowRegistry` の一般化契約への適合。`focus()` は既存実装、
+/// `close()` は `NSWindowController.close()` でそのまま満たす。
+extension ViewerWindowController: ViewerWindowControlling {}
+
 /// 表示専用 HUD。hitTest を常に nil にして、ピンチ/スクロール/クリックを下の canvas に通す。
 /// （NSHostingView は .allowsHitTesting(false) でも AppKit のジェスチャ配送を素通りさせないため、
 ///  ここで明示的に透過させる。pinch が canvas.magnify に届かない smoke v2/v3 NG の根因。）
