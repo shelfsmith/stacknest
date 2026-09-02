@@ -7,6 +7,7 @@ import ImageCache
 import AppCore
 import ArchiveAdapter
 import LibraryServer
+import EPUBAdapter
 import OSLog
 
 @Observable
@@ -892,6 +893,11 @@ final class AppState {
                 return
             }
         }
+        // G48-2: EPUB は契約 `EPUBAdapter.renderer` の専用窓（EPUBReaderWindowController）で開く。
+        // 画像ビューア（BookContentFactory）の経路には乗せない。
+        if (book.path as NSString?)?.pathExtension.lowercased() == "epub" {
+            openEPUBReader(book); return
+        }
         // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
         let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
         guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
@@ -1054,6 +1060,34 @@ final class AppState {
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.present()
             self.markAsRead(book: book)
+        }
+    }
+
+    /// G48-2: EPUB は契約 `EPUBAdapter.renderer` の窓で開く。未登録なら外部ビューアにフォールバック。
+    private func openEPUBReader(_ book: BookRow) {
+        guard let renderer = EPUBAdapter.renderer, let path = book.path else { openInExternalViewer([book]); return }
+        let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
+        guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
+        let saved = (try? database?.loadViewerState(bookID: book.id))?.epubLocatorJSON
+            .flatMap { try? JSONDecoder().decode(EPUBLocatorValue.self, from: Data($0.utf8)) }
+        Task { @MainActor in
+            do {
+                let reader = try await renderer.makeReaderView(url: URL(fileURLWithPath: path), at: saved)
+                let controller = EPUBReaderWindowController(book: book, reader: reader) { [weak self] loc in
+                    guard let self, let data = try? JSONEncoder().encode(loc) else { return }
+                    try? self.database?.updateEPUBLocator(bookID: book.id, json: String(decoding: data, as: UTF8.self))
+                }
+                controller.onClose = { [weak controller] in
+                    guard let controller else { return }
+                    ViewerWindowRegistry.shared.unregister(controller: controller)
+                }
+                ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
+                controller.showWindow(nil)
+                self.markAsRead(book: book)   // 画像本と同じ: 開いたら unseen=0・play_date=now
+            } catch {
+                ViewerWindowRegistry.shared.cancelOpen(identity)
+                self.error = .unexpected(error)
+            }
         }
     }
 

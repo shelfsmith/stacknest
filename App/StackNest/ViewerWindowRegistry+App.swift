@@ -2,13 +2,23 @@
 import AppKit
 import AppCore
 
+/// G48-2: 内蔵ビューア窓の最小契約。`ViewerWindowRegistry` はこれだけを知り、
+/// 画像ビューア／EPUB リーダーなど具体の窓種別を区別しない。
+@MainActor
+protocol ViewerWindowControlling: AnyObject {
+    func focus()
+    func close()
+}
+
 /// G15 V1: 内蔵ビューア窓を app-global に管理する glue。純ロジックは AppCore.ViewerRegistryCore。
 /// 3 open 経路（ローカル/オフライン/リモート）が本 registry 経由で開く。
+/// G48-2: 保持型を `any ViewerWindowControlling` に一般化し、画像ビューア（`ViewerWindowController`）
+/// と EPUB リーダー（`EPUBReaderWindowController`）を同じ registry で扱えるようにした。
 @MainActor
 final class ViewerWindowRegistry {
     static let shared = ViewerWindowRegistry()
     private var core = ViewerRegistryCore()
-    private var controllers: [ViewerIdentity: ViewerWindowController] = [:]
+    private var controllers: [ViewerIdentity: any ViewerWindowControlling] = [:]
 
     /// 開くべきなら true。既存窓ありは前面化して false、開き中は無視して false。
     func beginOpen(_ id: ViewerIdentity) -> Bool {
@@ -20,7 +30,7 @@ final class ViewerWindowRegistry {
     }
 
     /// 生成完了。設定 OFF なら他窓を閉じる。
-    func finishOpen(_ id: ViewerIdentity, controller: ViewerWindowController) {
+    func finishOpen(_ id: ViewerIdentity, controller: any ViewerWindowControlling) {
         let toClose = core.finish(id, allowMultiple: ViewerSettings.shared.allowMultipleViewerWindows)
         controllers[id] = controller
         for cid in toClose {
@@ -36,7 +46,7 @@ final class ViewerWindowRegistry {
     /// 旧キーの no-op になり、新キーの entry が residual リークする）。close 時は常に
     /// controller から現在のキーを逆引きして除去することで、reidentify の有無に関わらず
     /// 「controller ごとにちょうど1キー」の不変条件を保つ。
-    func unregister(controller: ViewerWindowController) {
+    func unregister(controller: any ViewerWindowControlling) {
         guard let currentKey = controllers.first(where: { $0.value === controller })?.key else { return }
         core.remove(currentKey)
         controllers[currentKey] = nil
@@ -44,7 +54,7 @@ final class ViewerWindowRegistry {
 
     /// G16 C1: 巻スワップ等で表示中の本が変わったとき、登録済み identity を新しい本のものへ
     /// 張り替える。owner に旧 identity を追跡させないよう、controller から逆引きする。
-    func reidentify(to newID: ViewerIdentity, controller: ViewerWindowController) {
+    func reidentify(to newID: ViewerIdentity, controller: any ViewerWindowControlling) {
         guard let oldKey = controllers.first(where: { $0.value === controller })?.key, oldKey != newID else { return }
         // Important #2: newID が既に「別の」controller の下で開いている稀な ON-mode ケース
         // （dedup 許容設定で複数窓が同時に開ける状態のとき、スワップ先が他窓と同じ本に

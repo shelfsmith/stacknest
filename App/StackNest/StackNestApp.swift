@@ -78,6 +78,8 @@ struct StackNestApp: App {
         // G48: EPUB の読み手を登録する。リポジトリでここだけが WashiEPUBAdapter を知る。
         // 差し替えはこの 1 行と実装ターゲットの入れ替えで閉じる。
         EPUBAdapter.reader = WashiEPUBReader()
+        // G48-2: EPUB 読書ビューの実装（窓に載せる contentView）も同じ合成点で登録する。
+        EPUBAdapter.renderer = WashiEPUBRenderer()
     }
 
     var body: some Scene {
