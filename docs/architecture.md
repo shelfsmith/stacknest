@@ -46,6 +46,15 @@ shipped inside the app bundle under `Contents/Helpers/`).
   implemented via libarchive. (Historical note: the earliest Phase 2.1 build
   read ZIP only; the remaining archive formats landed in later phases and all
   are supported now.)
+- **EPUBAdapter** — The contract for reading EPUBs (`EPUBReading`: open,
+  cover image, title / author / language, reading direction). Zero
+  dependencies. `AppCore` depends only on this contract, never on a library.
+- **WashiEPUBAdapter** — The current implementation of that contract on
+  [shunnag/Washi](https://github.com/shunnag/Washi) (MIT, pinned to a
+  revision). It is the only target that imports `WashiCore`, and an
+  import-boundary test keeps it that way. Registered once at the app
+  composition root; replacing the library means writing another adapter
+  that passes the shared contract tests and changing that one line.
 - **AppCore** — UI-independent application logic that the App target and the
   CLI both need: import (`BookImporter`), filename parsing (`FilenameFormat`),
   watch-folder scan planning (`WatchScanPlanner`), settings (`LibrarySettings`),
