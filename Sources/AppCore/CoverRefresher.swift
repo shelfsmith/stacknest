@@ -8,6 +8,9 @@ import EPUBAdapter
 /// 呼び出し側（サーバは HTTP 4xx、App はログのみ）でハンドリングする。
 public enum CoverRefreshError: Error, Sendable, Equatable {
     case unsupportedFormat
+    /// G48-2 Task 6: フォーマット自体は読める（EPUB reader が登録済み）が、その本に表紙画像が
+    /// 無い場合。`.unsupportedFormat`（reader 未登録・非対応形式）とは原因が異なるため区別する。
+    case noCoverImage
 }
 
 /// 単一 book の thumbnail.jpg を抽出 + 保存する純粋ユーティリティ。
@@ -41,11 +44,14 @@ public enum CoverRefresher {
                 return data
             }
             // G48: EPUB は契約 `EPUBAdapter.reader` に回す（Washi は AppCore から見えない）。
-            // 未登録・表紙なし → 既存の「作れない」経路（unsupportedFormat）。
+            // reader 未登録 → 既存の「作れない」経路（unsupportedFormat）。reader はあるがその本に
+            // 表紙が無い（G48-2 Task 6） → 原因が異なるので noCoverImage を区別して throw する。
             if sourceURL.pathExtension.lowercased() == "epub" {
-                guard let reader = EPUBAdapter.reader,
-                      let data = try await reader.coverImageData(url: sourceURL, maxPixelSize: 1200) else {
+                guard let reader = EPUBAdapter.reader else {
                     throw CoverRefreshError.unsupportedFormat
+                }
+                guard let data = try await reader.coverImageData(url: sourceURL, maxPixelSize: 1200) else {
+                    throw CoverRefreshError.noCoverImage
                 }
                 return data
             }

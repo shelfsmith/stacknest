@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import Testing
+import ImageIO
 import EPUBAdapter
 
 /// `EPUBReading` に適合する実装なら**必ず通るべき**試験。差し替え版の合格基準。
@@ -18,24 +19,37 @@ public enum EPUBReadingContract {
         #expect(info.language == "ja")
         #expect(info.readingDirection == .rtl)
 
-        // 2. 表紙が JPEG か PNG で返る
-        let cover = try await reader.coverImageData(url: withCover, maxPixelSize: 200)
+        // 2. 表紙が JPEG か PNG で、CGImageSource でデコードでき、長辺が maxPixelSize 以下で返る
+        let maxPixelSize = 200
+        let cover = try await reader.coverImageData(url: withCover, maxPixelSize: maxPixelSize)
         #expect(cover != nil)
         if let cover {
             let head = [UInt8](cover.prefix(4))
             let isJPEG = head.starts(with: [0xFF, 0xD8])
             let isPNG = head.starts(with: [0x89, 0x50, 0x4E, 0x47])
             #expect(isJPEG || isPNG, "JPEG でも PNG でもない: \(head)")
+
+            guard let source = CGImageSourceCreateWithData(cover as CFData, nil),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = props[kCGImagePropertyPixelWidth] as? Int,
+                  let height = props[kCGImagePropertyPixelHeight] as? Int else {
+                Issue.record("表紙画像を CGImageSourceCreateWithData でデコードできない")
+                return
+            }
+            #expect(max(width, height) <= maxPixelSize, "長辺 \(max(width, height)) が maxPixelSize \(maxPixelSize) を超えている")
         }
 
-        // 3. 表紙の無い本は nil（エラーではない）
+        // 3. 表紙の無い本は nil（エラーではない）。title は必ず入る（本文が無くても OPF の必須要素）。
         let noCover = try MinimalEPUB.make(in: dir, title: "表紙なし", author: nil, withCover: false)
-        #expect(try await reader.coverImageData(url: noCover, maxPixelSize: 200) == nil)
-        #expect(try await reader.open(url: noCover).author == nil)
+        #expect(try await reader.coverImageData(url: noCover, maxPixelSize: maxPixelSize) == nil)
+        let noCoverInfo = try await reader.open(url: noCover)
+        #expect(noCoverInfo.title != nil)
+        #expect(noCoverInfo.author == nil)
 
-        // 4. 壊れたファイルは cannotOpen
+        // 4. 壊れたファイルは open も coverImageData も cannotOpen
         let broken = dir.appendingPathComponent("broken.epub")
         try Data("not a zip".utf8).write(to: broken)
         await #expect(throws: EPUBAdapterError.self) { try await reader.open(url: broken) }
+        await #expect(throws: EPUBAdapterError.self) { try await reader.coverImageData(url: broken, maxPixelSize: maxPixelSize) }
     }
 }
