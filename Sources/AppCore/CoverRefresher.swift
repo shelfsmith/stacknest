@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import ArchiveAdapter
+import EPUBAdapter
 
 /// G21 followup Important #2: `extractCoverData` が表紙を作れないと判定した形式
 /// （動画・epub・txt/md/rtf 等、フォルダ/アーカイブ/PDF/単独画像のいずれでもないもの）。
@@ -35,6 +36,15 @@ public enum CoverRefresher {
             if sourceURL.pathExtension.lowercased() == "pdf" {
                 guard let pdf = PDFBookContent(url: sourceURL),
                       let data = pdf.coverJPEG(maxPixelSize: 1200) else {
+                    throw CoverRefreshError.unsupportedFormat
+                }
+                return data
+            }
+            // G48: EPUB は契約 `EPUBAdapter.reader` に回す（Washi は AppCore から見えない）。
+            // 未登録・表紙なし → 既存の「作れない」経路（unsupportedFormat）。
+            if sourceURL.pathExtension.lowercased() == "epub" {
+                guard let reader = EPUBAdapter.reader,
+                      let data = try await reader.coverImageData(url: sourceURL, maxPixelSize: 1200) else {
                     throw CoverRefreshError.unsupportedFormat
                 }
                 return data
