@@ -4,27 +4,32 @@ import Testing
 
 @Suite("列を表示にしたときにスクロールする先")
 struct ColumnRevealPolicyTests {
-    // 実際のテーブルは title が必ず先頭。リモートはさらに "dl" 列が先頭に付く。
-    private let ids = ["dl", "title", "author", "unseen", "play_date"]
+    // リモートは先頭に "dl" 列が付く。ローカルは "title" が先頭。
+    private let before = ["dl", "title", "author"]
 
-    @Test("ON にしたらその列のインデックス")
-    func revealsToggledOnColumn() {
-        #expect(ColumnRevealPolicy.indexToReveal(toggled: .unseen, nowVisible: true, columnIdentifiers: ids) == 3)
+    @Test("新たに現れた列が 1 つならその位置（先頭寄り・末尾の列でも実インデックスを返す）")
+    func newlyShown() {
+        #expect(ColumnRevealPolicy.newlyShownIndex(before: before, after: ["dl", "title", "author", "unseen"]) == 3)
+        #expect(ColumnRevealPolicy.newlyShownIndex(before: before, after: ["dl", "genre", "title", "author"]) == 1)
     }
 
-    @Test("OFF にしたら nil（何もしない）")
-    func nothingWhenToggledOff() {
-        #expect(ColumnRevealPolicy.indexToReveal(toggled: .unseen, nowVisible: false, columnIdentifiers: ids) == nil)
+    @Test("OFF（列が減った）なら nil")
+    func removed() {
+        #expect(ColumnRevealPolicy.newlyShownIndex(before: before, after: ["dl", "title"]) == nil)
     }
 
-    @Test("ON にしたが列が見つからないなら nil")
-    func nilWhenColumnMissing() {
-        #expect(ColumnRevealPolicy.indexToReveal(toggled: .genre, nowVisible: true, columnIdentifiers: ids) == nil)
+    @Test("初回（before が空）は nil —— 起動時に勝手にスクロールしない")
+    func firstInstall() {
+        #expect(ColumnRevealPolicy.newlyShownIndex(before: [], after: before) == nil)
     }
 
-    @Test("先頭の列でも 0 を返す（『常に 0』の誤実装と区別するため末尾の列も見る）")
-    func firstAndLast() {
-        #expect(ColumnRevealPolicy.indexToReveal(toggled: .title, nowVisible: true, columnIdentifiers: ids) == 1)
-        #expect(ColumnRevealPolicy.indexToReveal(toggled: .playDate, nowVisible: true, columnIdentifiers: ids) == 4)
+    @Test("並べ替えだけなら nil")
+    func reorderOnly() {
+        #expect(ColumnRevealPolicy.newlyShownIndex(before: before, after: ["dl", "author", "title"]) == nil)
+    }
+
+    @Test("複数同時に現れたら nil（どれへ行くべきか決められない）")
+    func multiple() {
+        #expect(ColumnRevealPolicy.newlyShownIndex(before: before, after: ["dl", "title", "author", "unseen", "genre"]) == nil)
     }
 }

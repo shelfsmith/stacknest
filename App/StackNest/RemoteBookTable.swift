@@ -165,6 +165,10 @@ final class RemoteBookTableCoordinator: NSObject {
     func installColumns(in table: NSTableView) {
         isInstallingColumns = true
         defer { isInstallingColumns = false }
+        // G44 指摘B: 列切替は 3 経路（ヘッダ右クリック・メニューバー「テーブル列」・設定の同期）あるが、
+        // すべて installColumns を通る。ここで旧列集合を控えておき、新たに 1 列だけ増えたら
+        // その列へスクロールする（判断を 1 箇所に一本化）。
+        let before = table.tableColumns.map { $0.identifier.rawValue }
         table.tableColumns.forEach { table.removeTableColumn($0) }
         let dlCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(rawValue: Self.downloadColumnID))
         dlCol.title = "DL"
@@ -184,6 +188,11 @@ final class RemoteBookTableCoordinator: NSObject {
             table.addTableColumn(nsCol)
         }
         installHeaderMenu(in: table)
+        // G44: 新たに表示された列が 1 つなら、その列が見える位置へ（全経路がここを通る）。
+        if let idx = ColumnRevealPolicy.newlyShownIndex(
+            before: before, after: table.tableColumns.map { $0.identifier.rawValue }) {
+            table.scrollColumnToVisible(idx)
+        }
     }
 
     private func installHeaderMenu(in table: NSTableView) {
@@ -203,15 +212,9 @@ final class RemoteBookTableCoordinator: NSObject {
     @objc private func toggleColumnVisibility(_ sender: NSMenuItem) {
         guard let col = sender.representedObject as? BookColumn else { return }
         settings.toggleColumn(col)
+        // G44: スクロールは installColumns(in:) 側の判断に一本化済み（3 経路すべてがそこを通る）。
         if let table = tableView {
             installColumns(in: table)
-            // G44: ON にしたらその列が見える位置へ（ローカルと同じ判断を同じ関数で）。
-            if let idx = ColumnRevealPolicy.indexToReveal(
-                toggled: col,
-                nowVisible: settings.listViewColumns.contains(col),
-                columnIdentifiers: table.tableColumns.map { $0.identifier.rawValue }) {
-                table.scrollColumnToVisible(idx)
-            }
         }
         syncRequestedFields(forceReloadIfChanged: true)
     }

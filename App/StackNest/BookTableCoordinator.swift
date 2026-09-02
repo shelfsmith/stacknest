@@ -57,6 +57,10 @@ final class BookTableCoordinator: NSObject {
     /// Removes existing columns first; called from makeNSView and from updateNSView
     /// when listViewColumns or listColumnOrder change.
     func installColumns(in table: NSTableView) {
+        // G44 指摘B: 列切替は 3 経路（ヘッダ右クリック・メニューバー「テーブル列」・設定の同期）あるが、
+        // すべて installColumns を通る。ここで旧列集合を控えておき、新たに 1 列だけ増えたら
+        // その列へスクロールする（判断を 1 箇所に一本化）。
+        let before = table.tableColumns.map { $0.identifier.rawValue }
         table.tableColumns.forEach { table.removeTableColumn($0) }
         let savedWidths = settings.columnWidths
         for col in visibleColumns {
@@ -87,6 +91,11 @@ final class BookTableCoordinator: NSObject {
         isInstallingColumns = false
         // Install header right-click menu for column visibility toggling
         installHeaderMenu(in: table)
+        // G44: 新たに表示された列が 1 つなら、その列が見える位置へ（全経路がここを通る）。
+        if let idx = ColumnRevealPolicy.newlyShownIndex(
+            before: before, after: table.tableColumns.map { $0.identifier.rawValue }) {
+            table.scrollColumnToVisible(idx)
+        }
     }
 
     /// Builds and attaches a right-click menu on the table header for toggling column visibility.
@@ -110,15 +119,9 @@ final class BookTableCoordinator: NSObject {
     @objc private func toggleColumnVisibility(_ sender: NSMenuItem) {
         guard let col = sender.representedObject as? BookColumn else { return }
         settings.toggleColumn(col)
+        // G44: スクロールは installColumns(in:) 側の判断に一本化済み（3 経路すべてがそこを通る）。
         if let table = tableView {
             installColumns(in: table)
-            // G44: ON にしたらその列が見える位置へ。installColumns の後に引き直した tableColumns を使う。
-            if let idx = ColumnRevealPolicy.indexToReveal(
-                toggled: col,
-                nowVisible: settings.listViewColumns.contains(col),
-                columnIdentifiers: table.tableColumns.map { $0.identifier.rawValue }) {
-                table.scrollColumnToVisible(idx)
-            }
         }
     }
 
