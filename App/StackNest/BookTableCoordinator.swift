@@ -112,6 +112,13 @@ final class BookTableCoordinator: NSObject {
         settings.toggleColumn(col)
         if let table = tableView {
             installColumns(in: table)
+            // G44: ON にしたらその列が見える位置へ。installColumns の後に引き直した tableColumns を使う。
+            if let idx = ColumnRevealPolicy.indexToReveal(
+                toggled: col,
+                nowVisible: settings.listViewColumns.contains(col),
+                columnIdentifiers: table.tableColumns.map { $0.identifier.rawValue }) {
+                table.scrollColumnToVisible(idx)
+            }
         }
     }
 
