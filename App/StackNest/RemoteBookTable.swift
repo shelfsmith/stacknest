@@ -266,7 +266,10 @@ final class RemoteBookTableCoordinator: NSObject {
             if table.numberOfRows > 0 {
                 table.scrollRowToVisible(0)
             } else if let scroll = scrollView ?? table.enclosingScrollView {
-                scroll.contentView.scroll(to: .zero)
+                // G44 指摘A: y だけ 0 に戻し、x（水平スクロール位置）は保持する。
+                // ここで x も 0 にすると、reload 中の空の間に列トグルの横スクロール（installColumns 側）が
+                // 打ち消される（非空側の scrollRowToVisible(0) は水平位置を保持するため、2 分岐で挙動が揃う）。
+                scroll.contentView.scroll(to: NSPoint(x: scroll.contentView.bounds.origin.x, y: 0))
                 scroll.reflectScrolledClipView(scroll.contentView)
             }
         }
