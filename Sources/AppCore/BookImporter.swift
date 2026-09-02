@@ -142,9 +142,9 @@ public struct BookImporter: Sendable {
                     // G48 修正ラウンド1: EPUB は契約 EPUBAdapter.reader に表紙を頼む
                     // （Washi は AppCore から見えない）。未登録・表紙なし・失敗はすべて nil →
                     // 既存の coverFailures 経路に落ちる（取り込みは続く）。
-                    // 注: 同じループ内で既にメタデータ用に reader.open(url:) を呼んでいるため、
-                    // EPUB 1 冊につき Washi を 2 回開くことになる。今回はそれでよい
-                    // （spike 中央値 63 ms。1 回にまとめる最適化は契約を太らせるので見送る）。
+                    // 注: 同じループの後段でメタデータ用にもう一度 reader.open(url:) を呼ぶため、
+                    // EPUB 1 冊につき Washi を 2 回開くことになる（spike 中央値 63 ms）。
+                    // 1 回にまとめる最適化は契約を太らせるので見送る。
                     if let reader = EPUBAdapter.reader {
                         coverDataOverride = try? await reader.coverImageData(url: url, maxPixelSize: 1200)
                     }
@@ -210,8 +210,10 @@ public struct BookImporter: Sendable {
                 }
 
                 if let cover = coverDataOverride {
-                    // 表紙 data override 経路 — PDFBookContent.coverJPEG / CoverImageResizer.resizeJPEG
-                    // のいずれかで生成済 (どちらも 1200 px 上限を保証)。
+                    // 表紙 data override 経路 — PDF・単独画像は PDFBookContent.coverJPEG /
+                    // CoverImageResizer.resizeJPEG のいずれかで生成済で 1200 px 上限を保証。
+                    // EPUB は EPUBReading.coverImageData(maxPixelSize: 1200) に任せる
+                    // （契約上は JPEG/PNG）。
                     do {
                         try FileManager.default.createDirectory(at: bookThumbDir, withIntermediateDirectories: true)
                         try cover.write(to: staleThumb)
