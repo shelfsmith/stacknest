@@ -397,4 +397,11 @@ enum Tables {
     static let migrateV19AddFinderTagsSynced = """
         ALTER TABLE book ADD COLUMN finder_tags_synced TEXT
         """
+
+    // MARK: - v20 migrations (Phase G48-2: EPUB の読書位置)
+
+    /// v20 — EPUB の読書位置（spine＋進行率の JSON）。画像本の last_page とは別列。後勝ち。
+    static let migrateV20AddEPUBLocator = """
+        ALTER TABLE book_viewer_state ADD COLUMN epub_locator TEXT
+        """
 }

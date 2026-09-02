@@ -176,6 +176,9 @@ public struct StoredViewerState: Sendable, Equatable {
     /// progress writeback だけで作られた行）を意味し、App 層はこの場合
     /// spreadByDefault にフォールバックすべきで `spreadEnabled` を信用してはいけない。
     public var spreadExplicit: Bool
+    /// G48-2: EPUB の読書位置（spine＋進行率などを表す JSON 文字列）。画像本の `lastPage` とは
+    /// 別列で保持し、後勝ち（比較なし）で `updateEPUBLocator` が更新する。行が無い/未設定なら nil。
+    public var epubLocatorJSON: String?
 
     public init(
         spreadEnabled: Bool = false,
@@ -183,7 +186,8 @@ public struct StoredViewerState: Sendable, Equatable {
         lastPage: Int = 0,
         overrides: [Int: Int] = [:],
         hasPersistedState: Bool = false,
-        spreadExplicit: Bool = false
+        spreadExplicit: Bool = false,
+        epubLocatorJSON: String? = nil
     ) {
         self.spreadEnabled = spreadEnabled
         self.coverOffset = coverOffset
@@ -191,6 +195,7 @@ public struct StoredViewerState: Sendable, Equatable {
         self.overrides = overrides
         self.hasPersistedState = hasPersistedState
         self.spreadExplicit = spreadExplicit
+        self.epubLocatorJSON = epubLocatorJSON
     }
 }
 
@@ -2196,7 +2201,10 @@ public final class Database: @unchecked Sendable {
             var state = StoredViewerState()
             if let row = try Row.fetchOne(
                 db,
-                sql: "SELECT spread_enabled, cover_offset, last_page, spread_explicit FROM book_viewer_state WHERE book_id = ?",
+                sql: """
+                    SELECT spread_enabled, cover_offset, last_page, spread_explicit, epub_locator
+                    FROM book_viewer_state WHERE book_id = ?
+                    """,
                 arguments: [bookID]
             ) {
                 let spreadInt: Int = row["spread_enabled"]
@@ -2209,6 +2217,8 @@ public final class Database: @unchecked Sendable {
                 state.hasPersistedState = true
                 // G17 T6a: spread_enabled がユーザー明示操作由来かどうか（progress-only 行と区別）。
                 state.spreadExplicit = explicitInt != 0
+                // G48-2: EPUB の読書位置（JSON）。画像本には無関係で nil のまま。
+                state.epubLocatorJSON = row["epub_locator"]
             }
             let overrideRows = try Row.fetchAll(
                 db,
@@ -2303,6 +2313,26 @@ public final class Database: @unchecked Sendable {
                     updated_at = excluded.updated_at
                 """,
                 arguments: [bookID, lastPage, stamp]
+            )
+        }
+    }
+
+    /// EPUB の読書位置（JSON）だけ更新する（G48-2）。画像本の `updateLastPage` と同じ作法:
+    /// 他の列（spread_enabled / cover_offset / spread_explicit / last_page）は保持し、
+    /// 行が無ければテーブルの DEFAULT 値で INSERT する。比較はしない（後勝ち）。
+    public func updateEPUBLocator(bookID: Int, json: String) throws {
+        guard let q = queue else { return }
+        let stamp = String(Date().timeIntervalSince1970)
+        try q.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO book_viewer_state (book_id, epub_locator, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(book_id) DO UPDATE SET
+                    epub_locator = excluded.epub_locator,
+                    updated_at   = excluded.updated_at
+                """,
+                arguments: [bookID, json, stamp]
             )
         }
     }
