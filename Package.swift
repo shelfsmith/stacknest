@@ -17,11 +17,13 @@ let package = Package(
         .library(name: "LibraryServer", targets: ["LibraryServer"]),
         .executable(name: "stackroom-import", targets: ["StackroomImportCLI"]),
         .executable(name: "stacknest-cli", targets: ["StackNestCLI"]),
+        .library(name: "EPUBAdapter", targets: ["EPUBAdapter"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
+        .package(url: "https://github.com/shunnag/Washi", revision: "8247b1dc73519207a2c1f4c6d950d302ecc6fb47"),
     ],
     targets: [
         .target(
@@ -147,6 +149,8 @@ let package = Package(
             path: "Tests/StackroomImportCLITests",
             resources: [.copy("../Fixtures")]
         ),
+        .target(name: "EPUBAdapter", path: "Sources/EPUBAdapter"),
+        .testTarget(name: "EPUBAdapterTests", dependencies: ["EPUBAdapter"], path: "Tests/EPUBAdapterTests"),
     ],
     swiftLanguageModes: [.v6]
 )
