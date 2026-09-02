@@ -7,6 +7,22 @@ import StackroomFormat
 // サーバ側（LibraryServer）とクライアント側（将来の App）が共通でこのモジュールを import する。
 // ─────────────────────────────────────────────────────────────
 
+/// EPUB の読書位置（G48-2）。`EPUBAdapter.EPUBLocatorValue` と同じ JSON 形（spine/progress/cfi/engine）だが、
+/// `LibraryServerAPI` を `EPUBAdapter` に依存させないため独立に定義する。
+public struct EPUBLocatorDTO: Codable, Equatable, Sendable {
+    public let spine: Int
+    public let progress: Double
+    public let cfi: String?
+    public let engine: String?
+
+    public init(spine: Int, progress: Double, cfi: String? = nil, engine: String? = nil) {
+        self.spine = spine
+        self.progress = progress
+        self.cfi = cfi
+        self.engine = engine
+    }
+}
+
 /// books 一覧 1 件分の DTO（spec §3.3）。日付はサーバ共通エンコーダで ISO8601。
 public struct BookListItemDTO: Codable, Sendable {
     // 差し替えコピー（下の extension）を素直に書くため var。ただし setter は
@@ -21,6 +37,10 @@ public struct BookListItemDTO: Codable, Sendable {
     public private(set) var bookType: Int
     public private(set) var pages: Int?
     public private(set) var lastPage: Int?
+    /// G48-2: EPUB の読書位置（spine index・進捗率・任意で CFI/engine）。EPUB 以外や未読の本は nil。
+    /// `EPUBAdapter.EPUBLocatorValue` と同じ JSON 形だが、`LibraryServerAPI` を `EPUBAdapter` に
+    /// 依存させないため型を独立に持つ。
+    public private(set) var epubLocator: EPUBLocatorDTO?
     public private(set) var lastReadAt: Date?
     public private(set) var dateAdded: Date
     public private(set) var hasCover: Bool
@@ -58,7 +78,8 @@ public struct BookListItemDTO: Codable, Sendable {
         genre: String? = nil, neta: String? = nil,
         keywordA: String? = nil, keywordB: String? = nil, keywordC: String? = nil, memo: String? = nil,
         coverCropRectJSON: String? = nil,
-        filename: String? = nil
+        filename: String? = nil,
+        epubLocator: EPUBLocatorDTO? = nil
     ) {
         self.id = id
         self.title = title
@@ -70,6 +91,7 @@ public struct BookListItemDTO: Codable, Sendable {
         self.bookType = bookType
         self.pages = pages
         self.lastPage = lastPage
+        self.epubLocator = epubLocator
         self.lastReadAt = lastReadAt
         self.dateAdded = dateAdded
         self.hasCover = hasCover
@@ -109,6 +131,11 @@ extension BookListItemDTO {
     /// 一覧を再取得しなくても再オープン時に続きから開くために使う）。
     public func withLastPage(_ page: Int?) -> BookListItemDTO {
         var c = self; c.lastPage = page; return c
+    }
+
+    /// epubLocator を差し替えた複製（リモート閲覧の EPUB 読書位置をメモリ上の一覧へ反映するために使う）。
+    public func withEPUBLocator(_ locator: EPUBLocatorDTO?) -> BookListItemDTO {
+        var c = self; c.epubLocator = locator; return c
     }
 
     /// unseen フラグだけ差し替えた複製（リモート閲覧で未読マーカーを楽観的に消すために使う）。
@@ -349,6 +376,8 @@ public struct BookDetailDTO: Codable, Sendable {
     public let pages: Int?
     /// 閲覧進捗の最終ページ（viewer state 由来・⌘⇧O resume で続きから開くために使う）。未読は nil。
     public let lastPage: Int?
+    /// G48-2: EPUB の読書位置（viewer state 由来）。EPUB 以外・未読・壊れた JSON は nil。
+    public let epubLocator: EPUBLocatorDTO?
     public let rating: Int
     public let unseen: Bool
     public let keywordA: String?
@@ -372,6 +401,7 @@ public struct BookDetailDTO: Codable, Sendable {
     public init(id: Int, title: String, author: String?, genre: String?, path: String?,
                 dateAdded: Date, playDate: Date?, bookType: Int, fileType: Int, pages: Int?,
                 lastPage: Int? = nil,
+                epubLocator: EPUBLocatorDTO? = nil,
                 rating: Int, unseen: Bool, keywordA: String?, keywordB: String?, keywordC: String?,
                 neta: String?, memo: String?, series: String?, volume: Double?,
                 coverImageName: String?, coverCropRectJSON: String?, pageDirection: String?,
@@ -381,6 +411,7 @@ public struct BookDetailDTO: Codable, Sendable {
         self.id = id; self.title = title; self.author = author; self.genre = genre; self.path = path
         self.dateAdded = dateAdded; self.playDate = playDate; self.bookType = bookType
         self.fileType = fileType; self.pages = pages; self.lastPage = lastPage
+        self.epubLocator = epubLocator
         self.rating = rating; self.unseen = unseen
         self.keywordA = keywordA; self.keywordB = keywordB; self.keywordC = keywordC
         self.neta = neta; self.memo = memo; self.series = series; self.volume = volume

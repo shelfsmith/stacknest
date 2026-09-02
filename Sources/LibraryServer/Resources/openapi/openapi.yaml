@@ -1462,6 +1462,62 @@ paths:
         '404':
           description: ライブラリまたは書籍不在
 
+  /libraries/{lib}/books/{id}/epub-progress:
+    post:
+      summary: EPUB 読書位置の書き込み（G48-2・mark-as-read）
+      description: |
+        EPUB の読書位置（spine index・進捗率・任意で CFI/engine）を後勝ちで書き込み、
+        mark-as-read（unseen=false / play_date=now）を実行する。**認証ロールは R でも可**
+        （`/progress` と同じく共有閲覧状態の更新）。変更後は `onBookChanged` コールバックが
+        発火し Mac UI がリアルタイム反映される。`spine` は 0 未満を 0 に、`progress` は範囲外
+        （0 未満・1 超）を [0, 1] にクランプする（値型が丸めるため 400 にはならない）。
+      tags: [Viewer]
+      security:
+        - bearerAuth: []
+          libraryToken: []
+        - bearerAuth: []
+      parameters:
+        - name: lib
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [spine, progress]
+              properties:
+                spine:
+                  type: integer
+                  description: spine（章）インデックス（0 始まり・負数は 0 にクランプ）
+                progress:
+                  type: number
+                  format: double
+                  description: 章内の読書進捗率（0.0〜1.0・範囲外はクランプ）
+                cfi:
+                  type: string
+                  nullable: true
+                  description: EPUB CFI（任意・エンジンが対応する場合のみ）
+                engine:
+                  type: string
+                  nullable: true
+                  description: 生成元のレンダリングエンジン識別子（任意）
+      responses:
+        '200':
+          description: 書き込み成功
+        '401':
+          description: 未認証
+        '404':
+          description: ライブラリまたは書籍不在
+
   /libraries/{lib}/books/{id}/direction:
     post:
       summary: ページ方向の書き戻し（本ごと DB 反映）

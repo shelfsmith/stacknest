@@ -72,8 +72,8 @@ extension BookCategory {
     public static func builtInViewerSupport(filename: String) -> BuiltInViewerSupport {
         switch (filename as NSString).pathExtension.lowercased() {
         case "mp4", "mov", "avi", "mkv", "webm", "m4v": return .unsupportedVideo
-        case "epub", "txt", "md", "rtf":                return .unsupportedDocument
-        default:                                        return .supported   // archive/image/pdf/未知
+        case "txt", "md", "rtf":                        return .unsupportedDocument
+        default:                                        return .supported   // archive/image/pdf/epub/未知（G48-2: epub 対応）
         }
     }
 }
