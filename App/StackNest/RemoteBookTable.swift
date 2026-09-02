@@ -165,6 +165,10 @@ final class RemoteBookTableCoordinator: NSObject {
     func installColumns(in table: NSTableView) {
         isInstallingColumns = true
         defer { isInstallingColumns = false }
+        // G44 指摘B: 列切替は 3 経路（ヘッダ右クリック・メニューバー「テーブル列」・設定の同期）あるが、
+        // すべて installColumns を通る。ここで旧列集合を控えておき、新たに 1 列だけ増えたら
+        // その列へスクロールする（判断を 1 箇所に一本化）。
+        let before = table.tableColumns.map { $0.identifier.rawValue }
         table.tableColumns.forEach { table.removeTableColumn($0) }
         let dlCol = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(rawValue: Self.downloadColumnID))
         dlCol.title = "DL"
@@ -184,6 +188,11 @@ final class RemoteBookTableCoordinator: NSObject {
             table.addTableColumn(nsCol)
         }
         installHeaderMenu(in: table)
+        // G44: 新たに表示された列が 1 つなら、その列が見える位置へ（全経路がここを通る）。
+        if let idx = ColumnRevealPolicy.newlyShownIndex(
+            before: before, after: table.tableColumns.map { $0.identifier.rawValue }) {
+            table.scrollColumnToVisible(idx)
+        }
     }
 
     private func installHeaderMenu(in table: NSTableView) {
@@ -203,7 +212,10 @@ final class RemoteBookTableCoordinator: NSObject {
     @objc private func toggleColumnVisibility(_ sender: NSMenuItem) {
         guard let col = sender.representedObject as? BookColumn else { return }
         settings.toggleColumn(col)
-        if let table = tableView { installColumns(in: table) }
+        // G44: スクロールは installColumns(in:) 側の判断に一本化済み（3 経路すべてがそこを通る）。
+        if let table = tableView {
+            installColumns(in: table)
+        }
         syncRequestedFields(forceReloadIfChanged: true)
     }
 
@@ -257,7 +269,10 @@ final class RemoteBookTableCoordinator: NSObject {
             if table.numberOfRows > 0 {
                 table.scrollRowToVisible(0)
             } else if let scroll = scrollView ?? table.enclosingScrollView {
-                scroll.contentView.scroll(to: .zero)
+                // G44 指摘A: y だけ 0 に戻し、x（水平スクロール位置）は保持する。
+                // ここで x も 0 にすると、reload 中の空の間に列トグルの横スクロール（installColumns 側）が
+                // 打ち消される（非空側の scrollRowToVisible(0) は水平位置を保持するため、2 分岐で挙動が揃う）。
+                scroll.contentView.scroll(to: NSPoint(x: scroll.contentView.bounds.origin.x, y: 0))
                 scroll.reflectScrolledClipView(scroll.contentView)
             }
         }
