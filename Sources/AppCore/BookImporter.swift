@@ -3,6 +3,7 @@ import Foundation
 import LibraryStore
 import ArchiveAdapter
 import StackroomFormat
+import EPUBAdapter
 import OSLog
 
 /// 取り込み時のエラー。
@@ -176,7 +177,12 @@ public struct BookImporter: Sendable {
                 }
 
                 // 3. insert (bookType を引数で渡す)
-                let id = try insertBookRecord(for: url, bookType: bookType)
+                // G48: EPUB はメタデータを読み、空の欄だけ埋める（読めなくても取り込みは続ける）。
+                var epubInfo: EPUBBookInfo? = nil
+                if url.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader {
+                    epubInfo = try? await reader.open(url: url)
+                }
+                let id = try insertBookRecord(for: url, bookType: bookType, epubInfo: epubInfo)
                 result.addedIDs.append(id)
 
                 if let pagesToWrite = TruncatedReadPolicy.pageCountToWrite(
@@ -230,7 +236,7 @@ public struct BookImporter: Sendable {
 
     /// Builds a BookRecord from the URL and inserts it, returning the auto-assigned row id.
     /// `bookType` は caller 側で自動分類済みの値を渡す (Phase 2.5g).
-    private func insertBookRecord(for url: URL, bookType: Int) throws -> Int {
+    private func insertBookRecord(for url: URL, bookType: Int, epubInfo: EPUBBookInfo? = nil) throws -> Int {
         let basename = url.deletingPathExtension().lastPathComponent
         // Parse format fields for non-title metadata (author, genre, keywords, etc.).
         // Title is always set to basename verbatim — FilenameFormatter reverse-parse may split
@@ -275,8 +281,8 @@ public struct BookImporter: Sendable {
 
         let record = BookRecord(
             id: 0,  // placeholder — insertBookReturningID uses auto-assign (omits id column)
-            title: resolvedTitle,
-            author: fields[.author],
+            title: EPUBMetadataMerge.merged(existing: resolvedTitle, fromEPUB: epubInfo?.title) ?? resolvedTitle,
+            author: EPUBMetadataMerge.merged(existing: fields[.author], fromEPUB: epubInfo?.author),
             genre: fields[.genre],
             path: url.path,
             coverImagePath: "",
