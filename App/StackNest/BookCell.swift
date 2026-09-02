@@ -21,7 +21,7 @@ struct BookCell: View {
 
     var body: some View {
         BookGridCellShell(
-            cover: thumbnail.map { .image(Self.croppedImage($0, rect: book.coverCropRect)) } ?? .none,
+            cover: thumbnail.map { .image(Self.croppedImage($0, rect: book.coverCropRect)) } ?? .placeholder,
             title: book.title,
             author: book.author,
             favorited: favorited,

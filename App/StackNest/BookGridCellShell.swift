@@ -8,9 +8,10 @@ import AppCore
 /// 後続 Task（リモート側）が generic 越しに参照する羽目になり読みにくいため（controller 判断）。
 enum BookGridCover: Equatable {
     case image(CGImage)
-    /// リモートだけが使う（実際に待ち時間がある）。ローカルは `.none` を渡す。
+    /// リモートだけが使う（実際に待ち時間がある）。ローカルは `.placeholder` を渡す。
     case loading
-    case none
+    /// 無表紙・プレースホルダー。
+    case placeholder
 }
 
 /// G46: ローカル `BookCell` とリモート `RemoteBookCell` が共有する「殻」。
@@ -64,7 +65,7 @@ struct BookGridCellShell<TopTrailing: View, Center: View>: View {
                         .clipShape(RoundedRectangle(cornerRadius: 4))
                 case .loading:
                     ProgressView().controlSize(.small)
-                case .none:
+                case .placeholder:
                     // 詳細ペインと同じ SF Symbol。大きさはセル幅に追従させる（gridItemSize のスライダー対応）。
                     Image(systemName: "book.closed")
                         .resizable()

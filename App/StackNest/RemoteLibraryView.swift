@@ -1057,7 +1057,7 @@ private struct RemoteBookCell: View {
             // 4.2c-6b smoke R2: ローカル BookCell と同じ croppedImage でクロップ適用。
             return .image(BookCell.croppedImage(cg, rect: BookRow.decodeCoverCropRect(json: book.coverCropRectJSON)))
         case .loading: return .loading
-        case .noCover: return .none
+        case .noCover: return .placeholder
         }
     }
 }
