@@ -109,6 +109,10 @@ targets:
       - package: StackNest
         product: AppCore
       - package: StackNest
+        product: EPUBAdapter
+      - package: StackNest
+        product: WashiEPUBAdapter
+      - package: StackNest
         product: LibraryServer
       - package: StackNest
         product: LibraryServerAPI
