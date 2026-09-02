@@ -63,7 +63,7 @@ aroma 氏（原作者）は 2019 年頃、5ch 新・Mac 板のスレッド（[eg
 - **キーボードナビ**: グリッド / リストの矢印、Shift+矢印（範囲選択）、⌘↑↓、Home / End、PageUp / Down、Enter で開く
 - **グリッドサイズ**: ライブラリごとに永続化されるサムネイルサイズのスライダー
 - **パスワードロック**: ライブラリごとに SHA-256（salt 付き）でロック設定可能。Touch ID / Apple Watch による生体認証解錠にも対応
-- **対応形式**: アーカイブは ZIP / CBZ / RAR / CBR / 7z（libarchive 経由）と PDF（PDFKit）、画像は JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF（NSImage 経由）
+- **対応形式**: アーカイブは ZIP / CBZ / RAR / CBR / 7z（libarchive 経由）と PDF（PDFKit）、EPUB（表紙とメタデータ。[Washi](https://github.com/shunnag/Washi) 経由・閲覧は今後）、画像は JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF（NSImage 経由）
 - **初回起動ウィザード**: 初回起動時にページ送り式ウィザードで「画像の開き方（内蔵 / 外部ビューア）→（内蔵選択時）ビューア初期設定 → 最初のライブラリ（新規 / 開く / 取り込み）」を設定。設定 ▸ 一般 からいつでも再表示可能
 - **インポート**: 既存 Stackroom ライブラリ XML から SQLite DB へ移行
 - **監視フォルダ（自動取込）**: 指定フォルダを監視し、置かれたアーカイブ / 画像フォルダを自動でライブラリへ取り込み（フォルダごとの命名プリセット、初回プレビュー、取込要約バナー）。自動分類（bookType）や厚さ閾値はライブラリごとに上書き可能（「StackNest 設定の値に従う」/ 個別指定）。サブフォルダの扱いはフォルダごとに **3 択**（取り込まない / 1 冊として取り込む / 中も個別に取り込む）
@@ -112,6 +112,8 @@ Sources/
   LibraryStore/       -- SQLite（GRDB）リポジトリ、Migration、FTS5、マルチ値正規化
   ImageCache/         -- サムネイル描画 / キャッシュ
   ArchiveAdapter/     -- libarchive 経由の ZIP / CBZ / RAR / CBR / 7z 読み込み
+  EPUBAdapter/        -- EPUB を読む契約（protocol）。外部依存ゼロ。AppCore はこれにしか依存しない
+  WashiEPUBAdapter/   -- 上記契約の実装（shunnag/Washi・MIT）。リポジトリで唯一 WashiCore を import する。差し替え可能
   AppCore/            -- アプリレベルのロジック（LibrarySettings, AppPreferences, LibraryLock, エラー型、外部ビューア起動）— テスト容易性のため SwiftUI 非依存
   LibraryServer/      -- 共有サーバ（Hummingbird）、Web UI / リーダー、OpenAPI/Redoc、アクセスティア / グラント
   LibraryServerAPI/   -- サーバ / クライアント共有の DTO
