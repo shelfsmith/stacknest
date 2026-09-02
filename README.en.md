@@ -69,7 +69,7 @@ re-implemented from observation.
 - **Keyboard navigation**: grid / list arrows, Shift+arrows (range select), ⌘↑↓, Home/End, PageUp/Down, Enter to open
 - **Grid item size**: per-library persisted slider
 - **Library lock**: per-library SHA-256 (salted) password lock. Touch ID / Apple Watch biometric unlock supported
-- **Supported formats**: archives ZIP / CBZ / RAR / CBR / 7z (via libarchive) and PDF (PDFKit); images JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF (via NSImage)
+- **Supported formats**: archives ZIP / CBZ / RAR / CBR / 7z (via libarchive), PDF (PDFKit), and EPUB (cover and metadata via [Washi](https://github.com/shunnag/Washi); reading is planned); images JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF (via NSImage)
 - **First-run wizard**: on first launch, a paged wizard walks through "image-opening method (built-in / external viewer) → (if built-in) viewer initial settings → first library (create / open / import)". Re-showable anytime from Settings ▸ General
 - **Import**: migrate an existing Stackroom library XML into the SQLite database
 - **Watch folders (auto-import)**: watch folders and **auto-import** archives / image folders dropped into them (per-folder naming presets, first-run preview, import summary banner). Auto-classification (bookType) and thickness threshold can be **overridden per library** ("follow the StackNest default" / custom). Subfolders are handled per watch folder with **three modes** (ignore / one book per subfolder / recurse into them)
@@ -117,6 +117,8 @@ Sources/
   LibraryStore/       -- SQLite (GRDB) repository, migrations, FTS5, multi-value normalization
   ImageCache/         -- Thumbnail rendering / caching
   ArchiveAdapter/     -- ZIP / CBZ / RAR / CBR / 7z reading via libarchive
+  EPUBAdapter/        -- Contract (protocol) for reading EPUBs. Zero dependencies; AppCore depends only on this
+  WashiEPUBAdapter/   -- Implementation of that contract on shunnag/Washi (MIT). The only target that imports WashiCore; swappable
   AppCore/            -- App-level logic (LibrarySettings, AppPreferences, LibraryLock, error types, external viewer launch) — SwiftUI-independent for testability
   LibraryServer/      -- Sharing server (Hummingbird), web UI / reader, OpenAPI/Redoc, access tiers / grants
   LibraryServerAPI/   -- DTOs shared by server & client
