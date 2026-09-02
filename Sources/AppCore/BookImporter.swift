@@ -138,6 +138,16 @@ public struct BookImporter: Sendable {
                         pageCount = content.pageCount
                         coverDataOverride = content.coverJPEG(maxPixelSize: 1200)
                     }
+                } else if url.pathExtension.lowercased() == "epub" {
+                    // G48 修正ラウンド1: EPUB は契約 EPUBAdapter.reader に表紙を頼む
+                    // （Washi は AppCore から見えない）。未登録・表紙なし・失敗はすべて nil →
+                    // 既存の coverFailures 経路に落ちる（取り込みは続く）。
+                    // 注: 同じループ内で既にメタデータ用に reader.open(url:) を呼んでいるため、
+                    // EPUB 1 冊につき Washi を 2 回開くことになる。今回はそれでよい
+                    // （spike 中央値 63 ms。1 回にまとめる最適化は契約を太らせるので見送る）。
+                    if let reader = EPUBAdapter.reader {
+                        coverDataOverride = try? await reader.coverImageData(url: url, maxPixelSize: 1200)
+                    }
                 } else if BookCategory.classify(path: url.path) == .image {
                     // Phase 2.5g+h+i fixup v1: 単独 image を追加した場合、その image を
                     // そのまま thumbnail として使う (resize は CoverImageResizer で 1200 px 化)。
