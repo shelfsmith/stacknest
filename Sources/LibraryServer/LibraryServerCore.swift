@@ -738,11 +738,12 @@ public struct LibraryServerCore: Sendable {
         }
         // BookRow → BookDetailDTO 変換ヘルパ（/detail と PATCH エンドポイントで共用）。
         // G16 A2: previous は PATCH エンドポイント限定（それ以外の呼び出しは省略=nil のまま）。
-        @Sendable func makeBookDetailDTO(from row: BookRow, lastPage: Int? = nil, previous: BookPatchDTO? = nil) -> BookDetailDTO {
+        @Sendable func makeBookDetailDTO(from row: BookRow, lastPage: Int? = nil, epubLocator: EPUBLocatorDTO? = nil, previous: BookPatchDTO? = nil) -> BookDetailDTO {
             BookDetailDTO(
                 id: row.id, title: row.title, author: row.author, genre: row.genre, path: nil,
                 dateAdded: row.dateAdded, playDate: row.playDate, bookType: row.bookType,
                 fileType: row.fileType, pages: row.pages, lastPage: lastPage,
+                epubLocator: epubLocator,
                 rating: row.rating, unseen: row.unseen,
                 keywordA: row.keywordA, keywordB: row.keywordB, keywordC: row.keywordC,
                 neta: row.neta, memo: row.memo, series: row.series, volume: row.volume,
@@ -866,8 +867,11 @@ public struct LibraryServerCore: Sendable {
         // 書籍詳細（フル BookRow の全フィールドを BookDetailDTO として返す）。ロック庫は X-Library-Token 必須。
         api.get("libraries/:lib/books/:id/detail") { request, context in
             let (lib, row) = try await resolver.resolveBook(request, context)
-            let lastPage = (try? lib.db.loadViewerState(bookID: row.id))?.lastPage
-            return makeBookDetailDTO(from: row, lastPage: lastPage)
+            let viewerState = try? lib.db.loadViewerState(bookID: row.id)
+            let epubLocator = viewerState?.epubLocatorJSON
+                .flatMap { $0.data(using: .utf8) }
+                .flatMap { try? JSONDecoder().decode(EPUBLocatorDTO.self, from: $0) }
+            return makeBookDetailDTO(from: row, lastPage: viewerState?.lastPage, epubLocator: epubLocator)
         }
         // 書籍メタデータ更新（RW トークン専用・表紙フィールドは対象外）。
         // role=write でなければ 403、resolve で 404/401 を返す既存ルーティングを再利用。
@@ -1912,6 +1916,17 @@ public struct LibraryServerCore: Sendable {
             let page = TruncatedReadPolicy.lastPageToPersist(
                 currentPage: body.page, storedLastPage: storedLastPage, truncated: truncated)
             try lib.db.updateLastPage(bookID: row.id, lastPage: page)
+            try lib.db.markAsRead(bookID: row.id, at: Date())
+            config.onBookChanged?(lib.uuid, row.id)
+            return HTTPResponse.Status.ok
+        }
+        // G48-2: EPUB の読書位置。画像本の /progress と同じく後勝ちで保存し既読化する。
+        api.post("libraries/:lib/books/:id/epub-progress") { [config] request, context in
+            let (lib, row) = try await resolver.resolveBook(request, context)
+            let body = try await request.decode(as: EPUBLocatorDTO.self, context: context)
+            let clamped = EPUBLocatorDTO(spine: max(0, body.spine), progress: min(1, max(0, body.progress)), cfi: body.cfi, engine: body.engine)
+            let json = String(decoding: try JSONEncoder().encode(clamped), as: UTF8.self)
+            try lib.db.updateEPUBLocator(bookID: row.id, json: json)
             try lib.db.markAsRead(bookID: row.id, at: Date())
             config.onBookChanged?(lib.uuid, row.id)
             return HTTPResponse.Status.ok

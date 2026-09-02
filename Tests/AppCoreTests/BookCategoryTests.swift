@@ -73,7 +73,7 @@ import Foundation
         #expect(BookCategory.builtInViewerSupport(filename: "a.mp4") == .unsupportedVideo)
         #expect(BookCategory.builtInViewerSupport(filename: "a.MOV") == .unsupportedVideo)
         #expect(BookCategory.builtInViewerSupport(filename: "a.mkv") == .unsupportedVideo)
-        #expect(BookCategory.builtInViewerSupport(filename: "a.epub") == .unsupportedDocument)
+        #expect(BookCategory.builtInViewerSupport(filename: "a.epub") == .supported)   // G48-2: epub は内蔵ビューア対応
         #expect(BookCategory.builtInViewerSupport(filename: "a.txt") == .unsupportedDocument)
         #expect(BookCategory.builtInViewerSupport(filename: "a.md") == .unsupportedDocument)
         #expect(BookCategory.builtInViewerSupport(filename: "a.rtf") == .unsupportedDocument)
