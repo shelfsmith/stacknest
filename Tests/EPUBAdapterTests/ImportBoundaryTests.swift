@@ -6,7 +6,7 @@ import Foundation
 /// Washi は差し替え前提（ユーザーの指示）。AppCore 等から直接呼ぶと差し替えが 1 ターゲットの入れ替えで済まなくなる。
 @Suite("Washi の境界")
 struct ImportBoundaryTests {
-    @Test("import WashiCore は Sources/WashiEPUBAdapter/ の中にしか無い")
+    @Test("import WashiCore / import Washi は Sources/WashiEPUBAdapter/ の中にしか無い")
     func washiImportIsConfined() throws {
         // Tests/EPUBAdapterTests/ImportBoundaryTests.swift → リポジトリ root
         let root = URL(fileURLWithPath: #filePath)
@@ -19,10 +19,10 @@ struct ImportBoundaryTests {
         var offenders: [String] = []
         for case let url as URL in e where url.pathExtension == "swift" {
             let text = try String(contentsOf: url, encoding: .utf8)
-            guard text.contains("import WashiCore") else { continue }
+            guard text.contains("import WashiCore") || text.contains("import Washi\n") || text.contains("import Washi ") else { continue }
             let rel = url.path.replacingOccurrences(of: root.path + "/", with: "")
             if !rel.hasPrefix("Sources/WashiEPUBAdapter/") { offenders.append(rel) }
         }
-        #expect(offenders.isEmpty, "WashiCore を直接 import している: \(offenders)")
+        #expect(offenders.isEmpty, "WashiCore/Washi を直接 import している: \(offenders)")
     }
 }
