@@ -1085,8 +1085,14 @@ final class AppState {
                 controller.showWindow(nil)
                 self.markAsRead(book: book)   // 画像本と同じ: 開いたら unseen=0・play_date=now
             } catch {
+                // G48-2 最終レビュー B: 以前（画像本の BookContentFactory.make と同じ作法）は
+                // 内蔵での開封に失敗すると外部ビューアへフォールバックしていた。ここで
+                // self.error を出すだけにすると、以前は開けていたケース（renderer 側の
+                // 一時的な失敗等）でも本が一切開けなくなる。ログに理由を残した上で
+                // 外部ビューアへフォールバックする。
                 ViewerWindowRegistry.shared.cancelOpen(identity)
-                self.error = .unexpected(error)
+                Self.logger.warning("openEPUBReader: makeReaderView failed for bookID=\(book.id, privacy: .public) path=\(path, privacy: .public): \(error.localizedDescription, privacy: .public) → falling back to external viewer")
+                self.openInExternalViewer([book])
             }
         }
     }
