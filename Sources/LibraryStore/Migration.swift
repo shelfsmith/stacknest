@@ -66,6 +66,9 @@ enum Migration {
 
         // v19 — Finder タグ同期の前回同期値（Phase G39）、冪等。
         try migrateV19AddFinderTagsSyncedIfNeeded(db: db)
+
+        // v20 — EPUB の読書位置（Phase G48-2）、冪等。
+        try migrateV20AddEPUBLocatorIfNeeded(db: db)
     }
 
     /// Adds `thumbnails_directory_path TEXT` to import_meta if it's not already present.
@@ -330,6 +333,17 @@ enum Migration {
         let hasColumn = info.contains { ($0["name"] as? String) == "finder_tags_synced" }
         if !hasColumn {
             try db.execute(sql: Tables.migrateV19AddFinderTagsSynced)
+        }
+    }
+
+    // MARK: - v20: EPUB reading locator (Phase G48-2)
+
+    /// Adds `epub_locator TEXT` column to `book_viewer_state` if not already present (v20).
+    private static func migrateV20AddEPUBLocatorIfNeeded(db: GRDB.Database) throws {
+        let info = try Row.fetchAll(db, sql: "PRAGMA table_info(book_viewer_state)")
+        let hasColumn = info.contains { ($0["name"] as? String) == "epub_locator" }
+        if !hasColumn {
+            try db.execute(sql: Tables.migrateV20AddEPUBLocator)
         }
     }
 }
