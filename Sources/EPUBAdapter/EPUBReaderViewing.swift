@@ -13,4 +13,8 @@ public protocol EPUBReaderViewing: AnyObject {
     func goForward()
     func goBackward()
     func setTheme(_ theme: EPUBReaderThemeValue)
+    /// フォント倍率（実装側の許容範囲へクランプして反映。Washi は 0.5...3.0）。
+    var fontScale: Double { get set }
+    /// フォント倍率がキー操作等で変わったら呼ばれる（永続化に使う）。
+    var onFontScaleChange: ((Double) -> Void)? { get set }
 }
