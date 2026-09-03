@@ -13,8 +13,49 @@ public struct WashiEPUBRenderer: EPUBRendering {
         do { pub = try await EPUBPublication.open(url: url, readStrategy: .alwaysCopy) }
         catch { throw EPUBAdapterError.cannotOpen("\(type(of: error)): \(error)") }
         let host = WashiReaderHost()
-        host.reader.load(publication: pub, at: locator.map(WashiLocatorMapping.toWashi))
+        // G48-2 smoke fix: ここでは load() しない。Washi は load() 時点の `bounds.size` で
+        // 内部 WebView のフレームを決めるため、窓に載る前（frame .zero）に呼ぶと先頭項目
+        // （表紙）が 0×0 のまま描かれ、以降の再ページ割りでも白紙のまま残る
+        // （EPUBReaderView.load()/contentFrame() は `bounds.width/height` を直接使う）。
+        // 実際の load は host.hostView（WashiHostView）が窓に載って実寸を得たときに 1 回だけ行う。
+        host.scheduleLoad(publication: pub, locator: locator.map(WashiLocatorMapping.toWashi))
         return host
+    }
+}
+
+/// `EPUBReaderView` を直接窓に載せず、容れ物の `NSView`（`WashiHostView`）に包んで返す。
+/// 容れ物が「窓に載り、かつ実寸（0×0 でない）になった」瞬間を検知して初回 load() を行う。
+@MainActor
+final class WashiHostView: NSView {
+    let readerView: EPUBReaderView
+    weak var host: WashiReaderHost?
+
+    init(readerView: EPUBReaderView) {
+        self.readerView = readerView
+        super.init(frame: .zero)
+        readerView.autoresizingMask = [.width, .height]
+        readerView.frame = bounds
+        addSubview(readerView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        attemptPendingLoad()
+    }
+
+    override func layout() {
+        super.layout()
+        attemptPendingLoad()
+    }
+
+    /// `window != nil` かつ実寸が付いた最初の機会に、ホストへ 1 回だけ load() を促す。
+    /// 二重実行の防止は `WashiReaderHost.performPendingLoad()` 側（`hasPerformedInitialLoad`）が担う。
+    private func attemptPendingLoad() {
+        guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
+        host?.performPendingLoad()
     }
 }
 
@@ -22,11 +63,19 @@ public struct WashiEPUBRenderer: EPUBRendering {
 @MainActor
 final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate {
     let reader = EPUBReaderView(frame: .zero)
+    private let hostView: WashiHostView
     var onLocatorChange: ((EPUBLocatorValue) -> Void)?
     private(set) var locator: EPUBLocatorValue?
 
+    /// `makeReaderView` が open 済みの publication を置いておく場所。窓に載って実寸が
+    /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
+    private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
+    private var hasPerformedInitialLoad = false
+
     override init() {
+        hostView = WashiHostView(readerView: reader)
         super.init()
+        hostView.host = self
         reader.delegate = self
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
         // （WKWebView がファーストレスポンダを持っていないと発火しない）。Washi README 推奨どおり
@@ -36,8 +85,35 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reader.settings.forwardsKeyEventsNatively = true
     }
 
-    var view: NSView { reader }
-    func go(to locator: EPUBLocatorValue) { reader.go(to: WashiLocatorMapping.toWashi(locator)) }
+    /// `WashiEPUBRenderer.makeReaderView` から呼ぶ。実行はまだしない。
+    func scheduleLoad(publication: EPUBPublication, locator: EPUBLocator?) {
+        pendingLoad = (publication, locator)
+    }
+
+    /// `WashiHostView` からのみ呼ばれる。`hasPerformedInitialLoad` で二重実行を防ぐ。
+    func performPendingLoad() {
+        guard !hasPerformedInitialLoad, let pending = pendingLoad else { return }
+        hasPerformedInitialLoad = true
+        pendingLoad = nil
+        reader.load(publication: pending.publication, at: pending.locator)
+    }
+
+    var view: NSView { hostView }
+
+    func go(to locator: EPUBLocatorValue) {
+        let mapped = WashiLocatorMapping.toWashi(locator)
+        guard hasPerformedInitialLoad else {
+            // 窓に載る前（load() 未実行）の呼び出し: 落とさず、pending の開始位置を
+            // 差し替えるだけにする（Washi 自身の go(to:) も publication == nil の間は
+            // 安全に no-op だが、こちらは狙った位置から開けるようにする）。
+            if var pending = pendingLoad {
+                pending.locator = mapped
+                pendingLoad = pending
+            }
+            return
+        }
+        reader.go(to: mapped)
+    }
     func goForward() { reader.goForward() }
     func goBackward() { reader.goBackward() }
     func setTheme(_ theme: EPUBReaderThemeValue) {
@@ -76,7 +152,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         }
     }
 
-    // macOS 仮想キーコード（`Carbon.HIToolbox` の定数と同値。依存を増やさないためリテラルで持つ）。
+    // macOS 仮想キーコード(`Carbon.HIToolbox` の定数と同値。依存を増やさないためリテラルで持つ)。
     private static let keyCodeLeftArrow: UInt16 = 123
     private static let keyCodeRightArrow: UInt16 = 124
     private static let keyCodePageUp: UInt16 = 116
