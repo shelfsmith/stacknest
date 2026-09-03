@@ -65,6 +65,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     let reader = EPUBReaderView(frame: .zero)
     private let hostView: WashiHostView
     var onLocatorChange: ((EPUBLocatorValue) -> Void)?
+    var onFontScaleChange: ((Double) -> Void)?
     private(set) var locator: EPUBLocatorValue?
 
     /// `makeReaderView` が open 済みの publication を置いておく場所。窓に載って実寸が
@@ -124,6 +125,18 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         }
     }
 
+    /// フォント倍率。Washi 側の許容範囲（`EPUBReaderView.fontScaleRange` = 0.5...3.0）へクランプする。
+    /// 直接代入は delegate の `didChangeFontScale` を発火させない（Washi 自身がピンチ／
+    /// `adjustFontScale(by:)` 経由でしか呼ばない）ので、App 層が復元値をここへ書き戻しても
+    /// `onFontScaleChange` への往復（＝無駄な再保存）は起きない。
+    var fontScale: Double {
+        get { reader.settings.fontScale }
+        set {
+            let range = EPUBReaderView.fontScaleRange
+            reader.settings.fontScale = min(range.upperBound, max(range.lowerBound, newValue))
+        }
+    }
+
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
         let v = WashiLocatorMapping.toValue(locator)
@@ -131,8 +144,16 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         onLocatorChange?(v)
     }
 
+    /// フォント倍率がピンチ／`adjustFontScale(by:)`（キー操作含む）で変わったら、
+    /// 永続化のため `onFontScaleChange` に流す。
+    func readerView(_ view: EPUBReaderView, didChangeFontScale scale: Double) {
+        onFontScaleChange?(scale)
+    }
+
     /// G48-2 最終レビュー C: 矢印は `turnPageLeft()`/`turnPageRight()`（RTL は Washi 内部で解決）、
     /// スペース／Page Down は `goForward()`、Shift+スペース／Page Up は `goBackward()` に繋ぐ。
+    /// G48-2 smoke fix: ⌘+/⌘= でフォント拡大、⌘- で縮小、⌘0 で等倍へリセット
+    /// （`EPUBReaderSettings.fontScale`、範囲は `EPUBReaderView.fontScaleRange`）。
     /// 未対応キーは false を返し JS 経路・既定動作へフォールスルーさせる。
     func readerView(_ view: EPUBReaderView, didReceiveNativeKey event: NSEvent) -> Bool {
         switch event.keyCode {
@@ -147,6 +168,15 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             view.goForward(); return true
         case Self.keyCodePageUp:
             view.goBackward(); return true
+        case Self.keyCodeEqual where event.modifierFlags.contains(.command):
+            view.adjustFontScale(by: 0.1); return true
+        case Self.keyCodeMinus where event.modifierFlags.contains(.command):
+            view.adjustFontScale(by: -0.1); return true
+        case Self.keyCodeZero where event.modifierFlags.contains(.command):
+            guard view.settings.fontScale != 1.0 else { return true }
+            view.settings.fontScale = 1.0
+            onFontScaleChange?(1.0)  // 直接代入は didChangeFontScale を発火しないので手動で流す
+            return true
         default:
             return false
         }
@@ -158,4 +188,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     private static let keyCodePageUp: UInt16 = 116
     private static let keyCodePageDown: UInt16 = 121
     private static let keyCodeSpace: UInt16 = 49
+    private static let keyCodeEqual: UInt16 = 24   // ⌘= / ⌘+（同一物理キー、Shift の有無は問わない）
+    private static let keyCodeMinus: UInt16 = 27   // ⌘-
+    private static let keyCodeZero: UInt16 = 29    // ⌘0
 }

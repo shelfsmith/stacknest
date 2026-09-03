@@ -35,6 +35,7 @@ public final class ViewerSettings {
     private let loupeMagnificationKey = "viewerLoupeMagnification"
     private let loupeShapeKey = "viewerLoupeShape"
     private let loupeSizeKey = "viewerLoupeSize"
+    private let epubFontScaleKey = "epubFontScale"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -143,6 +144,19 @@ public final class ViewerSettings {
         }
     }
 
+    /// G48-2 smoke fix: EPUB 内蔵リーダーのフォント倍率（app-global・既定 1.0）。範囲 0.5...3.0 を
+    /// setter で強制する（`loupeMagnification` と同じ「再代入して didSet を再発火させる」方式）。
+    public var epubFontScale: Double {
+        didSet {
+            let clamped = EPUBFontScale.clamp(epubFontScale)
+            if clamped != epubFontScale {
+                epubFontScale = clamped
+                return
+            }
+            defaults.set(epubFontScale, forKey: epubFontScaleKey)
+        }
+    }
+
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
     public var viewerOptions: ViewerOptions {
         ViewerOptions(pageDirection: pageDirection, endOfBookBehavior: endOfBookBehavior)
@@ -246,6 +260,12 @@ public final class ViewerSettings {
             self.loupeSize = size
         } else {
             self.loupeSize = .defaultValue
+        }
+        // G48-2 smoke fix: 保存値が範囲外／未知でも畳んで読む。キー不在なら既定。
+        if defaults.object(forKey: epubFontScaleKey) == nil {
+            self.epubFontScale = EPUBFontScale.defaultValue
+        } else {
+            self.epubFontScale = EPUBFontScale.clamp(defaults.double(forKey: epubFontScaleKey))
         }
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve

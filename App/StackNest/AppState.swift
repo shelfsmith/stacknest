@@ -1077,6 +1077,13 @@ final class AppState {
                     guard let self, let data = try? JSONEncoder().encode(loc) else { return }
                     try? self.database?.updateEPUBLocator(bookID: book.id, json: String(decoding: data, as: UTF8.self))
                 }
+                // G48-2 smoke fix: 保存済みのフォント倍率を復元し、以降の変更（⌘+/⌘-/⌘0）を永続化する。
+                // 復元の代入を先にし、変更ハンドラの設置を後にすることで、復元自体が
+                // onFontScaleChange 経由の無駄な再保存を起こさない。
+                reader.fontScale = self.viewerSettings.epubFontScale
+                reader.onFontScaleChange = { [weak self] scale in
+                    self?.viewerSettings.epubFontScale = scale
+                }
                 controller.onClose = { [weak controller] in
                     guard let controller else { return }
                     ViewerWindowRegistry.shared.unregister(controller: controller)
