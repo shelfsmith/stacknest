@@ -123,9 +123,17 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         super.init()
         hostView.host = self
         reader.delegate = self
-        // G48-2 smoke の切り分け実験。FXL ページが白紙になる件で演出のカバーを疑っている。
-        // 結論が出たら見直す。
-        reader.settings.pageTurnStyle = .none
+        // G48-2 smoke fix: Washi の画像ページ CSS（body svg { width:auto; height:auto } と
+        // `!important` の max-width/max-height）が、`<div class="main"><svg width="100%"
+        // height="100%">` を包む日本語 EPUB の全面画像ページで svg を 0×0 に潰す（DOM 実測で確認済み。
+        // 原因は ReaderScripts.swift の画像ページ CSS）。userCSS は Washi の CSS の後に注入されるため、
+        // ここで viewBox を持つ svg にビューポート単位の寸法を明示的に与え、Washi 側の
+        // max-width/max-height（!important・ページ寸）に収めさせる。ラッパーは flex 中央寄せの
+        // ままなので、余白は中央に出る。Washi 上流へ報告する候補（body svg のデフォルト寸法算出）。
+        reader.settings.userCSS = """
+            body svg[viewBox] { width: 100vw !important; height: 100vh !important; }
+            body svg[viewBox] > image { width: 100%; height: 100%; }
+            """
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
         // （WKWebView がファーストレスポンダを持っていないと発火しない）。Washi README 推奨どおり
         // ネイティブ NSEvent 経路（`didReceiveNativeKey`）に切り替え、`readerView(_:didReceiveNativeKey:)`
