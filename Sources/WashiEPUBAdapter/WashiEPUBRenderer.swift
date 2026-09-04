@@ -3,6 +3,11 @@ import AppKit
 import EPUBAdapter
 import WashiCore
 import Washi   // ← 表示層。リポジトリでここだけ
+import os
+
+/// G48-2 smoke fix: 初回 load 前後のジオメトリと読み込み失敗を追う。個人情報
+/// （パス・題名）は出さない — サイズ・spine index・エラー型のみ。
+private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
 public struct WashiEPUBRenderer: EPUBRendering {
     public init() {}
@@ -43,12 +48,25 @@ final class WashiHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        syncReaderFrame()
         attemptPendingLoad()
     }
 
     override func layout() {
         super.layout()
+        syncReaderFrame()
         attemptPendingLoad()
+    }
+
+    /// `readerView` を `autoresizingMask` 任せにしない。親（`self`）が frame `.zero` の間に
+    /// 追加された subview は、AppKit の autoresizing 比例計算（旧サイズに対する新旧比）が
+    /// 0 除算になり、親が実寸になっても 0×0 のまま取り残されることがある（既知の落とし穴）。
+    /// その状態で Washi が内部 WebView を作ると load() 時点のフレームが 0×0 になり、
+    /// 表紙が白紙のまま残る。autoresizingMask は保持しつつ、レイアウトの都度ここで
+    /// `frame = bounds` を明示的に上書きして確実に追従させる。
+    private func syncReaderFrame() {
+        guard readerView.frame != bounds else { return }
+        readerView.frame = bounds
     }
 
     /// `window != nil` かつ実寸が付いた最初の機会に、ホストへ 1 回だけ load() を促す。
@@ -72,6 +90,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
     private var hasPerformedInitialLoad = false
+    /// `didMoveTo` の初回のみジオメトリをログするためのフラグ（G48-2 smoke: 白紙表紙の追跡）。
+    private var hasLoggedFirstPage = false
 
     override init() {
         hostView = WashiHostView(readerView: reader)
@@ -96,6 +116,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         guard !hasPerformedInitialLoad, let pending = pendingLoad else { return }
         hasPerformedInitialLoad = true
         pendingLoad = nil
+        epubReaderLog.debug(
+            "load: host=\(String(describing: self.hostView.bounds), privacy: .public) reader=\(String(describing: self.reader.bounds), privacy: .public) window=\(String(describing: self.hostView.window?.frame ?? .zero), privacy: .public)"
+        )
         reader.load(publication: pending.publication, at: pending.locator)
     }
 
@@ -139,9 +162,20 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
+        if !hasLoggedFirstPage {
+            hasLoggedFirstPage = true
+            epubReaderLog.debug(
+                "firstPage: spine=\(locator.spineIndex, privacy: .public) reader=\(String(describing: view.bounds), privacy: .public)"
+            )
+        }
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
         onLocatorChange?(v)
+    }
+
+    /// 読み込み失敗をログする（G48-2 smoke: 白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
+    func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
+        epubReaderLog.error("fail: \(String(describing: type(of: error)), privacy: .public)")
     }
 
     /// フォント倍率がピンチ／`adjustFontScale(by:)`（キー操作含む）で変わったら、
