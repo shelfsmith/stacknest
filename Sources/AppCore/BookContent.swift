@@ -47,6 +47,9 @@ public enum BookContentFactory {
         case .image:
             return SingleImageBookContent(url: url)
         case .text:
+            if url.pathExtension.lowercased() == "epub" {
+                return EPUBImageBookContent(lazyURL: url)
+            }
             if url.pathExtension.lowercased() == "pdf" {
                 guard let pdf = PDFBookContent(url: url) else {
                     throw BookContentError.pdfUnopenable(path)
