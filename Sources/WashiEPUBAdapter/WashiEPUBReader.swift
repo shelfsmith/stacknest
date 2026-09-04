@@ -25,9 +25,13 @@ public struct WashiEPUBReader: EPUBReading {
         return Self.jpegData(cg)
     }
 
-    // TODO(G48-2b Task 3): 全ページ画像本の判定＋handle 生成を実装する。
     public func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? {
-        nil
+        let pub = try await publication(url)
+        let infos = pub.readingOrder.indices.map { try? pub.fixedLayoutInfo(forSpineIndex: $0) }
+        let paths = infos.map { $0?.simpleImagePath }
+        guard EPUBImageBookDetection.isImageBook(simpleImagePaths: paths) else { return nil }
+        let spreads = infos.map { Self.spread(from: $0?.pageSpread) }
+        return WashiImageBook(publication: pub, imagePaths: paths.compactMap { $0 }, spreads: spreads)
     }
 
     private func publication(_ url: URL) async throws -> EPUBPublication {
@@ -43,6 +47,16 @@ public struct WashiEPUBReader: EPUBReading {
         case "rtl": return .rtl
         case "ltr": return .ltr
         default: return .unknown
+        }
+    }
+
+    /// Washi の `PageSpreadSlot` を rawValue 文字列で写す（enum 名に依存しない）。nil は "none" 扱い。
+    static func spread(from slot: PageSpreadSlot?) -> EPUBPageSpread {
+        switch slot?.rawValue.lowercased() {
+        case "left": return .left
+        case "right": return .right
+        case "center": return .center
+        default: return .none
         }
     }
 

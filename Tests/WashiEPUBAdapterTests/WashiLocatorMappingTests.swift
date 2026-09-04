@@ -16,4 +16,11 @@ struct WashiLocatorMappingTests {
         let l = WashiLocatorMapping.toWashi(EPUBLocatorValue(spine: 2, progress: 0.75, cfi: "epubcfi(/6/4)", engine: "foliate"))
         #expect(l.spineIndex == 2 && l.progression == 0.75 && l.idref == nil)
     }
+    @Test("Washi の PageSpreadSlot を契約の EPUBPageSpread へ rawValue で写す")
+    func spreadMapping() {
+        #expect(WashiEPUBReader.spread(from: .left) == .left)
+        #expect(WashiEPUBReader.spread(from: .right) == .right)
+        #expect(WashiEPUBReader.spread(from: .center) == .center)
+        #expect(WashiEPUBReader.spread(from: nil) == .none)
+    }
 }
