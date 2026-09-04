@@ -168,27 +168,43 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             view.goForward(); return true
         case Self.keyCodePageUp:
             view.goBackward(); return true
-        case Self.keyCodeEqual where event.modifierFlags.contains(.command):
-            view.adjustFontScale(by: 0.1); return true
-        case Self.keyCodeMinus where event.modifierFlags.contains(.command):
-            view.adjustFontScale(by: -0.1); return true
-        case Self.keyCodeZero where event.modifierFlags.contains(.command):
-            guard view.settings.fontScale != 1.0 else { return true }
-            view.settings.fontScale = 1.0
-            onFontScaleChange?(1.0)  // 直接代入は didChangeFontScale を発火しないので手動で流す
-            return true
         default:
-            return false
+            guard let delta = Self.fontScaleDelta(for: event) else { return false }
+            if delta == 0 {
+                guard view.settings.fontScale != 1.0 else { return true }
+                view.settings.fontScale = 1.0
+                onFontScaleChange?(1.0)  // 直接代入は didChangeFontScale を発火しないので手動で流す
+            } else {
+                view.adjustFontScale(by: delta)
+            }
+            return true
         }
     }
 
+    /// ⌘+/⌘-/⌘0 の判定を **文字**（`charactersIgnoringModifiers`／`characters`）で行う。
+    /// keyCode は物理配列依存で、JIS では keyCode 24 が `^`、`+` は Shift+`;`（keyCode 41）に
+    /// 割り当てられており US 前提の keyCode 判定（24/27/29）が JIS で成立しない（G48-2 実機不具合）。
+    /// ⌘ 押下時の文字は次の 2 系統を両方見る:
+    /// - `charactersIgnoringModifiers`: Shift を無視した「素の物理キー」の文字（US "=" キーはそのまま "="／
+    ///   JIS ";" キーはそのまま ";"）
+    /// - `characters`: Shift を反映した文字（JIS の ⌘Shift+; は ";" キーに Shift が乗るため "+" になる）
+    /// テンキーの `+`/`-` も同じ文字コードなので自然に一致する。
+    /// - Returns: `+0.1`（拡大）／`-0.1`（縮小）／`0`（⌘0＝等倍へリセット）／`nil`（対象外・⌘ 未押下）。
+    nonisolated static func fontScaleDelta(for event: NSEvent) -> Double? {
+        guard event.modifierFlags.contains(.command) else { return nil }
+        let candidates = [event.charactersIgnoringModifiers, event.characters].compactMap { $0 }
+        guard !candidates.isEmpty else { return nil }
+        if candidates.contains("0") { return 0 }
+        if candidates.contains(where: { $0 == "+" || $0 == "=" || $0 == ";" }) { return 0.1 }
+        if candidates.contains(where: { $0 == "-" || $0 == "_" }) { return -0.1 }
+        return nil
+    }
+
     // macOS 仮想キーコード(`Carbon.HIToolbox` の定数と同値。依存を増やさないためリテラルで持つ)。
+    // 矢印・スペース・PageUp/Down は物理配列に依存しない特殊キーなので keyCode のまま判定する。
     private static let keyCodeLeftArrow: UInt16 = 123
     private static let keyCodeRightArrow: UInt16 = 124
     private static let keyCodePageUp: UInt16 = 116
     private static let keyCodePageDown: UInt16 = 121
     private static let keyCodeSpace: UInt16 = 49
-    private static let keyCodeEqual: UInt16 = 24   // ⌘= / ⌘+（同一物理キー、Shift の有無は問わない）
-    private static let keyCodeMinus: UInt16 = 27   // ⌘-
-    private static let keyCodeZero: UInt16 = 29    // ⌘0
 }
