@@ -100,20 +100,46 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 現在の WKWebView と本プロパティが指す WebView が食い違えば再注入し、更新する。
     private weak var injectedWebView: WKWebView?
 
-    /// G48-2 Codex P2 対応: `preserveAspectRatio` 修正 JS の本体を 1 箇所にまとめる。
-    /// `WKUserScript`（`injectPreserveAspectRatioFixIfNeeded()`）と、`didMoveTo` からの
-    /// 直接実行（`applyPreserveAspectRatioFixDirectly()`）の両方がこれを使う——
+    /// G48-2（2026-09-04 差し替え）: Washi の画像ページ CSS（`body svg { width:auto; height:auto }`＋
+    /// `!important` の max-width/max-height。上流 Issue https://github.com/shunnag/Washi/issues/1）が
+    /// svg を 0×0 に潰す問題への対処を、CSS＋DOM 属性書き換え（`meet`）の合わせ技から
+    /// JS で寸法を直接与える方式に変更した。旧方式（`userCSS` の `height:100vh` 固定＋
+    /// `preserveAspectRatio="none"` を `xMidYMid meet` に書き換え）は、箱の幅が Washi の
+    /// `max-width`（ページ割りの再実行後にしか更新されない `!important`）で頭打ちになり、
+    /// 窓のリサイズに対して画像が一拍遅れて追従し letterbox の余白も出ていた（実機で確認）。
+    /// 本方式は viewport（`innerWidth`/`innerHeight` = Washi の `contentFrame()`）から
+    /// 比率を保った px 寸法を計算し、`!important` の inline style で Washi の
+    /// max-width/max-height を上書きするため、`resize` イベントに同期して即座に追従する。
+    /// `WKUserScript`（`injectFitSvgImagePagesFixIfNeeded()`）と、`didMoveTo` からの
+    /// 直接実行（`applyFitSvgImagePagesDirectly()`）の両方がこれを使う——
     /// WebKit は「すでに始まったナビゲーション」には後から足した `WKUserScript` を適用しない
     /// ため、`WKUserScript` だけでは初回表紙（＝ `performPendingLoad` が `reader.load()` の
     /// 後に注入していた場合）や WebContent プロセス復旧直後の最初の文書で効かないことがある。
     /// 直接実行はナビゲーション順序に依存せず「今表示中の文書」に確実に当たるので保険になる。
-    private static let preserveAspectRatioFixScript = """
+    /// `resize` リスナーは `window.__stacknestFitInstalled` で多重登録を防ぐ（冪等に何度呼んでもよい）。
+    private static let fitSvgImagePagesScript = """
         (() => {
-          for (const svg of document.querySelectorAll('svg[preserveAspectRatio="none"]')) {
-            // 画像 1 枚を包む svg だけ（テキスト混在の装飾 svg は触らない）
-            if (svg.querySelector('image') && svg.children.length === 1) {
+          const fit = () => {
+            for (const svg of document.querySelectorAll('svg[viewBox]')) {
+              // 画像 1 枚を包む svg だけ（テキスト混在の装飾 svg は触らない）
+              if (!svg.querySelector('image') || svg.children.length !== 1) continue;
+              const vb = svg.viewBox.baseVal;
+              if (!vb || !vb.width || !vb.height) continue;
               svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+              const vw = innerWidth, vh = innerHeight, r = vb.width / vb.height;
+              let w = vh * r, h = vh;
+              if (w > vw) { w = vw; h = vw / r; }
+              // Washi の max-width/max-height（!important）より優先させるため inline !important
+              svg.style.setProperty('width', Math.floor(w) + 'px', 'important');
+              svg.style.setProperty('height', Math.floor(h) + 'px', 'important');
+              svg.style.setProperty('max-width', 'none', 'important');
+              svg.style.setProperty('max-height', 'none', 'important');
             }
+          };
+          fit();
+          if (!window.__stacknestFitInstalled) {
+            window.__stacknestFitInstalled = true;
+            addEventListener('resize', fit);
           }
         })();
         """
@@ -123,25 +149,13 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         super.init()
         hostView.host = self
         reader.delegate = self
-        // G48-2 smoke fix: Washi の画像ページ CSS（body svg { width:auto; height:auto } と
-        // `!important` の max-width/max-height）が、`<div class="main"><svg width="100%"
-        // height="100%">` を包む日本語 EPUB の全面画像ページで svg を 0×0 に潰す（DOM 実測で確認済み。
-        // 原因は ReaderScripts.swift の画像ページ CSS）。userCSS は Washi の CSS の後に注入されるため、
-        // ここで viewBox を持つ svg にビューポート単位の寸法を明示的に与え、Washi 側の
-        // max-width/max-height（!important・ページ寸）に収めさせる。ラッパーは flex 中央寄せの
-        // ままなので、余白は中央に出る。Washi 上流へ報告する候補（body svg のデフォルト寸法算出）。
-        // <image> の寸法は属性に任せる。CSS で width/height 両方を 100% 指定すると、Calibre/Kindle
-        // 生成の表紙 svg（`preserveAspectRatio="none"` = 箱に合わせて引き伸ばす指定）が画面比に
-        // 引き伸ばされる（2026-09-04 実機で確認。出版社製ページは既定の meet なので無事）。
-        // 高さだけ !important で固定し幅は auto にすると、置換要素と同じ扱いで width が viewBox の
-        // 縦横比から算出される。preserveAspectRatio="none" でも箱の比率＝画像の比率になるため崩れない。
-        // Washi の max-width（!important・ページ幅）は残るので、横長画像は幅で頭打ちになる
-        // （`1c0f54a` で preserveAspectRatio="none" を "xMidYMid meet" に書き換える
-        // `injectPreserveAspectRatioFixIfNeeded()` を追加済みのため、横長表紙も letterbox される
-        // だけで縦に潰れることはない）。
-        reader.settings.userCSS = """
-            body svg[viewBox] { height: 100vh !important; width: auto !important; }
-            """
+        // G48-2（2026-09-04 差し替え）: 以前はここで `userCSS` に
+        // `body svg[viewBox] { height: 100vh !important; width: auto !important; }` を注入していたが、
+        // CSS だけでは Washi の `max-width`（ページ割りの再実行後にしか更新されない `!important`）の
+        // 更新が遅れ、窓のリサイズに画像が一拍遅れて追従する問題があった（`fitSvgImagePagesScript` の
+        // doc コメント参照）。寸法は JS（`fitSvgImagePagesScript`）が inline style で直接与えるため、
+        // ここでの CSS 注入は不要（JS が走るまでの一瞬だけ Washi の `width:auto; height:auto` で
+        // svg が 0×0 になりうるが、`.atDocumentEnd` で即座に修正されるため許容する）。
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
         // （WKWebView がファーストレスポンダを持っていないと発火しない）。Washi README 推奨どおり
         // ネイティブ NSEvent 経路（`didReceiveNativeKey`）に切り替え、`readerView(_:didReceiveNativeKey:)`
@@ -169,18 +183,18 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // 万一すでに WebView が存在していれば load() 前に注入できたほうがよいので試す。
         // 居なければ load() 直後にもう一度試み（従来どおりの経路）、
         // それでも表紙ナビゲーションには間に合わないことがあるため、
-        // `readerView(_:didMoveTo:...)` からの直接実行（`applyPreserveAspectRatioFixDirectly()`）
+        // `readerView(_:didMoveTo:...)` からの直接実行（`applyFitSvgImagePagesDirectly()`）
         // が最終的な保険になる。
-        injectPreserveAspectRatioFixIfNeeded()
+        injectFitSvgImagePagesFixIfNeeded()
         reader.load(publication: pending.publication, at: pending.locator)
-        injectPreserveAspectRatioFixIfNeeded()
+        injectFitSvgImagePagesFixIfNeeded()
     }
 
-    /// G48-2 最終手当て: `preserveAspectRatio="none"` の表紙 svg は CSS では比率維持を強制できない
-    /// （箱に合わせて引き伸ばす指定そのものを CSS が上書きできないため）。窓を狭めると Washi の
-    /// max-width（!important・ページ幅）で幅だけ頭打ちになり、`100vh` 固定の高さと組み合わさって
-    /// 縦に伸びる。DOM 属性を `xMidYMid meet` に書き換えて比率維持へ倒す。Washi 上流へ報告する候補
-    /// （表紙 svg の `preserveAspectRatio="none"` 尊重、または画像ページ CSS 側での比率維持）。
+    /// G48-2（2026-09-04 差し替え）: `fitSvgImagePagesScript`（doc コメント参照）を
+    /// `WKUserScript` として注入する。CSS では画像 1 枚の svg ページの寸法・比率を
+    /// Washi の `max-width`/`max-height`（!important）に勝てる形で強制できないため、
+    /// JS が inline style で px 寸法を直接書き込む。Washi 上流へ報告する候補
+    /// （body svg のデフォルト寸法算出、または画像ページ CSS 側での比率維持）。
     ///
     /// G48-2 レビュー対応: Washi は WebContent プロセスクラッシュからの復帰時に WKWebView を
     /// 作り直す（`injectedWebView` の doc コメント参照）ため、「1 回だけ」注入する Bool フラグでは
@@ -190,16 +204,16 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// `readerView(_:didMoveTo:pageInItem:pageCountInItem:)`（ページ遷移のたび）からも呼ぶ——
     /// 同一 WebView への呼び出しは早期 return するだけなので安価。WebView が作り直されても、
     /// 次にページへ到達した時点で復旧する。
-    private func injectPreserveAspectRatioFixIfNeeded() {
+    private func injectFitSvgImagePagesFixIfNeeded() {
         guard let wv = currentWebView(), wv !== injectedWebView else { return }
         injectedWebView = wv
         let script = WKUserScript(
-            source: Self.preserveAspectRatioFixScript,
+            source: Self.fitSvgImagePagesScript,
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: true
         )
         wv.configuration.userContentController.addUserScript(script)
-        epubReaderLog.notice("preserveAspectRatio fix: user script injected")
+        epubReaderLog.notice("fitSvgImagePages fix: user script injected")
     }
 
     /// G48-2 Codex P2: `WKUserScript` は次回以降のナビゲーション（次ページ・復旧後の再読込）向けの
@@ -208,17 +222,17 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// （すでに始まったナビゲーションには `WKUserScript` が効かないため）。
     /// 冪等（何度当てても副作用なし）なので、`didMoveTo` から毎回呼んでよい。
     /// 結果は無視し、失敗時のみ 1 行 `.notice` でログする。
-    private func applyPreserveAspectRatioFixDirectly() {
+    private func applyFitSvgImagePagesDirectly() {
         guard let wv = currentWebView() else { return }
-        wv.evaluateJavaScript(Self.preserveAspectRatioFixScript) { _, error in
+        wv.evaluateJavaScript(Self.fitSvgImagePagesScript) { _, error in
             if let error {
-                epubReaderLog.notice("preserveAspectRatio direct apply failed: \(String(describing: error), privacy: .public)")
+                epubReaderLog.notice("fitSvgImagePages direct apply failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
 
     /// `reader.subviews` の中から現在の `WKWebView` を探す。Washi は WebView を直接の subview として
-    /// 持つ（`injectPreserveAspectRatioFixIfNeeded` のコメント参照）。
+    /// 持つ（`injectFitSvgImagePagesFixIfNeeded` のコメント参照）。
     private func currentWebView() -> WKWebView? {
         for v in reader.subviews {
             if let wv = v as? WKWebView { return wv }
@@ -271,11 +285,11 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         onLocatorChange?(v)
         // G48-2 レビュー対応: WebContent プロセスのクラッシュ復帰で WKWebView が作り直されている
         // ことがあるため、ページ遷移のたびに注入要否を確認する（同一 WebView なら早期 return）。
-        injectPreserveAspectRatioFixIfNeeded()
+        injectFitSvgImagePagesFixIfNeeded()
         // G48-2 Codex P2: WKUserScript はすでに始まったナビゲーションに後から足しても効かないため、
         // 最初の項目（表紙）や WebContent プロセス復旧直後の最初の文書で無言のまま外れることがある。
         // 冪等なので、現在の文書に対して毎回直接 JS を当てて確実性を担保する。
-        applyPreserveAspectRatioFixDirectly()
+        applyFitSvgImagePagesDirectly()
     }
 
     /// 読み込み失敗をログする（白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
