@@ -117,6 +117,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
     private var hasPerformedInitialLoad = false
+    /// G48-2 最終手当て: `injectPreserveAspectRatioFix()` の二重登録防止。
+    private var hasInjectedPreserveAspectRatioFix = false
 
     override init() {
         hostView = WashiHostView(readerView: reader)
@@ -162,10 +164,48 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         epubReaderLog.notice("\(loadLine, privacy: .public)")
         fileLog(loadLine)
         reader.load(publication: pending.publication, at: pending.locator)
+        injectPreserveAspectRatioFix()
         dumpGeometry("performPendingLoad")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.dumpGeometry("performPendingLoad+1s")
         }
+    }
+
+    /// G48-2 最終手当て: `preserveAspectRatio="none"` の表紙 svg は CSS では比率維持を強制できない
+    /// （箱に合わせて引き伸ばす指定そのものを CSS が上書きできないため）。窓を狭めると Washi の
+    /// max-width（!important・ページ幅）で幅だけ頭打ちになり、`100vh` 固定の高さと組み合わさって
+    /// 縦に伸びる。DOM 属性を `xMidYMid meet` に書き換えて比率維持へ倒す。Washi 上流へ報告する候補
+    /// （表紙 svg の `preserveAspectRatio="none"` 尊重、または画像ページ CSS 側での比率維持）。
+    /// `reader.load()` 直後に 1 回だけ呼ぶ（Washi は load() のたびに WKWebView を作り直すため）。
+    /// 同じ本の spine 遷移は同じ WebView 内のナビゲーションなので、登録したユーザースクリプトは
+    /// 各ページで走る。
+    private func injectPreserveAspectRatioFix() {
+        guard !hasInjectedPreserveAspectRatioFix else { return }
+        var webView: WKWebView?
+        for v in reader.subviews {
+            if let wv = v as? WKWebView {
+                webView = wv
+                break
+            }
+        }
+        guard let wv = webView else {
+            fileLog("injectPreserveAspectRatioFix: ERROR no WKWebView found")
+            return
+        }
+        hasInjectedPreserveAspectRatioFix = true
+        let js = """
+            (() => {
+              for (const svg of document.querySelectorAll('svg[preserveAspectRatio="none"]')) {
+                // 画像 1 枚を包む svg だけ（テキスト混在の装飾 svg は触らない）
+                if (svg.querySelector('image') && svg.children.length === 1) {
+                  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+                }
+              }
+            })();
+            """
+        let script = WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        wv.configuration.userContentController.addUserScript(script)
+        fileLog("injectPreserveAspectRatioFix: injected")
     }
 
     /// G48-2 切り分け実験・第 2 弾: WebView とその周辺 subview の実際のジオメトリ・状態を
