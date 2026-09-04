@@ -6,35 +6,9 @@ import Washi   // ← 表示層。リポジトリでここだけ
 import WebKit
 import os
 
-/// G48-2 smoke fix: 初回 load 前後のジオメトリと読み込み失敗を追う。個人情報
-/// （パス・題名）は出さない — サイズ・spine index・エラー型のみ。
+/// 初回 load・読み込み失敗を最小限だけ記録する。個人情報（パス・題名）は出さない
+/// — サイズ・spine index・エラー型のみ。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
-
-/// G48-2 切り分け実験・第 2 弾: この環境で unified log（os_log）が読めないことが分かったため、
-/// 同じ内容をファイルにも追記する（`~/Library/Logs/StackNest/epub-reader.log`）。
-/// 失敗は無視する（ログはベストエフォートで、本来の描画動作を妨げない）。
-private func fileLog(_ line: String) {
-    do {
-        let libraryDir = try FileManager.default.url(
-            for: .libraryDirectory, in: .userDomainMask, appropriateFor: nil, create: false
-        )
-        let dir = libraryDir.appendingPathComponent("Logs/StackNest", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let fileURL = dir.appendingPathComponent("epub-reader.log")
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            FileManager.default.createFile(atPath: fileURL.path, contents: nil)
-        }
-        let handle = try FileHandle(forWritingTo: fileURL)
-        defer { try? handle.close() }
-        handle.seekToEndOfFile()
-        let ts = ISO8601DateFormatter().string(from: Date())
-        if let data = "[\(ts)] \(line)\n".data(using: .utf8) {
-            handle.write(data)
-        }
-    } catch {
-        // ログはベストエフォート。失敗しても本来の動作には影響させない。
-    }
-}
 
 public struct WashiEPUBRenderer: EPUBRendering {
     public init() {}
@@ -162,13 +136,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         pendingLoad = nil
         let loadLine = "load: host=\(String(describing: self.hostView.bounds)) reader=\(String(describing: self.reader.bounds)) window=\(String(describing: self.hostView.window?.frame ?? .zero))"
         epubReaderLog.notice("\(loadLine, privacy: .public)")
-        fileLog(loadLine)
         reader.load(publication: pending.publication, at: pending.locator)
         injectPreserveAspectRatioFix()
-        dumpGeometry("performPendingLoad")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.dumpGeometry("performPendingLoad+1s")
-        }
     }
 
     /// G48-2 最終手当て: `preserveAspectRatio="none"` の表紙 svg は CSS では比率維持を強制できない
@@ -188,10 +157,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
                 break
             }
         }
-        guard let wv = webView else {
-            fileLog("injectPreserveAspectRatioFix: ERROR no WKWebView found")
-            return
-        }
+        guard let wv = webView else { return }
         hasInjectedPreserveAspectRatioFix = true
         let js = """
             (() => {
@@ -205,64 +171,6 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             """
         let script = WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         wv.configuration.userContentController.addUserScript(script)
-        fileLog("injectPreserveAspectRatioFix: injected")
-    }
-
-    /// G48-2 切り分け実験・第 2 弾: WebView とその周辺 subview の実際のジオメトリ・状態を
-    /// ファイルログへ記録する。個人情報はパス末尾のファイル名のみに留める。
-    private func dumpGeometry(_ tag: String) {
-        var s = "\(tag) reader=\(reader.frame) alpha=\(reader.alphaValue) hidden=\(reader.isHidden) window=\(reader.window?.frame ?? .zero)"
-        for (i, v) in reader.subviews.enumerated() {
-            s += " | sub\(i)=\(type(of: v)) frame=\(v.frame) alpha=\(v.alphaValue) hidden=\(v.isHidden)"
-            if let wv = v as? WKWebView {
-                s += " pageZoom=\(wv.pageZoom) mag=\(wv.magnification) loading=\(wv.isLoading) url=\(wv.url?.lastPathComponent ?? "-")"
-            }
-        }
-        fileLog(s)
-    }
-
-    /// G48-2 切り分け実験・第 3 弾: WKWebView 内の DOM 状態を JS で採取してファイルログへ記録する。
-    /// パス・題名は先頭 8 文字までに切り詰める（JS 側で `.slice(0, 8)`）。あわせて Safari の
-    /// 開発メニューから検証できるよう `isInspectable` を立てる（実験中のみ）。
-    private func dumpDOM(_ tag: String) {
-        var webView: WKWebView?
-        for v in reader.subviews {
-            if let wv = v as? WKWebView {
-                webView = wv
-                break
-            }
-        }
-        guard let wv = webView else {
-            fileLog("\(tag) dom: ERROR no WKWebView found")
-            return
-        }
-        if #available(macOS 13.3, *) {
-            wv.isInspectable = true
-        }
-        let js = """
-        (() => {
-          const b = document.body, h = document.documentElement, cs = getComputedStyle(b), hs = getComputedStyle(h);
-          const svg = document.querySelector('svg'), img = document.querySelector('img'), image = document.querySelector('image');
-          const r = e => e ? (x => `${Math.round(x.x)},${Math.round(x.y)},${Math.round(x.width)}x${Math.round(x.height)}`)(e.getBoundingClientRect()) : '-';
-          return JSON.stringify({
-            inner: `${innerWidth}x${innerHeight}`, scroll: `${h.scrollWidth}x${h.scrollHeight}`, scrollX: scrollX,
-            bodyCol: cs.columnWidth + '/' + cs.columnCount + '/' + cs.webkitColumnAxis, bodyH: cs.height, htmlH: hs.height, bodyOverflow: cs.overflow,
-            bodyWM: cs.writingMode, svg: r(svg), svgCS: svg ? getComputedStyle(svg).width + 'x' + getComputedStyle(svg).height : '-',
-            image: image ? (image.getAttribute('xlink:href') || image.getAttribute('href') || '').split('/').pop() : '-', imageRect: r(image),
-            img: img ? (img.complete + ':' + img.naturalWidth + 'x' + img.naturalHeight) : '-', imgRect: r(img),
-            main: r(document.querySelector('.main')), title: (document.title || '').slice(0, 8)
-          });
-        })()
-        """
-        wv.evaluateJavaScript(js) { result, error in
-            if let error {
-                fileLog("\(tag) dom: ERROR \(type(of: error))")
-            } else if let str = result as? String {
-                fileLog("\(tag) dom: \(str)")
-            } else {
-                fileLog("\(tag) dom: ERROR non-string result")
-            }
-        }
     }
 
     var view: NSView { hostView }
@@ -305,28 +213,15 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
-        // G48-2 smoke の切り分け実験: 初回だけでなく毎回ログする（FXL の白紙化がどの遷移で
-        // 起きるかを追うため）。結論が出たら見直す。
-        let pageLine = "page: spine=\(locator.spineIndex) progress=\(String(format: "%.2f", locator.progression)) pageInItem=\(pageInItem) pageCountInItem=\(pageCountInItem) reader=\(String(describing: view.bounds.size))"
-        epubReaderLog.notice("\(pageLine, privacy: .public)")
-        fileLog(pageLine)
-        dumpGeometry("didMoveTo")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-            self?.dumpGeometry("didMoveTo+1s")
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            self?.dumpDOM("didMoveTo+1.5s")
-        }
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
         onLocatorChange?(v)
     }
 
-    /// 読み込み失敗をログする（G48-2 smoke: 白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
+    /// 読み込み失敗をログする（白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
     func readerView(_ view: EPUBReaderView, didFailWith error: any Error) {
         let failLine = "fail: \(String(describing: type(of: error)))"
         epubReaderLog.error("\(failLine, privacy: .public)")
-        fileLog(failLine)
     }
 
     /// フォント倍率がピンチ／`adjustFontScale(by:)`（キー操作含む）で変わったら、
