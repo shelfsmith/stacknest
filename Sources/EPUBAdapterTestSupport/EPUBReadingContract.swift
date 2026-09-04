@@ -51,6 +51,8 @@ public enum EPUBReadingContract {
         try Data("not a zip".utf8).write(to: broken)
         await #expect(throws: EPUBAdapterError.self) { try await reader.open(url: broken) }
         await #expect(throws: EPUBAdapterError.self) { try await reader.coverImageData(url: broken, maxPixelSize: maxPixelSize) }
+        // 最終レビュー Important #5: openImageBook も「開けなければ cannotOpen」を守ることを固定する。
+        await #expect(throws: EPUBAdapterError.self) { _ = try await reader.openImageBook(url: broken) }
 
         // 5. 画像本: 全ページ画像なら handle が返り、ページ数・方向・画像が取れる
         let imageBook = try MinimalEPUB.makeImageBook(in: dir, pages: 3, direction: "rtl")

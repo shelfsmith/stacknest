@@ -8,7 +8,7 @@ import EPUBAdapter
 /// グローバルを差し替えるテストは `EPUBReaderGlobalTests` の `.serialized` 親 suite に置くこと。
 @Suite("EPUBImageBookContent")
 struct EPUBImageBookContentTests {
-    final class FakeImageBook: EPUBImageBookReading, @unchecked Sendable {
+    final class FakeImageBook: EPUBImageBookReading, Sendable {
         let pageCount: Int = 3
         let readingDirection: EPUBReadingDirection = .ltr
         let spreads: [EPUBPageSpread] = [.none, .none, .none]
