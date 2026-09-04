@@ -312,8 +312,11 @@ public struct BookImporter: Sendable {
         // （import 経路の`insertBookReturningID`は page_direction 列自体を書かない）、
         // EPUB から読めた綴じ方向は挿入後に updatePageDirection で書き戻す。`.unknown` は
         // 写像が nil を返すので、既存の「未設定＝既定に従う」を上書きしない。
+        // best-effort（`try?`）: 行は既に insert 済みなので、この書き戻しが失敗しても import 自体は
+        // 失敗として扱わない（他の post-insert 書き戻し `updateBookPages` と同じ流儀）。
+        // 失敗時は既定の綴じ方向にフォールバックするだけで実害は無い。
         if let epubInfo, let direction = EPUBPageDirectionMapping.pageDirection(from: epubInfo.readingDirection) {
-            try database.updatePageDirection(bookID: id, direction: direction)
+            try? database.updatePageDirection(bookID: id, direction: direction)
         }
         return id
     }
