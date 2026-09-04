@@ -202,18 +202,52 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// ため、`WKUserScript` だけでは初回表紙（＝ `performPendingLoad` が `reader.load()` の
     /// 後に注入していた場合）や WebContent プロセス復旧直後の最初の文書で効かないことがある。
     /// 直接実行はナビゲーション順序に依存せず「今表示中の文書」に確実に当たるので保険になる。
-    /// 冪等（同じ svg に何度当てても副作用なし）なので毎回呼んでよい。
+    /// 冪等（同じ要素に何度当てても副作用なし）なので毎回呼んでよい。
+    ///
+    /// G48-2-4（2026-09-04 実測）: 表紙は svg 包みだったが、「金貨」「薬屋のひとりごと」の
+    /// 表紙以外の画像ページ（挿絵）は `<svg>` の包みが無い `<img>` 1 枚のページで、
+    /// 同じ「リサイズに追従しない」症状が出た。判定基準を Washi 自身が「画像単体ページ」を
+    /// 検出する基準（`WashiCore.EPUBPublication.fixedLayoutInfo(forSpineIndex:).simpleImagePath`）
+    /// に合わせ、`document.body.textContent`（空白除去後）が空、かつ `img` 要素数 ＋
+    /// `svg image` 要素数の合計が 1 であることをページ単位でまず判定する。該当したときのみ
+    /// svg 包み／`<img>` 単体のどちらかへ分岐して比率を書き込む。
     private static let fitSvgImagePagesScript = """
         (() => {
-          for (const svg of document.querySelectorAll('svg[viewBox]')) {
-            // 画像 1 枚を包む svg だけ（テキスト混在の装飾 svg は触らない）
-            if (!svg.querySelector('image') || svg.children.length !== 1) continue;
+          const body = document.body;
+          if (!body) return;
+          const text = (body.textContent || '').replace(/\\s+/g, '');
+          if (text.length !== 0) return;
+          const imgs = document.querySelectorAll('img');
+          const svgImages = document.querySelectorAll('svg image');
+          if (imgs.length + svgImages.length !== 1) return;
+          body.classList.add('stacknest-image-page');
+          if (svgImages.length === 1) {
+            // svg 包みの画像ページ（表紙など）: 従来どおり viewBox の比率を使う。
+            const svg = svgImages[0].closest('svg[viewBox]');
+            if (!svg) return;
             const vb = svg.viewBox.baseVal;
-            if (!vb || !vb.width || !vb.height) continue;
+            if (!vb || !vb.width || !vb.height) return;
             svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
             svg.style.setProperty('--stacknest-ratio', String(vb.width / vb.height));
             svg.classList.add('stacknest-image-page');
-            document.body.classList.add('stacknest-image-page');
+            return;
+          }
+          // <img> 1 枚だけの画像ページ（挿絵など）: naturalWidth/naturalHeight が
+          // 未確定なことがあるので、width/height 属性へフォールバックし、
+          // それも無ければ読み込み完了を待って比率を書き込む。
+          const img = imgs[0];
+          img.classList.add('stacknest-image-page');
+          const applyRatio = () => {
+            const w = img.naturalWidth || parseFloat(img.getAttribute('width') || '0');
+            const h = img.naturalHeight || parseFloat(img.getAttribute('height') || '0');
+            if (w && h) img.style.setProperty('--stacknest-ratio', String(w / h));
+          };
+          if (img.complete && img.naturalWidth && img.naturalHeight) {
+            applyRatio();
+          } else if (img.getAttribute('width') && img.getAttribute('height')) {
+            applyRatio();
+          } else {
+            img.addEventListener('load', applyRatio, { once: true });
           }
         })();
         """
@@ -266,6 +300,15 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
               width: auto !important;
               max-width: none !important;
               max-height: none !important;
+            }
+            body.stacknest-image-page img.stacknest-image-page {
+              height: min(100vh, calc(100vw / var(--stacknest-ratio, 0.7))) !important;
+              width: auto !important;
+              max-width: none !important;
+              max-height: none !important;
+              object-fit: contain;
+              display: block;
+              margin: 0 auto;
             }
             """
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
