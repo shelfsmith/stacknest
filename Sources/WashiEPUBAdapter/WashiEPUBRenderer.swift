@@ -213,6 +213,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
             svg.style.setProperty('--stacknest-ratio', String(vb.width / vb.height));
             svg.classList.add('stacknest-image-page');
+            document.body.classList.add('stacknest-image-page');
           }
         })();
         """
@@ -234,8 +235,33 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // JS が走る前（`--stacknest-ratio` 未設定・クラス未付与）の一瞬は Washi の既定 CSS
         // （`width:auto; height:auto`）のままで svg が 0×0 になりうるが、`.atDocumentEnd` と
         // `didMoveTo` からの直接実行で即座に修正されるため許容する。
+        //
+        // G48-2-3（2026-09-04・リサイズ中に膨らんで切れる不具合の実測修正）: 上記までは svg 自身の
+        // 寸法しか制御していなかった。実機のリサイズ中ログで次が確認された:
+        //   inner=1104x1303  svgRect x=-72.5 y=-170.5 w=916 h=1303  pagMaxWH: max-width: 771px / max-height: 962px
+        // svg は `min(100vh, 100vw/ratio)` で正しく 916×1303 に追従していたが、Washi の画像ページ
+        // CSS が入れる body/.main（`display:flex` 中央寄せ）の入れ物は**ページ割りのデバウンス後にしか
+        // 更新されない古い寸法**（771×962）のまま据え置かれていた（上流 Issue
+        // https://github.com/shunnag/Washi/issues/1）。大きい svg が中央寄せで箱からはみ出し、
+        // (916−771)/2=72.5・(1303−962)/2=170.5 だけ負にずれて切れていた。対処は「入れ物も
+        // viewport に追従させる」: `fitSvgImagePagesScript` が body にも `.stacknest-image-page`
+        // を付け、body とその直下の非 svg 要素（`.main` 等の flex ラッパー）を 100vw/100vh に固定する。
+        // `> :not(svg)` にしているのは、svg が body 直下の本（ラッパーが無い構成）でも壊さないため。
         reader.settings.userCSS = """
-            body svg.stacknest-image-page {
+            body.stacknest-image-page {
+              width: 100vw !important;
+              height: 100vh !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              overflow: hidden !important;
+            }
+            body.stacknest-image-page > :not(svg) {
+              width: 100vw !important;
+              height: 100vh !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            body.stacknest-image-page svg.stacknest-image-page {
               height: min(100vh, calc(100vw / var(--stacknest-ratio))) !important;
               width: auto !important;
               max-width: none !important;
