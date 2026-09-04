@@ -893,10 +893,26 @@ final class AppState {
                 return
             }
         }
-        // G48-2: EPUB は契約 `EPUBAdapter.renderer` の専用窓（EPUBReaderWindowController）で開く。
-        // 画像ビューア（BookContentFactory）の経路には乗せない。
+        // G48-2b: 全ページ画像の EPUB（漫画）は既存の画像ビューアで開く（見開き・右綴じ・ズームが効く）。
+        // テキストを含む本は従来どおり Washi の窓。判定は EPUB を開く必要があるので非同期。
         if (book.path as NSString?)?.pathExtension.lowercased() == "epub" {
-            openEPUBReader(book); return
+            guard let reader = EPUBAdapter.reader, let path = book.path else { openEPUBReader(book); return }
+            let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
+            guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
+            Task { @MainActor in
+                do {
+                    if let handle = try await reader.openImageBook(url: URL(fileURLWithPath: path)) {
+                        self.presentBuiltInViewer(book, content: EPUBImageBookContent(handle: handle), identity: identity, resumeDirect: resumeDirect)
+                    } else {
+                        ViewerWindowRegistry.shared.cancelOpen(identity)
+                        self.openEPUBReader(book)
+                    }
+                } catch {
+                    ViewerWindowRegistry.shared.cancelOpen(identity)
+                    self.openEPUBReader(book)   // 判定に失敗したら従来どおり Washi（そこでも失敗すれば外部へ）
+                }
+            }
+            return
         }
         // G15 V1: dedup 登録。既存窓があれば前面化して抜け、開き中なら無視して抜ける。
         let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
@@ -913,6 +929,13 @@ final class AppState {
             openInExternalViewer([book])
             return
         }
+        presentBuiltInViewer(book, content: content, identity: identity, resumeDirect: resumeDirect)
+    }
+
+    /// G48-2b: content 決定後の内蔵ビューア表示処理（zip/PDF/画像 EPUB 共通）。
+    /// `identity` は呼び出し元が `beginOpen` 済みであること（本関数は `finishOpen`/`cancelOpen` の
+    /// 「開き終える」側だけを担う）。挙動は Step 1 切り出し前の `openInBuiltInViewer` と同一。
+    private func presentBuiltInViewer(_ book: BookRow, content: BookContent, identity: ViewerIdentity, resumeDirect: Bool) {
         // Phase 2.6b-2 D3 / 4.1c: per-book page direction を解決。
         // Web リーダー（POST /direction）等で DB の page_direction が更新されている場合があるため、
         // インメモリの book ではなく DB から最新値を読む。失敗時はインメモリ値にフォールバック。
@@ -1033,6 +1056,8 @@ final class AppState {
             // （bundle は不変なので bundlePath はそのまま・bookID のみ張り替え）。
             controller.onBookSwapped = { [weak self, weak controller] newBook, pageCount, damaged in
                 guard let self, let controller else { return }
+                // G48-2b: 「閲覧開始」の既読化は swap 確定後に行う（0 ページ中断で既読にならない）。
+                self.markVolumeAsReadAndReflect(bookID: newBook.id)
                 let newIdentity = ViewerIdentity.local(bundlePath: self.bundleURL.path, bookID: newBook.id)
                 ViewerWindowRegistry.shared.reidentify(to: newIdentity, controller: controller)
                 // G26 fix round 2: 巻送り経路は openInBuiltInViewer を通らないため上の pages 収束は
@@ -1158,7 +1183,9 @@ final class AppState {
         guard let next = sibling,
               let content = try? BookContentFactory.make(for: next) else { return nil }
         // 巻送りで開く本も Stackroom 同様「閲覧開始」とみなし unseen=0 + play_date=now を更新する（D9）。
-        markVolumeAsReadAndReflect(bookID: next.id)
+        // G48-2b: ただし実際に既読化するのは swap が確定した後（`onBookSwapped`）。
+        // `BookContentFactory.make` は任意の .epub 兄弟に対して同期的に成功するため、ここで
+        // 呼ぶと performSwap の 0 ページガードで中断された巻まで既読になってしまう。
         let state = Self.resolvedState(for: next, database: db)
         return NextVolume(content: content, book: next, state: state)
     }
