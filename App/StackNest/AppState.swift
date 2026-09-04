@@ -902,6 +902,14 @@ final class AppState {
             Task { @MainActor in
                 do {
                     if let handle = try await reader.openImageBook(url: URL(fileURLWithPath: path)) {
+                        // Codex P2（G48-2b）: 取り込み時の反映より前に登録された本は綴じ方向が未保存のことがある。
+                        // その場合だけ EPUB の規定を一度ライブラリへ書き戻す（ビューアは従来どおり
+                        // 「本の設定 → グローバル既定」を見る。presentBuiltInViewer が行を再取得するので反映される）。
+                        // 保存済みならユーザーの明示設定を尊重して触らない。
+                        if book.pageDirection == nil,
+                           let direction = EPUBPageDirectionMapping.pageDirection(from: handle.readingDirection) {
+                            try? self.database?.updatePageDirection(bookID: book.id, direction: direction)
+                        }
                         self.presentBuiltInViewer(book, content: EPUBImageBookContent(handle: handle), identity: identity, resumeDirect: resumeDirect)
                     } else {
                         ViewerWindowRegistry.shared.cancelOpen(identity)
