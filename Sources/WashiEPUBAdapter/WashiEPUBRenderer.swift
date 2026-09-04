@@ -100,6 +100,24 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 現在の WKWebView と本プロパティが指す WebView が食い違えば再注入し、更新する。
     private weak var injectedWebView: WKWebView?
 
+    /// G48-2 Codex P2 対応: `preserveAspectRatio` 修正 JS の本体を 1 箇所にまとめる。
+    /// `WKUserScript`（`injectPreserveAspectRatioFixIfNeeded()`）と、`didMoveTo` からの
+    /// 直接実行（`applyPreserveAspectRatioFixDirectly()`）の両方がこれを使う——
+    /// WebKit は「すでに始まったナビゲーション」には後から足した `WKUserScript` を適用しない
+    /// ため、`WKUserScript` だけでは初回表紙（＝ `performPendingLoad` が `reader.load()` の
+    /// 後に注入していた場合）や WebContent プロセス復旧直後の最初の文書で効かないことがある。
+    /// 直接実行はナビゲーション順序に依存せず「今表示中の文書」に確実に当たるので保険になる。
+    private static let preserveAspectRatioFixScript = """
+        (() => {
+          for (const svg of document.querySelectorAll('svg[preserveAspectRatio="none"]')) {
+            // 画像 1 枚を包む svg だけ（テキスト混在の装飾 svg は触らない）
+            if (svg.querySelector('image') && svg.children.length === 1) {
+              svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+            }
+          }
+        })();
+        """
+
     override init() {
         hostView = WashiHostView(readerView: reader)
         super.init()
@@ -144,6 +162,16 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         pendingLoad = nil
         let loadLine = "load: host=\(String(describing: self.hostView.bounds)) reader=\(String(describing: self.reader.bounds)) window=\(String(describing: self.hostView.window?.frame ?? .zero))"
         epubReaderLog.notice("\(loadLine, privacy: .public)")
+        // G48-2 Codex P2: WKUserScript は「これから始まるナビゲーション」にしか効かず、
+        // すでに始まったナビゲーションには後から足しても効かない。`reader.load()` は Washi 内部で
+        // 新しい WKWebView を作ってからナビゲーションを開始するため、通常ここでは
+        // `reader.subviews` にまだ WebView は現れない（＝この呼び出しは実質何もしない）が、
+        // 万一すでに WebView が存在していれば load() 前に注入できたほうがよいので試す。
+        // 居なければ load() 直後にもう一度試み（従来どおりの経路）、
+        // それでも表紙ナビゲーションには間に合わないことがあるため、
+        // `readerView(_:didMoveTo:...)` からの直接実行（`applyPreserveAspectRatioFixDirectly()`）
+        // が最終的な保険になる。
+        injectPreserveAspectRatioFixIfNeeded()
         reader.load(publication: pending.publication, at: pending.locator)
         injectPreserveAspectRatioFixIfNeeded()
     }
@@ -163,28 +191,39 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 同一 WebView への呼び出しは早期 return するだけなので安価。WebView が作り直されても、
     /// 次にページへ到達した時点で復旧する。
     private func injectPreserveAspectRatioFixIfNeeded() {
-        var webView: WKWebView?
-        for v in reader.subviews {
-            if let wv = v as? WKWebView {
-                webView = wv
-                break
-            }
-        }
-        guard let wv = webView, wv !== injectedWebView else { return }
+        guard let wv = currentWebView(), wv !== injectedWebView else { return }
         injectedWebView = wv
-        let js = """
-            (() => {
-              for (const svg of document.querySelectorAll('svg[preserveAspectRatio="none"]')) {
-                // 画像 1 枚を包む svg だけ（テキスト混在の装飾 svg は触らない）
-                if (svg.querySelector('image') && svg.children.length === 1) {
-                  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-                }
-              }
-            })();
-            """
-        let script = WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        let script = WKUserScript(
+            source: Self.preserveAspectRatioFixScript,
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
         wv.configuration.userContentController.addUserScript(script)
         epubReaderLog.notice("preserveAspectRatio fix: user script injected")
+    }
+
+    /// G48-2 Codex P2: `WKUserScript` は次回以降のナビゲーション（次ページ・復旧後の再読込）向けの
+    /// 保険に留まる。**今まさに表示されている文書**に対しては、`reader.subviews` から現在の
+    /// `WKWebView` を取り出して JS を直接実行することでしか確実性を担保できない
+    /// （すでに始まったナビゲーションには `WKUserScript` が効かないため）。
+    /// 冪等（何度当てても副作用なし）なので、`didMoveTo` から毎回呼んでよい。
+    /// 結果は無視し、失敗時のみ 1 行 `.notice` でログする。
+    private func applyPreserveAspectRatioFixDirectly() {
+        guard let wv = currentWebView() else { return }
+        wv.evaluateJavaScript(Self.preserveAspectRatioFixScript) { _, error in
+            if let error {
+                epubReaderLog.notice("preserveAspectRatio direct apply failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// `reader.subviews` の中から現在の `WKWebView` を探す。Washi は WebView を直接の subview として
+    /// 持つ（`injectPreserveAspectRatioFixIfNeeded` のコメント参照）。
+    private func currentWebView() -> WKWebView? {
+        for v in reader.subviews {
+            if let wv = v as? WKWebView { return wv }
+        }
+        return nil
     }
 
     var view: NSView { hostView }
@@ -233,6 +272,10 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // G48-2 レビュー対応: WebContent プロセスのクラッシュ復帰で WKWebView が作り直されている
         // ことがあるため、ページ遷移のたびに注入要否を確認する（同一 WebView なら早期 return）。
         injectPreserveAspectRatioFixIfNeeded()
+        // G48-2 Codex P2: WKUserScript はすでに始まったナビゲーションに後から足しても効かないため、
+        // 最初の項目（表紙）や WebContent プロセス復旧直後の最初の文書で無言のまま外れることがある。
+        // 冪等なので、現在の文書に対して毎回直接 JS を当てて確実性を担保する。
+        applyPreserveAspectRatioFixDirectly()
     }
 
     /// 読み込み失敗をログする（白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
