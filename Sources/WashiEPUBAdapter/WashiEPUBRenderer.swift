@@ -10,29 +10,6 @@ import os
 /// — サイズ・spine index・エラー型のみ。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
-// MARK: - G48-2 診断用（一時。デバッグ後に削除する）
-
-/// リサイズ中に画像ページが窓より大きく膨らむ問題を追跡するためのファイルログ。
-/// `~/Library/Logs/StackNest/epub-resize.log` に ISO8601（ミリ秒）付きで追記する。
-/// 個人情報（パス・題名）は出さない。
-private func fileLog(_ line: String) {
-    let formatter = ISO8601DateFormatter()
-    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let stamped = "\(formatter.string(from: Date())) \(line)\n"
-    guard let data = stamped.data(using: .utf8) else { return }
-    let dir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("Logs/StackNest", isDirectory: true)
-    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-    let url = dir.appendingPathComponent("epub-resize.log")
-    if let handle = try? FileHandle(forWritingTo: url) {
-        defer { try? handle.close() }
-        handle.seekToEndOfFile()
-        handle.write(data)
-    } else {
-        try? data.write(to: url)
-    }
-}
-
 public struct WashiEPUBRenderer: EPUBRendering {
     public init() {}
 
@@ -74,66 +51,13 @@ final class WashiHostView: NSView {
         super.viewDidMoveToWindow()
         syncReaderFrame()
         attemptPendingLoad()
-        logResizeGeometry(tag: "M")
     }
 
     override func layout() {
         super.layout()
         syncReaderFrame()
         attemptPendingLoad()
-        logResizeGeometry(tag: "L")
     }
-
-    /// G48-2 診断用（一時。デバッグ後に削除する）: リサイズ中の画像ページ膨張の原因を追うため、
-    /// host/readerView/window のジオメトリと WKWebView の frame/pageZoom/magnification を
-    /// 間引かず毎回記録し、同じタイミングで JS 側の実測値（`resizeDiagnosticsScript`）も
-    /// 非同期で記録する。`tag` は呼び出し元（layout=L / viewDidMoveToWindow=M）を示す。
-    /// 個人情報（パス・題名）は出さない。
-    private func logResizeGeometry(tag: String) {
-        var line = "\(tag) host=\(bounds.size) reader=\(readerView.frame) win=\(window?.frame.size ?? .zero)"
-        for v in readerView.subviews {
-            guard let wv = v as? WKWebView else { continue }
-            line += " wk.frame=\(wv.frame) wk.pageZoom=\(wv.pageZoom) wk.magnification=\(wv.magnification)"
-        }
-        fileLog(line)
-        for v in readerView.subviews {
-            guard let wv = v as? WKWebView else { continue }
-            wv.evaluateJavaScript(Self.resizeDiagnosticsScript) { result, error in
-                if let s = result as? String {
-                    fileLog("J\(tag) \(s)")
-                } else if let error {
-                    fileLog("J\(tag) error=\(String(describing: error))")
-                }
-            }
-        }
-    }
-
-    /// G48-2 診断用（一時）: 画像ページの svg のジオメトリと、ビューポート／`document.body`／
-    /// pagination のスタイルを JSON 文字列として返す。個人情報（パス・題名）は含めない。
-    private static let resizeDiagnosticsScript = """
-        (() => {
-          try {
-            const svg = document.querySelector('svg.stacknest-image-page') || document.querySelector('svg[viewBox]');
-            const rect = svg ? svg.getBoundingClientRect() : null;
-            const cs = svg ? getComputedStyle(svg) : null;
-            const vv = window.visualViewport;
-            const out = {
-              inner: innerWidth + 'x' + innerHeight,
-              client: document.documentElement.clientWidth + 'x' + document.documentElement.clientHeight,
-              vvScale: vv ? vv.scale : null,
-              vvSize: vv ? (vv.width + 'x' + vv.height) : null,
-              svgRect: rect ? { x: rect.x, y: rect.y, w: rect.width, h: rect.height } : null,
-              svgCss: cs ? { w: cs.width, h: cs.height } : null,
-              bodyZoom: getComputedStyle(document.body).zoom,
-              bodyStyle: (document.body.style.cssText || '').slice(0, 80),
-              pagMaxWH: document.getElementById('washi-pagination')?.textContent?.match(/max-width:[^;]+|max-height:[^;]+/g)?.join(' ') ?? null
-            };
-            return JSON.stringify(out);
-          } catch (e) {
-            return JSON.stringify({ error: String(e) });
-          }
-        })();
-        """
 
     /// `readerView` を `autoresizingMask` 任せにしない。親（`self`）が frame `.zero` の間に
     /// 追加された subview は、AppKit の autoresizing 比例計算（旧サイズに対する新旧比）が
