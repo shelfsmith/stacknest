@@ -62,6 +62,77 @@ public enum MinimalEPUB {
         return out
     }
 
+    /// G48-2b: 全ページが画像 1 枚の EPUB（画像本）を作る。各ページは
+    /// `<div class="main"><svg …><image xlink:href="p-N.png"/></svg></div>` で、
+    /// itemref は `properties="rendition:layout-pre-paginated"`、spine は
+    /// `page-progression-direction` を持つ。
+    /// - direction: "rtl" | "ltr"
+    /// - 戻り値: 生成した `.epub` の URL
+    public static func makeImageBook(in dir: URL, pages: Int, direction: String) throws -> URL {
+        let work = dir.appendingPathComponent("epub-src-\(UUID().uuidString)")
+        let fm = FileManager.default
+        try fm.createDirectory(at: work.appendingPathComponent("META-INF"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: work.appendingPathComponent("OEBPS"), withIntermediateDirectories: true)
+
+        try "application/epub+zip".write(to: work.appendingPathComponent("mimetype"), atomically: true, encoding: .utf8)
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+          <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+        </container>
+        """.write(to: work.appendingPathComponent("META-INF/container.xml"), atomically: true, encoding: .utf8)
+
+        let manifestItems = (0..<pages).map { i in
+            """
+              <item id="img\(i)" href="p-\(i).png" media-type="image/png"/>
+              <item id="p\(i)" href="p-\(i).xhtml" media-type="application/xhtml+xml"/>
+            """
+        }.joined()
+        let spineItems = (0..<pages).map { i in
+            #"<itemref idref="p\#(i)" properties="rendition:layout-pre-paginated"/>"#
+        }.joined()
+        try """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">
+          <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+            <dc:identifier id="uid">urn:uuid:\(UUID().uuidString)</dc:identifier>
+            <dc:title>画像本</dc:title>
+            <dc:language>ja</dc:language>
+            <meta property="dcterms:modified">2026-09-02T00:00:00Z</meta>
+          </metadata>
+          <manifest>
+            <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+        \(manifestItems)
+          </manifest>
+          <spine page-progression-direction="\(direction)">\(spineItems)</spine>
+        </package>
+        """.write(to: work.appendingPathComponent("OEBPS/content.opf"), atomically: true, encoding: .utf8)
+
+        let xhtml = { (body: String) in
+            """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>x</title></head><body>\(body)</body></html>
+            """
+        }
+        let navItems = (0..<pages).map { "<li><a href=\"p-\($0).xhtml\">\($0 + 1)</a></li>" }.joined()
+        try xhtml("<nav epub:type=\"toc\"><ol>\(navItems)</ol></nav>")
+            .write(to: work.appendingPathComponent("OEBPS/nav.xhtml"), atomically: true, encoding: .utf8)
+
+        let colors: [(CGFloat, CGFloat, CGFloat)] = [(0.9, 0.2, 0.2), (0.2, 0.9, 0.2), (0.2, 0.2, 0.9), (0.9, 0.9, 0.2), (0.9, 0.2, 0.9)]
+        for i in 0..<pages {
+            let color = colors[i % colors.count]
+            try pngData(width: 8, height: 12, color: color).write(to: work.appendingPathComponent("OEBPS/p-\(i).png"))
+            let body = "<div class=\"main\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 12\"><image xlink:href=\"p-\(i).png\" width=\"8\" height=\"12\"/></svg></div>"
+            try xhtml(body).write(to: work.appendingPathComponent("OEBPS/p-\(i).xhtml"), atomically: true, encoding: .utf8)
+        }
+
+        let out = dir.appendingPathComponent("book-\(UUID().uuidString).epub")
+        try zip(["-X", "-0", out.path, "mimetype"], cwd: work)
+        try zip(["-X", "-r", "-9", "-D", out.path, "META-INF", "OEBPS"], cwd: work)
+        try? fm.removeItem(at: work)
+        return out
+    }
+
     private static func zip(_ args: [String], cwd: URL) throws {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
@@ -72,11 +143,11 @@ public enum MinimalEPUB {
         guard p.terminationStatus == 0 else { throw NSError(domain: "MinimalEPUB", code: Int(p.terminationStatus)) }
     }
 
-    private static func pngData(width: Int, height: Int) throws -> Data {
+    private static func pngData(width: Int, height: Int, color: (CGFloat, CGFloat, CGFloat) = (0.2, 0.4, 0.8)) throws -> Data {
         let cs = CGColorSpaceCreateDeviceRGB()
         guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-              let img = { ctx.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: width, height: height)); return ctx.makeImage() }()
+              let img = { ctx.setFillColor(CGColor(red: color.0, green: color.1, blue: color.2, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: width, height: height)); return ctx.makeImage() }()
         else { throw NSError(domain: "MinimalEPUB", code: 1) }
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { throw NSError(domain: "MinimalEPUB", code: 2) }
