@@ -6,8 +6,8 @@ import Washi   // ← 表示層。リポジトリでここだけ
 import WebKit
 import os
 
-/// 初回 load・読み込み失敗を最小限だけ記録する。個人情報（パス・題名）は出さない
-/// — サイズ・spine index・エラー型のみ。
+/// 初回 load・読み込み失敗・画像ページ手当ての適用失敗を最小限だけ記録する。
+/// 個人情報（パス・題名）は出さない — サイズ・spine index・エラー型のみ。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
 public struct WashiEPUBRenderer: EPUBRendering {
@@ -319,7 +319,6 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             forMainFrameOnly: true
         )
         wv.configuration.userContentController.addUserScript(script)
-        epubReaderLog.notice("fitSvgImagePages fix: user script injected")
     }
 
     /// G48-2 Codex P2: `WKUserScript` は次回以降のナビゲーション（次ページ・復旧後の再読込）向けの
@@ -327,12 +326,12 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// `WKWebView` を取り出して JS を直接実行することでしか確実性を担保できない
     /// （すでに始まったナビゲーションには `WKUserScript` が効かないため）。
     /// 冪等（何度当てても副作用なし）なので、`didMoveTo` から毎回呼んでよい。
-    /// 結果は無視し、失敗時のみ 1 行 `.notice` でログする。
+    /// 結果は無視し、失敗時のみ 1 行 `.error` でログする。
     private func applyFitSvgImagePagesDirectly() {
         guard let wv = currentWebView() else { return }
         wv.evaluateJavaScript(Self.fitSvgImagePagesScript) { _, error in
             if let error {
-                epubReaderLog.notice("fitSvgImagePages direct apply failed: \(String(describing: error), privacy: .public)")
+                epubReaderLog.error("fitSvgImagePages: direct apply failed: \(String(describing: type(of: error)), privacy: .public)")
             }
         }
     }
