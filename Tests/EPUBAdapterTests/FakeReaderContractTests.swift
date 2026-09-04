@@ -23,6 +23,10 @@ struct UnzipFakeReader: EPUBReading {
         guard opf.contains("cover-image") else { return nil }
         return try Self.unzipData(url, "OEBPS/cover.png")
     }
+    // G48-2b Task 2 で本実装する。ここでは契約に適合させるためだけの仮実装。
+    func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? {
+        nil
+    }
     private static func unzip(_ url: URL, _ entry: String) throws -> String {
         String(decoding: try unzipData(url, entry), as: UTF8.self)
     }

@@ -9,4 +9,7 @@ public protocol EPUBReading: Sendable {
     func open(url: URL) async throws -> EPUBBookInfo
     /// 表紙を JPEG または PNG のバイト列で返す。表紙画像が無い本は nil（エラーではない）。
     func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data?
+    /// 全ページが画像 1 枚のページなら、開いた状態の handle を返す。そうでなければ nil。
+    /// 開けなければ `EPUBAdapterError.cannotOpen`。
+    func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)?
 }

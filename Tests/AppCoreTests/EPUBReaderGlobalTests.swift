@@ -16,6 +16,7 @@ struct EPUBReaderGlobalTests {
             EPUBBookInfo(title: "t", author: nil, language: nil, readingDirection: .unknown)
         }
         func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data? { cover }
+        func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? { nil }
     }
 
     /// `CoverRefresher` が EPUB を `EPUBAdapter.reader` に回すことを、Washi に触れずに確かめる。
