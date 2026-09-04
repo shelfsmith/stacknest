@@ -307,6 +307,14 @@ public struct BookImporter: Sendable {
             series: parsed.series,
             volume: parsed.volume
         )
-        return try database.insertBookReturningID(record)
+        let id = try database.insertBookReturningID(record)
+        // G48-2b: BookRecord（StackroomFormat）は per-book pageDirection を持たないため
+        // （import 経路の`insertBookReturningID`は page_direction 列自体を書かない）、
+        // EPUB から読めた綴じ方向は挿入後に updatePageDirection で書き戻す。`.unknown` は
+        // 写像が nil を返すので、既存の「未設定＝既定に従う」を上書きしない。
+        if let epubInfo, let direction = EPUBPageDirectionMapping.pageDirection(from: epubInfo.readingDirection) {
+            try database.updatePageDirection(bookID: id, direction: direction)
+        }
+        return id
     }
 }

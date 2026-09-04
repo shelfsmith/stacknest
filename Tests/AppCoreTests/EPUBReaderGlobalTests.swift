@@ -12,11 +12,60 @@ import EPUBAdapter
 struct EPUBReaderGlobalTests {
     struct StubReader: EPUBReading {
         let cover: Data?
+        var direction: EPUBReadingDirection = .unknown
+        var imageBook: (any EPUBImageBookReading)? = nil
         func open(url: URL) async throws -> EPUBBookInfo {
-            EPUBBookInfo(title: "t", author: nil, language: nil, readingDirection: .unknown)
+            EPUBBookInfo(title: "t", author: nil, language: nil, readingDirection: direction)
         }
         func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data? { cover }
-        func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? { nil }
+        func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? { imageBook }
+    }
+
+    final class FakeImageBook: EPUBImageBookReading, @unchecked Sendable {
+        let pageCount: Int = 2
+        let readingDirection: EPUBReadingDirection = .rtl
+        let spreads: [EPUBPageSpread] = [.none, .none]
+        func imageData(at index: Int) async throws -> Data { Data([UInt8(index)]) }
+    }
+
+    /// `EPUBImageBookContent(lazyURL:)` は初回アクセスまで `EPUBAdapter.reader` を見ないので、
+    /// グローバルを差し替える必要がありこの親 suite に置く。
+    @Suite("EPUBImageBookContent(lazyURL:)")
+    struct LazyImageBookContent {
+        private func tmpEPUB() throws -> URL {
+            let u = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("lz-\(UUID().uuidString).epub")
+            try Data("zz".utf8).write(to: u)
+            return u
+        }
+
+        @Test("openImageBook が nil を返すと BookContentError.unsupported(.text)")
+        func nilHandleThrows() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = StubReader(cover: nil, imageBook: nil)
+            let content = EPUBImageBookContent(lazyURL: try tmpEPUB())
+            await #expect(throws: BookContentError.unsupported(.text)) {
+                _ = try await content.pageCount
+            }
+        }
+
+        @Test("未登録でも BookContentError.unsupported(.text)")
+        func unregisteredThrows() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = nil
+            let content = EPUBImageBookContent(lazyURL: try tmpEPUB())
+            await #expect(throws: BookContentError.unsupported(.text)) {
+                _ = try await content.pageCount
+            }
+        }
+
+        @Test("handle が返れば通る")
+        func handleSucceeds() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = StubReader(cover: nil, imageBook: FakeImageBook())
+            let content = EPUBImageBookContent(lazyURL: try tmpEPUB())
+            let count = try await content.pageCount
+            #expect(count == 2)
+        }
     }
 
     /// `CoverRefresher` が EPUB を `EPUBAdapter.reader` に回すことを、Washi に触れずに確かめる。
@@ -93,6 +142,42 @@ struct EPUBReaderGlobalTests {
             #expect(FileManager.default.fileExists(atPath: thumb.path))
             let written = try Data(contentsOf: thumb)
             #expect(written == coverBytes)
+        }
+
+        @Test("EPUB の綴じ方向が取り込み時に pageDirection へ反映される")
+        func importsPageDirection() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = StubReader(cover: nil, direction: .rtl)
+
+            let (importer, db, dir) = try makeImporter()
+            let epub = dir.appendingPathComponent("sample.epub")
+            try Data("zz".utf8).write(to: epub)
+
+            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100)
+            guard let id = result.addedIDs.first else {
+                Issue.record("expected one added book id")
+                return
+            }
+            let book = try db.fetchAllBooks().first { $0.id == id }
+            #expect(book?.pageDirection == .rightToLeft)
+        }
+
+        @Test("綴じ方向が不明なら pageDirection は書かれない")
+        func unknownDirectionLeavesPageDirectionNil() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = StubReader(cover: nil, direction: .unknown)
+
+            let (importer, db, dir) = try makeImporter()
+            let epub = dir.appendingPathComponent("sample.epub")
+            try Data("zz".utf8).write(to: epub)
+
+            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100)
+            guard let id = result.addedIDs.first else {
+                Issue.record("expected one added book id")
+                return
+            }
+            let book = try db.fetchAllBooks().first { $0.id == id }
+            #expect(book?.pageDirection == nil)
         }
     }
 }
