@@ -25,6 +25,11 @@ public struct WashiEPUBReader: EPUBReading {
         return Self.jpegData(cg)
     }
 
+    // TODO(G48-2b Task 3): 全ページ画像本の判定＋handle 生成を実装する。
+    public func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? {
+        nil
+    }
+
     private func publication(_ url: URL) async throws -> EPUBPublication {
         // NAS 上のファイルを mmap すると切断時に SIGBUS で落ちる。EPUB は数 MB
         // なのでコピーの代償は無視できる（Washi 自身が headless/server 文脈で推奨）。
