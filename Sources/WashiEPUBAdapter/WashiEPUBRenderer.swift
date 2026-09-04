@@ -91,6 +91,11 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
     private var hasPerformedInitialLoad = false
+    /// G48-2-2（2026-09-04・ユーザー指示）: 画像 1 枚のページでは insets（本文用の余白）を 0 にする。
+    /// 固定レイアウト経路（itemref が pre-paginated）は insets を使わず枠いっぱいに描くため、
+    /// リフロー経路の画像ページも同じ見え方（枠いっぱい）に揃える。`init` 時点の
+    /// `reader.settings.insets`（本文用の既定値）を保持しておき、テキストページに戻すときに使う。
+    private let textInsets: EPUBReaderInsets
     /// G48-2 レビュー対応: 「どの WKWebView に注入済みか」を弱参照で追跡する。Washi は
     /// WebContent プロセスが落ちると `webViewWebContentProcessDidTerminate` →
     /// `reloadCurrentPublication()` → `rebuildWebView(for:)` で**新しい `WKWebViewConfiguration`
@@ -138,6 +143,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     override init() {
         hostView = WashiHostView(readerView: reader)
+        textInsets = reader.settings.insets
         super.init()
         hostView.host = self
         reader.delegate = self
@@ -173,11 +179,37 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         pendingLoad = (publication, locator)
     }
 
+    /// G48-2-2: spine index が「画像 1 枚のページ」かどうかを判定する。WashiCore の
+    /// `EPUBPublication.fixedLayoutInfo(forSpineIndex:)` は固定レイアウト項目に限らず、
+    /// リフロー項目でも「img/svg 単体で構成されたページ」を `simpleImagePath` で検出できる
+    /// （doc コメント: "Also returns viewport-less info for the spine items of a reflowable
+    /// book"）。固定レイアウト経路（pre-paginated）は元々 insets を使わず枠いっぱいに描くので、
+    /// ここでの判定はリフロー経路の画像ページを拾うことが主目的になる。取得に失敗したら
+    /// false（テキスト扱い＝insets を残す）にフォールバックする。
+    private func isImagePage(of publication: EPUBPublication, spineIndex: Int) -> Bool {
+        guard publication.readingOrder.indices.contains(spineIndex) else { return false }
+        return (try? publication.fixedLayoutInfo(forSpineIndex: spineIndex))?.simpleImagePath != nil
+    }
+
+    /// G48-2-2: 画像ページなら insets を 0、それ以外は `textInsets`（本文用の既定値）に戻す。
+    /// `reader.settings.insets` の didSet は再ページ割りを走らせるため、**値が現在と異なる
+    /// ときだけ**代入する（同じ値への再代入で無駄な再ページ割りを起こさない）。
+    private func updateInsets(for publication: EPUBPublication, spineIndex: Int) {
+        let wanted = isImagePage(of: publication, spineIndex: spineIndex)
+            ? EPUBReaderInsets(top: 0, left: 0, bottom: 0, right: 0)
+            : textInsets
+        guard reader.settings.insets != wanted else { return }
+        reader.settings.insets = wanted
+    }
+
     /// `WashiHostView` からのみ呼ばれる。`hasPerformedInitialLoad` で二重実行を防ぐ。
     func performPendingLoad() {
         guard !hasPerformedInitialLoad, let pending = pendingLoad else { return }
         hasPerformedInitialLoad = true
         pendingLoad = nil
+        // G48-2-2: 開始 spine（復元位置か 0）についても、初回 load() の前に insets を決めておく
+        // （表紙が画像ページなら最初から余白なしにするため）。
+        updateInsets(for: pending.publication, spineIndex: pending.locator?.spineIndex ?? 0)
         let loadLine = "load: host=\(String(describing: self.hostView.bounds)) reader=\(String(describing: self.reader.bounds)) window=\(String(describing: self.hostView.window?.frame ?? .zero))"
         epubReaderLog.notice("\(loadLine, privacy: .public)")
         // G48-2 Codex P2: WKUserScript は「これから始まるナビゲーション」にしか効かず、
@@ -288,6 +320,11 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
         onLocatorChange?(v)
+        // G48-2-2: 現在の spine が画像ページかどうかで insets を切り替える（doc コメント:
+        // `updateInsets(for:spineIndex:)`）。`reader.publication` は load() 後は必ず non-nil。
+        if let publication = reader.publication {
+            updateInsets(for: publication, spineIndex: locator.spineIndex)
+        }
         // G48-2 レビュー対応: WebContent プロセスのクラッシュ復帰で WKWebView が作り直されている
         // ことがあるため、ページ遷移のたびに注入要否を確認する（同一 WebView なら早期 return）。
         injectFitSvgImagePagesFixIfNeeded()
