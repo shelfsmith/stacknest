@@ -167,6 +167,50 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         fileLog(s)
     }
 
+    /// G48-2 切り分け実験・第 3 弾: WKWebView 内の DOM 状態を JS で採取してファイルログへ記録する。
+    /// パス・題名は先頭 8 文字までに切り詰める（JS 側で `.slice(0, 8)`）。あわせて Safari の
+    /// 開発メニューから検証できるよう `isInspectable` を立てる（実験中のみ）。
+    private func dumpDOM(_ tag: String) {
+        var webView: WKWebView?
+        for v in reader.subviews {
+            if let wv = v as? WKWebView {
+                webView = wv
+                break
+            }
+        }
+        guard let wv = webView else {
+            fileLog("\(tag) dom: ERROR no WKWebView found")
+            return
+        }
+        if #available(macOS 13.3, *) {
+            wv.isInspectable = true
+        }
+        let js = """
+        (() => {
+          const b = document.body, h = document.documentElement, cs = getComputedStyle(b), hs = getComputedStyle(h);
+          const svg = document.querySelector('svg'), img = document.querySelector('img'), image = document.querySelector('image');
+          const r = e => e ? (x => `${Math.round(x.x)},${Math.round(x.y)},${Math.round(x.width)}x${Math.round(x.height)}`)(e.getBoundingClientRect()) : '-';
+          return JSON.stringify({
+            inner: `${innerWidth}x${innerHeight}`, scroll: `${h.scrollWidth}x${h.scrollHeight}`, scrollX: scrollX,
+            bodyCol: cs.columnWidth + '/' + cs.columnCount + '/' + cs.webkitColumnAxis, bodyH: cs.height, htmlH: hs.height, bodyOverflow: cs.overflow,
+            bodyWM: cs.writingMode, svg: r(svg), svgCS: svg ? getComputedStyle(svg).width + 'x' + getComputedStyle(svg).height : '-',
+            image: image ? (image.getAttribute('xlink:href') || image.getAttribute('href') || '').split('/').pop() : '-', imageRect: r(image),
+            img: img ? (img.complete + ':' + img.naturalWidth + 'x' + img.naturalHeight) : '-', imgRect: r(img),
+            main: r(document.querySelector('.main')), title: (document.title || '').slice(0, 8)
+          });
+        })()
+        """
+        wv.evaluateJavaScript(js) { result, error in
+            if let error {
+                fileLog("\(tag) dom: ERROR \(type(of: error))")
+            } else if let str = result as? String {
+                fileLog("\(tag) dom: \(str)")
+            } else {
+                fileLog("\(tag) dom: ERROR non-string result")
+            }
+        }
+    }
+
     var view: NSView { hostView }
 
     func go(to locator: EPUBLocatorValue) {
@@ -215,6 +259,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         dumpGeometry("didMoveTo")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             self?.dumpGeometry("didMoveTo+1s")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            self?.dumpDOM("didMoveTo+1.5s")
         }
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
