@@ -90,14 +90,15 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
     private var hasPerformedInitialLoad = false
-    /// `didMoveTo` の初回のみジオメトリをログするためのフラグ（G48-2 smoke: 白紙表紙の追跡）。
-    private var hasLoggedFirstPage = false
 
     override init() {
         hostView = WashiHostView(readerView: reader)
         super.init()
         hostView.host = self
         reader.delegate = self
+        // G48-2 smoke の切り分け実験。FXL ページが白紙になる件で演出のカバーを疑っている。
+        // 結論が出たら見直す。
+        reader.settings.pageTurnStyle = .none
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
         // （WKWebView がファーストレスポンダを持っていないと発火しない）。Washi README 推奨どおり
         // ネイティブ NSEvent 経路（`didReceiveNativeKey`）に切り替え、`readerView(_:didReceiveNativeKey:)`
@@ -116,7 +117,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         guard !hasPerformedInitialLoad, let pending = pendingLoad else { return }
         hasPerformedInitialLoad = true
         pendingLoad = nil
-        epubReaderLog.debug(
+        epubReaderLog.notice(
             "load: host=\(String(describing: self.hostView.bounds), privacy: .public) reader=\(String(describing: self.reader.bounds), privacy: .public) window=\(String(describing: self.hostView.window?.frame ?? .zero), privacy: .public)"
         )
         reader.load(publication: pending.publication, at: pending.locator)
@@ -162,12 +163,11 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
-        if !hasLoggedFirstPage {
-            hasLoggedFirstPage = true
-            epubReaderLog.debug(
-                "firstPage: spine=\(locator.spineIndex, privacy: .public) reader=\(String(describing: view.bounds), privacy: .public)"
-            )
-        }
+        // G48-2 smoke の切り分け実験: 初回だけでなく毎回ログする（FXL の白紙化がどの遷移で
+        // 起きるかを追うため）。結論が出たら見直す。
+        epubReaderLog.notice(
+            "page: spine=\(locator.spineIndex, privacy: .public) progress=\(locator.progression, format: .fixed(precision: 2), privacy: .public) reader=\(String(describing: view.bounds.size), privacy: .public)"
+        )
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
         onLocatorChange?(v)
