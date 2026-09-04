@@ -130,9 +130,10 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // ここで viewBox を持つ svg にビューポート単位の寸法を明示的に与え、Washi 側の
         // max-width/max-height（!important・ページ寸）に収めさせる。ラッパーは flex 中央寄せの
         // ままなので、余白は中央に出る。Washi 上流へ報告する候補（body svg のデフォルト寸法算出）。
+        // <image> の寸法は属性に任せる。CSS で 100% を与えると preserveAspectRatio の効かない経路で
+        // 引き伸ばされる（2026-09-04 実測）。
         reader.settings.userCSS = """
             body svg[viewBox] { width: 100vw !important; height: 100vh !important; }
-            body svg[viewBox] > image { width: 100%; height: 100%; }
             """
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
         // （WKWebView がファーストレスポンダを持っていないと発火しない）。Washi README 推奨どおり
