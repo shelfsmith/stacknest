@@ -122,7 +122,7 @@ public enum MinimalEPUB {
         for i in 0..<pages {
             let color = colors[i % colors.count]
             try pngData(width: 8, height: 12, color: color).write(to: work.appendingPathComponent("OEBPS/p-\(i).png"))
-            let body = "<div class=\"main\"><svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 12\"><image xlink:href=\"p-\(i).png\" width=\"8\" height=\"12\"/></svg></div>"
+            let body = "<div class=\"main\"><svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 8 12\"><image xlink:href=\"p-\(i).png\" width=\"8\" height=\"12\"/></svg></div>"
             try xhtml(body).write(to: work.appendingPathComponent("OEBPS/p-\(i).xhtml"), atomically: true, encoding: .utf8)
         }
 
