@@ -51,5 +51,23 @@ public enum EPUBReadingContract {
         try Data("not a zip".utf8).write(to: broken)
         await #expect(throws: EPUBAdapterError.self) { try await reader.open(url: broken) }
         await #expect(throws: EPUBAdapterError.self) { try await reader.coverImageData(url: broken, maxPixelSize: maxPixelSize) }
+
+        // 5. 画像本: 全ページ画像なら handle が返り、ページ数・方向・画像が取れる
+        let imageBook = try MinimalEPUB.makeImageBook(in: dir, pages: 3, direction: "rtl")
+        let handle = try await reader.openImageBook(url: imageBook)
+        #expect(handle != nil)
+        if let handle {
+            #expect(handle.pageCount == 3)
+            #expect(handle.readingDirection == .rtl)
+            #expect(handle.spreads.count == 3)
+            for i in 0..<3 {
+                let data = try await handle.imageData(at: i)
+                let src = CGImageSourceCreateWithData(data as CFData, nil)
+                #expect(src != nil && CGImageSourceGetCount(src!) == 1, "page \(i) は画像としてデコードできる")
+            }
+            await #expect(throws: (any Error).self) { _ = try await handle.imageData(at: 3) }
+        }
+        // 6. 混在本（テキストあり）は nil
+        #expect(try await reader.openImageBook(url: withCover) == nil)
     }
 }
