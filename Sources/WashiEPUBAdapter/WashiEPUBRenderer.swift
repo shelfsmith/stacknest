@@ -91,8 +91,14 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
     private var hasPerformedInitialLoad = false
-    /// G48-2 最終手当て: `injectPreserveAspectRatioFix()` の二重登録防止。
-    private var hasInjectedPreserveAspectRatioFix = false
+    /// G48-2 レビュー対応: 「どの WKWebView に注入済みか」を弱参照で追跡する。Washi は
+    /// WebContent プロセスが落ちると `webViewWebContentProcessDidTerminate` →
+    /// `reloadCurrentPublication()` → `rebuildWebView(for:)` で**新しい `WKWebViewConfiguration`
+    /// の WebView を作り直す**（`.build/checkouts/Washi/Sources/Washi/Rendering/EPUBReaderView.swift`）。
+    /// 古い config に足した `WKUserScript` は新しい WebView には引き継がれないため、Bool の
+    /// 一度きりフラグでは再注入が止まり、表紙の比率崩れが無言で再発する。`reader.subviews` の
+    /// 現在の WKWebView と本プロパティが指す WebView が食い違えば再注入し、更新する。
+    private weak var injectedWebView: WKWebView?
 
     override init() {
         hostView = WashiHostView(readerView: reader)
@@ -112,7 +118,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // 高さだけ !important で固定し幅は auto にすると、置換要素と同じ扱いで width が viewBox の
         // 縦横比から算出される。preserveAspectRatio="none" でも箱の比率＝画像の比率になるため崩れない。
         // Washi の max-width（!important・ページ幅）は残るので、横長画像は幅で頭打ちになる
-        // （none の横長表紙だけ僅かに縦に潰れうる。稀なので許容）。
+        // （`1c0f54a` で preserveAspectRatio="none" を "xMidYMid meet" に書き換える
+        // `injectPreserveAspectRatioFixIfNeeded()` を追加済みのため、横長表紙も letterbox される
+        // だけで縦に潰れることはない）。
         reader.settings.userCSS = """
             body svg[viewBox] { height: 100vh !important; width: auto !important; }
             """
@@ -137,7 +145,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         let loadLine = "load: host=\(String(describing: self.hostView.bounds)) reader=\(String(describing: self.reader.bounds)) window=\(String(describing: self.hostView.window?.frame ?? .zero))"
         epubReaderLog.notice("\(loadLine, privacy: .public)")
         reader.load(publication: pending.publication, at: pending.locator)
-        injectPreserveAspectRatioFix()
+        injectPreserveAspectRatioFixIfNeeded()
     }
 
     /// G48-2 最終手当て: `preserveAspectRatio="none"` の表紙 svg は CSS では比率維持を強制できない
@@ -145,11 +153,16 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// max-width（!important・ページ幅）で幅だけ頭打ちになり、`100vh` 固定の高さと組み合わさって
     /// 縦に伸びる。DOM 属性を `xMidYMid meet` に書き換えて比率維持へ倒す。Washi 上流へ報告する候補
     /// （表紙 svg の `preserveAspectRatio="none"` 尊重、または画像ページ CSS 側での比率維持）。
-    /// `reader.load()` 直後に 1 回だけ呼ぶ（Washi は load() のたびに WKWebView を作り直すため）。
-    /// 同じ本の spine 遷移は同じ WebView 内のナビゲーションなので、登録したユーザースクリプトは
-    /// 各ページで走る。
-    private func injectPreserveAspectRatioFix() {
-        guard !hasInjectedPreserveAspectRatioFix else { return }
+    ///
+    /// G48-2 レビュー対応: Washi は WebContent プロセスクラッシュからの復帰時に WKWebView を
+    /// 作り直す（`injectedWebView` の doc コメント参照）ため、「1 回だけ」注入する Bool フラグでは
+    /// 再構築後に無言で機能を失う。ここでは `reader.subviews` の現在の WKWebView が
+    /// `injectedWebView` と**同一インスタンスかどうか**で要否を判定し、別物なら再注入して
+    /// `injectedWebView` を更新する。`performPendingLoad` 直後（初回）に加え、
+    /// `readerView(_:didMoveTo:pageInItem:pageCountInItem:)`（ページ遷移のたび）からも呼ぶ——
+    /// 同一 WebView への呼び出しは早期 return するだけなので安価。WebView が作り直されても、
+    /// 次にページへ到達した時点で復旧する。
+    private func injectPreserveAspectRatioFixIfNeeded() {
         var webView: WKWebView?
         for v in reader.subviews {
             if let wv = v as? WKWebView {
@@ -157,8 +170,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
                 break
             }
         }
-        guard let wv = webView else { return }
-        hasInjectedPreserveAspectRatioFix = true
+        guard let wv = webView, wv !== injectedWebView else { return }
+        injectedWebView = wv
         let js = """
             (() => {
               for (const svg of document.querySelectorAll('svg[preserveAspectRatio="none"]')) {
@@ -171,6 +184,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             """
         let script = WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
         wv.configuration.userContentController.addUserScript(script)
+        epubReaderLog.notice("preserveAspectRatio fix: user script injected")
     }
 
     var view: NSView { hostView }
@@ -216,6 +230,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
         onLocatorChange?(v)
+        // G48-2 レビュー対応: WebContent プロセスのクラッシュ復帰で WKWebView が作り直されている
+        // ことがあるため、ページ遷移のたびに注入要否を確認する（同一 WebView なら早期 return）。
+        injectPreserveAspectRatioFixIfNeeded()
     }
 
     /// 読み込み失敗をログする（白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
