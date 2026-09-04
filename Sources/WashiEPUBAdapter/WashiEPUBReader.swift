@@ -5,6 +5,10 @@ import ImageIO
 import UniformTypeIdentifiers
 import EPUBAdapter
 import WashiCore   // ← リポジトリでここだけ
+import os
+
+/// `WashiEPUBRenderer.swift` と同じ subsystem/category（同一モジュール内で file-private のため別インスタンス）。
+private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
 /// `shunnag/Washi`（revision 8247b1d）による `EPUBReading` 実装。Washi の型を外に漏らさない。
 public struct WashiEPUBReader: EPUBReading {
@@ -27,11 +31,21 @@ public struct WashiEPUBReader: EPUBReading {
 
     public func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? {
         let pub = try await publication(url)
-        let infos = pub.readingOrder.indices.map { try? pub.fixedLayoutInfo(forSpineIndex: $0) }
-        let paths = infos.map { $0?.simpleImagePath }
-        guard EPUBImageBookDetection.isImageBook(simpleImagePaths: paths) else { return nil }
-        let spreads = infos.map { Self.spread(from: $0?.pageSpread) }
-        return WashiImageBook(publication: pub, imagePaths: paths.compactMap { $0 }, spreads: spreads)
+        // 最終レビュー Important #1: 全 spine 項目を判定し切ってから判断するのではなく、最初にテキスト
+        // ページが見つかった時点で打ち切る（数百項目のライトノベルを丸ごと展開・XML パースしない）。
+        var paths: [String] = []
+        var spreads: [EPUBPageSpread] = []
+        for index in pub.readingOrder.indices {
+            guard let info = try? pub.fixedLayoutInfo(forSpineIndex: index),
+                  let path = info.simpleImagePath else {
+                epubReaderLog.info("openImageBook: not an image book — spine index \(index, privacy: .public) is not a simple image page (containerPath=\(pub.readingOrder[index].containerPath, privacy: .private))")
+                return nil
+            }
+            paths.append(path)
+            spreads.append(Self.spread(from: info.pageSpread))
+        }
+        guard EPUBImageBookDetection.isImageBook(simpleImagePaths: paths.map { $0 as String? }) else { return nil }
+        return WashiImageBook(publication: pub, imagePaths: paths, spreads: spreads)
     }
 
     private func publication(_ url: URL) async throws -> EPUBPublication {

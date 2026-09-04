@@ -908,6 +908,8 @@ final class AppState {
                         self.openEPUBReader(book)
                     }
                 } catch {
+                    // 最終レビュー Important #3: この分岐だけ他と違いログ無しで黙って Washi に落ちていた。
+                    Self.logger.warning("openInBuiltInViewer: openImageBook failed for bookID=\(book.id, privacy: .public) path=\(path, privacy: .public): \(String(describing: error), privacy: .public) → falling back to the EPUB reader")
                     ViewerWindowRegistry.shared.cancelOpen(identity)
                     self.openEPUBReader(book)   // 判定に失敗したら従来どおり Washi（そこでも失敗すれば外部へ）
                 }

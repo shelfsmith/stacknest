@@ -66,6 +66,70 @@ struct EPUBReaderGlobalTests {
             let count = try await content.pageCount
             #expect(count == 2)
         }
+
+        /// `openImageBook` の呼び出し回数を数える（負のキャッシュ・同時アクセスの重複防止を確かめるため）。
+        private final class CallCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            func increment() -> Int {
+                lock.lock(); defer { lock.unlock() }
+                value += 1
+                return value
+            }
+            var count: Int {
+                lock.lock(); defer { lock.unlock() }
+                return value
+            }
+        }
+
+        private struct CountingStubReader: EPUBReading {
+            let counter: CallCounter
+            let imageBook: (any EPUBImageBookReading)?
+            func open(url: URL) async throws -> EPUBBookInfo {
+                EPUBBookInfo(title: "t", author: nil, language: nil, readingDirection: .unknown)
+            }
+            func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data? { nil }
+            func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? {
+                _ = counter.increment()
+                return imageBook
+            }
+        }
+
+        /// 最終レビュー Important #2: nil（画像本でない）は `.notImageBook` として記憶され、
+        /// 2 回目以降はファイルに触れず（= reader を呼ばず）に throw する。
+        @Test("nil handle は notImageBook として記憶され、2 回目は reader を呼び直さない")
+        func nilHandleIsCachedAndNotRetried() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            let counter = CallCounter()
+            EPUBAdapter.reader = CountingStubReader(counter: counter, imageBook: nil)
+            let content = EPUBImageBookContent(lazyURL: try tmpEPUB())
+
+            await #expect(throws: BookContentError.unsupported(.text)) {
+                _ = try await content.pageCount
+            }
+            await #expect(throws: BookContentError.unsupported(.text)) {
+                _ = try await content.pageCount
+            }
+            #expect(counter.count == 1)
+        }
+
+        /// 最終レビュー Important #2: 同時に複数箇所から初回アクセスしても `openImageBook` は 1 回だけ。
+        @Test("4 並列の初回アクセスでも openImageBook は 1 回しか呼ばれない")
+        func concurrentFirstAccessOpensOnce() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            let counter = CallCounter()
+            EPUBAdapter.reader = CountingStubReader(counter: counter, imageBook: FakeImageBook())
+            let content = EPUBImageBookContent(lazyURL: try tmpEPUB())
+
+            async let a = content.pageCount
+            async let b = content.pageCount
+            async let c = content.pageCount
+            async let d = content.pageCount
+            let counts = try await [a, b, c, d]
+
+            #expect(counts.allSatisfy { $0 == 2 })
+            #expect(counter.count == 1)
+        }
     }
 
     /// `CoverRefresher` が EPUB を `EPUBAdapter.reader` に回すことを、Washi に触れずに確かめる。

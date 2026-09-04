@@ -18,7 +18,10 @@ final class WashiImageBook: EPUBImageBookReading {
     }
     var pageCount: Int { imagePaths.count }
     func imageData(at index: Int) async throws -> Data {
-        guard imagePaths.indices.contains(index) else { throw EPUBAdapterError.cannotOpen("page \(index) out of range") }
+        guard imagePaths.indices.contains(index) else {
+            // Minor #2: 何が起きたかを明示する（"開けない" ではなく "index が範囲外"）。
+            throw EPUBAdapterError.cannotOpen("imageData(at:) index \(index) is out of range for a \(imagePaths.count)-page image book")
+        }
         return try publication.resource(at: imagePaths[index]).data
     }
 }
