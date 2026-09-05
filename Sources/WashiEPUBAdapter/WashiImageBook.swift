@@ -8,7 +8,7 @@ final class WashiImageBook: EPUBImageBookReading {
     private let publication: EPUBPublication
     private let imagePaths: [String]        // spine 順の画像コンテナパス
     let spreads: [EPUBPageSpread]
-    let readingDirection: EPUBReadingDirection
+    let readingDirection: ContractReadingDirection
 
     init(publication: EPUBPublication, imagePaths: [String], spreads: [EPUBPageSpread]) {
         self.publication = publication

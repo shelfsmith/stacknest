@@ -56,7 +56,7 @@ public struct WashiEPUBReader: EPUBReading {
     }
 
     /// Washi の enum 名に依存しないよう rawValue で写す（差し替え・更新で名前が変わっても壊れない）。
-    static func direction(rawValue: String) -> EPUBReadingDirection {
+    static func direction(rawValue: String) -> ContractReadingDirection {
         switch rawValue.lowercased() {
         case "rtl": return .rtl
         case "ltr": return .ltr
