@@ -14,7 +14,7 @@ done
 TMP="$(mktemp -d)"
 curl -fsSL "https://registry.npmjs.org/@zip.js/zip.js/-/zip.js-$ZIPJS_VERSION.tgz" | tar -xz -C "$TMP"
 cp "$TMP/package/index.min.js" "$DEST/vendor/zip.js"
-cp "$TMP/package/LICENSE" "$DEST/vendor/LICENSE-zip.js"
+cp "$TMP/package/LICENSE" "$DEST/vendor/LICENSE-zipjs.txt"
 rm -r "$TMP"
 {
   echo "# vendored versions"
