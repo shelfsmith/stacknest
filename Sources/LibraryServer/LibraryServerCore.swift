@@ -1827,7 +1827,21 @@ public struct LibraryServerCore: Sendable {
             // その間にディレクトリが変化しうるため、advertise する版と実際の pageCount が
             // 食い違う可能性があった）。
             let (content, etag) = try await contentCache.contentAndETag(for: row, libraryUUID: lib.uuid)
-            let pageCount = try await content.pageCount
+            let pageCount: Int
+            do {
+                pageCount = try await content.pageCount
+            } catch where EPUBManifestFallback.isTextEPUB(path: row.path, error: error) {
+                // G48-3: テキスト EPUB。ページ経路は無い。Web は foliate-js、Mac リモートは /file → Washi で開く。
+                let locator = (try? lib.db.loadViewerState(bookID: row.id))?.epubLocatorJSON
+                    .flatMap { $0.data(using: .utf8) }
+                    .flatMap { try? JSONDecoder().decode(EPUBLocatorDTO.self, from: $0) }
+                return ManifestDTO(
+                    pageCount: 0,
+                    direction: directionString(row.pageDirection ?? config.defaultPageDirection),
+                    format: "epub",
+                    etag: etag,
+                    epubLocator: locator)
+            }
             let overrides = (try? lib.db.loadViewerState(bookID: row.id))?.overrides ?? [:]
             let pageOverrides: [String: Int]? = overrides.isEmpty
                 ? nil
@@ -1992,7 +2006,9 @@ public struct LibraryServerCore: Sendable {
             }
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
             var headers = HTTPFields()
-            headers[.contentType] = "application/octet-stream"
+            // G48-3: EPUB は application/epub+zip（Web/Mac 双方が MIME で拡張子非依存に判定できるように）。
+            headers[.contentType] = (path as NSString).pathExtension.lowercased() == "epub"
+                ? "application/epub+zip" : "application/octet-stream"
             headers[.eTag] = bookETag(for: row)
             return Response(
                 status: .ok, headers: headers, body: .init(byteBuffer: ByteBuffer(bytes: data)))

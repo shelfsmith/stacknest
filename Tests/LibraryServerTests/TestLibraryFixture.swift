@@ -110,6 +110,16 @@ final class TestLibraryFixture: @unchecked Sendable {
         ))
     }
 
+    /// G48-3: 中身を読まない経路（manifest のフォールバック・/file の content-type）用に、
+    /// 拡張子だけ本物のダミーファイルを本として登録する。
+    func addDummyFileBook(named filename: String) throws -> Int {
+        let url = bundleURL.appendingPathComponent(filename)
+        try Data("not a real book".utf8).write(to: url)
+        return try db.insertBookReturningID(BookRecord(
+            id: 0, title: filename, path: url.path, dateAdded: Date()
+        ))
+    }
+
     /// G21 followup Important #2: 単独 PDF 本（アーカイブに包まれていない .pdf そのもの）を
     /// バンドルへコピーして登録する。`regenerateThumbnail` の PDF 分岐（`PDFBookContent.coverJPEG`）
     /// を単独ファイル経路で検証するためのヘルパ。

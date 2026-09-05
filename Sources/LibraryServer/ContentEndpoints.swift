@@ -96,10 +96,12 @@ func formatString(_ category: BookCategory) -> String {
     }
 }
 
-/// 画像バイト列から Content-Type を判定（FFD8→jpeg / 8950→png / その他→octet-stream）。
+/// 画像バイト列から Content-Type を判定（FFD8→jpeg / 8950→png / RIFF..WEBP→webp / その他→octet-stream）。
 func sniffImageContentType(_ data: Data) -> String {
     if data.prefix(2) == Data([0xFF, 0xD8]) { return "image/jpeg" }
     if data.prefix(2) == Data([0x89, 0x50]) { return "image/png" }
+    // G48-3: 画像本 EPUB は WebP が多い。RIFF....WEBP
+    if data.count >= 12, data.prefix(4) == Data("RIFF".utf8), data[8..<12] == Data("WEBP".utf8) { return "image/webp" }
     return "application/octet-stream"
 }
 

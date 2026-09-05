@@ -281,15 +281,19 @@ public struct ManifestDTO: Codable, Sendable {
     /// G26: 破損等で全ページを読めなかったときの注意文。
     /// **nil ならキー自体を省略する**（`pageOverrides` と同じ後方互換方針）。
     public let damageNote: String?
+    /// G48-3: テキスト EPUB（format == "epub"）の読書位置。**nil ならキー自体を省略する**（後方互換）。
+    public let epubLocator: EPUBLocatorDTO?
 
     public init(pageCount: Int, direction: String, format: String, etag: String,
-                pageOverrides: [String: Int]? = nil, damageNote: String? = nil) {
+                pageOverrides: [String: Int]? = nil, damageNote: String? = nil,
+                epubLocator: EPUBLocatorDTO? = nil) {
         self.pageCount = pageCount
         self.direction = direction
         self.format = format
         self.etag = etag
         self.pageOverrides = pageOverrides
         self.damageNote = damageNote
+        self.epubLocator = epubLocator
     }
 }
 
