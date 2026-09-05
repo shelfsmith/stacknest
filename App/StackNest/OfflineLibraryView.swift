@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
+import EPUBAdapter
+import LibraryServerAPI
 import LibraryStore
 import RemoteClient
 import SwiftUI
@@ -268,6 +270,45 @@ struct OfflineLibraryView: View {
 
         let fileURL = store.fileURL(for: book)
         let row = offlineBookRow(book, fileURL: fileURL)
+
+        // G48-3: ダウンロード済みのテキスト EPUB はローカルと同じ Washi の窓。画像本は従来の画像経路（G48-2b）。
+        if (fileURL.pathExtension.lowercased() == "epub"), let reader = EPUBAdapter.reader, let renderer = EPUBAdapter.renderer {
+            Task { @MainActor in
+                if (try? await reader.openImageBook(url: fileURL)) != nil {
+                    self.openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage, resumeDirect: resumeDirect)
+                    return
+                }
+                let saved = (self.store.all().first { $0.id == book.id }?.epubLocator)
+                    .map { EPUBLocatorValue(spine: $0.spine, progress: $0.progress, cfi: $0.cfi, engine: $0.engine) }
+                do {
+                    let epubReader = try await renderer.makeReaderView(url: fileURL, at: saved)
+                    let store = self.store, sid = book.serverID, lib = book.libraryUUID, id = book.bookID
+                    let controller = EPUBReaderWindowController(book: row, reader: epubReader) { loc in
+                        store.updateEPUBLocator(serverID: sid, libraryUUID: lib, bookID: id,
+                                                locator: EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine))
+                    }
+                    epubReader.fontScale = ViewerSettings.shared.epubFontScale
+                    epubReader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
+                    controller.onClose = { [weak controller] in
+                        guard let controller else { return }
+                        ViewerWindowRegistry.shared.unregister(controller: controller)
+                    }
+                    ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
+                    controller.showWindow(nil)
+                } catch {
+                    self.errorText = "本を開けませんでした"
+                    ViewerWindowRegistry.shared.cancelOpen(identity)
+                }
+            }
+            return
+        }
+
+        openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage, resumeDirect: resumeDirect)
+    }
+
+    /// G48-3: 従来の内蔵ビューア（画像本・PDF 等）で開く経路。openOffline から切り出し（挙動は変更なし）。
+    /// EPUB リーダー未登録・EPUB でない・画像本 EPUB（openImageBook が成功）の場合はここへ流れる。
+    private func openOfflinePages(_ book: DownloadedBook, row: BookRow, identity: ViewerIdentity, freshLastPage: Int?, resumeDirect: Bool) {
         let content: BookContent
         do {
             content = try BookContentFactory.make(for: row)
