@@ -172,8 +172,12 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         const fallback = loc && sectionCount > 0
             ? { index: Math.min(Math.max(0, Math.floor(Number(loc.spine) || 0)), sectionCount - 1), anchor: Math.min(1, Math.max(0, Number(loc.progress) || 0)) }
             : null;
-        if (typeof target === "string" && view.resolveNavigation(target)) await view.init({ lastLocation: target });
-        else if (fallback) { await view.renderer.goTo(fallback); view.history?.pushState?.(fallback); }
+        // resolveNavigation は「解決できた」だけを返し、spine index が範囲外（存在しない章の cfi）でも
+        // {index} を返してしまう。範囲内のときだけ cfi を信じる（自走 smoke で白画面を再現して確認）。
+        const resolved = typeof target === "string" ? view.resolveNavigation(target) : null;
+        const cfiUsable = resolved && Number.isInteger(resolved.index) && resolved.index >= 0 && resolved.index < sectionCount;
+        if (cfiUsable) await view.init({ lastLocation: target });
+        else if (fallback) { await view.renderer.goTo(fallback); view.history?.pushState?.(fallback.index); }   // history には resolveNavigation が解ける形（index）で積む
         else await view.init({ showTextStart: true });
     } catch (e) {
         // T4 レビュー Important #1: 401 は api.js が #/pair へ遷移済み（reader.js と同じ扱い）。誤った toast を出さない。
