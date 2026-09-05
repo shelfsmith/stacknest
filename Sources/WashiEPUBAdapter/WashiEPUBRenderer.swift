@@ -3,7 +3,6 @@ import AppKit
 import EPUBAdapter
 import WashiCore
 import Washi   // ← 表示層。リポジトリでここだけ
-import WebKit
 import os
 
 /// 初回 load・読み込み失敗・画像ページ手当ての適用失敗を最小限だけ記録する。
@@ -95,86 +94,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 固定レイアウト経路（itemref が pre-paginated）は insets を使わず枠いっぱいに描くため、
     /// リフロー経路の画像ページも同じ見え方（枠いっぱい）に揃える。`init` 時点の
     /// `reader.settings.insets`（本文用の既定値）を保持しておき、テキストページに戻すときに使う。
+    /// G48-4: 画像ページの描画（比率・リサイズ追従）は Washi 1.14.1 以降が担う（上流 Issue #1）。
+    /// ここは insets の切替だけ。
     private let textInsets: EPUBReaderInsets
-    /// G48-2 レビュー対応: 「どの WKWebView に注入済みか」を弱参照で追跡する。Washi は
-    /// WebContent プロセスが落ちると `webViewWebContentProcessDidTerminate` →
-    /// `reloadCurrentPublication()` → `rebuildWebView(for:)` で**新しい `WKWebViewConfiguration`
-    /// の WebView を作り直す**（`.build/checkouts/Washi/Sources/Washi/Rendering/EPUBReaderView.swift`）。
-    /// 古い config に足した `WKUserScript` は新しい WebView には引き継がれないため、Bool の
-    /// 一度きりフラグでは再注入が止まり、表紙の比率崩れが無言で再発する。`reader.subviews` の
-    /// 現在の WKWebView と本プロパティが指す WebView が食い違えば再注入し、更新する。
-    private weak var injectedWebView: WKWebView?
-
-    /// G48-2（2026-09-04 再差し替え）: Washi の画像ページ CSS（`body svg { width:auto; height:auto }`＋
-    /// `!important` の max-width/max-height。上流 Issue https://github.com/shunnag/Washi/issues/1）が
-    /// svg を 0×0 に潰す問題への対処を、①CSS＋DOM 属性書き換え（`meet`）→②JS が `resize` のたびに
-    /// px を計算し inline `!important` で与える方式、の順に試し、いずれも実機で崩れた。
-    /// ②は Washi 側のレイアウト更新（ページ割りの再実行）とタイミングがずれ、リサイズ中に画像が
-    /// 窓より大きく膨らみ、落ち着くと小さく右端が切れる挙動が実機の動画で確認された。
-    /// ①（`userCSS` に `height:100vh !important; width:auto !important;` を注入するだけの版、
-    /// `f41da4c`）はリサイズに滑らかに追従したが、`preserveAspectRatio="none"` の表紙だけ比率が
-    /// 崩れた（`none` は箱に強制的に引き伸ばされるため、箱の比率を画像の比率に合わせないと直らない）。
-    /// 本方式（③）は①の「寸法は CSS・resize リスナー無し」を踏襲しつつ、①が持っていなかった
-    /// 「箱の比率＝画像の比率」を足す: JS は**ページ読み込み時に 1 回だけ**動き、viewBox の比率を
-    /// CSS カスタムプロパティ（`--stacknest-ratio`）に書き込むだけで、寸法計算・inline width/height・
-    /// `resize` リスナーは一切持たない。寸法は `userCSS`（`WashiEPUBRenderer.init` 内）の
-    /// `min(100vh, 100vw / var(--stacknest-ratio))` が担うため、リサイズへの追従は純 CSS で
-    /// 即座に効き、①の「meet 化のみ」欠点（`none` 表紙の崩れ）も比率を明示することで解消する。
-    /// `WKUserScript`（`injectFitSvgImagePagesFixIfNeeded()`）と、`didMoveTo` からの
-    /// 直接実行（`applyFitSvgImagePagesDirectly()`）の両方がこれを使う——
-    /// WebKit は「すでに始まったナビゲーション」には後から足した `WKUserScript` を適用しない
-    /// ため、`WKUserScript` だけでは初回表紙（＝ `performPendingLoad` が `reader.load()` の
-    /// 後に注入していた場合）や WebContent プロセス復旧直後の最初の文書で効かないことがある。
-    /// 直接実行はナビゲーション順序に依存せず「今表示中の文書」に確実に当たるので保険になる。
-    /// 冪等（同じ要素に何度当てても副作用なし）なので毎回呼んでよい。
-    ///
-    /// G48-2-4（2026-09-04 実測）: 表紙は svg 包みだったが、「金貨」「薬屋のひとりごと」の
-    /// 表紙以外の画像ページ（挿絵）は `<svg>` の包みが無い `<img>` 1 枚のページで、
-    /// 同じ「リサイズに追従しない」症状が出た。判定基準を Washi 自身が「画像単体ページ」を
-    /// 検出する基準（`WashiCore.EPUBPublication.fixedLayoutInfo(forSpineIndex:).simpleImagePath`）
-    /// に合わせ、`document.body.textContent`（空白除去後）が空、かつ `img` 要素数 ＋
-    /// `svg image` 要素数の合計が 1 であることをページ単位でまず判定する。該当したときのみ
-    /// svg 包み／`<img>` 単体のどちらかへ分岐して比率を書き込む。
-    private static let fitSvgImagePagesScript = """
-        (() => {
-          const body = document.body;
-          if (!body) return;
-          const text = (body.textContent || '').replace(/\\s+/g, '');
-          if (text.length !== 0) return;
-          const imgs = document.querySelectorAll('img');
-          const svgImages = document.querySelectorAll('svg image');
-          if (imgs.length + svgImages.length !== 1) return;
-          body.classList.add('stacknest-image-page');
-          if (svgImages.length === 1) {
-            // svg 包みの画像ページ（表紙など）: 従来どおり viewBox の比率を使う。
-            const svg = svgImages[0].closest('svg[viewBox]');
-            if (!svg) return;
-            const vb = svg.viewBox.baseVal;
-            if (!vb || !vb.width || !vb.height) return;
-            svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-            svg.style.setProperty('--stacknest-ratio', String(vb.width / vb.height));
-            svg.classList.add('stacknest-image-page');
-            return;
-          }
-          // <img> 1 枚だけの画像ページ（挿絵など）: naturalWidth/naturalHeight が
-          // 未確定なことがあるので、width/height 属性へフォールバックし、
-          // それも無ければ読み込み完了を待って比率を書き込む。
-          const img = imgs[0];
-          img.classList.add('stacknest-image-page');
-          const applyRatio = () => {
-            const w = img.naturalWidth || parseFloat(img.getAttribute('width') || '0');
-            const h = img.naturalHeight || parseFloat(img.getAttribute('height') || '0');
-            if (w && h) img.style.setProperty('--stacknest-ratio', String(w / h));
-          };
-          if (img.complete && img.naturalWidth && img.naturalHeight) {
-            applyRatio();
-          } else if (img.getAttribute('width') && img.getAttribute('height')) {
-            applyRatio();
-          } else {
-            img.addEventListener('load', applyRatio, { once: true });
-          }
-        })();
-        """
 
     override init() {
         hostView = WashiHostView(readerView: reader)
@@ -182,59 +104,6 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         super.init()
         hostView.host = self
         reader.delegate = self
-        // G48-2（2026-09-04 再差し替え）: 寸法は CSS のみで決める（`fitSvgImagePagesScript` の
-        // doc コメント参照。①CSS 版→②JS px 直指定版→本方式の経緯）。JS
-        // （`fitSvgImagePagesScript`）は viewBox の比率を `--stacknest-ratio` に書き込んで
-        // `.stacknest-image-page` クラスを付けるだけで、寸法計算も `resize` リスナーも持たない。
-        // 箱の高さは「100vh」と「100vw を比率で割った高さ」の小さい方にする（`min()`）ことで、
-        // 縦長画像は高さいっぱい・横長画像は幅いっぱいに収まり、比率は常に画像のものになる
-        // （`none` 表紙もこれで箱の比率＝画像の比率になるため崩れない）。純 CSS なのでリサイズに
-        // 即時追従し、Washi の max-width/max-height（!important）は `!important` で上書きする。
-        // JS が走る前（`--stacknest-ratio` 未設定・クラス未付与）の一瞬は Washi の既定 CSS
-        // （`width:auto; height:auto`）のままで svg が 0×0 になりうるが、`.atDocumentEnd` と
-        // `didMoveTo` からの直接実行で即座に修正されるため許容する。
-        //
-        // G48-2-3（2026-09-04・リサイズ中に膨らんで切れる不具合の実測修正）: 上記までは svg 自身の
-        // 寸法しか制御していなかった。実機のリサイズ中ログで次が確認された:
-        //   inner=1104x1303  svgRect x=-72.5 y=-170.5 w=916 h=1303  pagMaxWH: max-width: 771px / max-height: 962px
-        // svg は `min(100vh, 100vw/ratio)` で正しく 916×1303 に追従していたが、Washi の画像ページ
-        // CSS が入れる body/.main（`display:flex` 中央寄せ）の入れ物は**ページ割りのデバウンス後にしか
-        // 更新されない古い寸法**（771×962）のまま据え置かれていた（上流 Issue
-        // https://github.com/shunnag/Washi/issues/1）。大きい svg が中央寄せで箱からはみ出し、
-        // (916−771)/2=72.5・(1303−962)/2=170.5 だけ負にずれて切れていた。対処は「入れ物も
-        // viewport に追従させる」: `fitSvgImagePagesScript` が body にも `.stacknest-image-page`
-        // を付け、body とその直下の非 svg 要素（`.main` 等の flex ラッパー）を 100vw/100vh に固定する。
-        // `> :not(svg)` にしているのは、svg が body 直下の本（ラッパーが無い構成）でも壊さないため。
-        reader.settings.userCSS = """
-            body.stacknest-image-page {
-              width: 100vw !important;
-              height: 100vh !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              overflow: hidden !important;
-            }
-            body.stacknest-image-page > :not(svg) {
-              width: 100vw !important;
-              height: 100vh !important;
-              margin: 0 !important;
-              padding: 0 !important;
-            }
-            body.stacknest-image-page svg.stacknest-image-page {
-              height: min(100vh, calc(100vw / var(--stacknest-ratio))) !important;
-              width: auto !important;
-              max-width: none !important;
-              max-height: none !important;
-            }
-            body.stacknest-image-page img.stacknest-image-page {
-              height: min(100vh, calc(100vw / var(--stacknest-ratio, 0.7))) !important;
-              width: auto !important;
-              max-width: none !important;
-              max-height: none !important;
-              object-fit: contain;
-              display: block;
-              margin: 0 auto;
-            }
-            """
         // G48-2 最終レビュー C: 窓を開いた直後は JS 側の `didReceiveKey` 経路が効かないことがある
         // （WKWebView がファーストレスポンダを持っていないと発火しない）。Washi README 推奨どおり
         // ネイティブ NSEvent 経路（`didReceiveNativeKey`）に切り替え、`readerView(_:didReceiveNativeKey:)`
@@ -281,68 +150,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         updateInsets(for: pending.publication, spineIndex: pending.locator?.spineIndex ?? 0)
         let loadLine = "load: host=\(String(describing: self.hostView.bounds)) reader=\(String(describing: self.reader.bounds)) window=\(String(describing: self.hostView.window?.frame ?? .zero))"
         epubReaderLog.notice("\(loadLine, privacy: .public)")
-        // G48-2 Codex P2: WKUserScript は「これから始まるナビゲーション」にしか効かず、
-        // すでに始まったナビゲーションには後から足しても効かない。`reader.load()` は Washi 内部で
-        // 新しい WKWebView を作ってからナビゲーションを開始するため、通常ここでは
-        // `reader.subviews` にまだ WebView は現れない（＝この呼び出しは実質何もしない）が、
-        // 万一すでに WebView が存在していれば load() 前に注入できたほうがよいので試す。
-        // 居なければ load() 直後にもう一度試み（従来どおりの経路）、
-        // それでも表紙ナビゲーションには間に合わないことがあるため、
-        // `readerView(_:didMoveTo:...)` からの直接実行（`applyFitSvgImagePagesDirectly()`）
-        // が最終的な保険になる。
-        injectFitSvgImagePagesFixIfNeeded()
         reader.load(publication: pending.publication, at: pending.locator)
-        injectFitSvgImagePagesFixIfNeeded()
-    }
-
-    /// G48-2（2026-09-04 再差し替え）: `fitSvgImagePagesScript`（doc コメント参照）を
-    /// `WKUserScript` として注入する。svg ごとに viewBox の比率が異なるため、CSS 単独では
-    /// 個々の画像に合わせた比率を宣言できない——JS が `--stacknest-ratio` を書き込み、
-    /// 実際の寸法計算は `init` の `userCSS`（`min(100vh, 100vw / var(--stacknest-ratio))`）が
-    /// 純 CSS で行う。Washi 上流へ報告する候補（body svg のデフォルト寸法算出、または
-    /// 画像ページ CSS 側での比率維持）。
-    ///
-    /// G48-2 レビュー対応: Washi は WebContent プロセスクラッシュからの復帰時に WKWebView を
-    /// 作り直す（`injectedWebView` の doc コメント参照）ため、「1 回だけ」注入する Bool フラグでは
-    /// 再構築後に無言で機能を失う。ここでは `reader.subviews` の現在の WKWebView が
-    /// `injectedWebView` と**同一インスタンスかどうか**で要否を判定し、別物なら再注入して
-    /// `injectedWebView` を更新する。`performPendingLoad` 直後（初回）に加え、
-    /// `readerView(_:didMoveTo:pageInItem:pageCountInItem:)`（ページ遷移のたび）からも呼ぶ——
-    /// 同一 WebView への呼び出しは早期 return するだけなので安価。WebView が作り直されても、
-    /// 次にページへ到達した時点で復旧する。
-    private func injectFitSvgImagePagesFixIfNeeded() {
-        guard let wv = currentWebView(), wv !== injectedWebView else { return }
-        injectedWebView = wv
-        let script = WKUserScript(
-            source: Self.fitSvgImagePagesScript,
-            injectionTime: .atDocumentEnd,
-            forMainFrameOnly: true
-        )
-        wv.configuration.userContentController.addUserScript(script)
-    }
-
-    /// G48-2 Codex P2: `WKUserScript` は次回以降のナビゲーション（次ページ・復旧後の再読込）向けの
-    /// 保険に留まる。**今まさに表示されている文書**に対しては、`reader.subviews` から現在の
-    /// `WKWebView` を取り出して JS を直接実行することでしか確実性を担保できない
-    /// （すでに始まったナビゲーションには `WKUserScript` が効かないため）。
-    /// 冪等（何度当てても副作用なし）なので、`didMoveTo` から毎回呼んでよい。
-    /// 結果は無視し、失敗時のみ 1 行 `.error` でログする。
-    private func applyFitSvgImagePagesDirectly() {
-        guard let wv = currentWebView() else { return }
-        wv.evaluateJavaScript(Self.fitSvgImagePagesScript) { _, error in
-            if let error {
-                epubReaderLog.error("fitSvgImagePages: direct apply failed: \(String(describing: type(of: error)), privacy: .public)")
-            }
-        }
-    }
-
-    /// `reader.subviews` の中から現在の `WKWebView` を探す。Washi は WebView を直接の subview として
-    /// 持つ（`injectFitSvgImagePagesFixIfNeeded` のコメント参照）。
-    private func currentWebView() -> WKWebView? {
-        for v in reader.subviews {
-            if let wv = v as? WKWebView { return wv }
-        }
-        return nil
     }
 
     var view: NSView { hostView }
@@ -393,13 +201,6 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         if let publication = reader.publication {
             updateInsets(for: publication, spineIndex: locator.spineIndex)
         }
-        // G48-2 レビュー対応: WebContent プロセスのクラッシュ復帰で WKWebView が作り直されている
-        // ことがあるため、ページ遷移のたびに注入要否を確認する（同一 WebView なら早期 return）。
-        injectFitSvgImagePagesFixIfNeeded()
-        // G48-2 Codex P2: WKUserScript はすでに始まったナビゲーションに後から足しても効かないため、
-        // 最初の項目（表紙）や WebContent プロセス復旧直後の最初の文書で無言のまま外れることがある。
-        // 冪等なので、現在の文書に対して毎回直接 JS を当てて確実性を担保する。
-        applyFitSvgImagePagesDirectly()
     }
 
     /// 読み込み失敗をログする（白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
