@@ -3,7 +3,7 @@
 // G48-3: 画像本 EPUB は manifest がページ経路（pageCount>0）を返すのでここには来ない。
 // 位置は共有 locator（epub-locator.js）で /epub-progress へ書き戻す（Mac リモート閲覧と共通）。
 
-import { fetchBookFileBlob, postEPUBProgress } from "./api.js";
+import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError } from "./api.js";
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
@@ -168,6 +168,8 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         else if (target) await view.renderer.goTo(target);
         else await view.init({ showTextStart: true });
     } catch (e) {
+        // T4 レビュー Important #1: 401 は api.js が #/pair へ遷移済み（reader.js と同じ扱い）。誤った toast を出さない。
+        if (e instanceof UnauthorizedError) return teardown;
         if (!torn) toast("本を開けませんでした");
         console.error(e);
     }
