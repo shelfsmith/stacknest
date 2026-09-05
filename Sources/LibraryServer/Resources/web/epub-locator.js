@@ -3,6 +3,8 @@
 export const ENGINE = "foliate";
 
 const num = (x, lo, hi, fallback) => {
+    // null/undefined/"" は Number() で 0 になり下限に丸まってしまう（自走 smoke で A+ が 0.561 になった）。fallback を返す。
+    if (x === null || x === undefined || x === "") return fallback;
     const n = Number(x);
     if (!Number.isFinite(n)) return fallback;
     return Math.min(hi, Math.max(lo, n));
