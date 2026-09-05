@@ -1377,3 +1377,41 @@ body {
     border: 2px solid var(--text);
   }
 }
+
+/* ============================================================
+   EPUB リーダー（テキスト EPUB・foliate-js）— G48-3
+   ============================================================ */
+
+.epub-reader {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: Canvas;
+}
+
+.epub-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  padding-top: max(4px, env(safe-area-inset-top));
+}
+
+.epub-spacer { flex: 1; }
+
+.epub-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.epub-tap {
+  position: absolute;
+  top: 48px;
+  bottom: 0;
+  width: 22%;
+}
+
+.epub-tap-left { left: 0; }
+.epub-tap-right { right: 0; }

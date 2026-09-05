@@ -161,6 +161,22 @@ export async function postProgress(uuid, bookId, apiIndex, restart = false) {
     if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
 }
 
+/// G48-3: EPUB 本体（/file）。foliate-js に File として渡す。
+export async function fetchBookFileBlob(uuid, bookId) {
+    const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/file`, { libraryUUID: uuid });
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+    return res.blob();
+}
+
+/// G48-3: テキスト EPUB の読書位置（{spine, progress, cfi, engine}）。サーバ側で既読化もする。
+export async function postEPUBProgress(uuid, bookId, locator) {
+    const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/epub-progress`,
+        { libraryUUID: uuid, method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(locator) });
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+}
+
 /// 本のページ方向を DB に書き戻す（"rtl" | "ltr" | null）。!ok は status 付き Error。
 export async function postDirection(uuid, bookId, direction) {
     const res = await api(`/libraries/${encodeURIComponent(uuid)}/books/${bookId}/direction`,

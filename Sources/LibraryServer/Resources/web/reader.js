@@ -154,6 +154,15 @@ export async function renderReader(uuid, bookId, query, deps) {
         return;
     }
 
+    // G48-3: テキスト EPUB は foliate-js のリーダーへ。画像本 EPUB はページ経路
+    // （pageCount>0）を返すのでここには来ない。teardown は既存の activeReaderTeardown
+    // にそのまま登録し、次の renderReader 呼び出し冒頭の掃除（上の if 節）で拾えるようにする。
+    if (manifest.format === "epub") {
+        const { renderEPUBReader } = await import("./epub-reader.js");
+        activeReaderTeardown = await renderEPUBReader(uuid, bookId, query, deps, manifest, backHash);
+        return;
+    }
+
     const { pageCount, format } = manifest;
     // G26: 破損アーカイブを部分読みで開いた場合の注意。旧サーバはこのキーを返さない。
     if (manifest.damageNote) {
