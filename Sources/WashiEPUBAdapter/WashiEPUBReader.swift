@@ -10,7 +10,7 @@ import os
 /// `WashiEPUBRenderer.swift` と同じ subsystem/category（同一モジュール内で file-private のため別インスタンス）。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
-/// `shunnag/Washi`（revision 8247b1d）による `EPUBReading` 実装。Washi の型を外に漏らさない。
+/// `shunnag/Washi`（1.16.0・revision c785293）による `EPUBReading` 実装。Washi の型を外に漏らさない。
 public struct WashiEPUBReader: EPUBReading {
     public init() {}
 
@@ -20,7 +20,7 @@ public struct WashiEPUBReader: EPUBReading {
             title: pub.metadata.mainTitle,
             author: pub.metadata.creators.first?.value,
             language: pub.metadata.languages.first,
-            readingDirection: Self.direction(declared: pub.readingDirection.rawValue, effective: pub.effectiveReadingDirection.rawValue))
+            readingDirection: Self.resolvedDirection(of: pub))
     }
 
     public func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data? {
@@ -71,6 +71,16 @@ public struct WashiEPUBReader: EPUBReading {
         let d = direction(rawValue: declared)
         if d != .unknown { return d }
         return direction(rawValue: effective)
+    }
+
+    /// G48-4 最終レビュー C1: 上流の `effectiveReadingDirection` は手がかりが無いとき **表示用の既定 `ltr`** を
+    /// 返す（`effectiveReadingDirectionSource == .fallback`）。それは「本の規定」ではないので採用せず
+    /// `.unknown` に落とす（→ 取り込み時に書かない → ユーザーのグローバル既定＝右綴じに従う）。
+    /// PPD 未宣言の漫画（本文 CSS が無く `ja` は RTL 言語でもない）は必ず `.fallback` になるため、これを
+    /// 採用すると左綴じが行に焼き付く。`.fallback` はケース名で見る（壊れればコンパイルエラーになる依存）。
+    static func resolvedDirection(of pub: EPUBPublication) -> ContractReadingDirection {
+        let effective = pub.effectiveReadingDirectionSource == .fallback ? "" : pub.effectiveReadingDirection.rawValue
+        return direction(declared: pub.readingDirection.rawValue, effective: effective)
     }
 
     /// Washi の `PageSpreadSlot` を rawValue 文字列で写す（enum 名に依存しない）。nil は "none" 扱い。

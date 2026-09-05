@@ -27,4 +27,12 @@ struct WashiReadingDirectionTests {
         let info = try await WashiEPUBReader().open(url: url)
         #expect(info.readingDirection == .rtl)
     }
+    /// 最終レビュー C1: 手がかりが無い本は上流の表示用既定（ltr・source == .fallback）を採用せず unknown。
+    @Test("手がかりの無い最小 EPUB は unknown（上流の fallback ltr を本の規定にしない）") func noSignalStaysUnknown() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("g48-4-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let url = try MinimalEPUB.makeNoSignal(in: dir)
+        let info = try await WashiEPUBReader().open(url: url)
+        #expect(info.readingDirection == .unknown)
+    }
 }

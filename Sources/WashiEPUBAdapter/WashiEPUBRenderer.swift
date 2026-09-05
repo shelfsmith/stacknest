@@ -5,7 +5,7 @@ import WashiCore
 import Washi   // ← 表示層。リポジトリでここだけ
 import os
 
-/// 初回 load・読み込み失敗・画像ページ手当ての適用失敗を最小限だけ記録する。
+/// 初回 load・読み込み失敗を最小限だけ記録する。
 /// 個人情報（パス・題名）は出さない — サイズ・spine index・エラー型のみ。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
