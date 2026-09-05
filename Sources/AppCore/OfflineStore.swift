@@ -37,13 +37,18 @@ public struct DownloadedBook: Codable, Sendable, Identifiable {
     public var hasCachedCover: Bool
     public var downloadedAt: Date
     public var lastPage: Int?
+    /// G48-3: ダウンロード済みテキスト EPUB のローカル読書位置（サーバとは同期しない・spec §6）。
+    /// 末尾に optional で追加しているため、旧 index.json（このキー無し）も decode できる。
+    public var epubLocator: EPUBLocatorDTO?
     public var bookID: Int { detail.id }
     public var id: String { "\(serverID.uuidString)/\(libraryUUID)/\(detail.id)" }
     public init(detail: BookDetailDTO, serverID: UUID, libraryUUID: String, libraryName: String,
-                relativeFilePath: String, hasCachedCover: Bool, downloadedAt: Date, lastPage: Int?) {
+                relativeFilePath: String, hasCachedCover: Bool, downloadedAt: Date, lastPage: Int?,
+                epubLocator: EPUBLocatorDTO? = nil) {
         self.detail = detail; self.serverID = serverID; self.libraryUUID = libraryUUID
         self.libraryName = libraryName; self.relativeFilePath = relativeFilePath
         self.hasCachedCover = hasCachedCover; self.downloadedAt = downloadedAt; self.lastPage = lastPage
+        self.epubLocator = epubLocator
     }
 }
 
@@ -178,6 +183,15 @@ public struct OfflineStore: @unchecked Sendable {
         var list = all()
         if let i = list.firstIndex(where: { $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID }) {
             list[i].lastPage = page
+            try? persist(list)
+        }
+    }
+
+    /// G48-3: ダウンロード済みテキスト EPUB の読書位置（サーバとは同期しない・spec §6）。
+    public func updateEPUBLocator(serverID: UUID, libraryUUID: String, bookID: Int, locator: EPUBLocatorDTO) {
+        var list = all()
+        if let i = list.firstIndex(where: { $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID }) {
+            list[i].epubLocator = locator
             try? persist(list)
         }
     }
