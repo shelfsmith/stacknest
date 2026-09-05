@@ -3,7 +3,7 @@
 // G48-3: 画像本 EPUB は manifest がページ経路（pageCount>0）を返すのでここには来ない。
 // 位置は共有 locator（epub-locator.js）で /epub-progress へ書き戻す（Mac リモート閲覧と共通）。
 
-import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError } from "./api.js";
+import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError, NetworkError } from "./api.js";
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
@@ -106,7 +106,8 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
 
     // このリーダーの route から離れたかどうかは reader.js と同じ判定（#/lib/<uuid>/read/<bookId>...）。
     const readerHashPattern = new RegExp(
-        `^#/lib/${escapeRegExp(encodeURIComponent(uuid))}/read/${escapeRegExp(String(bookId))}`
+        // 最終レビュー I2: 終端を閉じる（read/1 が read/12 に前方一致しないように）
+        `^#/lib/${escapeRegExp(encodeURIComponent(uuid))}/read/${escapeRegExp(String(bookId))}(?=[/?#]|$)`
     );
     function onHashChange() {
         if (!readerHashPattern.test(location.hash)) teardown();
@@ -164,13 +165,20 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         });
         const target = restoreTarget(manifest.epubLocator);
         if (torn) return teardown;
-        if (typeof target === "string") await view.init({ lastLocation: target });
-        else if (target) await view.renderer.goTo(target);
+        // 最終レビュー I1: cfi が解決できなければ spine+progress へ、index が範囲外なら先頭へ落とす
+        // （renderer.goTo は範囲外を黙って無視し、init は解決失敗で先頭へ行って位置を上書きしてしまう）。
+        const sectionCount = view.book?.sections?.length ?? 0;
+        const loc = manifest.epubLocator;
+        const fallback = loc && sectionCount > 0
+            ? { index: Math.min(Math.max(0, Math.floor(Number(loc.spine) || 0)), sectionCount - 1), anchor: Math.min(1, Math.max(0, Number(loc.progress) || 0)) }
+            : null;
+        if (typeof target === "string" && view.resolveNavigation(target)) await view.init({ lastLocation: target });
+        else if (fallback) { await view.renderer.goTo(fallback); view.history?.pushState?.(fallback); }
         else await view.init({ showTextStart: true });
     } catch (e) {
         // T4 レビュー Important #1: 401 は api.js が #/pair へ遷移済み（reader.js と同じ扱い）。誤った toast を出さない。
         if (e instanceof UnauthorizedError) return teardown;
-        if (!torn) toast("本を開けませんでした");
+        if (!torn) toast(e instanceof NetworkError ? "サーバに接続できません" : "本を開けませんでした");
         console.error(e);
     }
 

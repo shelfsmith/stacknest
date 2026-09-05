@@ -483,9 +483,18 @@ components:
           description: 実効ページ方向（null は返さない・ライブラリ既定を適用済み）
         format:
           type: string
-          description: アーカイブ形式（archive / image / folder / video / text）
+          description: アーカイブ形式（archive / image / folder / video / text / epub）。`epub` はテキスト EPUB（G48-3）で、pageCount は 0・ページ経路は無い。全ページ画像の EPUB は text のままページ経路で配る
         etag:
           type: string
+        epubLocator:
+          type: object
+          description: format が epub のときの読書位置（未保存ならキー省略）。POST /epub-progress と同じ形
+          required: [spine, progress]
+          properties:
+            spine: { type: integer, description: spine index（0 始まり） }
+            progress: { type: number, description: spine 内の進行率 0…1 }
+            cfi: { type: string, nullable: true, description: 同じ engine のときだけ復元に使う補助 }
+            engine: { type: string, nullable: true, description: cfi を出したエンジン名（washi / foliate） }
 
     AddBooksRequestDTO:
       type: object

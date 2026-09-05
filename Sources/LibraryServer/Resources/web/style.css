@@ -1408,7 +1408,8 @@ body {
 
 .epub-tap {
   position: absolute;
-  top: 48px;
+  /* 最終レビュー Minor: バーの実高（ノッチの安全領域込み）の下から。「戻る」に被せない */
+  top: calc(48px + env(safe-area-inset-top));
   bottom: 0;
   width: 22%;
 }

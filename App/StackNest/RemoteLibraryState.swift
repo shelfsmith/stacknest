@@ -1849,6 +1849,20 @@ final class RemoteLibraryState {
             // G26: 破損（打ち切り読み）注意文。ここで content と一緒に確定させ、ビューアには値として
             // 渡す（ビューア側で遅延取得すると永続化ゲートに間に合わない — `TruncatedReadPolicy` 参照）。
             var damageNote: String?
+            // G48-3 最終レビュー C2: DL 済みの `.epub` は BookContentFactory が同期で成功するため
+            // オフライン近道に入るが、テキスト EPUB はページ経路では開けない（pageCount が throw）。
+            // 画像本かどうかをここで判定し、テキストなら DL 済みファイルをそのまま Washi で開く
+            // （位置の初期値だけ manifest から取る。取れなければ先頭）。
+            if readingOffline, let dl = downloaded,
+               (book.filename ?? "").lowercased().hasSuffix(".epub"),
+               let reader = EPUBAdapter.reader {
+                let localURL = self.offlineStore.fileURL(for: dl)
+                if (try? await reader.openImageBook(url: localURL)) == nil {
+                    let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
+                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag, localFile: localURL)
+                    return
+                }
+            }
             if readingOffline, let offlineContent, let offlineRow {
                 content = offlineContent
                 row = offlineRow
@@ -1869,7 +1883,8 @@ final class RemoteLibraryState {
                 }
                 // G48-3: テキスト EPUB は /file → Washi の窓。画像本 EPUB は従来のページ経路。
                 if RemoteEPUBRouting.route(filename: book.filename, manifestFormat: m.format) == .textEPUB {
-                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m.epubLocator)
+                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m.epubLocator, version: m.etag,
+                                                    localFile: downloaded.map { self.offlineStore.fileURL(for: $0) })
                     return
                 }
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
@@ -2056,18 +2071,22 @@ final class RemoteLibraryState {
     /// G48-3: リモート書庫のテキスト EPUB。本体を /file から取ってキャッシュし、ローカルと同じ Washi の窓で開く。
     /// 位置はサーバが正（初期値は manifest.epubLocator、書き戻しは POST /epub-progress）。
     @MainActor
-    private func openRemoteEPUBReader(book: BookListItemDTO, identity: ViewerIdentity, initial: EPUBLocatorDTO?) async {
+    /// `version` は manifest.etag（キャッシュの失効に使う）。`localFile` は DL 済みの本体（あればダウンロードしない）。
+    private func openRemoteEPUBReader(book: BookListItemDTO, identity: ViewerIdentity, initial: EPUBLocatorDTO?,
+                                      version: String? = nil, localFile: URL? = nil) async {
         guard let renderer = EPUBAdapter.renderer else {
             errorText = "EPUB リーダーが使えません"
             ViewerWindowRegistry.shared.cancelOpen(identity)
             return
         }
         let cache = RemoteEPUBCache()
-        var fileURL = cache.fileURL(serverID: serverID, libraryUUID: libraryUUID, bookID: book.id)
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
+        var fileURL = cache.fileURL(serverID: serverID, libraryUUID: libraryUUID, bookID: book.id, version: version)
+        if let localFile, FileManager.default.fileExists(atPath: localFile.path) {
+            fileURL = localFile
+        } else if !FileManager.default.fileExists(atPath: fileURL.path) {
             do {
                 let tmp = try await client.bookFile(libraryUUID: libraryUUID, bookID: book.id, libraryToken: libraryToken, onProgress: nil)
-                fileURL = try cache.store(temporaryFile: tmp, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id)
+                fileURL = try cache.store(temporaryFile: tmp, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id, version: version)
             } catch {
                 Self.epubLog.warning("openRemoteEPUBReader: download failed bookID=\(book.id, privacy: .public)")
                 errorText = "本を開けませんでした（EPUB の取得に失敗）"

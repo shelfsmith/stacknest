@@ -15,6 +15,15 @@ struct RemoteEPUBCacheTests {
         let u = c.fileURL(serverID: sid, libraryUUID: "LIB", bookID: 7)
         #expect(u.path.hasSuffix("/\(sid.uuidString)/LIB/7.epub"))
     }
+    @Test("version（manifest etag）がファイル名に入り、変わると別ファイルになる") func versionedPath() throws {
+        let c = RemoteEPUBCache(baseDirectory: try tmpDir())
+        let sid = UUID()
+        let a = c.fileURL(serverID: sid, libraryUUID: "LIB", bookID: 7, version: "\"7-1700000000-2088356-abc\"")
+        let b = c.fileURL(serverID: sid, libraryUUID: "LIB", bookID: 7, version: "\"7-1700009999-2088356-abc\"")
+        #expect(a.lastPathComponent == "7-7-1700000000-2088356-abc.epub")
+        #expect(a != b)
+        #expect(c.fileURL(serverID: sid, libraryUUID: "LIB", bookID: 7, version: "").lastPathComponent == "7.epub")
+    }
     @Test func storeMovesAndReuses() throws {
         let c = RemoteEPUBCache(baseDirectory: try tmpDir())
         let sid = UUID()
