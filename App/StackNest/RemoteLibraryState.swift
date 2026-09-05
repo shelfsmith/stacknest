@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import AppCore
 import AppKit
+import EPUBAdapter
 import Foundation
 import LibraryServerAPI
 import LibraryStore
@@ -22,6 +23,8 @@ struct MaintenanceUIState: Equatable {
 final class RemoteLibraryState {
     /// G12b-3b Task 1: reload() 失敗時の切り分け用ログ（activeBatchCount の文脈を残す）。
     private static let reloadLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteReload")
+    /// G48-3: リモート・テキスト EPUB のダウンロード/オープン失敗用ログ（bookID のみ・タイトル/パスは出さない）。
+    private static let epubLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteEPUB")
 
     let client: RemoteLibraryClient
     let serverID: UUID
@@ -1777,15 +1780,7 @@ final class RemoteLibraryState {
         errorText = nil
         // G15 V3: 内蔵ビューア非対応の形式は開く前にカテゴリ別メッセージで弾く（filename 欠落の旧サーバは従来動作）。
         if let name = book.filename {
-            // G48-2 最終レビュー A: `builtInViewerSupport` はローカル/リモート共通のためローカル対応化に
-            // 合わせて .epub を .supported に倒したが、リモートは G48-3 まで従来どおり非対応。
-            // ここで先に弾かないと switch を素通りして ①未読フラグが消える ②LastReadTracker に記録され
-            // ⌘⇧O がこの本を開こうとする ③manifest 取得が失敗し「本を開けませんでした」に劣化する
-            // ——のいずれも下のガードより後（beginOpen 以降）で起きる副作用なので、必ずここで早期 return する。
-            if (name as NSString).pathExtension.lowercased() == "epub" {
-                errorText = "この形式（EPUB・テキストなど）はリモートビューアでは開けません。"
-                return
-            }
+            // G48-3: EPUB はここでは弾かず、manifest の format で振り分ける（下）。
             switch BookCategory.builtInViewerSupport(filename: name) {
             case .supported: break
             case .unsupportedVideo:
@@ -1870,6 +1865,11 @@ final class RemoteLibraryState {
                     libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) else {
                     self.errorText = "本を開けませんでした"
                     ViewerWindowRegistry.shared.cancelOpen(identity)
+                    return
+                }
+                // G48-3: テキスト EPUB は /file → Washi の窓。画像本 EPUB は従来のページ経路。
+                if RemoteEPUBRouting.route(filename: book.filename, manifestFormat: m.format) == .textEPUB {
+                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m.epubLocator)
                     return
                 }
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
@@ -2050,6 +2050,68 @@ final class RemoteLibraryState {
                 Task { await self?.setRemoteDirection(bookID: id, direction: dir) }
             }
             controller.present()
+        }
+    }
+
+    /// G48-3: リモート書庫のテキスト EPUB。本体を /file から取ってキャッシュし、ローカルと同じ Washi の窓で開く。
+    /// 位置はサーバが正（初期値は manifest.epubLocator、書き戻しは POST /epub-progress）。
+    @MainActor
+    private func openRemoteEPUBReader(book: BookListItemDTO, identity: ViewerIdentity, initial: EPUBLocatorDTO?) async {
+        guard let renderer = EPUBAdapter.renderer else {
+            errorText = "EPUB リーダーが使えません"
+            ViewerWindowRegistry.shared.cancelOpen(identity)
+            return
+        }
+        let cache = RemoteEPUBCache()
+        var fileURL = cache.fileURL(serverID: serverID, libraryUUID: libraryUUID, bookID: book.id)
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                let tmp = try await client.bookFile(libraryUUID: libraryUUID, bookID: book.id, libraryToken: libraryToken, onProgress: nil)
+                fileURL = try cache.store(temporaryFile: tmp, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id)
+            } catch {
+                Self.epubLog.warning("openRemoteEPUBReader: download failed bookID=\(book.id, privacy: .public)")
+                errorText = "本を開けませんでした（EPUB の取得に失敗）"
+                ViewerWindowRegistry.shared.cancelOpen(identity)
+                return
+            }
+        }
+        let saved = initial.map { EPUBLocatorValue(spine: $0.spine, progress: $0.progress, cfi: $0.cfi, engine: $0.engine) }
+        do {
+            let reader = try await renderer.makeReaderView(url: fileURL, at: saved)
+            let row: BookRow
+            if let d = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: book.id, libraryToken: libraryToken) {
+                row = Self.mapDetail(d)
+            } else {
+                row = Self.makeBookRow(from: book)
+            }
+            // actor 境界を越える persist クロージャが MainActor 隔離の self を捕捉しないよう、
+            // 必要な値（Sendable）をローカルにコピーしてから渡す（coverImage(_:) と同じ方針）。
+            let client = self.client
+            let libraryUUID = self.libraryUUID
+            let libraryToken = self.libraryToken
+            let bookID = book.id
+            let controller = EPUBReaderWindowController(book: row, reader: reader) { loc in
+                let dto = EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine)
+                Task {
+                    do {
+                        try await client.postEPUBProgress(libraryUUID: libraryUUID, bookID: bookID, locator: dto, libraryToken: libraryToken)
+                    } catch {
+                        Self.epubLog.debug("openRemoteEPUBReader: postEPUBProgress failed bookID=\(bookID, privacy: .public)")
+                    }
+                }
+            }
+            reader.fontScale = ViewerSettings.shared.epubFontScale
+            reader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
+            controller.onClose = { [weak controller] in
+                guard let controller else { return }
+                ViewerWindowRegistry.shared.unregister(controller: controller)
+            }
+            ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
+            controller.showWindow(nil)
+        } catch {
+            Self.epubLog.warning("openRemoteEPUBReader: makeReaderView failed bookID=\(book.id, privacy: .public)")
+            errorText = "本を開けませんでした"
+            ViewerWindowRegistry.shared.cancelOpen(identity)
         }
     }
 
