@@ -429,6 +429,13 @@ public struct RemoteLibraryClient: Sendable {
         _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
     }
 
+    /// G48-3: テキスト EPUB の読書位置（spine＋進行率＋cfi）。サーバ側で既読化もする。
+    public func postEPUBProgress(libraryUUID: String, bookID: Int, locator: EPUBLocatorDTO, libraryToken: String?) async throws {
+        let body = try JSONEncoder().encode(locator)
+        let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/epub-progress")
+        _ = try await send(request(url, method: "POST", libraryToken: libraryToken, body: body, contentType: "application/json"))
+    }
+
     /// 4.2c-9: レート更新（role 不問＝R でも可・共有評価）。
     public func setRating(libraryUUID: String, bookID: Int, rating: Int, libraryToken: String?) async throws {
         let body = try JSONEncoder().encode(["rating": rating])
