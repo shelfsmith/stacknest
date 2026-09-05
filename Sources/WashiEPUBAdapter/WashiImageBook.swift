@@ -14,7 +14,7 @@ final class WashiImageBook: EPUBImageBookReading {
         self.publication = publication
         self.imagePaths = imagePaths
         self.spreads = spreads
-        self.readingDirection = WashiEPUBReader.direction(rawValue: publication.readingDirection.rawValue)
+        self.readingDirection = WashiEPUBReader.direction(declared: publication.readingDirection.rawValue, effective: publication.effectiveReadingDirection.rawValue)
     }
     var pageCount: Int { imagePaths.count }
     func imageData(at index: Int) async throws -> Data {

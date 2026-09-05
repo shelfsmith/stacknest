@@ -20,7 +20,7 @@ public struct WashiEPUBReader: EPUBReading {
             title: pub.metadata.mainTitle,
             author: pub.metadata.creators.first?.value,
             language: pub.metadata.languages.first,
-            readingDirection: Self.direction(rawValue: pub.readingDirection.rawValue))
+            readingDirection: Self.direction(declared: pub.readingDirection.rawValue, effective: pub.effectiveReadingDirection.rawValue))
     }
 
     public func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data? {
@@ -62,6 +62,15 @@ public struct WashiEPUBReader: EPUBReading {
         case "ltr": return .ltr
         default: return .unknown
         }
+    }
+
+    /// G48-4: 宣言（page-progression-direction）があればそれ、`default`/未知なら Washi 1.16.0 の
+    /// 実効値（primary-writing-mode → 冒頭 XHTML/CSS の縦書き → RTL 言語）で解決する。
+    /// 両方 rawValue 文字列で受けるのは、上流の enum 名に依存しないため（`direction(rawValue:)` と同じ流儀）。
+    static func direction(declared: String, effective: String) -> ContractReadingDirection {
+        let d = direction(rawValue: declared)
+        if d != .unknown { return d }
+        return direction(rawValue: effective)
     }
 
     /// Washi の `PageSpreadSlot` を rawValue 文字列で写す（enum 名に依存しない）。nil は "none" 扱い。
