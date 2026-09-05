@@ -126,6 +126,17 @@ struct HelpView: View {
                     link("オリジナル Stackroom（aroma / aromatics soft）", "https://aromaticsapp.blogspot.com/p/stackroom.html")
                     para("StackNest は aroma / aromatics soft とは無関係の独立した互換実装です。")
                 }
+
+                section("オープンソースと謝辞") {
+                    para("StackNest は次のオープンソースソフトウェアを使っています（ライセンス全文は各リポジトリ、または同梱の LICENSE を参照）。")
+                    link("Washi — EPUB の解析と Mac での表示（縦組み・ルビ・見開き）。MIT / shunnag", "https://github.com/shunnag/Washi")
+                    link("foliate-js — Web リーダーの EPUB 表示。MIT / John Factotum", "https://github.com/johnfactotum/foliate-js")
+                    link("zip.js — Web リーダーで EPUB を展開。BSD-3-Clause / Gildas Lormeau", "https://github.com/gildas-lormeau/zip.js")
+                    link("GRDB.swift — SQLite。MIT / Gwendal Roué", "https://github.com/groue/GRDB.swift")
+                    link("Hummingbird — 内蔵サーバ。Apache-2.0", "https://github.com/hummingbird-project/hummingbird")
+                    link("swift-argument-parser — コマンドライン。Apache-2.0 / Apple", "https://github.com/apple/swift-argument-parser")
+                    link("libarchive — ZIP / RAR / 7z の読み込み。BSD-2-Clause", "https://www.libarchive.org")
+                }
             }
             .padding(28)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -233,7 +233,24 @@ struct StackNestApp: App {
     /// コピーライト（NSHumanReadableCopyright）はバンドルから自動表示される。
     @MainActor
     static func showAboutPanel() {
-        NSApplication.shared.orderFrontStandardAboutPanel(nil)
+        // 使っているオープンソース（ヘルプの「オープンソースと謝辞」と同じ一覧）。標準パネルの Credits 欄に出す。
+        let credits = NSMutableAttributedString()
+        let body: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
+        let head: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
+        credits.append(NSAttributedString(string: "オープンソースソフトウェア\n", attributes: head))
+        for line in [
+            "Washi (MIT) — EPUB の解析と表示 — github.com/shunnag/Washi",
+            "foliate-js (MIT) — Web リーダーの EPUB 表示 — github.com/johnfactotum/foliate-js",
+            "zip.js (BSD-3-Clause) — Web リーダーの EPUB 展開",
+            "GRDB.swift (MIT) — SQLite",
+            "Hummingbird (Apache-2.0) — 内蔵サーバ",
+            "swift-argument-parser (Apache-2.0)",
+            "libarchive (BSD-2-Clause) — ZIP / RAR / 7z",
+        ] {
+            credits.append(NSAttributedString(string: line + "\n", attributes: body))
+        }
+        credits.append(NSAttributedString(string: "\nオリジナル Stackroom: aroma / aromatics soft（無関係の独立した互換実装です）", attributes: body))
+        NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
 

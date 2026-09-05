@@ -63,7 +63,7 @@ aroma 氏（原作者）は 2019 年頃、5ch 新・Mac 板のスレッド（[eg
 - **キーボードナビ**: グリッド / リストの矢印、Shift+矢印（範囲選択）、⌘↑↓、Home / End、PageUp / Down、Enter で開く
 - **グリッドサイズ**: ライブラリごとに永続化されるサムネイルサイズのスライダー
 - **パスワードロック**: ライブラリごとに SHA-256（salt 付き）でロック設定可能。Touch ID / Apple Watch による生体認証解錠にも対応
-- **対応形式**: アーカイブは ZIP / CBZ / RAR / CBR / 7z（libarchive 経由）と PDF（PDFKit）、EPUB（表紙とメタデータ。[Washi](https://github.com/shunnag/Washi) 経由・閲覧は今後）、画像は JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF（NSImage 経由）
+- **対応形式**: アーカイブは ZIP / CBZ / RAR / CBR / 7z（libarchive 経由）と PDF（PDFKit）、EPUB（表紙・メタデータ・閲覧。Mac では [Washi](https://github.com/shunnag/Washi) の窓で縦組み・ルビ・見開き、Web リーダーでは [foliate-js](https://github.com/johnfactotum/foliate-js)。全ページ画像の EPUB は画像ビューアで開く）、画像は JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF（NSImage 経由）
 - **初回起動ウィザード**: 初回起動時にページ送り式ウィザードで「画像の開き方（内蔵 / 外部ビューア）→（内蔵選択時）ビューア初期設定 → 最初のライブラリ（新規 / 開く / 取り込み）」を設定。設定 ▸ 一般 からいつでも再表示可能
 - **インポート**: 既存 Stackroom ライブラリ XML から SQLite DB へ移行
 - **監視フォルダ（自動取込）**: 指定フォルダを監視し、置かれたアーカイブ / 画像フォルダを自動でライブラリへ取り込み（フォルダごとの命名プリセット、初回プレビュー、取込要約バナー）。自動分類（bookType）や厚さ閾値はライブラリごとに上書き可能（「StackNest 設定の値に従う」/ 個別指定）。サブフォルダの扱いはフォルダごとに **3 択**（取り込まない / 1 冊として取り込む / 中も個別に取り込む）
@@ -344,3 +344,19 @@ MIT — `LICENSE` を参照。
 
 - aroma 氏 / aromatics soft — オリジナル Stackroom の開発と、Swift での書き直しへの
   明示的な後押しに感謝します。
+- [Washi](https://github.com/shunnag/Washi)（shunnag・MIT）— EPUB の解析と Mac での表示。
+  画像ページの描画不具合の報告（Issue #1）に迅速に対応いただきました。
+
+## 使用しているオープンソースソフトウェア
+
+| ソフトウェア | 用途 | ライセンス |
+|---|---|---|
+| [Washi](https://github.com/shunnag/Washi) | EPUB の解析（WashiCore）と Mac での表示（縦組み・ルビ・見開き・固定レイアウト） | MIT |
+| [foliate-js](https://github.com/johnfactotum/foliate-js) | Web リーダーの EPUB 表示（`Sources/LibraryServer/Resources/web/vendor/foliate-js/`・コミット固定で vendoring） | MIT |
+| [zip.js](https://github.com/gildas-lormeau/zip.js) | Web リーダーで EPUB を展開（同 vendor 配下） | BSD-3-Clause |
+| [GRDB.swift](https://github.com/groue/GRDB.swift) | SQLite | MIT |
+| [Hummingbird](https://github.com/hummingbird-project/hummingbird) | 内蔵サーバ | Apache-2.0 |
+| [swift-argument-parser](https://github.com/apple/swift-argument-parser) | コマンドライン | Apache-2.0 |
+| [libarchive](https://www.libarchive.org) | ZIP / CBZ / RAR / CBR / 7z の読み込み（macOS 同梱の dylib と上流のヘッダ） | BSD-2-Clause |
+
+アプリ内では「StackNest について」（About）の Credits と、ヘルプの「オープンソースと謝辞」に同じ一覧があります。
