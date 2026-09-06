@@ -261,11 +261,13 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         return true
     }
 
-    /// Home/End の分岐用: 固定レイアウト（viewport を持つ）か画像 1 枚のページ（`simpleImagePath`）は 1 ページの項目。
+    /// Home/End の分岐用: 固定レイアウト（itemref の実効 layout が pre-paginated）か画像 1 枚のページ（`simpleImagePath`）は
+    /// 1 ページの項目。`fixedLayoutInfo.viewportSize` は package の `rendition:viewport` がリフロー章にも当たるので
+    /// 指標にしない（レビュー指摘）。
     private func isSinglePageItem(of publication: EPUBPublication, spineIndex: Int) -> Bool {
-        guard publication.readingOrder.indices.contains(spineIndex),
-              let info = try? publication.fixedLayoutInfo(forSpineIndex: spineIndex) else { return false }
-        return info.viewportSize != nil || info.simpleImagePath != nil
+        guard publication.readingOrder.indices.contains(spineIndex) else { return false }
+        if publication.package.effectiveLayout(for: publication.readingOrder[spineIndex].itemRef) == .prePaginated { return true }
+        return isImagePage(of: publication, spineIndex: spineIndex)
     }
 
     /// ⌘+/⌘-/⌘0 の判定を **文字**（`charactersIgnoringModifiers`／`characters`）で行う。
