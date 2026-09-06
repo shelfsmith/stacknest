@@ -90,6 +90,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
     private var hasPerformedInitialLoad = false
+    /// Home/End（現在の spine 項目の先頭/末尾）用に `didMoveTo` で更新する。
+    private var currentSpineIndex = 0
     /// G48-2-2（2026-09-04・ユーザー指示）: 画像 1 枚のページでは insets（本文用の余白）を 0 にする。
     /// 固定レイアウト経路（itemref が pre-paginated）は insets を使わず枠いっぱいに描くため、
     /// リフロー経路の画像ページも同じ見え方（枠いっぱい）に揃える。`init` 時点の
@@ -110,6 +112,14 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // で矢印・スペース・PageUp/Down をページ送りに直結する。契約 `EPUBReaderViewing` は
         // goForward/goBackward しか持たないため、このキー処理は Washi 実装（本ファイル）の中だけで閉じる。
         reader.settings.forwardsKeyEventsNatively = true
+        // G48-4 smoke（2026-09-06）クラッシュ対策: Washi 1.16.0 の `EPUBReaderView.keyDown`（cooViewer-oxr.80）は
+        // `handlesKeyboardNavigation == true` のとき受け取ったキーを自分の WebView へ転送する。WebView が
+        // 扱わないキー（⌘なしの `+`・`-`・Esc 等）は `super` → nextResponder（= コンテナ自身）へ戻るため
+        // 往復して無限再帰し、スタックオーバーフローで落ちる（クラッシュログ: `EPUBReaderView.keyDown` ↔
+        // `_web_superKeyDown` の反復）。ナビゲーションは上の native monitor（`didReceiveNativeKey`）で
+        // 完結させているので、Washi 側の既定キー処理と転送を切る（false にするとコンテナは delegate の
+        // `didReceiveKey` へ流すだけで WebView へ戻さない）。JS が担っていた ↑↓/Home/End も native 側に持つ。
+        reader.settings.handlesKeyboardNavigation = false
     }
 
     /// `WashiEPUBRenderer.makeReaderView` から呼ぶ。実行はまだしない。
@@ -195,6 +205,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
         let v = WashiLocatorMapping.toValue(locator)
         self.locator = v
+        currentSpineIndex = locator.spineIndex
         onLocatorChange?(v)
         // G48-2-2: 現在の spine が画像ページかどうかで insets を切り替える（doc コメント:
         // `updateInsets(for:spineIndex:)`）。`reader.publication` は load() 後は必ず non-nil。
@@ -221,18 +232,16 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// （`EPUBReaderSettings.fontScale`、範囲は `EPUBReaderView.fontScaleRange`）。
     /// 未対応キーは false を返し JS 経路・既定動作へフォールスルーさせる。
     func readerView(_ view: EPUBReaderView, didReceiveNativeKey event: NSEvent) -> Bool {
+        switch Self.navigationKey(for: event.keyCode, shift: event.modifierFlags.contains(.shift)) {
+        case .left: view.turnPageLeft(); return true
+        case .right: view.turnPageRight(); return true
+        case .forward: view.goForward(); return true
+        case .backward: view.goBackward(); return true
+        case .home: view.go(to: EPUBLocator(spineIndex: currentSpineIndex, progression: 0, idref: nil)); return true
+        case .end: view.go(to: EPUBLocator(spineIndex: currentSpineIndex, progression: 1, idref: nil)); return true
+        case nil: break
+        }
         switch event.keyCode {
-        case Self.keyCodeLeftArrow:
-            view.turnPageLeft(); return true
-        case Self.keyCodeRightArrow:
-            view.turnPageRight(); return true
-        case Self.keyCodeSpace:
-            if event.modifierFlags.contains(.shift) { view.goBackward() } else { view.goForward() }
-            return true
-        case Self.keyCodePageDown:
-            view.goForward(); return true
-        case Self.keyCodePageUp:
-            view.goBackward(); return true
         default:
             guard let delta = Self.fontScaleDelta(for: event) else { return false }
             if delta == 0 {
@@ -266,10 +275,31 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     }
 
     // macOS 仮想キーコード(`Carbon.HIToolbox` の定数と同値。依存を増やさないためリテラルで持つ)。
-    // 矢印・スペース・PageUp/Down は物理配列に依存しない特殊キーなので keyCode のまま判定する。
+    // 矢印・スペース・PageUp/Down・Home/End は物理配列に依存しない特殊キーなので keyCode のまま判定する。
     private static let keyCodeLeftArrow: UInt16 = 123
     private static let keyCodeRightArrow: UInt16 = 124
+    private static let keyCodeDownArrow: UInt16 = 125
+    private static let keyCodeUpArrow: UInt16 = 126
     private static let keyCodePageUp: UInt16 = 116
     private static let keyCodePageDown: UInt16 = 121
     private static let keyCodeSpace: UInt16 = 49
+    private static let keyCodeHome: UInt16 = 115
+    private static let keyCodeEnd: UInt16 = 119
+
+    /// ナビゲーションキーの写像（純粋・テスト可）。Washi の JS 既定（矢印・Space・PageUp/Down・Home/End）と同じ割り当て。
+    /// 左右は「見た目の方向」（`turnPageLeft/Right` が綴じ方向を解決）、↑↓/PageUp/Down/Space は論理方向、
+    /// Home/End は現在の spine 項目の先頭/末尾。
+    enum NavigationKey: Equatable { case left, right, forward, backward, home, end }
+    nonisolated static func navigationKey(for keyCode: UInt16, shift: Bool) -> NavigationKey? {
+        switch keyCode {
+        case keyCodeLeftArrow: return .left
+        case keyCodeRightArrow: return .right
+        case keyCodeSpace: return shift ? .backward : .forward
+        case keyCodePageDown, keyCodeDownArrow: return .forward
+        case keyCodePageUp, keyCodeUpArrow: return .backward
+        case keyCodeHome: return .home
+        case keyCodeEnd: return .end
+        default: return nil
+        }
+    }
 }
