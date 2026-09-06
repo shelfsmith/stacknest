@@ -79,6 +79,7 @@ struct EPUBReaderKeyForwardingTests {
     @Test("`-`・Esc・`+` を WebView に送っても落ちない（上流 1.16.0 の keyDown 往復）")
     func unhandledKeysDoNotRecurse() async throws {
         let url = try makeMinimalEPUB()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         let reader = try await WashiEPUBRenderer().makeReaderView(url: url, at: nil)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
                               styleMask: [.titled], backing: .buffered, defer: false)

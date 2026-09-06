@@ -155,6 +155,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         guard !hasPerformedInitialLoad, let pending = pendingLoad else { return }
         hasPerformedInitialLoad = true
         pendingLoad = nil
+        currentSpineIndex = pending.locator?.spineIndex ?? 0   // 最初の didMoveTo が来るまでの Home/End 用
         // G48-2-2: 開始 spine（復元位置か 0）についても、初回 load() の前に insets を決めておく
         // （表紙が画像ページなら最初から余白なしにするため）。
         updateInsets(for: pending.publication, spineIndex: pending.locator?.spineIndex ?? 0)
@@ -237,22 +238,34 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         case .right: view.turnPageRight(); return true
         case .forward: view.goForward(); return true
         case .backward: view.goBackward(); return true
-        case .home: view.go(to: EPUBLocator(spineIndex: currentSpineIndex, progression: 0, idref: nil)); return true
-        case .end: view.go(to: EPUBLocator(spineIndex: currentSpineIndex, progression: 1, idref: nil)); return true
-        case nil: break
-        }
-        switch event.keyCode {
-        default:
-            guard let delta = Self.fontScaleDelta(for: event) else { return false }
-            if delta == 0 {
-                guard view.settings.fontScale != 1.0 else { return true }
-                view.settings.fontScale = 1.0
-                onFontScaleChange?(1.0)  // 直接代入は didChangeFontScale を発火しないので手動で流す
+        case .home, .end:
+            // JS 既定と同じ: 固定レイアウト／画像 1 枚の項目（1 ページ）では progression 0/1 が同じページに
+            // なって何も起きないので、項目境界を越える goBackward/goForward に倒す（レビュー指摘）。
+            let forward = Self.navigationKey(for: event.keyCode, shift: false) == .end
+            if let publication = view.publication, isSinglePageItem(of: publication, spineIndex: currentSpineIndex) {
+                if forward { view.goForward() } else { view.goBackward() }
             } else {
-                view.adjustFontScale(by: delta)
+                view.go(to: EPUBLocator(spineIndex: currentSpineIndex, progression: forward ? 1 : 0, idref: nil))
             }
             return true
+        case nil: break
         }
+        guard let delta = Self.fontScaleDelta(for: event) else { return false }
+        if delta == 0 {
+            guard view.settings.fontScale != 1.0 else { return true }
+            view.settings.fontScale = 1.0
+            onFontScaleChange?(1.0)  // 直接代入は didChangeFontScale を発火しないので手動で流す
+        } else {
+            view.adjustFontScale(by: delta)
+        }
+        return true
+    }
+
+    /// Home/End の分岐用: 固定レイアウト（viewport を持つ）か画像 1 枚のページ（`simpleImagePath`）は 1 ページの項目。
+    private func isSinglePageItem(of publication: EPUBPublication, spineIndex: Int) -> Bool {
+        guard publication.readingOrder.indices.contains(spineIndex),
+              let info = try? publication.fixedLayoutInfo(forSpineIndex: spineIndex) else { return false }
+        return info.viewportSize != nil || info.simpleImagePath != nil
     }
 
     /// ⌘+/⌘-/⌘0 の判定を **文字**（`charactersIgnoringModifiers`／`characters`）で行う。
