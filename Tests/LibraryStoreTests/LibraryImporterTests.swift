@@ -160,6 +160,61 @@ struct LibraryImporterTests {
         #expect(meta?.sourceXMLPath == "/Users/me/Library/Application Support/stackroom/Stackroom Library.xml")
     }
 
+    @Test("G49: Path 欠落の本は表紙パスから復元され、件数が warning に出る")
+    func recoversMissingPathFromCoverImagePath() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        // 表紙パスがアーカイブ本体を指す本（Path キーが欠落する時期のデータを模す）
+        let book = BookRecord(
+            id: 1, title: "T", path: nil, coverImagePath: "/b/x.zip",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 2
+        )
+        let doc = LibraryDocument(books: ["1": book])
+        let importer = LibraryImporter(database: db)
+        let summary = try importer.run(document: doc)
+
+        #expect(summary.imported == 1)
+        #expect(summary.warnings.contains { $0.contains("1") && $0.contains("path") })
+        #expect(try db.fetchBook(id: 1)?.path == "/b/x.zip")
+        db.close()
+    }
+
+    @Test("G49: 表紙が画像でも、その親ディレクトリが存在しなければ復元しない")
+    func doesNotRecoverParentDirectoryThatDoesNotExist() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let book = BookRecord(
+            id: 2, title: "T", path: nil, coverImagePath: "/b/book/001.jpg",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 2
+        )
+        let doc = LibraryDocument(books: ["2": book])
+        let importer = LibraryImporter(database: db, directoryExists: { _ in false })
+        let summary = try importer.run(document: doc)
+
+        #expect(summary.imported == 1)
+        #expect(try db.fetchBook(id: 2)?.path == nil)
+        db.close()
+    }
+
+    @Test("G49: 表紙が画像で親ディレクトリが実在すればフォルダ書籍として復元する")
+    func recoversParentDirectoryWhenItExists() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let book = BookRecord(
+            id: 3, title: "T", path: nil, coverImagePath: "/b/book/001.jpg",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 2
+        )
+        let doc = LibraryDocument(books: ["3": book])
+        let importer = LibraryImporter(database: db, directoryExists: { $0 == "/b/book" })
+        _ = try importer.run(document: doc)
+
+        #expect(try db.fetchBook(id: 3)?.path == "/b/book")
+        db.close()
+    }
+
     @Test("ImportMeta round-trips through DB")
     func importMetaRoundTrips() throws {
         let db = try Database.openInMemory()

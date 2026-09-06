@@ -2,6 +2,9 @@
 import Foundation
 import StackroomFormat
 
+/// ディレクトリの実在確認。既定は `FileManager` だが、テストからは差し替え可能。
+public typealias DirectoryExistsChecker = @Sendable (String) -> Bool
+
 public protocol ProgressReporter: Sendable {
     func reportProgress(processed: Int, total: Int)
 }
@@ -19,9 +22,21 @@ public struct LibraryImporter: Sendable {
     /// When nil, series/volume remain as-is (preserves backward-compatible behaviour).
     public let seriesVolumeParser: SeriesVolumeParser?
 
-    public init(database: Database, seriesVolumeParser: SeriesVolumeParser? = nil) {
+    /// G49: `Path` 復元候補（フォルダ書籍の親ディレクトリ）が実在するかどうかの確認。
+    /// 既定は実ファイルシステムを見る。テストからは差し替え可能。
+    public let directoryExists: DirectoryExistsChecker
+
+    public init(
+        database: Database,
+        seriesVolumeParser: SeriesVolumeParser? = nil,
+        directoryExists: @escaping DirectoryExistsChecker = { path in
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue
+        }
+    ) {
         self.database = database
         self.seriesVolumeParser = seriesVolumeParser
+        self.directoryExists = directoryExists
     }
 
     public func run(
@@ -36,13 +51,19 @@ public struct LibraryImporter: Sendable {
 
         let total = document.books.count + document.anomalies.count
         var processed = 0
+        var recoveredPathCount = 0
 
         for (_, book) in document.books {
-            let finalBook = filledBook(book)
+            let (finalBook, recovered) = recoveredBook(filledBook(book))
+            if recovered { recoveredPathCount += 1 }
             try database.insertBook(finalBook)
             summary.imported += 1
             processed += 1
             progress?.reportProgress(processed: processed, total: total)
+        }
+
+        if recoveredPathCount > 0 {
+            summary.warnings.append("Recovered path from the cover image path for \(recoveredPathCount) book(s)")
         }
 
         for anomaly in document.anomalies {
@@ -124,6 +145,46 @@ public struct LibraryImporter: Sendable {
             neta: book.neta,
             series: filledSeries,
             volume: filledVolume
+        )
+    }
+
+    /// G49: `Path` が欠落している本を `Cover Image Path` から復元する。
+    /// フォルダ書籍の親ディレクトリ候補は、実在するときだけ採用する。
+    /// 返り値の `Bool` は復元を行ったかどうか（warning の件数集計用）。
+    private func recoveredBook(_ book: BookRecord) -> (BookRecord, Bool) {
+        switch StackroomPathRecovery.plan(path: book.path, coverImagePath: book.coverImagePath) {
+        case .keep, .unrecoverable:
+            return (book, false)
+        case .useCoverPath(let path):
+            return (withPath(path, of: book), true)
+        case .useCoverParentDirectory(let directory):
+            guard directoryExists(directory) else { return (book, false) }
+            return (withPath(directory, of: book), true)
+        }
+    }
+
+    private func withPath(_ path: String, of book: BookRecord) -> BookRecord {
+        BookRecord(
+            id: book.id,
+            title: book.title,
+            author: book.author,
+            genre: book.genre,
+            path: path,
+            coverImagePath: book.coverImagePath,
+            coverImageName: book.coverImageName,
+            dateAdded: book.dateAdded,
+            playDate: book.playDate,
+            bookType: book.bookType,
+            fileType: book.fileType,
+            pages: book.pages,
+            myRate: book.myRate,
+            unseen: book.unseen,
+            keywordA: book.keywordA,
+            keywordB: book.keywordB,
+            keywordC: book.keywordC,
+            neta: book.neta,
+            series: book.series,
+            volume: book.volume
         )
     }
 

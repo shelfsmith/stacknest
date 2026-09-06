@@ -74,11 +74,10 @@ public struct BookRecord: Codable, Sendable {
         self.title           = try c.decode(String.self, forKey: .title)
         self.author          = try c.decodeIfPresent(String.self, forKey: .author)
         self.genre           = try c.decodeIfPresent(String.self, forKey: .genre)
-        // Stackroom の一部エントリ（File Type 2 = アーカイブ）では "Path" キーが欠落する。
-        // その場合でも "Cover Image Path" にはアーカイブのパスが入っているためフォールバックする。
-        let coverImagePath   = try c.decode(String.self, forKey: .coverImagePath)
-        self.coverImagePath  = coverImagePath
-        self.path            = (try c.decodeIfPresent(String.self, forKey: .path)) ?? coverImagePath
+        // G49: `Path` 欠落の復元は取り込み層（LibraryImporter＋StackroomPathRecovery）が行う。
+        // ここは XML の忠実な写しに保つ（復元したことを利用者に報告する必要があるため）。
+        self.path            = try c.decodeIfPresent(String.self, forKey: .path)
+        self.coverImagePath  = try c.decode(String.self, forKey: .coverImagePath)
         self.coverImageName  = try c.decodeIfPresent(String.self, forKey: .coverImageName)
         self.dateAdded       = try c.decode(Date.self, forKey: .dateAdded)
         self.playDate        = try c.decodeIfPresent(Date.self, forKey: .playDate)
