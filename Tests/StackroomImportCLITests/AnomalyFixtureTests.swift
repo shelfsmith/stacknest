@@ -45,9 +45,10 @@ struct AnomalyFixtureSkipTests {
         let unseenForBook1 = try runSQLite(db: outURL.path, sql: "SELECT unseen FROM book WHERE id = 1")
         #expect(unseenForBook1 == "1")
 
-        // Verify Path missing for book 2 was preserved as null
+        // G49: Path を持たない本は、表紙パスがアーカイブ本体を指していれば取り込み層が復元する
+        // （以前は NULL のままで、本の在り処が失われていた）。
         let pathForBook2 = try runSQLite(db: outURL.path, sql: "SELECT IFNULL(path, 'NULL') FROM book WHERE id = 2")
-        #expect(pathForBook2 == "NULL")
+        #expect(pathForBook2 == "/test/2.zip")
 
         // Verify dict-key 'abc' was skipped (not present in DB)
         let badKeyExists = try runSQLite(db: outURL.path, sql: "SELECT COUNT(*) FROM book WHERE id = 3")
