@@ -7,6 +7,66 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.14.0] - 2026-09-06 — EPUB support (beta), metadata-based renaming from the CLI / MCP, display polish (Phases G44–G48)
+
+> Eight phases and 105 commits since `0.13.0`. **The headline is EPUB support, shipped as a beta**
+> (it reads; the rough edges are listed under "Why beta"). EPUB parsing and the Mac reader are built on
+> [Washi](https://github.com/shunnag/Washi) (MIT); the web reader uses [foliate-js](https://github.com/johnfactotum/foliate-js) (MIT).
+
+### Added
+
+- **★ Read EPUBs (beta)** (G48-1 to G48-4): covers and metadata (title, author, language, binding direction) come from the
+  EPUB at import, and a double-click opens the book.
+  - **Mac**: a dedicated window with vertical text, ruby, spreads and right-to-left binding. Font scale with ⌘+ / ⌘− / ⌘0
+    (JIS keyboards included), remembered as a setting. ← → Space PageUp/Down ↑ ↓ Home End turn pages. The reading
+    position (chapter + progress) is saved per book.
+  - **All-image EPUBs (manga)** open in the **existing image viewer** instead of the EPUB reader, so spreads,
+    right-to-left binding, zoom, the loupe and volume navigation all apply.
+  - **Web reader** (browser, iPad / iPhone): text EPUBs render through foliate-js with vertical text, ruby and
+    right-to-left binding; font scale is remembered per device. Image books use the existing page reader.
+  - **Remote libraries (StackNest on another Mac)**: text EPUBs are fetched and cached, then opened in the same
+    window as local books. Downloaded books read offline too.
+  - **The reading position is shared** across Mac, web and remote (chapter + progress is the source of truth;
+    engine-specific locators are only reused by the same engine).
+  - **Binding direction is written to the book at import**: the EPUB's declared `page-progression-direction`
+    when present, otherwise a direction resolved from vertical-writing CSS and similar signals. Books with no
+    signal are left alone and follow your global default (right-to-left). A right-click override still wins.
+  - **Why beta**: illustrations inside text books do not form spreads. No search, table of contents or
+    annotations. Some EPUBs (e.g. with Kobo-specific CSS) lay out oddly. Web EPUBs cannot be saved offline.
+    Positions read remotely on a Mac and positions read offline are not synced with each other.
+- **★ Metadata-based file renaming from the CLI / MCP** (G47): `stacknest-cli rename-files` and the MCP tool
+  `stacknest_rename_files`, sharing **the same decisions** as ⇧⌘R in the GUI (conflicts, empty names and names over
+  255 bytes are skipped). New tokens **`@series` / `@volume` / `@keywordC`**; volume numbers are **zero-padded per
+  series**. Locked libraries accept a library token, like every other endpoint.
+- **Turning a column on scrolls the list to that column** (G44), whichever way you toggle it (menu, header
+  context menu, settings).
+- Open-source credits in About, Help and the README.
+
+### Changed
+
+- **Grid cells are the same locally and remotely** (G45 / G46): 2:3 cover slot with rounded corners and a shadow,
+  the unread mark at the cover's bottom-right, an author line in both. The slot itself is transparent; the mark,
+  shadow and selection ring attach to the cover image.
+- Washi updated to 1.16.0 (G48-4). Upstream fixed the image-page rendering bug (upstream Issue #1), so the
+  host-side workaround is gone.
+
+### Fixed
+
+- Renaming: a book whose tokens are all empty became a hidden extension-only file; names over 255 bytes failed;
+  a dialog appeared for every failure (G47). `BookRow` → `BookRecord` conversion dropped series, volume and cover name.
+- Reloading a remote library reset the horizontal scroll position (G44).
+- EPUB (found in the G48 smoke tests): blank covers and illustrations; images overflowing during resize; ⌘+ not
+  working on JIS keyboards; a crash on `-`, Esc or `+` in the Washi 1.16 window (upstream Issue #3, worked around
+  on the host side); the web reader's default font scale being halved; a blank page when the saved position
+  pointed at a non-existent chapter (web).
+
+### Security
+
+- The release CI's personal-information leak check now reads its patterns from a repository secret instead of
+  the workflow file, and the public history was rewritten to remove identifiers that had leaked into it.
+  gh writes and pushes are guarded so they only go out under the project's public account
+  (`Scripts/gh-guarded.sh`, pre-push hook).
+
 ## [0.13.0] - 2026-08-27 — Two-way Finder tag sync, a loupe, and notices rebuilt (Phases G37–G42)
 
 > Six phases and 74 commits since `0.12.1`. **The two headline features are Finder tag sync and
