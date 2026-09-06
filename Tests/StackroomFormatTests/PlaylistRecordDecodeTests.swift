@@ -223,4 +223,74 @@ struct PlaylistRecordDecodeTests {
         #expect(doc.playlists.map(\.title) == ["A"])
         #expect(doc.playlistAnomalies.count == 2)
     }
+
+    @Test("G49: Items に整数でない要素が混じっても、読める分は残して記録する")
+    func partiallyUnreadableItems() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Books</key><dict/>
+            <key>Playlists</key>
+            <array>
+                <dict>
+                    <key>Title</key><string>Mixed</string>
+                    <key>Type</key><integer>0</integer>
+                    <key>Items</key>
+                    <array><integer>1</integer><string>x</string><integer>3</integer></array>
+                </dict>
+            </array>
+        </dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists.count == 1)
+        #expect(doc.playlists[0].items == [1, 3])
+        #expect(doc.playlists[0].itemsUnreadable)
+        #expect(doc.playlistAnomalies == [.unreadableItems(title: "Mixed")])
+    }
+
+    @Test("G49: Items が空・欠落のときは異常にしない")
+    func emptyOrMissingItemsIsNotAnAnomaly() throws {
+        func doc(_ itemsXML: String) throws -> LibraryDocument {
+            let xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>Books</key><dict/>
+                <key>Playlists</key>
+                <array>
+                    <dict><key>Title</key><string>S</string><key>Type</key><integer>0</integer>\(itemsXML)</dict>
+                </array>
+            </dict>
+            </plist>
+            """
+            return try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        }
+        #expect(try doc("<key>Items</key><array/>").playlistAnomalies.isEmpty)
+        #expect(try doc("").playlistAnomalies.isEmpty)
+        #expect(try doc("<key>Items</key><array/>").playlists[0].items.isEmpty)
+    }
+
+    @Test("G49: Items が配列ですらないときは、空にしたことを記録する")
+    func itemsNotAnArrayIsRecorded() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Books</key><dict/>
+            <key>Playlists</key>
+            <array>
+                <dict><key>Title</key><string>S</string><key>Type</key><integer>0</integer><key>Items</key><string>oops</string></dict>
+            </array>
+        </dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists[0].items.isEmpty)
+        #expect(doc.playlistAnomalies == [.unreadableItems(title: "S")])
+    }
 }

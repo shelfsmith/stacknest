@@ -110,6 +110,9 @@ extension LibraryDocument: Decodable {
                         if playlist.conditionsUnreadable {
                             playlistAnomalies.append(.unreadableConditions(title: playlist.title))
                         }
+                        if playlist.itemsUnreadable {
+                            playlistAnomalies.append(.unreadableItems(title: playlist.title))
+                        }
                         playlists.append(playlist)
                     } else {
                         playlistAnomalies.append(

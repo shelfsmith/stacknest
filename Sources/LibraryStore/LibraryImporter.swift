@@ -166,6 +166,10 @@ public struct LibraryImporter: Sendable {
     private func recoveredBook(
         _ book: BookRecord, stackroomThumbnailsRoot: String?
     ) -> (BookRecord, Bool) {
+        // 表紙がサムネイルキャッシュそのものを指しているなら、どの経路でも復元しない。
+        guard !Self.looksLikeThumbnailCache(coverImagePath: book.coverImagePath) else {
+            return (book, false)
+        }
         let plan = StackroomPathRecovery.plan(
             path: book.path, coverImagePath: book.coverImagePath, fileType: book.fileType)
         switch plan {
@@ -222,13 +226,26 @@ public struct LibraryImporter: Sendable {
         }
     }
 
-    /// Stackroom convention: thumbnails live at `<xml-parent>/Stackroom Library/<book-id>/thumbnail.jpg`.
+    /// Stackroom のサムネイル置き場は `<xml と同名のフォルダ>/<book-id>/thumbnail.jpg`。
+    /// XML の名前が既定（`Stackroom Library.xml`）でなくても付いてくるので、**XML の基底名から導く**
+    /// （`LibraryBundleCreator.copyThumbnailsFromStackroom` と同じ規則）。
     /// Returns `nil` when sourceURL is the placeholder `/dev/null` used in unit tests.
     private func inferThumbnailsDirectory(from sourceURL: URL) -> String? {
         guard sourceURL.path != "/dev/null" else { return nil }
         return sourceURL
             .deletingLastPathComponent()
-            .appendingPathComponent("Stackroom Library")
+            .appendingPathComponent(sourceURL.deletingPathExtension().lastPathComponent)
             .path
+    }
+
+    /// サムネイルが XML と同じ階層に直接置かれている形（`copyThumbnailsFromStackroom` の
+    /// フォールバック経路）でも掴まないための判定。`<何か>/<数字>/thumbnail.*` は本の置き場ではない。
+    /// 親フォルダ全体を除外すると正当な復元まで潰すので、この形だけを弾く。
+    static func looksLikeThumbnailCache(coverImagePath: String) -> Bool {
+        let name = (coverImagePath as NSString).lastPathComponent.lowercased()
+        guard name.hasPrefix("thumbnail.") else { return false }
+        let parent = (coverImagePath as NSString).deletingLastPathComponent
+        let leaf = (parent as NSString).lastPathComponent
+        return !leaf.isEmpty && leaf.allSatisfy(\.isNumber)
     }
 }

@@ -257,6 +257,46 @@ struct LibraryImporterTests {
         db.close()
     }
 
+    @Test("G49: XML の名前が既定でなくても、サムネイル置き場を本の場所にしない")
+    func doesNotRecoverIntoARenamedThumbnailCache() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let xmlURL = URL(fileURLWithPath: "/lib/Backup.xml")
+        let book = BookRecord(
+            id: 6, title: "T", path: nil,
+            coverImagePath: "/lib/Backup/6/thumbnail.jpg",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 4
+        )
+        let doc = LibraryDocument(books: ["6": book])
+        let summary = try LibraryImporter(database: db, directoryExists: { _ in true })
+            .run(document: doc, sourceURL: xmlURL)
+
+        #expect(summary.warnings.isEmpty)
+        #expect(try db.fetchBook(id: 6)?.path == nil)
+        db.close()
+    }
+
+    @Test("G49: サムネイルが XML と同じ階層に直接置かれている形でも掴まない")
+    func doesNotRecoverIntoAFlatThumbnailCache() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let xmlURL = URL(fileURLWithPath: "/lib/Stackroom Library.xml")
+        let book = BookRecord(
+            id: 7, title: "T", path: nil,
+            coverImagePath: "/lib/7/thumbnail.jpg",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 4
+        )
+        let doc = LibraryDocument(books: ["7": book])
+        let summary = try LibraryImporter(database: db, directoryExists: { _ in true })
+            .run(document: doc, sourceURL: xmlURL)
+
+        #expect(summary.warnings.isEmpty)
+        #expect(try db.fetchBook(id: 7)?.path == nil)
+        db.close()
+    }
+
     @Test("G49: プレイリストの異常は取り込みの warning として利用者に届く")
     func playlistAnomaliesReachTheWarnings() throws {
         let db = try Database.openInMemory()
