@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import os
 import LibraryStore
 import StackroomFormat
 
 /// Creates new `.stacknest` bundles, either empty (for "Create new library")
 /// or by importing a Stackroom Library.xml (for "Import from Stackroom XML").
 public enum LibraryBundleCreator {
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "library-import")
+
 
     /// Creates an empty bundle at the given URL: directory + Info.plist + empty Thumbnails/
     /// + an empty SQLite DB with all migrations applied. Throws if the URL already exists
@@ -67,12 +70,17 @@ public enum LibraryBundleCreator {
         })
         let xmlMTime = (try? FileManager.default.attributesOfItem(atPath: xmlURL.path(percentEncoded: false))[.modificationDate] as? Date) ?? Date()
 
-        _ = try importer.run(
+        let summary = try importer.run(
             document: document,
             sourceURL: xmlURL,
             sourceMTime: xmlMTime,
             progress: progress
         )
+        // G49: 取り込みで補ったこと・落としたことをログに残す（パスの復元件数、読めなかった
+        // プレイリストやスマートシェルフの条件）。GUI からの取り込みでは唯一の手がかりになる。
+        for warning in summary.warnings {
+            Self.logger.warning("import: \(warning, privacy: .public)")
+        }
 
         // Copy thumbnails from the source directory
         try copyThumbnailsFromStackroom(xmlURL: xmlURL, into: bundle)

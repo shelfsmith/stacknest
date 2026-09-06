@@ -6,6 +6,9 @@ import Foundation
 public enum PlaylistAnomaly: Error, LocalizedError, Equatable, Sendable {
     case malformedPlaylistEntry(index: Int, underlying: String)
     case unreadableConditions(title: String)
+    /// `Playlists` キーはあったが配列ではなかった。以前はここも黙って 0 件になり、
+    /// 「シェルフの無い書庫」と見分けが付かなかった。
+    case playlistsNotAnArray(underlying: String)
 
     public var errorDescription: String? {
         switch self {
@@ -13,6 +16,8 @@ public enum PlaylistAnomaly: Error, LocalizedError, Equatable, Sendable {
             return "Playlists entry #\(index) could not be decoded: \(underlying)"
         case .unreadableConditions(let title):
             return "Playlist '\(title)': smart-shelf conditions could not be decoded and were dropped"
+        case .playlistsNotAnArray(let underlying):
+            return "Playlists is present but is not an array, so no shelf could be read: \(underlying)"
         }
     }
 }

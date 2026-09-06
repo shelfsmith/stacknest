@@ -100,21 +100,28 @@ extension LibraryDocument: Decodable {
         // 握り潰していたため、1 件の破損プレイリストで全シェルフが消えていた。
         var playlists: [PlaylistRecord] = []
         var playlistAnomalies: [PlaylistAnomaly] = []
-        if var array = try? root.nestedUnkeyedContainer(forKey: .playlists) {
-            var index = 0
-            while !array.isAtEnd {
-                let result = try array.decode(PlaylistEntryResult.self)
-                if let playlist = result.record {
-                    if playlist.conditionsUnreadable {
-                        playlistAnomalies.append(.unreadableConditions(title: playlist.title))
+        if root.contains(.playlists) {
+            do {
+                var array = try root.nestedUnkeyedContainer(forKey: .playlists)
+                var index = 0
+                while !array.isAtEnd {
+                    let result = try array.decode(PlaylistEntryResult.self)
+                    if let playlist = result.record {
+                        if playlist.conditionsUnreadable {
+                            playlistAnomalies.append(.unreadableConditions(title: playlist.title))
+                        }
+                        playlists.append(playlist)
+                    } else {
+                        playlistAnomalies.append(
+                            .malformedPlaylistEntry(index: index, underlying: result.underlying ?? "unknown")
+                        )
                     }
-                    playlists.append(playlist)
-                } else {
-                    playlistAnomalies.append(
-                        .malformedPlaylistEntry(index: index, underlying: result.underlying ?? "unknown")
-                    )
+                    index += 1
                 }
-                index += 1
+            } catch {
+                // `Playlists` はあるのに配列ではない。0 件で返すと「シェルフの無い書庫」と
+                // 区別が付かないので、必ず記録する。
+                playlistAnomalies.append(.playlistsNotAnArray(underlying: String(describing: error)))
             }
         }
 

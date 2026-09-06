@@ -139,4 +139,88 @@ struct PlaylistRecordDecodeTests {
         #expect(doc.playlists.map(\.title) == ["A", "C"])
         #expect(doc.playlistAnomalies.count == 1)
     }
+
+    @Test("G49: 条件が読めないスマートシェルフは、条件を落としたうえで必ず記録される")
+    func unreadableConditionsAreRecorded() throws {
+        // Date Condition に必須の Option が無い → PlaylistConditions のデコードが失敗する
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Books</key><dict/>
+            <key>Playlists</key>
+            <array>
+                <dict>
+                    <key>Title</key><string>Smart</string>
+                    <key>Type</key><integer>1</integer>
+                    <key>Conditions</key>
+                    <dict><key>Date Condition</key><dict><key>Bogus</key><string>x</string></dict></dict>
+                </dict>
+            </array>
+        </dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists.count == 1)
+        #expect(doc.playlists[0].conditions == nil)
+        #expect(doc.playlists[0].conditionsUnreadable)
+        #expect(doc.playlistAnomalies == [.unreadableConditions(title: "Smart")])
+    }
+
+    @Test("G49: Playlists が配列でなければ、0 件で黙らずに記録する")
+    func playlistsNotAnArrayIsRecorded() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Books</key><dict/>
+            <key>Playlists</key><string>broken</string>
+        </dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists.isEmpty)
+        #expect(doc.playlistAnomalies.count == 1)
+        if case .playlistsNotAnArray = doc.playlistAnomalies[0] {} else {
+            Issue.record("expected playlistsNotAnArray, got \(doc.playlistAnomalies[0])")
+        }
+    }
+
+    @Test("G49: Playlists キーが無ければ異常ではない")
+    func missingPlaylistsKeyIsNotAnAnomaly() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict><key>Books</key><dict/></dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists.isEmpty)
+        #expect(doc.playlistAnomalies.isEmpty)
+    }
+
+    @Test("G49: 配列の要素が辞書でなくても、その 1 件だけを記録して先へ進む")
+    func nonDictionaryElementIsSkipped() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Books</key><dict/>
+            <key>Playlists</key>
+            <array>
+                <string>not a playlist</string>
+                <dict><key>Title</key><string>A</string><key>Type</key><integer>0</integer></dict>
+                <array><string>nested</string></array>
+            </array>
+        </dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists.map(\.title) == ["A"])
+        #expect(doc.playlistAnomalies.count == 2)
+    }
 }

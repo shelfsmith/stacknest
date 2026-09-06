@@ -57,6 +57,11 @@ public struct ImportCommand: ParsableCommand {
         if !quiet {
             print("Imported \(summary.imported) books in \(String(format: "%.2f", summary.elapsed))s, skipped \(summary.skipped.count)")
         }
+        // G49: 取り込みで補ったこと・落としたことは黙って捨てない（パスの復元件数、
+        // 読めなかったプレイリストやスマートシェルフの条件）。件数だけで中身は出さない。
+        for warning in summary.warnings {
+            FileHandle.standardError.write(Data("warning: \(warning)\n".utf8))
+        }
         if summary.skipped.count > 0 {
             throw ExitCode(1)
         }

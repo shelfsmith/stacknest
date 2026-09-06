@@ -257,6 +257,27 @@ struct LibraryImporterTests {
         db.close()
     }
 
+    @Test("G49: プレイリストの異常は取り込みの warning として利用者に届く")
+    func playlistAnomaliesReachTheWarnings() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let doc = LibraryDocument(
+            books: [:],
+            playlists: [],
+            playlistAnomalies: [
+                .malformedPlaylistEntry(index: 1, underlying: "boom"),
+                .unreadableConditions(title: "Smart"),
+            ]
+        )
+        let summary = try LibraryImporter(database: db).run(document: doc)
+
+        #expect(summary.warnings.count == 2)
+        #expect(summary.warnings[0].contains("Playlists entry"))
+        #expect(summary.warnings[1].contains("smart-shelf conditions"))
+        db.close()
+    }
+
     @Test("ImportMeta round-trips through DB")
     func importMetaRoundTrips() throws {
         let db = try Database.openInMemory()

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 
-public struct PlaylistRecord: Codable, Sendable {
+/// G49: `Decodable` のみ（`Codable` から狭めた）。`conditionsUnreadable` は XML には無い
+/// 「読めなかった」という判定結果で、`CodingKeys` にも入らない。エンコードできてしまうと
+/// 再エンコードで黙って落ちるため、そもそもエンコードさせない。
+/// DB への保存は `Database.insertPlaylist` が列ごとに書いており、この型を丸ごと符号化はしない。
+public struct PlaylistRecord: Decodable, Sendable {
     public let title: String
     public let type: Int
     public let icon: Int?
@@ -33,6 +37,11 @@ public struct PlaylistRecord: Codable, Sendable {
         case items       = "Items"
         case conditions  = "Conditions"
     }
+
+    // 補足（G49 レビュー）: `type` は DB の `playlist.type` に書かれるが、スマートシェルフかどうかの
+    // 判定は `conditions IS NOT NULL` で行われる（`Database.swift`）。つまり `Type` が欠けていても
+    // 挙動は変わらない。スマートシェルフが普通のシェルフに落ちるのは `conditions` が読めなかった
+    // ときで、それは `conditionsUnreadable` として必ず警告に出る。
 
     // Stackroom の一部プレイリストは ItemView / ToolTab / Items / Type キーを持たない。
     // 欠落しても安全なデフォルト値（false / [] / 0）を使うカスタム init。
