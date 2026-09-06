@@ -108,15 +108,22 @@ jobs:
           codesign --verify --strict "$APP"
 
       - name: Verify signature and anonymity
+        env:
+          # 検査パターン（個人識別子）はリポジトリに書かず Secrets から受け取る。
+          # 未設定なら検査を黙って通さず失敗させる。
+          ANONYMITY_PATTERNS: ${{ secrets.ANONYMITY_PATTERNS }}
         run: |
           set -eu
           APP="build/Build/Products/Release/StackNest.app"
           codesign -dvvv "$APP" 2>&1 | grep -q "Authority=StackNest Self-Signed" \
             || { echo "::error::unexpected signing authority"; exit 1; }
           lipo -info "$APP/Contents/MacOS/StackNest" | grep -q "x86_64 arm64" || { echo "::error::not universal"; exit 1; }
-          # 個人情報リーク検査（実名・実メール・個人ホームパス）
+          if [ -z "${ANONYMITY_PATTERNS:-}" ]; then
+            echo "::error::ANONYMITY_PATTERNS secret is not set; refusing to release unchecked"; exit 1
+          fi
+          # 個人情報リーク検査（パターンは Secret。ログにも出さない）
           if strings "$APP/Contents/MacOS/StackNest" "$APP/Contents/Helpers/stacknest-cli" \
-             | grep -Eiq "REDACTED_PATTERNS"; then
+             | grep -Eiq -- "$ANONYMITY_PATTERNS"; then
             echo "::error::personal info leak in binary"; exit 1
           fi
 
