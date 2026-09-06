@@ -80,4 +80,63 @@ struct PlaylistRecordDecodeTests {
         #expect(doc.playlists[0].toolTab == true)
         #expect(doc.playlists[0].items == [1])
     }
+
+    @Test("G49: ItemView / ToolTab は真偽値・整数・欠落のいずれでも読める")
+    func tolerantBooleans() throws {
+        func playlist(_ itemView: String) throws -> PlaylistRecord {
+            let xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+                <key>Title</key><string>S</string>
+                <key>Type</key><integer>0</integer>
+                \(itemView)
+            </dict>
+            </plist>
+            """
+            return try PropertyListDecoder().decode(PlaylistRecord.self, from: Data(xml.utf8))
+        }
+        #expect(try playlist("<key>ItemView</key><true/>").itemView == true)
+        #expect(try playlist("<key>ItemView</key><integer>1</integer>").itemView == true)
+        #expect(try playlist("<key>ItemView</key><integer>0</integer>").itemView == false)
+        #expect(try playlist("").itemView == false)
+    }
+
+    @Test("G49: Items・Type が無くても読める")
+    func tolerantItemsAndType() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict><key>Title</key><string>S</string></dict>
+        </plist>
+        """
+        let p = try PropertyListDecoder().decode(PlaylistRecord.self, from: Data(xml.utf8))
+        #expect(p.items.isEmpty)
+        #expect(p.type == 0)
+        #expect(p.conditionsUnreadable == false)
+    }
+
+    @Test("G49: 壊れたプレイリストが 1 件あっても残りは生き残る（症状の回帰テスト）")
+    func oneBadPlaylistDoesNotWipeTheRest() throws {
+        let xml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Books</key><dict/>
+            <key>Playlists</key>
+            <array>
+                <dict><key>Title</key><string>A</string><key>Type</key><integer>0</integer></dict>
+                <dict><key>Type</key><integer>0</integer></dict>
+                <dict><key>Title</key><string>C</string><key>Type</key><integer>0</integer></dict>
+            </array>
+        </dict>
+        </plist>
+        """
+        let doc = try PropertyListDecoder().decode(LibraryDocument.self, from: Data(xml.utf8))
+        #expect(doc.playlists.map(\.title) == ["A", "C"])
+        #expect(doc.playlistAnomalies.count == 1)
+    }
 }

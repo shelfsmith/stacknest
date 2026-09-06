@@ -78,6 +78,10 @@ public struct LibraryImporter: Sendable {
             progress?.reportProgress(processed: processed, total: total)
         }
 
+        for anomaly in document.playlistAnomalies {
+            summary.warnings.append(anomaly.localizedDescription)
+        }
+
         let validBookIDs: Set<Int> = Set(document.books.values.map(\.id))
         for playlist in document.playlists {
             let originalCount = playlist.items.count
