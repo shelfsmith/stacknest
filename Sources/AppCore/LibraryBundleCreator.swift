@@ -61,10 +61,10 @@ public enum LibraryBundleCreator {
         defer { db.close() }
 
         // Import books and metadata (inject FilenameParser for series/volume auto-completion)
-        let importer = LibraryImporter(database: db) { title, filename in
+        let importer = LibraryImporter(database: db, seriesVolumeParser: { title, filename in
             let p = FilenameParser.parse(title: title, filename: filename)
             return (p.series, p.volume)
-        }
+        })
         let xmlMTime = (try? FileManager.default.attributesOfItem(atPath: xmlURL.path(percentEncoded: false))[.modificationDate] as? Date) ?? Date()
 
         _ = try importer.run(

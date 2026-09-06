@@ -47,10 +47,10 @@ public struct ImportCommand: ParsableCommand {
 
         let xmlMTime = (try? FileManager.default.attributesOfItem(atPath: xmlURL.path)[.modificationDate] as? Date) ?? Date()
         // Inject FilenameParser so the importer fills series/volume for records that have nil values from XML.
-        let importer = LibraryImporter(database: db) { title, filename in
+        let importer = LibraryImporter(database: db, seriesVolumeParser: { title, filename in
             let parsed = FilenameParser.parse(title: title, filename: filename)
             return (series: parsed.series, volume: parsed.volume)
-        }
+        })
         let reporter: ProgressReporter? = quiet ? nil : CLIProgressReporter()
         let summary = try importer.run(document: doc, sourceURL: xmlURL, sourceMTime: xmlMTime, progress: reporter)
 

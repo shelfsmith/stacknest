@@ -23,8 +23,8 @@ public struct LibraryImporter: Sendable {
     public let seriesVolumeParser: SeriesVolumeParser?
 
     /// G49: `Path` 復元候補（フォルダ書籍の親ディレクトリ）が実在するかどうかの確認。
-    /// 既定は実ファイルシステムを見る。テストからは差し替え可能。
-    public let directoryExists: DirectoryExistsChecker
+    /// 既定は実ファイルシステムを見る。テストからは init で差し替える。
+    private let directoryExists: DirectoryExistsChecker
 
     public init(
         database: Database,
@@ -53,8 +53,12 @@ public struct LibraryImporter: Sendable {
         var processed = 0
         var recoveredPathCount = 0
 
+        // G49: Stackroom 自身のサムネイル置き場を、復元候補から除外するために先に求めておく。
+        let stackroomThumbnailsRoot = inferThumbnailsDirectory(from: sourceURL)
+
         for (_, book) in document.books {
-            let (finalBook, recovered) = recoveredBook(filledBook(book))
+            let (finalBook, recovered) = recoveredBook(
+                filledBook(book), stackroomThumbnailsRoot: stackroomThumbnailsRoot)
             if recovered { recoveredPathCount += 1 }
             try database.insertBook(finalBook)
             summary.imported += 1
@@ -151,16 +155,32 @@ public struct LibraryImporter: Sendable {
     /// G49: `Path` が欠落している本を `Cover Image Path` から復元する。
     /// フォルダ書籍の親ディレクトリ候補は、実在するときだけ採用する。
     /// 返り値の `Bool` は復元を行ったかどうか（warning の件数集計用）。
-    private func recoveredBook(_ book: BookRecord) -> (BookRecord, Bool) {
-        switch StackroomPathRecovery.plan(path: book.path, coverImagePath: book.coverImagePath) {
+    ///
+    /// `stackroomThumbnailsRoot` は Stackroom 自身のサムネイル置き場
+    /// （`<xml-parent>/Stackroom Library/<book-id>/thumbnail.jpg`）。**そこは本の置き場ではない**のに
+    /// 必ず実在するため、実在確認だけでは弾けない。表紙がキャッシュを指している本は復元しない。
+    private func recoveredBook(
+        _ book: BookRecord, stackroomThumbnailsRoot: String?
+    ) -> (BookRecord, Bool) {
+        let plan = StackroomPathRecovery.plan(
+            path: book.path, coverImagePath: book.coverImagePath, fileType: book.fileType)
+        switch plan {
         case .keep, .unrecoverable:
             return (book, false)
         case .useCoverPath(let path):
+            guard !isInsideStackroomCache(path, root: stackroomThumbnailsRoot) else { return (book, false) }
             return (withPath(path, of: book), true)
         case .useCoverParentDirectory(let directory):
+            guard !isInsideStackroomCache(directory, root: stackroomThumbnailsRoot) else { return (book, false) }
             guard directoryExists(directory) else { return (book, false) }
             return (withPath(directory, of: book), true)
         }
+    }
+
+    /// 候補が Stackroom のサムネイルキャッシュの中か（キャッシュ自身も含む）。
+    private func isInsideStackroomCache(_ candidate: String, root: String?) -> Bool {
+        guard let root else { return false }
+        return candidate == root || candidate.hasPrefix(root + "/")
     }
 
     private func withPath(_ path: String, of book: BookRecord) -> BookRecord {

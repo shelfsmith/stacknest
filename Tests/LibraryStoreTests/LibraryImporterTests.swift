@@ -175,7 +175,7 @@ struct LibraryImporterTests {
         let summary = try importer.run(document: doc)
 
         #expect(summary.imported == 1)
-        #expect(summary.warnings.contains { $0.contains("1") && $0.contains("path") })
+        #expect(summary.warnings == ["Recovered path from the cover image path for 1 book(s)"])
         #expect(try db.fetchBook(id: 1)?.path == "/b/x.zip")
         db.close()
     }
@@ -185,15 +185,17 @@ struct LibraryImporterTests {
         let db = try Database.openInMemory()
         try db.migrate()
 
+        // fileType 4 = フォルダ書籍。実在しない親ディレクトリは採用しない。
         let book = BookRecord(
             id: 2, title: "T", path: nil, coverImagePath: "/b/book/001.jpg",
-            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 2
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 4
         )
         let doc = LibraryDocument(books: ["2": book])
         let importer = LibraryImporter(database: db, directoryExists: { _ in false })
         let summary = try importer.run(document: doc)
 
         #expect(summary.imported == 1)
+        #expect(summary.warnings.isEmpty)
         #expect(try db.fetchBook(id: 2)?.path == nil)
         db.close()
     }
@@ -205,13 +207,53 @@ struct LibraryImporterTests {
 
         let book = BookRecord(
             id: 3, title: "T", path: nil, coverImagePath: "/b/book/001.jpg",
-            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 2
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 4
         )
         let doc = LibraryDocument(books: ["3": book])
         let importer = LibraryImporter(database: db, directoryExists: { $0 == "/b/book" })
         _ = try importer.run(document: doc)
 
         #expect(try db.fetchBook(id: 3)?.path == "/b/book")
+        db.close()
+    }
+
+    @Test("G49: アーカイブの本は、表紙が画像でも親ディレクトリを本の場所にしない")
+    func doesNotRecoverParentDirectoryForArchiveBooks() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let book = BookRecord(
+            id: 4, title: "T", path: nil, coverImagePath: "/b/book/001.jpg",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 2
+        )
+        let doc = LibraryDocument(books: ["4": book])
+        let importer = LibraryImporter(database: db, directoryExists: { _ in true })
+        let summary = try importer.run(document: doc)
+
+        #expect(summary.warnings.isEmpty)
+        #expect(try db.fetchBook(id: 4)?.path == nil)
+        db.close()
+    }
+
+    /// Stackroom 自身のサムネイル置き場（`<xml-parent>/Stackroom Library/<id>/thumbnail.jpg`）は
+    /// **必ず実在する**ので、実在確認だけでは弾けない。そこを本の場所にしてはいけない。
+    @Test("G49: 表紙が Stackroom のサムネイルキャッシュを指す本は復元しない")
+    func doesNotRecoverIntoTheStackroomThumbnailCache() throws {
+        let db = try Database.openInMemory()
+        try db.migrate()
+
+        let xmlURL = URL(fileURLWithPath: "/lib/Stackroom Library.xml")
+        let book = BookRecord(
+            id: 5, title: "T", path: nil,
+            coverImagePath: "/lib/Stackroom Library/5/thumbnail.jpg",
+            dateAdded: Date(timeIntervalSince1970: 0), bookType: 0, fileType: 4
+        )
+        let doc = LibraryDocument(books: ["5": book])
+        let importer = LibraryImporter(database: db, directoryExists: { _ in true })
+        let summary = try importer.run(document: doc, sourceURL: xmlURL)
+
+        #expect(summary.warnings.isEmpty)
+        #expect(try db.fetchBook(id: 5)?.path == nil)
         db.close()
     }
 
