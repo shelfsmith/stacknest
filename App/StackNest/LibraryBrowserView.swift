@@ -357,6 +357,9 @@ struct LibraryBrowserView: View {
                 format: format
             )
             let result = await coord.add(urls: urls)
+            if !result.addedIDs.isEmpty, let shelfID = appState.removableShelfID {
+                appState.addBooksToShelf(shelfID, books: result.addedIDs)
+            }
             do { try appState.refreshDisplayedBooks() }
             catch { appState.error = .unexpected(error) }
             if !result.addedIDs.isEmpty, let uuid = appState.librarySettings?.libraryUUID {
