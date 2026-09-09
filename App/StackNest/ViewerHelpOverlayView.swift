@@ -7,11 +7,16 @@ struct ViewerHelpOverlayView: View {
     static var grouped: [(section: String, rows: [(action: String, keys: String)])] {
         ViewerHelpRows.makeGrouped(from: ViewerKeyBindings.load())
     }
+    static func grouped(including: Set<ViewerAction>?) -> [(section: String, rows: [(action: String, keys: String)])] {
+        ViewerHelpRows.makeGrouped(from: ViewerKeyBindings.load(), including: including)
+    }
     var isVisible: Bool
+    /// G51: EPUB の窓では `ViewerAction.epubSupported` を渡し、対象外の行を伏せる。nil なら全部。
+    var including: Set<ViewerAction>? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("キー操作").font(.system(size: 13, weight: .bold))
-            ForEach(Self.grouped, id: \.section) { group in
+            ForEach(Self.grouped(including: including), id: \.section) { group in
                 Text(group.section).font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.7))
                 ForEach(group.rows, id: \.action) { row in
                     HStack(spacing: 12) {
