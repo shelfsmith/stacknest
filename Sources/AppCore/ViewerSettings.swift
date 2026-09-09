@@ -30,6 +30,7 @@ public final class ViewerSettings {
     private let tabSkipPageCountKey = "viewerTabSkipPageCount"
     private let spreadByDefaultKey = "viewerSpreadByDefault"
     private let openFullScreenByDefaultKey = "viewerOpenFullScreenByDefault"
+    private let openEPUBFullScreenByDefaultKey = "viewerOpenEPUBFullScreenByDefault"
     private let showBookIDInDetailKey = "showBookIDInDetail"
     private let allowMultipleViewerWindowsKey = "viewerAllowMultipleWindows"
     private let loupeMagnificationKey = "viewerLoupeMagnification"
@@ -101,6 +102,12 @@ public final class ViewerSettings {
     /// UserDefaults key "viewerOpenFullScreenByDefault"、初期値 false。
     public var openFullScreenByDefault: Bool {
         didSet { defaults.set(openFullScreenByDefault, forKey: openFullScreenByDefaultKey) }
+    }
+
+    /// G51（Q3=C-2）: EPUB の窓を全画面で開くか。画像ビューアの `openFullScreenByDefault` とは独立
+    /// （EPUB は行長が伸びると読みにくいので使い分けたい）。key 不在で false。
+    public var openEPUBFullScreenByDefault: Bool {
+        didSet { defaults.set(openEPUBFullScreenByDefault, forKey: openEPUBFullScreenByDefaultKey) }
     }
 
     /// G13 F2a: 詳細ペインに book ID を表示するか（app-global・ローカル/リモート共有・既定 false）。
@@ -238,6 +245,8 @@ public final class ViewerSettings {
         } else {
             self.openFullScreenByDefault = defaults.bool(forKey: openFullScreenByDefaultKey)
         }
+        // G51: openEPUBFullScreenByDefault は key 不在で false（defaults.bool の既定と一致）。
+        self.openEPUBFullScreenByDefault = defaults.bool(forKey: openEPUBFullScreenByDefaultKey)
         // G13 F2a: showBookIDInDetail は key 不在で false (defaults.bool(forKey:) の既定と一致するため
         // first-run 特別扱い不要)。
         self.showBookIDInDetail = defaults.bool(forKey: showBookIDInDetailKey)
