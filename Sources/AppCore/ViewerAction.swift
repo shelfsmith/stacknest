@@ -336,3 +336,19 @@ public struct ViewerKeyBindings: Codable, Sendable {
         }
     }
 }
+
+public extension ViewerAction {
+    /// G51: EPUB の窓（`EPUBReaderWindowController`）が扱うアクション。
+    /// 割り当て表は画像ビューアと共有し（Q2=B-1）、ここに無いものは EPUB では**無視して上へ流す**。
+    /// ヘルプ表も同じ集合で絞る。新しい case を足したら、EPUB で意味があるかをここで判断する。
+    static let epubSupported: Set<ViewerAction> = [
+        .nextPage, .previousPage, .pageLeftward, .pageRightward, .firstPage, .lastPage,
+        .jumpToPercent0, .jumpToPercent10, .jumpToPercent20, .jumpToPercent30, .jumpToPercent40,
+        .jumpToPercent50, .jumpToPercent60, .jumpToPercent70, .jumpToPercent80, .jumpToPercent90,
+        .zoomIn, .zoomOut, .fitToWindow,           // 文字倍率の増減・等倍
+        .toggleSpread,                             // columnMode single ⇔ double
+        .toggleAutoAdvance,                        // 自動送り（Q4）
+        .nextVolume, .prevVolume,                  // 巻送り（Q4）
+        .toggleFullScreen, .close, .showHelp,
+    ]
+}

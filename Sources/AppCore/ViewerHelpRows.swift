@@ -13,10 +13,16 @@ public enum ViewerHelpRows {
     }
 
     /// セクション見出し付きのヘルプ表（HUD オーバーレイ / ヘルプページ共有）。
-    public static func makeGrouped(from bindings: ViewerKeyBindings) -> [(section: String, rows: [(action: String, keys: String)])] {
-        ViewerActionSection.allCases.map { section in
-            (section: section.title,
-             rows: section.actions.map { (action: $0.displayName, keys: keysString(for: $0, in: bindings)) })
+    /// `including` を渡すとその集合にあるアクションだけを出し、空になったセクションは省く（G51: EPUB 用）。
+    public static func makeGrouped(
+        from bindings: ViewerKeyBindings,
+        including: Set<ViewerAction>? = nil
+    ) -> [(section: String, rows: [(action: String, keys: String)])] {
+        ViewerActionSection.allCases.compactMap { section in
+            let actions = section.actions.filter { including?.contains($0) ?? true }
+            guard !actions.isEmpty else { return nil }
+            return (section: section.title,
+                    rows: actions.map { (action: $0.displayName, keys: keysString(for: $0, in: bindings)) })
         }
     }
 
