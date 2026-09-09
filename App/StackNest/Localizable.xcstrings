@@ -1,500 +1,96 @@
 {
   "sourceLanguage" : "ja",
-  "version" : "1.0",
   "strings" : {
-    "ビルトイン" : {
+    "—" : {
+
+    },
+    "(デフォルトを使用)" : {
+
+    },
+    "(未選択 — 既定の挙動で開きます)" : {
+
+    },
+    "「%@」 の設定" : {
+
+    },
+    "「%@」 を開く" : {
+
+    },
+    "「%@」で絞り込む" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Built-in" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Filter by \"%@\""
+          }
         }
       }
     },
-    "ライブラリ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Library" }
-        }
-      }
+    "「%@」は保護されています" : {
+
     },
-    "お気に入り" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Favorites" }
-        }
-      }
+    "「保存」でこのライブラリにロックを設定します。" : {
+
     },
-    "最近の項目" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Recent Items" }
-        }
-      }
+    "「既定に従う」を選ぶと、StackNest 設定の値を使います。" : {
+
     },
-    "シェルフ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Shelves" }
-        }
-      }
+    "「既定に従う」を選ぶと、サーバのグローバル設定を使います。" : {
+
     },
-    "新規シェルフ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "New Shelf" }
-        }
-      }
+    "%@" : {
+
     },
-    "リネーム" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Rename" }
-        }
-      }
-    },
-    "削除…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Delete…" }
-        }
-      }
-    },
-    "シェルフ \"%@\" を削除しますか？" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Delete shelf \"%@\"?" }
-        }
-      }
-    },
-    "シェルフを削除します。中の書籍はライブラリには残ります。" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "The shelf will be deleted. Books inside will remain in the library." }
-        }
-      }
-    },
-    "削除" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Delete" }
-        }
-      }
-    },
-    "キャンセル" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Cancel" }
-        }
-      }
-    },
-    "お気に入りに追加" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Add to Favorites" }
-        }
-      }
-    },
-    "お気に入りから削除" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Remove from Favorites" }
-        }
-      }
-    },
-    "Finder で表示" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Reveal in Finder" }
-        }
-      }
-    },
-    "ビューアで開く" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Open in Viewer" }
-        }
-      }
-    },
-    "書籍が選択されていません" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "No Book Selected" }
-        }
-      }
-    },
-    "グリッドから書籍を選択すると詳細が表示されます" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Select a book from the grid to see its details." }
-        }
-      }
-    },
-    "タイトル" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Title" }
-        }
-      }
-    },
-    "作者" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Author" }
-        }
-      }
-    },
-    "キーワード A" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Keyword A" }
-        }
-      }
-    },
-    "キーワード B" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Keyword B" }
-        }
-      }
-    },
-    "キーワード C" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Keyword C" }
-        }
-      }
-    },
-    "関連" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Related" }
-        }
-      }
-    },
-    "ジャンル" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Genre" }
-        }
-      }
-    },
-    "メモ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Memo" }
-        }
-      }
-    },
-    "登録した日" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Date Added" }
-        }
-      }
-    },
-    "最後に読んだ日" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Last Read" }
-        }
-      }
-    },
-    "ファイル形式" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "File Format" }
-        }
-      }
-    },
-    "●未読" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "●Unread" }
-        }
-      }
-    },
-    "種類: %@" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Type: %@" }
-        }
-      }
-    },
-    "厚い本" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Thick Book" }
-        }
-      }
-    },
-    "薄い本" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Thin Book" }
-        }
-      }
-    },
-    "本の一部" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Part of Book" }
-        }
-      }
-    },
-    "画像セット" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Image Set" }
-        }
-      }
-    },
-    "テキスト" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Text" }
-        }
-      }
-    },
-    "ムービー" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Movie" }
-        }
-      }
-    },
-    "Zip アーカイブ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Zip Archive" }
-        }
-      }
-    },
-    "RAR アーカイブ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "RAR Archive" }
-        }
-      }
-    },
-    "7z アーカイブ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "7z Archive" }
-        }
-      }
-    },
-    "フォルダ" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Folder" }
-        }
-      }
-    },
-    "Import Library…" : {
-      "extractionState" : "manual",
+    "%@ — %@" : {
       "localizations" : {
         "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "ライブラリを取り込み…" }
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ — %2$@"
+          }
         }
       }
     },
-    "No library yet" : {
-      "extractionState" : "manual",
+    "%@ / %@" : {
       "localizations" : {
         "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "ライブラリがまだありません" }
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ / %2$@"
+          }
         }
       }
     },
-    "Import a Stackroom XML, or add new books." : {
-      "extractionState" : "manual",
+    "%@ / %@ ページ" : {
       "localizations" : {
         "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "Stackroom XMLを読み込むか、新しい書籍を追加してください。" }
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ / %2$@ ページ"
+          }
         }
       }
     },
-    "Error" : {
-      "extractionState" : "manual",
+    "%@ ページ" : {
+
+    },
+    "%@ 件" : {
+
+    },
+    "%@ 件選択中" : {
+
+    },
+    "%@ 段階のレート" : {
+
+    },
+    "%@/%@" : {
       "localizations" : {
         "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "エラー" }
-        }
-      }
-    },
-    "OK" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "OK" }
-        }
-      }
-    },
-    "Unknown error" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "不明なエラー" }
-        }
-      }
-    },
-    "External Viewer" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "外部ビューア" }
-        }
-      }
-    },
-    "Application" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "アプリケーション" }
-        }
-      }
-    },
-    "Choose…" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "選択…" }
-        }
-      }
-    },
-    "Not set" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "未設定" }
-        }
-      }
-    },
-    "Archive files in your library will open in this application on double-click." : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ja" : {
-          "stringUnit" : { "state" : "translated", "value" : "ライブラリ内のアーカイブファイルは、ダブルクリック時にこのアプリケーションで開かれます。" }
-        }
-      }
-    },
-    "リスト/アイコン表示" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "List/Icon View" } }
-      }
-    },
-    "テーブル列" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Table Columns" } }
-      }
-    },
-    "並び替え" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Sort By" } }
-      }
-    },
-    "すべてを選択" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Select All" } }
-      }
-    },
-    "レート" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Rating" } }
-      }
-    },
-    "レートなし" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No Rating" } }
-      }
-    },
-    "未読チェック" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Mark as Unread" } }
-      }
-    },
-    "種類" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Type" } }
-      }
-    },
-    "登録日" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Date Added" } }
-      }
-    },
-    "読んだ日" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Date Read" } }
-      }
-    },
-    "未読" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Unread" } }
-      }
-    },
-    "検索" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Search" } }
-      }
-    },
-    "<複数値>" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "<Multiple Values>" }
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@/%2$@"
+          }
         }
       }
     },
@@ -502,39 +98,10 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "%lld items selected" }
-        }
-      }
-    },
-    "変更は選択中の全件に適用されます" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Changes apply to all selected items" }
-        }
-      }
-    },
-    "タイトルは複数選択時に編集できません" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Title cannot be edited in multi-selection" }
-        }
-      }
-    },
-    "タイトルは必須項目です" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Title is required" }
-        }
-      }
-    },
-    "「%@」で絞り込む" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Filter by \"%@\"" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld items selected"
+          }
         }
       }
     },
@@ -542,23 +109,791 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "%lld star rating" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld star rating"
+          }
         }
       }
     },
-    "現在 %lld 段階" : {
+    "•" : {
+
+    },
+    "→ %@" : {
+
+    },
+    "<複数値>" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Currently %lld stars" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "<Multiple Values>"
+          }
         }
       }
     },
-    "複数値" : {
+    "●未読" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Multiple values" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "●Unread"
+          }
+        }
+      }
+    },
+    "★%@" : {
+
+    },
+    "⚠ コロン (:) は ： に自動変換されます" : {
+
+    },
+    "⚠ 有効にすると、次回以降のアプリ起動時に自動でネットワーク共有を開始します。ライブラリを外部に見せる意味を理解した上で有効にしてください。" : {
+
+    },
+    "⚠ 管理者トークンは設定変更・ファイル削除・共有トークン管理まで全操作を許可します。信頼できる自分の端末にのみ渡してください。" : {
+
+    },
+    "1 GB" : {
+
+    },
+    "1ページ" : {
+
+    },
+    "2 GB" : {
+
+    },
+    "5 GB" : {
+
+    },
+    "7 日" : {
+
+    },
+    "7z アーカイブ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "7z Archive"
+          }
+        }
+      }
+    },
+    "10 GB" : {
+
+    },
+    "30 日" : {
+
+    },
+    "90 日" : {
+
+    },
+    "512 MB" : {
+
+    },
+    "Application" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アプリケーション"
+          }
+        }
+      }
+    },
+    "Archive files in your library will open in this application on double-click." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリ内のアーカイブファイルは、ダブルクリック時にこのアプリケーションで開かれます。"
+          }
+        }
+      }
+    },
+    "Choose…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選択…"
+          }
+        }
+      }
+    },
+    "Error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エラー"
+          }
+        }
+      }
+    },
+    "Esc は常にキャンセル / 閉じるに使われるため固定です。" : {
+
+    },
+    "External Viewer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "外部ビューア"
+          }
+        }
+      }
+    },
+    "Finder で付けたタグの取り込みには Spotlight 索引が必要です。索引が無効なボリュームでは、書き戻し（StackNest → Finder）だけが動きます。" : {
+
+    },
+    "Finder で表示" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reveal in Finder"
+          }
+        }
+      }
+    },
+    "Import a Stackroom XML, or add new books." : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stackroom XMLを読み込むか、新しい書籍を追加してください。"
+          }
+        }
+      }
+    },
+    "Import Library…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリを取り込み…"
+          }
+        }
+      }
+    },
+    "iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。" : {
+
+    },
+    "No library yet" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ライブラリがまだありません"
+          }
+        }
+      }
+    },
+    "Not set" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未設定"
+          }
+        }
+      }
+    },
+    "OFF にすると、フォルダは画像セット、それ以外は厚い本として登録されます。" : {
+
+    },
+    "OK" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "OK"
+          }
+        }
+      }
+    },
+    "QR 生成失敗" : {
+
+    },
+    "RAR アーカイブ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "RAR Archive"
+          }
+        }
+      }
+    },
+    "StackNest" : {
+
+    },
+    "StackNest へようこそ" : {
+
+    },
+    "StackNest ヘルプ" : {
+
+    },
+    "Tab スキップのページ数" : {
+
+    },
+    "Unknown error" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "不明なエラー"
+          }
+        }
+      }
+    },
+    "Zip アーカイブ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zip Archive"
+          }
+        }
+      }
+    },
+    "あとから設定画面でも変更できます。" : {
+
+    },
+    "いずれか" : {
+
+    },
+    "お気に入り" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Favorites"
+          }
+        }
+      }
+    },
+    "お気に入りから削除" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove from Favorites"
+          }
+        }
+      }
+    },
+    "お気に入りに追加" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Add to Favorites"
+          }
+        }
+      }
+    },
+    "キーワード A" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyword A"
+          }
+        }
+      }
+    },
+    "キーワード B" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyword B"
+          }
+        }
+      }
+    },
+    "キーワード C" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keyword C"
+          }
+        }
+      }
+    },
+    "キーを押してください…（Esc でキャンセル）" : {
+
+    },
+    "キー操作" : {
+
+    },
+    "キー設定は内蔵ビューア選択時のみ有効です。設定 ▸ 表示 でビューアを「内蔵ビューア」に切り替えてください。" : {
+
+    },
+    "キャンセル" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cancel"
+          }
+        }
+      }
+    },
+    "グリッドから書籍を選択すると詳細が表示されます" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a book from the grid to see its details."
+          }
+        }
+      }
+    },
+    "この Mac で生体認証を有効にするため、パスワードの入力が必要です" : {
+
+    },
+    "このシェルフ・絞り込み条件に一致する書籍はありません。" : {
+
+    },
+    "このフォルダに元からあるファイルもまとめて取り込みます。" : {
+
+    },
+    "このフォルダの既存ファイル（監視開始時にスキップされた分）も取り込みます。" : {
+
+    },
+    "このライブラリで有効" : {
+
+    },
+    "このライブラリで無効" : {
+
+    },
+    "この共有トークンの既存接続は再ペアリングが必要になります。" : {
+
+    },
+    "この共有トークンを削除すると、その接続は直ちにできなくなります（取り消し不可）。" : {
+
+    },
+    "コロン (:) は ： に自動変換。同名が既にある・名前を作れない・長すぎる項目はスキップされます" : {
+
+    },
+    "サーバが見つかりません。再接続してください" : {
+
+    },
+    "サーバに接続" : {
+
+    },
+    "サーバ名を変更" : {
+
+    },
+    "サーバ接続時に書籍をダウンロードすると、ここでオフライン閲覧できます。" : {
+
+    },
+    "サブフォルダ" : {
+
+    },
+    "サブフォルダの中も個別に取り込む" : {
+
+    },
+    "サブフォルダを1冊として取り込む" : {
+
+    },
+    "サブフォルダを取り込まない" : {
+
+    },
+    "シェルフ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shelves"
+          }
+        }
+      }
+    },
+    "シェルフ \"%@\" を削除しますか？" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete shelf \"%@\"?"
+          }
+        }
+      }
+    },
+    "シェルフを削除します。中の書籍はライブラリには残ります。" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The shelf will be deleted. Books inside will remain in the library."
+          }
+        }
+      }
+    },
+    "ジャンル" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Genre"
+          }
+        }
+      }
+    },
+    "すべて" : {
+
+    },
+    "すべてを選択" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select All"
+          }
+        }
+      }
+    },
+    "スマートシェルフ" : {
+
+    },
+    "スライドショーの間隔（秒）" : {
+
+    },
+    "タイトル" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title"
+          }
+        }
+      }
+    },
+    "タイトルは必須項目です" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title is required"
+          }
+        }
+      }
+    },
+    "タイトルは複数選択時に編集できません" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Title cannot be edited in multi-selection"
+          }
+        }
+      }
+    },
+    "タイトル画面を表示" : {
+
+    },
+    "テーブル列" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Table Columns"
+          }
+        }
+      }
+    },
+    "テキスト" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text"
+          }
+        }
+      }
+    },
+    "トークン" : {
+
+    },
+    "ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale の接続を確認してください。" : {
+
+    },
+    "ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale を確認してください。" : {
+
+    },
+    "パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。" : {
+
+    },
+    "パスワードが違います (%@ 回失敗)" : {
+
+    },
+    "パスワードを入力してください" : {
+
+    },
+    "パスワードを変更するには現在のパスワードを入力してください" : {
+
+    },
+    "ハッシュ計算中… %@/%@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "ハッシュ計算中… %1$@/%2$@"
+          }
+        }
+      }
+    },
+    "ビューアで開く" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open in Viewer"
+          }
+        }
+      }
+    },
+    "ビルトイン" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Built-in"
+          }
+        }
+      }
+    },
+    "ファイルの破損チェック" : {
+
+    },
+    "ファイル不明 %@ 件はスキップ" : {
+
+    },
+    "ファイル名" : {
+
+    },
+    "ファイル名を変更 (%@ 件)" : {
+
+    },
+    "ファイル形式" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Format"
+          }
+        }
+      }
+    },
+    "フィルタ" : {
+
+    },
+    "フォーマット" : {
+
+    },
+    "フォルダ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Folder"
+          }
+        }
+      }
+    },
+    "ブラウザのタイトルやリモート配信名に使われます。空欄でバンドル名にフォールバックします。" : {
+
+    },
+    "ブラウザのタイトルやリモート配信名に使われます。空欄でファイル名「%@」。" : {
+
+    },
+    "プレビュー:" : {
+
+    },
+    "ページを選択すると crop 編集できます" : {
+
+    },
+    "ページ方向" : {
+
+    },
+    "ページ表示" : {
+
+    },
+    "ポート" : {
+
+    },
+    "ポート %@ で配信中" : {
+
+    },
+    "ポートは停止中に変更できます。" : {
+
+    },
+    "ムービー" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Movie"
+          }
+        }
+      }
+    },
+    "メモ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Memo"
+          }
+        }
+      }
+    },
+    "ライブラリ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Library"
+          }
+        }
+      }
+    },
+    "ライブラリを選択" : {
+
+    },
+    "ライブラリを開くとここに表示されます。" : {
+
+    },
+    "ライブラリを開けませんでした" : {
+
+    },
+    "ライブラリ内の重複を検出します。完全一致（同一ファイル）と、シリーズ+巻数が一致する「同一の可能性」を表示します。" : {
+
+    },
+    "ライブラリ名" : {
+
+    },
+    "ライブラリ既定" : {
+
+    },
+    "ライブラリ設定" : {
+
+    },
+    "リスト/アイコン表示" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "List/Icon View"
+          }
+        }
+      }
+    },
+    "リネーム" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rename"
+          }
+        }
+      }
+    },
+    "リモート共有・オフライン閲覧は、外部ビューア設定に関わらず常に内蔵ビューアで表示されます（このためキー設定は常時有効）。" : {
+
+    },
+    "リモート閲覧の高速化用に、ページ・表紙をディスクへ自動キャッシュします（自動管理。オフライン ダウンロードとは別）。" : {
+
+    },
+    "リンク切れ %@ 件 / %@ フォルダ" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "リンク切れ %1$@ 件 / %2$@ フォルダ"
+          }
+        }
+      }
+    },
+    "リンク切れの検出と再リンク" : {
+
+    },
+    "リンク切れはありません。" : {
+
+    },
+    "ループ" : {
+
+    },
+    "ルーペの倍率" : {
+
+    },
+    "レート" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rating"
+          }
+        }
+      }
+    },
+    "レートなし" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Rating"
+          }
         }
       }
     },
@@ -566,7 +901,10 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Set rating to %lld" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set rating to %lld"
+          }
         }
       }
     },
@@ -574,15 +912,320 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Clear rating" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clear rating"
+          }
         }
       }
     },
-    "未読インジケータ" : {
+    "ロックを解除するには現在のパスワードを入力してください" : {
+
+    },
+    "一部未読" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Unread indicator" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some unread"
+          }
+        }
+      }
+    },
+    "並び替え" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sort By"
+          }
+        }
+      }
+    },
+    "今すぐスキャン" : {
+
+    },
+    "他のタブの変更は既に保存済みです。ここではロックの変更のみ行います。" : {
+
+    },
+    "他のメンテナンス処理を実行中です（%@）… %@/%@%@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "他のメンテナンス処理を実行中です（%1$@）… %2$@/%3$@%4$@"
+          }
+        }
+      }
+    },
+    "以内" : {
+
+    },
+    "以前" : {
+
+    },
+    "件" : {
+
+    },
+    "作者" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Author"
+          }
+        }
+      }
+    },
+    "使用量" : {
+
+    },
+    "保持する世代数: %@" : {
+
+    },
+    "候補 %@ / ハッシュ済 %@ / 未算出 %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "候補 %1$@ / ハッシュ済 %2$@ / 未算出 %3$@"
+          }
+        }
+      }
+    },
+    "停止" : {
+
+    },
+    "停止中" : {
+
+    },
+    "全 %@ 件" : {
+
+    },
+    "全ての表紙を元ファイルから作り直します（1200 px を超えるものは縮小されます）。手動で選んだ表紙・アップロードした表紙は変更されません。続行しますか?" : {
+
+    },
+    "全ての表紙を元ファイルから作り直します（1200px を超えるものは縮小されます。手動で選んだ表紙・アップロードした表紙は対象外）。" : {
+
+    },
+    "全ての表紙を元ファイルから作り直します（手動・アップロードした表紙は対象外）。" : {
+
+    },
+    "全ライブラリ" : {
+
+    },
+    "全件" : {
+
+    },
+    "共有トークンの QR: %@" : {
+
+    },
+    "共有トークンを追加すると、相手ごとに見せるライブラリと権限を分けられます。" : {
+
+    },
+    "内蔵ビューア" : {
+
+    },
+    "内蔵ビューアで開く" : {
+
+    },
+    "内蔵ビューアの設定" : {
+
+    },
+    "内蔵ビューアはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。" : {
+
+    },
+    "再生・シークして、使いたい場面で止めてください" : {
+
+    },
+    "最初のライブラリ" : {
+
+    },
+    "最後に読んだ日" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Last Read"
+          }
+        }
+      }
+    },
+    "最近の項目" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Recent Items"
+          }
+        }
+      }
+    },
+    "切り取り" : {
+
+    },
+    "削除" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete"
+          }
+        }
+      }
+    },
+    "削除…" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Delete…"
+          }
+        }
+      }
+    },
+    "前回開いていたライブラリを開く" : {
+
+    },
+    "劣化" : {
+
+    },
+    "厚い本" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thick Book"
+          }
+        }
+      }
+    },
+    "厚い本判定閾値 (ページ数)" : {
+
+    },
+    "厚い本判定閾値（ページ数）" : {
+
+    },
+    "取得: %@" : {
+
+    },
+    "右 → 左（漫画）" : {
+
+    },
+    "同じ Mac の CLI `stacknest-cli` は自動接続します。ネットワークには公開されません。" : {
+
+    },
+    "同一の可能性（シリーズ+巻数一致）" : {
+
+    },
+    "同期しない" : {
+
+    },
+    "同期する項目" : {
+
+    },
+    "名前" : {
+
+    },
+    "名前:" : {
+
+    },
+    "変更は選択中の全件に適用されます" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes apply to all selected items"
+          }
+        }
+      }
+    },
+    "外部ビューア" : {
+
+    },
+    "外部ビューアを指定する" : {
+
+    },
+    "外部画像を表紙に設定" : {
+
+    },
+    "完全一致（同一ファイル）" : {
+
+    },
+    "左 → 右" : {
+
+    },
+    "巻数" : {
+
+    },
+    "幅" : {
+
+    },
+    "指定ライブラリを毎回開く" : {
+
+    },
+    "接続先: %@ — %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "接続先: %1$@ — %2$@"
+          }
+        }
+      }
+    },
+    "接続済みサーバ" : {
+
+    },
+    "操作リファレンス" : {
+
+    },
+    "新しい %@ を追加" : {
+
+    },
+    "新しく作成するか、既存のライブラリを開きます。" : {
+
+    },
+    "新規シェルフ" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New Shelf"
+          }
+        }
+      }
+    },
+    "新規追加" : {
+
+    },
+    "既存のシリーズ・巻数が空欄の本のみ、タイトル／ファイル名から自動推測して補完します。" : {
+
+    },
+    "既定に従う" : {
+
+    },
+    "既定に従う（現在: %@）" : {
+
+    },
+    "既読" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read"
+          }
         }
       }
     },
@@ -590,15 +1233,50 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Mark as read" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark as read"
+          }
         }
       }
     },
-    "未読にする" : {
+    "既読のみ" : {
+
+    },
+    "既読状態" : {
+
+    },
+    "日" : {
+
+    },
+    "日以内に追加した書籍を表示" : {
+
+    },
+    "書籍が選択されていません" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Mark as unread" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No Book Selected"
+          }
+        }
+      }
+    },
+    "有効にすると、ウィンドウを閉じる際に変更があればバックアップを保存し、世代数を超えた古いものを削除します。" : {
+
+    },
+    "有効にすると、サーバ側でホスト側の設定に従いバックアップ・世代管理を行います。" : {
+
+    },
+    "未読" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unread"
+          }
         }
       }
     },
@@ -606,25 +1284,330 @@
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Mixed read state (click to mark all unread)" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mixed read state (click to mark all unread)"
+          }
         }
       }
     },
-    "既読" : {
+    "未読インジケータ" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Read" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unread indicator"
+          }
         }
       }
     },
-    "一部未読" : {
+    "未読チェック" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
-          "stringUnit" : { "state" : "translated", "value" : "Some unread" }
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark as Unread"
+          }
         }
       }
+    },
+    "未読にする" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mark as unread"
+          }
+        }
+      }
+    },
+    "未読のみ" : {
+
+    },
+    "本（アーカイブ/PDF/画像/フォルダ）を移動せずその場所を参照して追加します（追加のみ）。サブフォルダの扱いは各フォルダごとに「取り込まない/1冊として取り込む/中も個別に取り込む」から選べます。NAS など共有ボリュームでは最大 60 秒で反映されます。" : {
+
+    },
+    "本の一部" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Part of Book"
+          }
+        }
+      }
+    },
+    "本の種類を自動分類" : {
+
+    },
+    "本を開くときの方法を選びます。" : {
+
+    },
+    "本体ファイルが見つからない本を検出します。ライブラリが大きい・ネットワーク上にある場合は時間がかかることがあります。" : {
+
+    },
+    "検査中… %@/%@%@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "検査中… %1$@/%2$@%3$@"
+          }
+        }
+      }
+    },
+    "検索" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Search"
+          }
+        }
+      }
+    },
+    "次の巻へ（同じシリーズ）" : {
+
+    },
+    "次の条件を" : {
+
+    },
+    "消去" : {
+
+    },
+    "満たす" : {
+
+    },
+    "無制限" : {
+
+    },
+    "無効" : {
+
+    },
+    "無視中の重複 %@ 件は検出結果に表示されません。" : {
+
+    },
+    "無限スクロール" : {
+
+    },
+    "現在 %@ 段階" : {
+
+    },
+    "現在 %lld 段階" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Currently %lld stars"
+          }
+        }
+      }
+    },
+    "現在ロック中です。解除するにはトグルを OFF にしてください。" : {
+
+    },
+    "画像エントリが見つかりませんでした" : {
+
+    },
+    "画像セット" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Image Set"
+          }
+        }
+      }
+    },
+    "画像の開き方" : {
+
+    },
+    "画像ライブラリ管理" : {
+
+    },
+    "画像ライブラリ管理アプリです。\n最初に、本の開き方と最初のライブラリを設定します。" : {
+
+    },
+    "登録した日" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Added"
+          }
+        }
+      }
+    },
+    "登録日" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Added"
+          }
+        }
+      }
+    },
+    "監視フォルダが未設定です。「フォルダを追加…」で指定してください。" : {
+
+    },
+    "監視フォルダが未設定です。下の入力で追加してください。" : {
+
+    },
+    "監視フォルダに入った本を自動でライブラリに追加します（ホスト側で実行）。" : {
+
+    },
+    "監視フォルダ直下に入った本を自動でライブラリに追加します。" : {
+
+    },
+    "破損している本はありません。" : {
+
+    },
+    "確認パスワードが一致しません" : {
+
+    },
+    "確認中… %@ / %@" : {
+      "localizations" : {
+        "ja" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "確認中… %1$@ / %2$@"
+          }
+        }
+      }
+    },
+    "種類" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type"
+          }
+        }
+      }
+    },
+    "種類: %@" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type: %@"
+          }
+        }
+      }
+    },
+    "種類（bookType）" : {
+
+    },
+    "空欄にすると既定のラベルに戻ります。" : {
+
+    },
+    "管理者" : {
+
+    },
+    "編集" : {
+
+    },
+    "自動追加の有効/無効に関わらず、監視フォルダを即座にスキャンします。" : {
+
+    },
+    "薄い本" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thin Book"
+          }
+        }
+      }
+    },
+    "表示する範囲を指定します（幅・高さで切り抜き量を調整。元のアーカイブは変更されません）" : {
+
+    },
+    "表紙にする場面を選んでください" : {
+
+    },
+    "表紙を再生成中…" : {
+
+    },
+    "表紙を編集" : {
+
+    },
+    "複数値" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Multiple values"
+          }
+        }
+      }
+    },
+    "読み込み中…" : {
+
+    },
+    "読んだ日" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Date Read"
+          }
+        }
+      }
+    },
+    "過去" : {
+
+    },
+    "選んだライブラリだけ" : {
+
+    },
+    "選んだ項目と macOS の Finder タグを双方向に同期します（庫を開いたときと、この「今すぐ再照合」のときだけ）。どちらかで消したタグはもう一方からも消えます。タグの色はそのまま保たれますが、名前に「, 」を含むタグは（区切り文字と衝突するため）同期対象から外れます。" : {
+
+    },
+    "選択した本をライブラリから削除します。「ファイルもゴミ箱へ」にチェックした分は外部ファイルもゴミ箱へ移動します（Finder から復元可）。" : {
+
+    },
+    "重複の検出結果" : {
+
+    },
+    "重複は見つかりませんでした。" : {
+
+    },
+    "重複を検出" : {
+
+    },
+    "関連" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Related"
+          }
+        }
+      }
+    },
+    "閲覧" : {
+
+    },
+    "高さ" : {
+
     }
-  }
+  },
+  "version" : "1.0"
 }
