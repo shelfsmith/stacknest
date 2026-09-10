@@ -287,6 +287,20 @@ struct OfflineLibraryView: View {
                         store.updateEPUBLocator(serverID: sid, libraryUUID: lib, bookID: id,
                                                 locator: EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine))
                     }
+                    // G51: 巻送り（画像ビューアと同じ `resolveOfflineVolume` の `book` だけ使う）。
+                    // この関数では画像ビューア注入（openOfflinePages）の `serverID`/`libraryUUID` に
+                    // 相当する変数が `sid`/`lib` という名前で既に定義されているのでそれを使う。
+                    controller.resolveSibling = { [store] cur, dir in
+                        Self.resolveOfflineVolume(store: store, serverID: sid, libraryUUID: lib,
+                                                  current: cur, direction: dir == .next ? .next : .prev)?.book
+                    }
+                    controller.openSibling = { [store] row in
+                        // `row.id` はこの関数で `DownloadedBook.bookID`（= detail.id）から作っている
+                        // （`offlineBookRow` 参照）ので同じフィールドで引き当てる。
+                        if let downloaded = store.all().first(where: { $0.bookID == row.id }) {
+                            openOffline(downloaded, resumeDirect: true)
+                        }
+                    }
                     epubReader.fontScale = ViewerSettings.shared.epubFontScale
                     epubReader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
                     controller.onClose = { [weak controller] in
@@ -294,7 +308,7 @@ struct OfflineLibraryView: View {
                         ViewerWindowRegistry.shared.unregister(controller: controller)
                     }
                     ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
-                    controller.showWindow(nil)
+                    controller.present()
                 } catch {
                     self.errorText = "本を開けませんでした"
                     ViewerWindowRegistry.shared.cancelOpen(identity)

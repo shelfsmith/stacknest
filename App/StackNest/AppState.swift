@@ -1112,6 +1112,16 @@ final class AppState {
                     guard let self, let data = try? JSONEncoder().encode(loc) else { return }
                     try? self.database?.updateEPUBLocator(bookID: book.id, json: String(decoding: data, as: UTF8.self))
                 }
+                // G51: 巻送り。DB の series/volume で兄弟を引き、閉じてから通常の open 経路で開く
+                // （兄弟が画像本なら画像ビューア、EPUB なら Washi が選ばれる）。
+                controller.resolveSibling = { [weak self] cur, dir in
+                    guard let db = self?.database else { return nil }
+                    switch dir {
+                    case .next: return try? db.nextVolumeInSeries(after: cur)
+                    case .prev: return try? db.prevVolumeInSeries(before: cur)
+                    }
+                }
+                controller.openSibling = { [weak self] row in self?.openBooks([row], resumeDirect: true) }
                 // G48-2 smoke fix: 保存済みのフォント倍率を復元し、以降の変更（⌘+/⌘-/⌘0）を永続化する。
                 // 復元の代入を先にし、変更ハンドラの設置を後にすることで、復元自体が
                 // onFontScaleChange 経由の無駄な再保存を起こさない。
@@ -1124,7 +1134,7 @@ final class AppState {
                     ViewerWindowRegistry.shared.unregister(controller: controller)
                 }
                 ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
-                controller.showWindow(nil)
+                controller.present()
                 self.markAsRead(book: book)   // 画像本と同じ: 開いたら unseen=0・play_date=now
             } catch {
                 // G48-2 最終レビュー B: 以前（画像本の BookContentFactory.make と同じ作法）は

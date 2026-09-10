@@ -36,6 +36,9 @@ struct BuiltInViewerSettingsForm: View {
             Toggle("全画面で開く", isOn: $settings.openFullScreenByDefault)
                 .disabled(!settings.useBuiltInViewer)
 
+            // G51（Q3=C-2）: EPUB の窓は別設定（行長が伸びると読みにくいので使い分けたい）。
+            Toggle("全画面で開く（EPUB）", isOn: $settings.openEPUBFullScreenByDefault)
+
             // G15 V1: 複数ビューア窓の許可（OFF=単一ビューア維持／ON=別の本は別窓）。
             Toggle("複数ビューアの起動を許可", isOn: $settings.allowMultipleViewerWindows)
                 .disabled(!settings.useBuiltInViewer)

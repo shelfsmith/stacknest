@@ -2119,6 +2119,13 @@ final class RemoteLibraryState {
                     }
                 }
             }
+            // G51: 巻送り（画像ビューアと同じ解決 `resolveRemoteVolume` の `book` だけ使う）。
+            controller.resolveSibling = { [weak self] cur, dir in
+                await self?.resolveRemoteVolume(after: cur.id, direction: dir == .next ? "next" : "prev")?.book
+            }
+            controller.openSibling = { [weak self] row in
+                Task { await self?.openBookByID(row.id, resumeDirect: true) }
+            }
             reader.fontScale = ViewerSettings.shared.epubFontScale
             reader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
             controller.onClose = { [weak controller] in
@@ -2126,7 +2133,7 @@ final class RemoteLibraryState {
                 ViewerWindowRegistry.shared.unregister(controller: controller)
             }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
-            controller.showWindow(nil)
+            controller.present()
         } catch {
             Self.epubLog.warning("openRemoteEPUBReader: makeReaderView failed bookID=\(book.id, privacy: .public)")
             errorText = "本を開けませんでした"
