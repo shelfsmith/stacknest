@@ -94,6 +94,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     @MainActor
     deinit {
         if let o = bindingsObserver { NotificationCenter.default.removeObserver(o) }
+        autoAdvanceTimer?.invalidate()
+        helpOverlayTimer?.invalidate()
+        hudNoteTimer?.invalidate()
     }
 
     /// G51: 表示。`openEPUBFullScreenByDefault` なら、窓が on-screen になった直後（1 runloop 後）に全画面へ
@@ -119,9 +122,15 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     }
 
     /// 戻り値 true = 消費。共有表で解決し、EPUB が扱わないアクションは**消費しない**（上へ流す）。
+    /// レビュー指摘 C1: ⌘/⌃/⌥ 付きのキーは `charactersIgnoringModifiers` で解決してはいけない
+    /// （修飾を無視するため ⌘1 が「1」に化けてレーティングを破壊する等）。画像ビューアは
+    /// keyDown より前にメニューがこれらを消費するので気にしなくてよいが、EPUB の窓は Washi の
+    /// local monitor 経由で直接受け取るため、この窓自身で除外する。
     func handleKey(_ event: NSEvent) -> Bool {
+        let mods = UInt(event.modifierFlags.rawValue) & KeyChord.relevantMask
+        let hasCmdCtrlOpt = (mods & (KeyChord.command | KeyChord.control | KeyChord.option)) != 0
         let resolved = bindings.action(for: chord(from: event))
-            ?? event.charactersIgnoringModifiers.flatMap { bindings.action(forCharacter: $0) }
+            ?? (hasCmdCtrlOpt ? nil : event.charactersIgnoringModifiers.flatMap { bindings.action(forCharacter: $0) })
         guard let action = resolved, ViewerAction.epubSupported.contains(action) else { return false }
         perform(action)
         return true
@@ -139,7 +148,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         case .firstPage:       reader.goToBookStart()
         case .lastPage:        reader.goToBookEnd()
         case .zoomIn:          reader.adjustFontScale(by: Self.fontScaleStep)
-        case .zoomOut:          reader.adjustFontScale(by: -Self.fontScaleStep)
+        case .zoomOut:         reader.adjustFontScale(by: -Self.fontScaleStep)
         case .fitToWindow:     reader.resetFontScale()
         case .toggleSpread:
             let next: EPUBColumnModeValue = (reader.columnMode == .double) ? .single : .double
@@ -196,13 +205,13 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         hudNote("スライドショー ▶ \(Int(interval))秒")
     }
 
-    /// 本の端に達した。自動送り中の末尾では `endOfBookBehavior` に従う（画像ビューアの autoAdvanceTick と同じ意味）。
+    /// 本の端に達した（手動・自動どちらでも）。末尾では「最後のページの次」の設定に従う（画像ビューアと同じ）。
     private func reachedBookEdge(forward: Bool) {
-        guard forward, autoAdvanceTimer != nil else { return }
+        guard forward else { return }
         switch ViewerSettings.shared.endOfBookBehavior {
         case .stop:
             stopAutoAdvance()
-            hudNote("最後のページ")
+            hudNote("最終ページです")
         case .loop:
             reader.goToBookStart()
         case .nextBook:
@@ -226,8 +235,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
                 self.hudNote(direction == .next ? "次の巻なし" : "前の巻なし")
                 return
             }
-            self.flushPersist()
             // 先に閉じる（registry から外れる）→ 兄弟を各 State の通常経路で開く（EPUB でも画像本でも正しいビューアが選ばれる）。
+            // 明示 flushPersist は不要: windowWillClose が close() の中で必ず flush する（二重呼びは
+            // リモートで progress を 2 回 POST してしまうので避ける）。
             self.window?.close()
             openSibling(sibling)
         }

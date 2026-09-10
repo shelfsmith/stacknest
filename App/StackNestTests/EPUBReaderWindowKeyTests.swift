@@ -83,6 +83,18 @@ struct EPUBReaderWindowKeyTests {
         #expect(r.calls.isEmpty)
     }
 
+    /// C1: ⌘/⌃/⌥ 付きのキーは `charactersIgnoringModifiers` のフォールバックへ流してはいけない
+    /// （⌘1 が「1」に化けてレーティングの代わりに %ジャンプになる、⌘D がメニューではなく
+    /// toggleSpread になる、等）。⌘W のようなチョード登録済みのものは従来どおり効く。
+    @Test func commandModifiedKeysAreLeftToMenus() {
+        let (c, r) = make()
+        #expect(c.handleKey(key(18, chars: "1", command: true)) == false)   // ⌘1 = rating, not a percent jump
+        #expect(c.handleKey(key(2, chars: "d", command: true)) == false)    // ⌘D = menu, not toggleSpread
+        #expect(c.handleKey(key(13, command: true)) == true)                // ⌘W stays (chord-mapped close)
+        #expect(r.calls.isEmpty)
+        #expect(r.columnMode == .auto)
+    }
+
     @Test func rebindingIsHonored() {
         let (c, r) = make()
         var b = ViewerKeyBindings.defaults

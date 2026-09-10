@@ -44,6 +44,7 @@ public protocol EPUBReaderViewing: AnyObject {
     /// 全体ページ数（本全体・現在のメトリクスでの実測）。計測が終わるまで nil。
     var globalPageCount: Int? { get }
     /// いま表示している最初のページの全体ページ番号（0 始まり）。計測が終わるまで nil。
+    /// （G51 時点では窓側に利用者なし。進捗表示の第二弾で使う）
     var currentGlobalPage: Int? { get }
     /// 全体ページ番号（0 始まり）へ。計測が終わっていなければ何もしない。
     func go(toGlobalPage page: Int)

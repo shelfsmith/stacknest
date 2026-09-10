@@ -69,8 +69,19 @@ struct EPUBReaderWindowVolumeTests {
         #expect(r.calls.last == "goToBookStart")
         ViewerSettings.shared.endOfBookBehavior = .stop
         r.onReachBookEdge?(true)
-        #expect(c.lastHUDNote == "最後のページ")
+        #expect(c.lastHUDNote == "最終ページです")
         r.onReachBookEdge?(false)                    // 先頭側は何もしない
-        #expect(c.lastHUDNote == "最後のページ")
+        #expect(c.lastHUDNote == "最終ページです")
+    }
+
+    /// I3: 自動送りが動いていない（＝手動でページ送りして末尾に達した）ときも `endOfBookBehavior` に従う
+    /// （画像ビューアと同じパリティ。以前は自動送り中でなければ無視していた）。
+    @Test func manualTurnAtBookEndFollowsSettingWithoutAutoAdvance() {
+        let (c, r) = make()
+        let ud = ViewerSettings.shared.endOfBookBehavior
+        defer { ViewerSettings.shared.endOfBookBehavior = ud }
+        ViewerSettings.shared.endOfBookBehavior = .loop
+        r.onReachBookEdge?(true)                      // 自動送りは起動していない
+        #expect(r.calls.last == "goToBookStart")
     }
 }
