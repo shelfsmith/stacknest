@@ -77,7 +77,7 @@ public struct OfflineStore: @unchecked Sendable {
     static let maxFileExtensionLength = 10
 
     /// 英数字のみ・妥当な長さの拡張子か（`.`/`..`/パス区切りを含まない）。
-    static func isValidFileExtension(_ ext: String) -> Bool {
+    public static func isValidFileExtension(_ ext: String) -> Bool {
         guard !ext.isEmpty, ext.count <= maxFileExtensionLength else { return false }
         return ext.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) }
     }

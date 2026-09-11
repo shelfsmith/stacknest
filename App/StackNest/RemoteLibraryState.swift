@@ -496,7 +496,7 @@ final class RemoteLibraryState {
             // save が成功すれば move 済みで残らないが、途中で失敗した場合の後始末も担保する。
             defer { try? FileManager.default.removeItem(at: fileURL) }
             let coverData = try? await client.coverData(libraryUUID: libraryUUID, bookID: item.id, maxw: 600, libraryToken: libraryToken)
-            let ext = offlineFileExtension(forFileAt: fileURL)
+            let ext = offlineFileExtension(for: detail, fileAt: fileURL)
             try offlineStore.save(detail, serverID: serverID, libraryUUID: libraryUUID, libraryName: libraryName,
                                   fileExtension: ext, fileURL: fileURL, coverData: coverData)
             downloadedVersion &+= 1   // UI バッジ再評価のトリガ

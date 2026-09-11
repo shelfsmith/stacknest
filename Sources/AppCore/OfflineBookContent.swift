@@ -13,6 +13,15 @@ public func offlineFileExtension(forFileAt url: URL) -> String {
     return offlineFileExtension(for: head)
 }
 
+/// G51 smoke 9.3: 保存名の拡張子。サーバが元ファイルの拡張子を返していれば（4.2c-6b で追加された
+/// `BookDetailDTO.fileExtension`）それを使い、無い／不正なときだけ magic で推定する。
+/// EPUB・CBZ は ZIP、RAR・7z は未知の magic なので、いずれも推定では `"zip"` に落ちる。
+/// オフラインの EPUB が `<id>.zip` で保存され、開く側の拡張子判定に当たらなかったのがこの不具合。
+public func offlineFileExtension(for detail: BookDetailDTO, fileAt url: URL) -> String {
+    if let ext = detail.fileExtension?.lowercased(), OfflineStore.isValidFileExtension(ext) { return ext }
+    return offlineFileExtension(forFileAt: url)
+}
+
 /// DL したファイルバイトから拡張子を magic で判定（detail.path はサーバが nil 化しているため）。
 public func offlineFileExtension(for data: Data) -> String {
     let p = data.prefix(4)
