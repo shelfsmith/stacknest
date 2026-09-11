@@ -7,6 +7,42 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.14.4] - 2026-09-12 — EPUB reading uses the built-in viewer's keys (Phase G51)
+
+> The EPUB window's keyboard handling was a separate world from the built-in viewer. This release brings the two
+> together, and fixes `Home` / `End`, which only ever reached the ends of the current chapter.
+
+### Added
+
+- **★ EPUB now uses the same key bindings as the built-in viewer** (G51). The table under
+  Settings ▸ Viewer ▸ Key bindings drives the EPUB window too, so **rebinding a key changes it for EPUB as well**.
+  The help overlay (`?` / `h`) appears in the window, with the actions EPUB cannot perform hidden.
+  - **`Home` / `End` now go to the first / last page of the book** (previously the current chapter's ends).
+  - **Number keys jump by percentage through the whole book** (`0`–`9`).
+  - **`d` toggles spread / single page**, **`+` / `-` / `=` change the text size** (`=` returns to 100%).
+  - **`f` toggles full screen**, with a new **"Open EPUB full screen"** setting, independent of the image viewer's
+    (off by default).
+  - **`s` starts and stops auto-advance** (honouring the interval and the end-of-book setting), **`[` / `]` move
+    between volumes**.
+- Updated [Washi](https://github.com/shunnag/Washi) from 1.16.1 to **1.17.0**: vertical text now renders
+  **tate-chu-yoko** (horizontal digits inside vertical lines), and chapter turns are faster.
+
+### Fixed
+
+- **Offline copies were saved under the wrong extension.** The extension was guessed from the file's first bytes,
+  so EPUB, CBZ, RAR, 7z and video all landed as `.zip`. The server's original extension is now used, and
+  **files already downloaded are renamed at launch** — no re-download needed.
+  - As a result, **a downloaded EPUB would not open as an EPUB offline**. Fixed.
+- Menu shortcuts such as `⌘1`–`⌘5` (rating) were swallowed by the EPUB window and triggered other actions.
+- Turning past the last page of an EPUB ignored the end-of-book setting; it now matches the built-in viewer.
+
+### Known limitations
+
+- The page number under the EPUB window counts **within the chapter**, not the whole book. A whole-book progress
+  indicator is coming in the next release.
+- A percentage jump made before the whole-book page count finishes measuring lands at a chapter-level approximation,
+  which differs from where it lands afterwards.
+
 ## [0.14.3] - 2026-09-08 — Video thumbnails (automatic frame plus manual scene picking, Phase G50)
 
 > Built from a request on a 5ch thread for video thumbnails. A frame is picked automatically at import,
