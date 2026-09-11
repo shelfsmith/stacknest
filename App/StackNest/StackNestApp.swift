@@ -1235,6 +1235,19 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
             await RemotePageCache.shared.setMaxAge(RemoteCacheSettings.maxAgeSeconds())
             await RemotePageCache.shared.reconcile()
         }
+        // G51 offline-extension-migration: DL 済みファイルの拡張子を本来のものへ揃える
+        // （OfflineStore.migrateFileExtensions のコメント参照）。ファイル I/O のためメインスレッドを
+        // 避ける。App ユニットテストのテストホストでは実ライブラリを汚さないよう
+        // isRunningUnitTests でガードする（4.2d-2 のローカル制御エンドポイントと同じ扱い）。
+        if !AppEnvironment.isRunningUnitTests {
+            let logger = Self.logger
+            Task.detached(priority: .utility) {
+                let renamed = OfflineStore().migrateFileExtensions()
+                if renamed > 0 {
+                    logger.info("offline file extension migration: renamed \(renamed) file(s)")
+                }
+            }
+        }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

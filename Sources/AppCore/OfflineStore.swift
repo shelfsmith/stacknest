@@ -216,6 +216,59 @@ public struct OfflineStore: @unchecked Sendable {
         }
     }
 
+    /// G51 offline-extension-migration: smoke 9.3 の後続・ユーザー指示「拡張子はオリジナル通り」。
+    /// 1f47d5e8 で保存側（`save`）は直った（`offlineFileExtension(for:fileAt:)` がサーバの元拡張子を
+    /// 優先する）が、**それ以前に DL 済みのファイル**は magic 推定（PK 先頭＝EPUB/CBZ/RAR/7z 問わず
+    /// すべて `"zip"`）のまま残っている。オフライン本を外部ビューアへ渡す（動画等）用途では、
+    /// アプリ内の表示ロジックだけでなく**ファイル実体の拡張子**が正しくなければならないため、
+    /// 起動のたびに全エントリを走査して本来の拡張子へリネームする。冪等（差分が無ければ何もしない）
+    /// なので毎起動呼んでよい。cover ファイル（`<bookID>.cover`）は index の対象外なので触れない。
+    ///
+    /// 期待する拡張子は `detail.fileExtension` を小文字化したもの（妥当なら）、それ以外は
+    /// ファイル先頭バイトからの magic 推定（`offlineFileExtension(forFileAt:)`）。
+    /// 次の場合はそのエントリをスキップする（1 件の失敗・不一致が他のリネームを止めない）:
+    /// ファイルが存在しない／拡張子が既に一致している／期待する拡張子が空・不正／
+    /// リネーム先の名前が既に別ファイルとして存在する（上書きしない）。
+    /// ディレクトリと `<bookID>` のステムは変えず、最後の拡張子だけを差し替える。
+    /// index.json への書き込みは変更があった場合のみ最後に一回だけ行う。
+    /// 戻り値は実際にリネームした件数（呼び出し側のログ用）。
+    @discardableResult
+    public func migrateFileExtensions() -> Int {
+        var list = all()
+        guard !list.isEmpty else { return 0 }
+        var renamed = 0
+        var changed = false
+        for i in list.indices {
+            let book = list[i]
+            let oldURL = fileURL(for: book)
+            guard fm.fileExists(atPath: oldURL.path) else { continue }
+            let currentExt = (book.relativeFilePath as NSString).pathExtension.lowercased()
+            let expectedExt: String
+            if let ext = book.detail.fileExtension?.lowercased(), Self.isValidFileExtension(ext) {
+                expectedExt = ext
+            } else {
+                expectedExt = offlineFileExtension(forFileAt: oldURL)
+            }
+            guard Self.isValidFileExtension(expectedExt), expectedExt != currentExt else { continue }
+            let relStem = (book.relativeFilePath as NSString).deletingPathExtension
+            let newRel = "\(relStem).\(expectedExt)"
+            let newURL = baseDirectory.appendingPathComponent(newRel)
+            guard !fm.fileExists(atPath: newURL.path) else { continue }
+            do {
+                try fm.moveItem(at: oldURL, to: newURL)
+            } catch {
+                continue
+            }
+            list[i].relativeFilePath = newRel
+            renamed += 1
+            changed = true
+        }
+        if changed {
+            try? persist(list)
+        }
+        return renamed
+    }
+
     public func totalSizeBytes() -> Int64 {
         all().reduce(0) { acc, b in
             let sz = (try? fileURL(for: b).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0

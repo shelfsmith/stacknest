@@ -272,11 +272,9 @@ struct OfflineLibraryView: View {
         let row = offlineBookRow(book, fileURL: fileURL)
 
         // G48-3: ダウンロード済みのテキスト EPUB はローカルと同じ Washi の窓。画像本は従来の画像経路（G48-2b）。
-        // G51 smoke 9.3: 保存名は magic 推定で `.zip` になっていた時期があるので拡張子では判定しない。
-        // サーバが返した元の拡張子（`detail.fileExtension`・index.json に保存済み）を優先する。
-        let bookExt = (book.detail.fileExtension?.lowercased()).flatMap { $0.isEmpty ? nil : $0 }
-            ?? fileURL.pathExtension.lowercased()
-        if bookExt == "epub", let reader = EPUBAdapter.reader, let renderer = EPUBAdapter.renderer {
+        // G51 offline-extension-migration: 起動時の移行（OfflineStore.migrateFileExtensions）で
+        // ファイル実体の拡張子は本来のものへ揃っているため、ファイル名の拡張子を正として判定してよい。
+        if fileURL.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader, let renderer = EPUBAdapter.renderer {
             Task { @MainActor in
                 if (try? await reader.openImageBook(url: fileURL)) != nil {
                     self.openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage, resumeDirect: resumeDirect)
