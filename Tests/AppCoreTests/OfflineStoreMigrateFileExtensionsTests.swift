@@ -111,6 +111,39 @@ struct OfflineStoreMigrateFileExtensionsTests {
         #expect(after.relativeFilePath.hasSuffix(".zip"))
     }
 
+    @Test func rollsBackRenamesWhenPersistFails() throws {
+        let (store, dir) = makeStore()
+        defer {
+            // chmod を戻してからでないと temp ディレクトリの削除に失敗しうる。
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644],
+                ofItemAtPath: dir.appendingPathComponent("index.json").path)
+            cleanup(dir)
+        }
+        try store.save(detail(id: 7, fileExtension: "epub"), serverID: UUID(), libraryUUID: libraryUUID,
+                       libraryName: "Lib", fileExtension: "zip", fileData: zipMagic, coverData: nil)
+        let before = try #require(store.all().first)
+        let beforePath = store.fileURL(for: before).path
+
+        // index.json 自体を読み取り専用にし、正常に読める（all() は成功する）が
+        // 上書き書き込み（persist の最終永続化）だけが権限エラーで失敗する状況を honest に再現する。
+        try FileManager.default.setAttributes([.posixPermissions: 0o444],
+            ofItemAtPath: dir.appendingPathComponent("index.json").path)
+
+        let renamed = store.migrateFileExtensions()
+        #expect(renamed == 0)
+
+        // ファイルは元の名前（.zip）に戻っているべきで、リネーム先（.epub）は存在しない。
+        #expect(FileManager.default.fileExists(atPath: beforePath))
+        let epubPath = (beforePath as NSString).deletingPathExtension + ".epub"
+        #expect(!FileManager.default.fileExists(atPath: epubPath))
+
+        // 権限を戻してから index.json を読み直し、旧パスのままであることも確認する。
+        try FileManager.default.setAttributes([.posixPermissions: 0o644],
+            ofItemAtPath: dir.appendingPathComponent("index.json").path)
+        let after = try #require(store.all().first)
+        #expect(after.relativeFilePath == before.relativeFilePath)
+    }
+
     @Test func secondRunIsNoOp() throws {
         let (store, dir) = makeStore()
         defer { cleanup(dir) }

@@ -232,12 +232,19 @@ public struct OfflineStore: @unchecked Sendable {
     /// ディレクトリと `<bookID>` のステムは変えず、最後の拡張子だけを差し替える。
     /// index.json への書き込みは変更があった場合のみ最後に一回だけ行う。
     /// 戻り値は実際にリネームした件数（呼び出し側のログ用）。
+    ///
+    /// この `persist` が失敗した場合（ディスク満杯・権限エラー等）は、それまでにリネーム済みの
+    /// ファイルを全て元の名前へ戻してから 0 を返す。index.json は旧パスのままなのに実体だけ
+    /// 新拡張子へ変わっていると、次回起動時の `fm.fileExists(atPath: oldURL.path)` が常に外れて
+    /// そのエントリが永久に見つからなくなる（実体は残っているのにアプリからは迷子）ため、
+    /// index と実体の食い違いを残さないよう巻き戻す。個々の巻き戻しが失敗しても他の巻き戻しは続ける。
     @discardableResult
     public func migrateFileExtensions() -> Int {
         var list = all()
         guard !list.isEmpty else { return 0 }
         var renamed = 0
         var changed = false
+        var performedMoves: [(from: URL, to: URL)] = []
         for i in list.indices {
             let book = list[i]
             let oldURL = fileURL(for: book)
@@ -260,11 +267,22 @@ public struct OfflineStore: @unchecked Sendable {
                 continue
             }
             list[i].relativeFilePath = newRel
+            performedMoves.append((from: oldURL, to: newURL))
             renamed += 1
             changed = true
         }
         if changed {
-            try? persist(list)
+            do {
+                try persist(list)
+            } catch {
+                // index.json に反映できなかった。実体だけ新拡張子のままだと index との食い違いが
+                // 残ってしまうため、リネーム済みの分を元の名前へ戻して整合を保つ。
+                // 個々の巻き戻しが失敗してもどうしようもないので無視し、残りの巻き戻しは続ける。
+                for move in performedMoves {
+                    try? fm.moveItem(at: move.to, to: move.from)
+                }
+                return 0
+            }
         }
         return renamed
     }
