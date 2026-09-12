@@ -29,6 +29,7 @@ struct SettingsView: View {
     /// mount するため、最初のタブの高さに固定すると他タブで clip / 余白が生じる)。
     /// DEFAULT-OPEN = 一般 tab (tag=0)。
     @State private var settingsTab = 0
+    @State private var keyOpenSections = 0
 
     /// LocalControlController を @State で保持して observation に載せる（ローカルアクセスタブ用）。
     @State private var localControl = LocalControlController.shared
@@ -280,7 +281,7 @@ struct SettingsView: View {
 
             // MARK: - Tab 4: ビューアキー（内蔵ビューアのキー設定。リモート/オフラインでも内蔵
             // ビューアが必ず使われるため、外部ビューア選択時もグレーアウトせず常時有効。）
-            KeyBindingsSettingsView(enabled: true)
+            KeyBindingsSettingsView(enabled: true, openSectionCount: $keyOpenSections)
                 .tabItem {
                     Label("ビューアキー", systemImage: "keyboard")
                 }

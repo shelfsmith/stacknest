@@ -6,9 +6,17 @@ struct KeyBindingsSettingsView: View {
     /// キー設定は内蔵ビューア専用。外部ビューア選択時は false でグレーアウトする。
     var enabled: Bool = true
 
+    /// G54-S1: 開いている節の数を親へ返す。親はこれを SettingsWindowFixedSize の
+    /// contentRevision に流し、開閉のたびに窓の高さを測り直させる（開閉は tab を変えないため、
+    /// これが無いと updateNSView が発火せず高さが追従しない）。
+    @Binding var openSectionCount: Int
+
     @State private var bindings = ViewerKeyBindings.load()
     @State private var capturingAction: ViewerAction?
     @State private var conflictMessage: [ViewerAction: String] = [:]
+
+    /// 既定はすべて閉じる。開閉は永続しない（毎回閉じた状態で開く）。
+    @State private var expanded: Set<ViewerActionSection> = []
 
     var body: some View {
         ScrollView {
@@ -26,10 +34,30 @@ struct KeyBindingsSettingsView: View {
                 }
                 Group {
                     ForEach(ViewerActionSection.allCases, id: \.self) { section in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(section.title).font(.headline)
-                            ForEach(section.actions, id: \.self) { action in
-                                row(for: action)
+                        DisclosureGroup(isExpanded: Binding(
+                            get: { expanded.contains(section) },
+                            set: { isOpen in
+                                if isOpen { expanded.insert(section) } else { expanded.remove(section) }
+                                openSectionCount = expanded.count
+                            }
+                        )) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(section.actions, id: \.self) { action in
+                                    row(for: action)
+                                }
+                            }
+                            .padding(.top, 4)
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(section.title).font(.headline)
+                                let changed = bindings.changedCount(in: section)
+                                if changed > 0 {
+                                    Text("\(changed) 件変更")
+                                        .font(.caption)
+                                        .padding(.horizontal, 6).padding(.vertical, 1)
+                                        .background(Color(nsColor: .quaternarySystemFill), in: Capsule())
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
