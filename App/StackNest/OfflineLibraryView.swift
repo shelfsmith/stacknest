@@ -267,7 +267,14 @@ struct OfflineLibraryView: View {
         let handoff = link.linkURL(for: book, fileURL: fileURL)
         let row = offlineBookRow(book, fileURL: handoff)
         if let error = HelperLauncher.open(book: row, settings: ViewerSettings.shared) {
-            errorText = error.localizedDescription
+            // G54-S2 統合前レビュー Minor #2: HelperLauncher が返す path は題名リンク（`_external/...`）の
+            // 内部パスなので、利用者に見せる文言では実体の path（`fileURL`）に差し替える。
+            // `reason` はそのまま使う。
+            if case .launchFailed(_, let reason) = error {
+                errorText = AppError.launchFailed(path: fileURL.path, reason: reason).localizedDescription
+            } else {
+                errorText = error.localizedDescription
+            }
         } else {
             errorText = nil
         }
@@ -369,13 +376,21 @@ struct OfflineLibraryView: View {
             do {
                 pageCount = try await content.pageCount
             } catch {
-                self.errorText = "本を開けませんでした"
+                // G54-S2 統合前レビュー Important #1: ローカル（AppState.presentBuiltInViewer）と
+                // 同じく、pageCount が throw したら外部にフォールバックする。詰まっているのは
+                // 内蔵の読み手であって外部ビューアではないため、ここで行き止まりにしない。
+                let bookPath = store.fileURL(for: book).path
+                Self.logger.warning("openOfflinePages: pageCount threw for bookID=\(book.bookID, privacy: .public) path=\(bookPath, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
                 ViewerWindowRegistry.shared.cancelOpen(identity)
+                self.openOfflineExternally(book, fileURL: self.store.fileURL(for: book))
                 return
             }
             guard pageCount > 0 else {
-                self.errorText = "本を開けませんでした（0ページ）"
+                // G54-S2 統合前レビュー Important #1: pageCount==0 も同様に外部へ落とす。
+                let bookPath = store.fileURL(for: book).path
+                Self.logger.warning("openOfflinePages: pageCount==0 for bookID=\(book.bookID, privacy: .public) path=\(bookPath, privacy: .public) → falling back to external viewer")
                 ViewerWindowRegistry.shared.cancelOpen(identity)
+                self.openOfflineExternally(book, fileURL: self.store.fileURL(for: book))
                 return
             }
             // G26: 破損（打ち切り読み）注意文を content と一緒に確定させてビューアへ渡す
