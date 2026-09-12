@@ -14,18 +14,18 @@ struct ViewerSettingsBuiltInTests {
         let (suite, name) = freshSuite()
         defer { suite.removePersistentDomain(forName: name) }
         let s = ViewerSettings(defaults: suite)
-        #expect(s.useBuiltInViewer == true)
+        #expect(s.useBuiltInImageViewer == true)
         #expect(s.pageDirection == .rightToLeft)
         #expect(s.endOfBookBehavior == .stop)
     }
 
-    @Test @MainActor func useBuiltInViewerPersists() {
+    @Test @MainActor func useBuiltInImageViewerPersists() {
         let (suite, name) = freshSuite()
         defer { suite.removePersistentDomain(forName: name) }
         let s = ViewerSettings(defaults: suite)
-        s.useBuiltInViewer = false
+        s.useBuiltInImageViewer = false
         let s2 = ViewerSettings(defaults: suite)
-        #expect(s2.useBuiltInViewer == false)
+        #expect(s2.useBuiltInImageViewer == false)
     }
 
     @Test @MainActor func pageDirectionPersists() {

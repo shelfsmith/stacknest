@@ -31,4 +31,15 @@ public enum ViewerChoice {
             }
         }
     }
+
+    /// 設定を見て、内蔵で開こうとしてよいかを返す。
+    /// `.externalOnly`（動画・txt/md/rtf）はどちらの設定でも `false`。
+    @MainActor
+    public static func shouldTryBuiltIn(forPath path: String, settings: ViewerSettings) -> Bool {
+        switch viewerSwitch(forPath: path) {
+        case .image: return settings.useBuiltInImageViewer
+        case .epub: return settings.useBuiltInEPUBViewer
+        case .externalOnly: return false
+        }
+    }
 }

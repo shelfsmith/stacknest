@@ -40,4 +40,21 @@ struct ViewerChoiceTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         #expect(ViewerChoice.viewerSwitch(forPath: dir.path) == .image)
     }
+
+    @Test("G54-S2: 2 つの設定の組み合わせで内蔵を試すかが決まる")
+    @MainActor
+    func shouldTryBuiltInAcrossCombinations() {
+        let suite = UserDefaults(suiteName: "g54s2-choice-\(UUID().uuidString)")!
+        let s = ViewerSettings(defaults: suite)
+
+        for (image, epub) in [(true, true), (true, false), (false, true), (false, false)] {
+            s.useBuiltInImageViewer = image
+            s.useBuiltInEPUBViewer = epub
+            #expect(ViewerChoice.shouldTryBuiltIn(forPath: "/tmp/a.zip", settings: s) == image)
+            #expect(ViewerChoice.shouldTryBuiltIn(forPath: "/tmp/a.pdf", settings: s) == image)
+            #expect(ViewerChoice.shouldTryBuiltIn(forPath: "/tmp/a.epub", settings: s) == epub)
+            #expect(ViewerChoice.shouldTryBuiltIn(forPath: "/tmp/a.mp4", settings: s) == false)
+            #expect(ViewerChoice.shouldTryBuiltIn(forPath: "/tmp/a.txt", settings: s) == false)
+        }
+    }
 }

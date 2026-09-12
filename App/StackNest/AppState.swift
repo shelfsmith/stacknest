@@ -860,12 +860,12 @@ final class AppState {
     }
 
     /// 統一された「本を開く」入口。grid/list の double-click・Enter・コンテキストメニューから呼ぶ。
-    /// useBuiltInViewer が true かつ先頭 book が内蔵表示可能なら内蔵ビューアを開く。
+    /// useBuiltInImageViewer が true かつ先頭 book が内蔵表示可能なら内蔵ビューアを開く。
     /// それ以外（外部設定 / 動画 / 非対応 / 失敗）は従来の外部ビューア起動にフォールバック。
     /// 複数選択時、内蔵ビューアは先頭 1 冊のみ開く（外部は各冊起動）。
     func openBooks(_ books: [BookRow], resumeDirect: Bool = false) {
         guard !books.isEmpty else { return }
-        if viewerSettings.useBuiltInViewer, let first = books.first {
+        if viewerSettings.useBuiltInImageViewer, let first = books.first {
             openInBuiltInViewer(first, resumeDirect: resumeDirect)
             return
         }

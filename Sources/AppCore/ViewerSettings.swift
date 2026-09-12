@@ -24,6 +24,7 @@ public final class ViewerSettings {
     private let autoClassifyKey = "autoClassifyEnabled"
     private let thickThresholdKey = "thickBookThreshold"
     private let useBuiltInViewerKey = "useBuiltInViewer"
+    private let useBuiltInEPUBViewerKey = "useBuiltInEPUBViewer"
     private let pageDirectionKey = "viewerPageDirection"
     private let endOfBookBehaviorKey = "viewerEndOfBookBehavior"
     private let autoAdvanceIntervalKey = "viewerAutoAdvanceInterval"
@@ -60,8 +61,16 @@ public final class ViewerSettings {
     }
 
     /// Phase 2.6b: 内蔵ビューアを使うか (default true)。false なら外部ビューア。
-    public var useBuiltInViewer: Bool {
-        didSet { defaults.set(useBuiltInViewer, forKey: useBuiltInViewerKey) }
+    /// G54-S2: **画像側**（アーカイブ・画像・フォルダ・PDF）だけを決める。
+    /// UserDefaults のキーは `useBuiltInViewer` のまま据え置く（変えると既存の設定が消える）。
+    public var useBuiltInImageViewer: Bool {
+        didSet { defaults.set(useBuiltInImageViewer, forKey: useBuiltInViewerKey) }
+    }
+
+    /// G54-S2: EPUB を内蔵で開くか。キー不在のときは画像側の値を写して既定にする
+    /// （外部を選んでいた人が、更新した途端に EPUB だけ内蔵へ戻る事故を防ぐ）。
+    public var useBuiltInEPUBViewer: Bool {
+        didSet { defaults.set(useBuiltInEPUBViewer, forKey: useBuiltInEPUBViewerKey) }
     }
 
     /// Phase 2.6b: ページ送り方向 (default .rightToLeft)。
@@ -206,10 +215,23 @@ public final class ViewerSettings {
         let storedThreshold = defaults.integer(forKey: thickThresholdKey)
         self.thickBookThreshold = storedThreshold >= 5 && storedThreshold <= 100 ? storedThreshold : 20
         // Phase 2.6b: useBuiltInViewer は first-run (key 不在) で true。
+        // G54-S2: Swift の 2 段階初期化では、他の格納プロパティが全て初期化されるまで
+        // `self.useBuiltInImageViewer` を読み戻せない（直前に代入していても読めない）ため、
+        // ローカル変数に確定値を持たせてから EPUB 側の写しに使う。
+        let resolvedImageViewer: Bool
         if defaults.object(forKey: useBuiltInViewerKey) == nil {
-            self.useBuiltInViewer = true
+            resolvedImageViewer = true
         } else {
-            self.useBuiltInViewer = defaults.bool(forKey: useBuiltInViewerKey)
+            resolvedImageViewer = defaults.bool(forKey: useBuiltInViewerKey)
+        }
+        self.useBuiltInImageViewer = resolvedImageViewer
+        // G54-S2: EPUB 側はキー不在のとき画像側を写し、**その場で書き戻す**（次回からは写さない）。
+        // init 内の代入では didSet が走らないので、明示的に書く必要がある。
+        if defaults.object(forKey: useBuiltInEPUBViewerKey) == nil {
+            self.useBuiltInEPUBViewer = resolvedImageViewer
+            defaults.set(resolvedImageViewer, forKey: useBuiltInEPUBViewerKey)
+        } else {
+            self.useBuiltInEPUBViewer = defaults.bool(forKey: useBuiltInEPUBViewerKey)
         }
         if let raw = defaults.string(forKey: pageDirectionKey),
            let dir = PageDirection(rawValue: raw) {

@@ -193,7 +193,7 @@ struct SettingsView: View {
             Form {
                 Section("画像ビューア") {
                     // D5: section header "画像ビューア", label "ビューア", caption row
-                    Picker("ビューア", selection: $settings.useBuiltInViewer) {
+                    Picker("ビューア", selection: $settings.useBuiltInImageViewer) {
                         Text("内蔵ビューア").tag(true)
                         Text("外部ビューア").tag(false)
                     }

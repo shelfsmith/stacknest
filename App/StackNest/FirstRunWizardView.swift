@@ -179,7 +179,7 @@ struct FirstRunWizardView: View {
             get: { flow.viewerChoice },
             set: { newValue in
                 flow.viewerChoice = newValue
-                settings.useBuiltInViewer = (newValue == .builtIn)
+                settings.useBuiltInImageViewer = (newValue == .builtIn)
             }
         )
     }

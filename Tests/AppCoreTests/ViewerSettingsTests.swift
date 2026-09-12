@@ -127,6 +127,61 @@ import Foundation
         #expect(!json.hasPrefix("["))
         #expect(json.hasPrefix("{"))
     }
+
+    @Test("G54-S2: EPUB 側のキーが無いときは画像側の値を写す（true）")
+    @MainActor
+    func epubSwitchSeedsFromImageWhenTrue() {
+        let suite = UserDefaults(suiteName: "g54s2-seed-true-\(UUID().uuidString)")!
+        suite.set(true, forKey: "useBuiltInViewer")
+        let s = ViewerSettings(defaults: suite)
+        #expect(s.useBuiltInImageViewer == true)
+        #expect(s.useBuiltInEPUBViewer == true)
+        #expect(suite.object(forKey: "useBuiltInEPUBViewer") != nil)
+    }
+
+    @Test("G54-S2: EPUB 側のキーが無いときは画像側の値を写す（false）")
+    @MainActor
+    func epubSwitchSeedsFromImageWhenFalse() {
+        let suite = UserDefaults(suiteName: "g54s2-seed-false-\(UUID().uuidString)")!
+        suite.set(false, forKey: "useBuiltInViewer")
+        let s = ViewerSettings(defaults: suite)
+        #expect(s.useBuiltInImageViewer == false)
+        #expect(s.useBuiltInEPUBViewer == false, "外部を選んでいた人が EPUB だけ内蔵に戻らないこと")
+    }
+
+    @Test("G54-S2: 両方のキーが無いときは両方 true")
+    @MainActor
+    func bothDefaultTrueOnFirstRun() {
+        let suite = UserDefaults(suiteName: "g54s2-firstrun-\(UUID().uuidString)")!
+        let s = ViewerSettings(defaults: suite)
+        #expect(s.useBuiltInImageViewer == true)
+        #expect(s.useBuiltInEPUBViewer == true)
+    }
+
+    @Test("G54-S2: 一度写したら画像側を変えても EPUB 側は追従しない")
+    @MainActor
+    func epubSwitchDoesNotFollowAfterSeeding() {
+        let name = "g54s2-independent-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: name)!
+        suite.set(true, forKey: "useBuiltInViewer")
+        _ = ViewerSettings(defaults: suite)          // ここで EPUB 側が true で書かれる
+        suite.set(false, forKey: "useBuiltInViewer") // 画像側だけ外部にする
+        let s2 = ViewerSettings(defaults: suite)
+        #expect(s2.useBuiltInImageViewer == false)
+        #expect(s2.useBuiltInEPUBViewer == true)
+    }
+
+    @Test("G54-S2: EPUB 側の変更が永続化される")
+    @MainActor
+    func epubSwitchPersists() {
+        let name = "g54s2-persist-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: name)!
+        let s = ViewerSettings(defaults: suite)
+        s.useBuiltInEPUBViewer = false
+        #expect(suite.bool(forKey: "useBuiltInEPUBViewer") == false)
+        let s2 = ViewerSettings(defaults: suite)
+        #expect(s2.useBuiltInEPUBViewer == false)
+    }
 }
 
 @Suite("ViewerSettings allowMultipleViewerWindows")

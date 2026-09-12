@@ -6,7 +6,7 @@ import LibraryStore
 /// Phase 2.6c: 内蔵ビューアのグローバル設定を描画する共有フォーム。
 /// （項目数は増えるので数えて書かない。G40 でルーペの形・倍率・大きさが加わった）
 /// SettingsView「表示」タブと FirstRunWizardView（③内蔵ビューア設定）の両方から使う。
-/// 各行は `settings.useBuiltInViewer` が false のとき disabled になる（SettingsView での
+/// 各行は `settings.useBuiltInImageViewer` が false のとき disabled になる（SettingsView での
 /// 既存挙動を保持。ウィザードでは内蔵選択時のみ表示されるため常に enabled）。
 struct BuiltInViewerSettingsForm: View {
     @Bindable var settings: ViewerSettings
@@ -26,22 +26,22 @@ struct BuiltInViewerSettingsForm: View {
                 Text("右 → 左（漫画）").tag(PageDirection.rightToLeft)
                 Text("左 → 右").tag(PageDirection.leftToRight)
             }
-            .disabled(!settings.useBuiltInViewer)
+            .disabled(!settings.useBuiltInImageViewer)
 
             // 見開きをデフォルトで表示（per-book 設定がない本に適用）
             Toggle("見開きを既定で表示", isOn: $settings.spreadByDefault)
-                .disabled(!settings.useBuiltInViewer)
+                .disabled(!settings.useBuiltInImageViewer)
 
             // 全 book 共通の全画面起動設定
             Toggle("全画面で開く（画像ビューア）", isOn: $settings.openFullScreenByDefault)
-                .disabled(!settings.useBuiltInViewer)
+                .disabled(!settings.useBuiltInImageViewer)
 
             // G51（Q3=C-2）: EPUB の窓は別設定（行長が伸びると読みにくいので使い分けたい）。
             Toggle("全画面で開く（EPUB）", isOn: $settings.openEPUBFullScreenByDefault)
 
             // G15 V1: 複数ビューア窓の許可（OFF=単一ビューア維持／ON=別の本は別窓）。
             Toggle("複数ビューアの起動を許可", isOn: $settings.allowMultipleViewerWindows)
-                .disabled(!settings.useBuiltInViewer)
+                .disabled(!settings.useBuiltInImageViewer)
                 .help("OFF: 別の本を開くと既存のビューアを閉じて1つに保ちます。ON: 別の本は別ウィンドウで開きます。どちらでも同じ本は1つにまとまります。")
 
             Picker("最後のページの次", selection: $settings.endOfBookBehavior) {
@@ -49,7 +49,7 @@ struct BuiltInViewerSettingsForm: View {
                 Text("次の巻へ（同じシリーズ）").tag(EndOfBookBehavior.nextBook)
                 Text("ループ").tag(EndOfBookBehavior.loop)
             }
-            .disabled(!settings.useBuiltInViewer)
+            .disabled(!settings.useBuiltInImageViewer)
 
             HStack {
                 Text("スライドショーの間隔（秒）")
@@ -72,8 +72,8 @@ struct BuiltInViewerSettingsForm: View {
                 Stepper("", value: $settings.autoAdvanceInterval, in: 1...60, step: 1)
                     .labelsHidden()
             }
-            .disabled(!settings.useBuiltInViewer)
-            .opacity(settings.useBuiltInViewer ? 1.0 : 0.5)
+            .disabled(!settings.useBuiltInImageViewer)
+            .opacity(settings.useBuiltInImageViewer ? 1.0 : 0.5)
             .onAppear { autoAdvanceIntervalInput = String(Int(settings.autoAdvanceInterval)) }
             .onChange(of: settings.autoAdvanceInterval) { _, newValue in
                 let synced = String(Int(newValue))
@@ -101,8 +101,8 @@ struct BuiltInViewerSettingsForm: View {
                 Stepper("", value: $settings.tabSkipPageCount, in: 1...100)
                     .labelsHidden()
             }
-            .disabled(!settings.useBuiltInViewer)
-            .opacity(settings.useBuiltInViewer ? 1.0 : 0.5)
+            .disabled(!settings.useBuiltInImageViewer)
+            .opacity(settings.useBuiltInImageViewer ? 1.0 : 0.5)
             .onAppear { tabSkipPageCountInput = String(settings.tabSkipPageCount) }
             .onChange(of: settings.tabSkipPageCount) { _, newValue in
                 let synced = String(newValue)
@@ -115,7 +115,7 @@ struct BuiltInViewerSettingsForm: View {
                     Text(shape.displayName).tag(shape)
                 }
             }
-            .disabled(!settings.useBuiltInViewer)
+            .disabled(!settings.useBuiltInImageViewer)
 
             // G40: ルーペの大きさ（グローバル）
             Picker("ルーペの大きさ", selection: $settings.loupeSize) {
@@ -123,7 +123,7 @@ struct BuiltInViewerSettingsForm: View {
                     Text(size.displayName).tag(size)
                 }
             }
-            .disabled(!settings.useBuiltInViewer)
+            .disabled(!settings.useBuiltInImageViewer)
 
             // G40: 倍率は本を見ながらスクロールで決めるものなので、ここでは
             // **現在値の表示と既定へ戻す手段**だけを置く（スライダーは置かない）。
@@ -138,10 +138,10 @@ struct BuiltInViewerSettingsForm: View {
                 }
                 .controlSize(.small)
             }
-            .disabled(!settings.useBuiltInViewer)
+            .disabled(!settings.useBuiltInImageViewer)
             // 隣接する行（スライドショー間隔・Tab スキップ）と同じ作法。`.disabled` だけでは
             // `Text` のラベルが暗くならないため、既存行はいずれも opacity を併用している。
-            .opacity(settings.useBuiltInViewer ? 1.0 : 0.5)
+            .opacity(settings.useBuiltInImageViewer ? 1.0 : 0.5)
         }
     }
 
