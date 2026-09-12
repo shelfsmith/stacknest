@@ -6,6 +6,7 @@ import LibraryServerAPI
 import LibraryStore
 import RemoteClient
 import SwiftUI
+import os
 
 /// Phase 4.2b-2 Task 5: オフライン（ダウンロード済み）ライブラリの閲覧 UI。
 /// サーバ接続を一切持たず、OfflineStore + ローカルファイルのみで動作する。
@@ -23,6 +24,8 @@ struct OfflineLibraryView: View {
     @FocusState private var listFocused: Bool
 
     private let store = OfflineStore()
+    /// G54-S2 修正 3: 内蔵→外部フォールバックのログ用（ローカル側 AppState.logger と同じ調子）。
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "OfflineLibraryView")
 
     var body: some View {
         // O4: ローカル/リモートとの整合のため「一覧（主・広い）＋詳細（固定240）」の 2 ペイン。
@@ -256,12 +259,17 @@ struct OfflineLibraryView: View {
 
     /// G54-S2: オフライン本を外部ビューアへ渡す。題名のリンクを作ってからそのパスを渡す。
     /// 失敗したら理由を `errorText` に出す（`HelperLauncher` が文言を持っている）。
+    /// 修正 2: 成功したら `errorText` を消す。内蔵からの引き継ぎ（G54-S2 修正前の内蔵失敗経路）が
+    /// 先に赤帯を立てていることがあり、外部起動が成功した後もそれが残ると
+    /// 「開いているのに開けなかった」という誤表示になる（赤帯に閉じるボタンが無いため）。
     private func openOfflineExternally(_ book: DownloadedBook, fileURL: URL) {
         let link = OfflineExternalLink(baseDirectory: store.baseDirectory)
         let handoff = link.linkURL(for: book, fileURL: fileURL)
         let row = offlineBookRow(book, fileURL: handoff)
         if let error = HelperLauncher.open(book: row, settings: ViewerSettings.shared) {
             errorText = error.localizedDescription
+        } else {
+            errorText = nil
         }
     }
 
@@ -331,6 +339,7 @@ struct OfflineLibraryView: View {
                     controller.present()
                 } catch {
                     // G54-S2: EPUB の窓を作れなければ外部へ落とす（ローカルと同じ扱い）。
+                    Self.logger.warning("openOffline: makeReaderView failed for bookID=\(book.bookID, privacy: .public) path=\(fileURL.path, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
                     ViewerWindowRegistry.shared.cancelOpen(identity)
                     self.openOfflineExternally(book, fileURL: fileURL)
                 }
@@ -349,6 +358,8 @@ struct OfflineLibraryView: View {
             content = try BookContentFactory.make(for: row)
         } catch {
             // G54-S2: ローカル（AppState.openInBuiltInViewer）と同じく、内蔵で作れなければ外部へ落とす。
+            let bookPath = store.fileURL(for: book).path
+            Self.logger.warning("openOfflinePages: BookContentFactory.make failed for bookID=\(book.bookID, privacy: .public) path=\(bookPath, privacy: .public): \(String(describing: error), privacy: .public) → falling back to external viewer")
             ViewerWindowRegistry.shared.cancelOpen(identity)
             openOfflineExternally(book, fileURL: store.fileURL(for: book))
             return
@@ -457,18 +468,16 @@ struct OfflineLibraryView: View {
 
     private func deleteSelected() {
         let targets = books.filter { multiSelection.contains($0.id) }
+        // G54-S2 修正 1: 小部屋の削除は OfflineStore.remove 側に寄せた（重複除去）。
         store.removeBooks(targets)
-        // G54-S2: 実体を消してもハードリンクが残っていると容量が戻らないので、小部屋も落とす。
-        let link = OfflineExternalLink(baseDirectory: store.baseDirectory)
-        for target in targets { link.removeRoom(for: target) }
         multiSelection.removeAll()
         reload()
     }
 
     /// オフライン保存を削除して一覧を更新する。
     private func delete(_ book: DownloadedBook) {
+        // G54-S2 修正 1: 小部屋の削除は OfflineStore.remove 側に寄せた（重複除去）。
         store.remove(serverID: book.serverID, libraryUUID: book.libraryUUID, bookID: book.bookID)
-        OfflineExternalLink(baseDirectory: store.baseDirectory).removeRoom(for: book)
         multiSelection.remove(book.id)
         reload()
     }

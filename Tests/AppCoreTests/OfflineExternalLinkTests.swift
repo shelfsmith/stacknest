@@ -136,6 +136,31 @@ struct OfflineExternalLinkTests {
         #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
+    /// G54-S2 修正ラウンド 1・Important #1: `OfflineStore.remove` が小部屋も一緒に落とすことの回帰。
+    /// `Tests/AppCoreTests/OfflineStoreTests.swift` の保管庫の作り方（`OfflineStore(baseDirectory:)`
+    /// を一時ディレクトリで作り `store.save` で実体を置く）に合わせる。
+    @Test("OfflineStore.remove で小部屋も消える")
+    func storeRemoveDropsTheRoom() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("g54s2-store-remove-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let store = OfflineStore(baseDirectory: base)
+        let sid = UUID(), lib = UUID().uuidString
+        try store.save(detail(11, "消える本"), serverID: sid, libraryUUID: lib, libraryName: "Lib",
+                       fileExtension: "zip", fileData: Data([1, 2, 3]), coverData: nil)
+        let saved = try #require(store.all().first)
+        let link = OfflineExternalLink(baseDirectory: base)
+        let roomFile = link.linkURL(for: saved, fileURL: store.fileURL(for: saved))
+        #expect(FileManager.default.fileExists(atPath: roomFile.path), "前提: 小部屋にリンクができている")
+
+        store.remove(serverID: sid, libraryUUID: lib, bookID: 11)
+
+        #expect(!FileManager.default.fileExists(atPath: roomFile.path), "remove で小部屋も落ちている")
+        let room = base.appendingPathComponent("_external")
+            .appendingPathComponent(OfflineExternalLink.roomKey(for: saved))
+        #expect(!FileManager.default.fileExists(atPath: room.path), "小部屋ディレクトリごと消えている")
+    }
+
     @Test("区切り文字とコロンは置換する")
     func replacesSeparators() {
         let n = OfflineExternalLink.safeFileName(title: "a/b:c", fallbackID: 1, fileExtension: "zip")

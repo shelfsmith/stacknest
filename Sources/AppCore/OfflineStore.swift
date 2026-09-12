@@ -174,6 +174,10 @@ public struct OfflineStore: @unchecked Sendable {
         if let book = all().first(where: { $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID }) {
             try? fm.removeItem(at: fileURL(for: book))
             if book.hasCachedCover { try? fm.removeItem(at: coverURL(for: book)) }
+            // G54-S2 修正 1: 実体を消してもハードリンクが残っていると容量が戻らないので、
+            // 外部ビューア用の題名リンクの小部屋もここで落とす。remove を通る全経路
+            // （removeBooks・単体 remove・リモート庫タブの removeDownload）が一度に直る。
+            OfflineExternalLink(baseDirectory: baseDirectory).removeRoom(for: book)
         }
         try? persist(all().filter { !($0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == bookID) })
         NotificationCenter.default.post(name: .offlineStoreDidChange, object: nil)
