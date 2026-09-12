@@ -254,10 +254,28 @@ struct OfflineLibraryView: View {
 
     // MARK: - Actions
 
+    /// G54-S2: オフライン本を外部ビューアへ渡す。題名のリンクを作ってからそのパスを渡す。
+    /// 失敗したら理由を `errorText` に出す（`HelperLauncher` が文言を持っている）。
+    private func openOfflineExternally(_ book: DownloadedBook, fileURL: URL) {
+        let link = OfflineExternalLink(baseDirectory: store.baseDirectory)
+        let handoff = link.linkURL(for: book, fileURL: fileURL)
+        let row = offlineBookRow(book, fileURL: handoff)
+        if let error = HelperLauncher.open(book: row, settings: ViewerSettings.shared) {
+            errorText = error.localizedDescription
+        }
+    }
+
     /// オフライン保存済みの本を内蔵ビューアで開く。BookContent はローカルファイル経由。
     private func openOffline(_ book: DownloadedBook, resumeDirect: Bool = false) {
         // Phase 4.2c-2: 「最後に開いた本」を記録する（オフライン・サーバ側 bookID を採用）。
         LastReadTracker.shared.record(.offline(bookID: book.detail.id, title: book.detail.title))
+        // G54-S2: 形式に応じた設定が外部なら、内蔵の経路に入らずここで外部へ渡す。
+        // 動画と txt/md/rtf は内蔵に描く手段が無いので、設定に関わらずここを通る。
+        let offlineFileURL = store.fileURL(for: book)
+        if !ViewerChoice.shouldTryBuiltIn(forPath: offlineFileURL.path, settings: ViewerSettings.shared) {
+            openOfflineExternally(book, fileURL: offlineFileURL)
+            return
+        }
         // Phase 4.2c-2 (B2): 開く瞬間に OfflineStore から最新の lastPage を読む。
         // captured `book`（@State books 由来）は前回 read 後 reload 前だと古い lastPage を持つため。
         let freshLastPage = store.all().first(where: { $0.id == book.id })?.lastPage ?? book.lastPage
@@ -312,8 +330,9 @@ struct OfflineLibraryView: View {
                     ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
                     controller.present()
                 } catch {
-                    self.errorText = "本を開けませんでした"
+                    // G54-S2: EPUB の窓を作れなければ外部へ落とす（ローカルと同じ扱い）。
                     ViewerWindowRegistry.shared.cancelOpen(identity)
+                    self.openOfflineExternally(book, fileURL: fileURL)
                 }
             }
             return
@@ -329,8 +348,9 @@ struct OfflineLibraryView: View {
         do {
             content = try BookContentFactory.make(for: row)
         } catch {
-            errorText = "本を開けませんでした（オフライン非対応のファイル）"
+            // G54-S2: ローカル（AppState.openInBuiltInViewer）と同じく、内蔵で作れなければ外部へ落とす。
             ViewerWindowRegistry.shared.cancelOpen(identity)
+            openOfflineExternally(book, fileURL: store.fileURL(for: book))
             return
         }
         Task { @MainActor in
@@ -438,6 +458,9 @@ struct OfflineLibraryView: View {
     private func deleteSelected() {
         let targets = books.filter { multiSelection.contains($0.id) }
         store.removeBooks(targets)
+        // G54-S2: 実体を消してもハードリンクが残っていると容量が戻らないので、小部屋も落とす。
+        let link = OfflineExternalLink(baseDirectory: store.baseDirectory)
+        for target in targets { link.removeRoom(for: target) }
         multiSelection.removeAll()
         reload()
     }
@@ -445,6 +468,7 @@ struct OfflineLibraryView: View {
     /// オフライン保存を削除して一覧を更新する。
     private func delete(_ book: DownloadedBook) {
         store.remove(serverID: book.serverID, libraryUUID: book.libraryUUID, bookID: book.bookID)
+        OfflineExternalLink(baseDirectory: store.baseDirectory).removeRoom(for: book)
         multiSelection.remove(book.id)
         reload()
     }

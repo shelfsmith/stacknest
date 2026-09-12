@@ -1242,10 +1242,14 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
         if !AppEnvironment.isRunningUnitTests {
             let logger = Self.logger
             Task.detached(priority: .utility) {
-                let renamed = OfflineStore().migrateFileExtensions()
+                let store = OfflineStore()
+                let renamed = store.migrateFileExtensions()
                 if renamed > 0 {
                     logger.info("offline file extension migration: renamed \(renamed) file(s)")
                 }
+                // G54-S2: 索引に無い本の題名リンクを落とす（オフラインから消えた本の残骸）。
+                OfflineExternalLink(baseDirectory: store.baseDirectory)
+                    .prune(keeping: Set(store.all().map { OfflineExternalLink.roomKey(for: $0) }))
             }
         }
     }
