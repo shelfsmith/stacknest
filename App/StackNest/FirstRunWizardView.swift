@@ -74,7 +74,7 @@ struct FirstRunWizardView: View {
 
     private var viewerChoiceStep: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("画像の開き方").font(.title2.bold())
+            Text("本の開き方").font(.title2.bold())
             Text("本を開くときの方法を選びます。").foregroundStyle(.secondary)
 
             Picker("", selection: viewerChoiceBinding) {
@@ -83,6 +83,9 @@ struct FirstRunWizardView: View {
             }
             .pickerStyle(.radioGroup)
             .labelsHidden()
+
+            Text("あとから 設定 ▸ 表示 で、画像と EPUB を別々に選び直せます。")
+                .font(.caption).foregroundStyle(.secondary)
 
             if flow.viewerChoice == .external {
                 HStack(spacing: 8) {
@@ -179,7 +182,10 @@ struct FirstRunWizardView: View {
             get: { flow.viewerChoice },
             set: { newValue in
                 flow.viewerChoice = newValue
+                // ウィザードの問いは「本を開くときの方法」という 1 つの選択なので、
+                // 画像 / EPUB の両方に同じ値を反映する（G54-S2 で分割される前の挙動に合わせる）。
                 settings.useBuiltInImageViewer = (newValue == .builtIn)
+                settings.useBuiltInEPUBViewer = (newValue == .builtIn)
             }
         )
     }
