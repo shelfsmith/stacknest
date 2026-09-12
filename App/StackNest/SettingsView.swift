@@ -447,6 +447,9 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
     /// 含まれない分のバッファ。TabView の tab bar 分 (macOS で ~28-34pt) を tabBarPadding で加算。
     private let heightPadding: CGFloat
     private let tabBarPadding: CGFloat
+    /// G54-S1: 窓の高さの上限を「その画面で使える高さ」の何割にするか。
+    /// 画面いっぱいに広がると圧迫感があるので余裕を残す（平木氏の判断で 0.85）。
+    private let maxHeightScreenFraction: CGFloat = 0.85
     /// 現在のタブ index。値が変わると SwiftUI が updateNSView を再呼び出しし、
     /// アクティブタブの高さへ追従できる (この struct が値を読まなくても、
     /// stored property の変化が再描画トリガになる)。
@@ -469,6 +472,12 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
         DispatchQueue.main.async { apply(to: view.window, delegate: context.coordinator) }
+        // G54-S1: 使える高さは画面ごとに違うので、画面が変わったら測り直す。
+        // ・didChangeScreenNotification: 窓を別の画面へ動かした
+        // ・didChangeScreenParametersNotification: 解像度変更・ディスプレイの抜き差し・Dock の表示切替
+        context.coordinator.observeScreenChanges(view: view) { [self] in
+            apply(to: view.window, delegate: context.coordinator)
+        }
         return view
     }
 
@@ -506,7 +515,12 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         guard baseHeight > 0 else { return }
 
         // アクティブタブの fitted 高さ。tab bar 分も含めた全項目を表示しきる高さ。
-        let fittedHeight = baseHeight + heightPadding
+        // G54-S1: 画面基準の上限で clamp する。従来はコメントで「画面より高い場合のみ内部スクロール」と
+        // 書きながら実際には上限が無く、行数の多いタブ（キー割り当て）で窓が画面を超えうる状態だった。
+        // NSScreen.visibleFrame はメニューバーと Dock を除いた「実際に窓を置ける領域」なので、
+        // Dock の表示状態や外部ディスプレイの違いがそのまま反映される。
+        let wanted = baseHeight + heightPadding
+        let fittedHeight = Self.clampToScreen(wanted, window: window, fraction: maxHeightScreenFraction)
         delegate.maxHeight = fittedHeight
 
         // window.minSize/maxSize も併用 (scene が override する前提だが保険として残す)。
@@ -522,6 +536,17 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         if needsSnap {
             window.setContentSize(NSSize(width: fixedWidth, height: fittedHeight))
         }
+    }
+
+    /// 窓が載っている画面で使える高さの `fraction` 倍を上限として、コンテンツ高さを丸める。
+    /// 画面が特定できないとき（`window.screen` も `NSScreen.main` も nil）は上限なしで返す。
+    /// `setContentSize` はコンテンツ高さを取るので、窓全体との差（タイトルバー等）を引いてから比べる。
+    static func clampToScreen(_ wanted: CGFloat, window: NSWindow, fraction: CGFloat) -> CGFloat {
+        guard let screen = window.screen ?? NSScreen.main else { return wanted }
+        let chrome = max(0, window.frame.height - window.contentLayoutRect.height)
+        let limit = screen.visibleFrame.height * fraction - chrome
+        guard limit > 0 else { return wanted }
+        return min(wanted, limit)
     }
 
     /// SwiftUI Form (.grouped) は内部に NSScrollView を持つので、再帰的に探して
@@ -546,9 +571,34 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         var maxHeight: CGFloat = 600
         weak var proxyTarget: NSWindowDelegate?
 
+        /// G54-S1: 画面が変わったときに高さを測り直すための購読。二重購読しない。
+        private var screenObservers: [NSObjectProtocol] = []
+
         init(fixedWidth: CGFloat, minHeight: CGFloat) {
             self.fixedWidth = fixedWidth
             self.minHeight = minHeight
+        }
+
+        // G54-S1 実装時の適応: brief 記載の `DispatchQueue.main.async { onChange() }` は Swift 6 の厳格な
+        // 並行性検査で "sending 'onChange' risks causing data races" になり不可（makeNSView 側で作られる
+        // onChange は @MainActor isolated closure なので、@Sendable な NotificationCenter コールバックへ
+        // 素通しできない）。`onChange` を `@MainActor` と明示し、`Task { @MainActor in }` で
+        // isolation を保ったままホップする（実行内容・タイミングは同じ: 常に main で呼ばれる）。
+        func observeScreenChanges(view: NSView, onChange: @escaping @MainActor () -> Void) {
+            guard screenObservers.isEmpty else { return }
+            let center = NotificationCenter.default
+            screenObservers = [
+                center.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: .main) { _ in
+                    Task { @MainActor in onChange() }
+                },
+                center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in
+                    Task { @MainActor in onChange() }
+                },
+            ]
+        }
+
+        deinit {
+            for o in screenObservers { NotificationCenter.default.removeObserver(o) }
         }
 
         // 自前で実装している method はここで処理、それ以外は forwardingTarget に転送する。
