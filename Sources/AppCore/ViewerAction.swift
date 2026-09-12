@@ -337,6 +337,21 @@ public struct ViewerKeyBindings: Codable, Sendable {
     }
 }
 
+public extension ViewerKeyBindings {
+    /// G54-S1: 指定セクションのうち、既定と割り当てが異なるアクションの数。
+    /// 折りたたみの見出しに「（N 件変更）」と出して、開かなくてもどこを触ったか分かるようにする。
+    ///
+    /// 「異なる」は **そのアクションに割り当たっているキーの集合が既定と違うこと**。
+    /// 再割当・追加・削除のいずれも 1 件として数える（アクション単位。キー単位ではない）。
+    /// `boundBindings(for:)` は chord→character の順で各内を安定ソートして返すので、配列の等値で判定できる。
+    func changedCount(in section: ViewerActionSection) -> Int {
+        let defaults = ViewerKeyBindings.defaults
+        return section.actions.reduce(into: 0) { count, action in
+            if boundBindings(for: action) != defaults.boundBindings(for: action) { count += 1 }
+        }
+    }
+}
+
 public extension ViewerAction {
     /// G51: EPUB の窓（`EPUBReaderWindowController`）が扱うアクション。
     /// 割り当て表は画像ビューアと共有し（Q2=B-1）、ここに無いものは EPUB では**無視して上へ流す**。
