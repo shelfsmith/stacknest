@@ -556,8 +556,16 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         delegate.maxHeight = fittedHeight
 
         // window.minSize/maxSize も併用 (scene が override する前提だが保険として残す)。
-        window.minSize = NSSize(width: fixedWidth, height: minHeight)
-        window.maxSize = NSSize(width: fixedWidth, height: fittedHeight)
+        // G54-S1 Codex 指摘: `minSize`/`maxSize` は **frame 座標**（タイトルバー込み）の制約だが、
+        // `minHeight`/`fittedHeight` は content 高さ。そのまま入れると
+        // `setContentSize(height: fittedHeight)` が要求する frame（= fittedHeight + chrome）が
+        // maxSize に引き戻され、viewport が chrome 1 本分低くなって余計なスクロールが出る。
+        // 同じ chrome を足して frame 座標へ揃える（`clampToScreen` が画面上限から chrome を
+        // 引いているので、足し戻しても frame は画面の `maxHeightScreenFraction` に収まる）。
+        let chrome = Self.chromeHeight(of: window)
+        let limits = Self.frameSizeLimits(contentMin: minHeight, contentMax: fittedHeight, width: fixedWidth, chrome: chrome)
+        window.minSize = limits.min
+        window.maxSize = limits.max
 
         // 横ズレ、または現高さがアクティブタブの fitted 高さと ~1pt 超ズレている場合に snap。
         // TabView では active page のみ mount するため、タブ切替ごとに fittedHeight が変わる。
@@ -580,10 +588,27 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
     /// （呼び出し側が `window.maxSize < window.minSize` を設定してしまうのを防ぐ）。
     static func clampToScreen(_ wanted: CGFloat, window: NSWindow, fraction: CGFloat, minHeight: CGFloat) -> CGFloat {
         guard let screen = window.screen ?? NSScreen.main else { return wanted }
-        let chrome = max(0, window.frame.height - window.contentLayoutRect.height)
+        let chrome = chromeHeight(of: window)
         let limit = screen.visibleFrame.height * fraction - chrome
         guard limit > 0 else { return wanted }
         return min(wanted, max(minHeight, limit))
+    }
+
+    /// 窓の frame 高さと content 高さの差（タイトルバー等）。
+    /// `setContentSize` が動かすのは `contentView` なので、変換の基準も `contentView` の高さに揃える
+    /// （フルサイズ content view を使わない通常の窓では `contentLayoutRect.height` と一致する）。
+    static func chromeHeight(of window: NSWindow) -> CGFloat {
+        let contentHeight = window.contentView?.frame.height ?? window.frame.height
+        return max(0, window.frame.height - contentHeight)
+    }
+
+    /// content 高さの下限・上限を `NSWindow.minSize` / `maxSize` が要求する frame 座標へ写す。
+    /// 上限が下限を下回らないよう（AppKit が未定義の挙動になる）下限で底上げする。
+    static func frameSizeLimits(contentMin: CGFloat, contentMax: CGFloat, width: CGFloat, chrome: CGFloat)
+        -> (min: NSSize, max: NSSize) {
+        let minFrameHeight = contentMin + chrome
+        let maxFrameHeight = max(minFrameHeight, contentMax + chrome)
+        return (NSSize(width: width, height: minFrameHeight), NSSize(width: width, height: maxFrameHeight))
     }
 
     /// SwiftUI Form (.grouped) は内部に NSScrollView を持つので、再帰的に探して
@@ -658,8 +683,7 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // 自前で実装している method はここで処理、それ以外は forwardingTarget に転送する。
         func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
             // frameSize は window frame size (titlebar 込み)。content height = frame.height - titlebar。
-            let titleBarHeight = sender.frame.height - (sender.contentView?.frame.height ?? sender.frame.height)
-            let safeTitleBar = max(titleBarHeight, 0)
+            let safeTitleBar = SettingsWindowFixedSize.chromeHeight(of: sender)
             let proposedContentHeight = frameSize.height - safeTitleBar
             let clampedContentHeight = min(max(proposedContentHeight, minHeight), maxHeight)
             return NSSize(width: fixedWidth, height: clampedContentHeight + safeTitleBar)
