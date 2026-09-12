@@ -71,7 +71,7 @@ re-implemented from observation.
 - **Grid item size**: per-library persisted slider
 - **Library lock**: per-library SHA-256 (salted) password lock. Touch ID / Apple Watch biometric unlock supported
 - **Supported formats**: archives ZIP / CBZ / RAR / CBR / 7z (via libarchive), PDF (PDFKit), and EPUB (**beta**: cover, metadata and reading — on the Mac in a [Washi](https://github.com/shunnag/Washi) window with vertical text, ruby and spreads; in the web reader through [foliate-js](https://github.com/johnfactotum/foliate-js); all-image EPUBs open in the image viewer); images JPEG / PNG / GIF / WebP / HEIC / HEIF / TIFF / AVIF (via NSImage); **video MP4 / MOV / M4V** (covers only: a frame is picked automatically at import, and the scene can be re-chosen from the context menu; playback goes to an external player. MKV / WebM / AVI carry no cover because AVFoundation cannot open them)
-- **First-run wizard**: on first launch, a paged wizard walks through "image-opening method (built-in / external viewer) → (if built-in) viewer initial settings → first library (create / open / import)". Re-showable anytime from Settings ▸ General
+- **First-run wizard**: on first launch, a paged wizard walks through "how to open books (built-in / external viewer) → (if built-in) viewer initial settings → first library (create / open / import)". Re-showable anytime from Settings ▸ General
 - **Import**: migrate an existing Stackroom library XML into the SQLite database
 - **Watch folders (auto-import)**: watch folders and **auto-import** archives / image folders dropped into them (per-folder naming presets, first-run preview, import summary banner). Auto-classification (bookType) and thickness threshold can be **overridden per library** ("follow the StackNest default" / custom). Subfolders are handled per watch folder with **three modes** (ignore / one book per subfolder / recurse into them)
 - **Remote sharing (server)**: serve a library over HTTP. **Share tokens** let you issue per-recipient tokens that split **read / edit / admin** permission and the **scope (which libraries are visible)**, with a **per-token QR / URL**, NIC selection / IPv6, downscaled delivery, and locked-library unlock. Creating / renaming / regenerating / revoking a token takes effect **without restarting the server**. Browse from a **web browser** (list / grid, FTS search, sort, paging) and read with the **web reader** (prefetch, spread / single-page, resume, two-way instant page-direction sync, end-of-volume nav, PWA icons). The reader supports **drag-to-turn** (the page tracks your finger 1:1 and settles with momentum) and **spatial navigation** (going back to the list keeps your scroll position and filters)
@@ -200,7 +200,7 @@ After building the app or running `xcodebuild`, launch the macOS app:
 open ~/Library/Developer/Xcode/DerivedData/StackNest-*/Build/Products/Debug/StackNest.app
 ```
 
-On the very first launch (fresh install, no settings), a first-run wizard guides you through the image-opening method and your first library. On subsequent launches (or when no library is selected) the app shows a title screen with three actions:
+On the very first launch (fresh install, no settings), a first-run wizard guides you through how to open books and your first library. On subsequent launches (or when no library is selected) the app shows a title screen with three actions:
 
 - **Create a new library**: pick a location and create an empty `.stacknest` bundle
 - **Open an existing library**: pick an existing `.stacknest` bundle

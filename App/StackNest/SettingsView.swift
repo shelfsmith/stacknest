@@ -213,7 +213,11 @@ struct SettingsView: View {
                     Text("内蔵ビューアは、画像だけの EPUB は画像ビューアで、それ以外は EPUB 専用の窓で開きます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
 
+                Section {
+                    // 画像・EPUB 両方に共通する注記（どちらか一方のセクションに置くと、
+                    // 他方だけ見ている人に届かないため、見出しなしの共通セクションへ分離）。
                     Text("動画とテキスト（txt・md・rtf）は内蔵ビューアで開けないため、常に外部ビューアで開きます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)

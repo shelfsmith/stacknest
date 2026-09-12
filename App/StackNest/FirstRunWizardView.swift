@@ -5,7 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 /// Phase 2.6c: 初回起動ウィザード。ページ送り式（戻る/次へ・動的ドット）。
-/// ①ようこそ → ②画像の開き方（内蔵/外部・スキップ可）→ ③内蔵ビューア設定（内蔵かつ
+/// ①ようこそ → ②本の開き方（内蔵/外部・スキップ可）→ ③内蔵ビューア設定（内蔵かつ
 /// 非スキップ時のみ）→ ④最初のライブラリ（新規/開く/取り込み・「あとで」でタイトルへ）。
 struct FirstRunWizardView: View {
     @Bindable var settings: ViewerSettings
@@ -103,7 +103,7 @@ struct FirstRunWizardView: View {
                 .padding(.leading, 20)
             }
 
-            Text("内蔵ビューアはアーカイブ／画像／フォルダ内の画像・PDF にのみ適用されます。")
+            Text("内蔵ビューアは、アーカイブ・画像・フォルダ内の画像・PDF と EPUB に適用されます。動画とテキスト（txt・md・rtf）は常に外部ビューアで開きます。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
