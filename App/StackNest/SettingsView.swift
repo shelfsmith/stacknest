@@ -205,7 +205,8 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    BuiltInViewerSettingsForm(settings: settings)
+                    Text("内蔵ビューアの詳しい設定とキー割り当ては「内蔵ビューア」タブにあります。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("詳細ペイン") {
@@ -279,13 +280,21 @@ struct SettingsView: View {
             }
             .tag(1)
 
-            // MARK: - Tab 4: ビューアキー（内蔵ビューアのキー設定。リモート/オフラインでも内蔵
-            // ビューアが必ず使われるため、外部ビューア選択時もグレーアウトせず常時有効。）
-            KeyBindingsSettingsView(enabled: true, openSectionCount: $keyOpenSections)
-                .tabItem {
-                    Label("ビューアキー", systemImage: "keyboard")
+            // MARK: - Tab 4: 内蔵ビューア（G54-S1: 「表示」から設定を移し、キー割り当てもここへ畳んだ。
+            // リモート/オフラインでも内蔵ビューアが必ず使われるため、外部ビューア選択時もグレーアウトしない。）
+            Form {
+                Section("内蔵ビューア") {
+                    BuiltInViewerSettingsForm(settings: settings)
                 }
-                .tag(3)
+                Section("キー割り当て") {
+                    KeyBindingsSettingsView(enabled: true, openSectionCount: $keyOpenSections)
+                }
+            }
+            .formStyle(.grouped)
+            .tabItem {
+                Label("内蔵ビューア", systemImage: "book.pages")
+            }
+            .tag(3)
         }
         // 横は 600pt 完全固定（「キー」タブのキーチップ＋ボタン行が折り返さない幅）。4 タブなので
         // この幅でタブバーは折り畳まれない（5 タブ時は ">>"(Navigation Tab Bar) に collapse した・4.2f）。
@@ -297,7 +306,16 @@ struct SettingsView: View {
         .background(SettingsWindowFixedSize(
             tabBarPadding: 32,
             tab: settingsTab,
-            contentRevision: settingsTab == 0 ? (ServerPreferences.localAutomationEnabled() ? 1 : 0) : 0
+            // contentRevision: 同じタブ内で中身の高さが変わったとき updateNSView を再発火させる版数。
+            //   一般タブ: ローカルコントロールのトグルでセクションが増減する。
+            //   内蔵ビューアタブ（G54-S1）: キー割り当ての折りたたみ開閉で高さが変わる。
+            contentRevision: {
+                switch settingsTab {
+                case 0: return ServerPreferences.localAutomationEnabled() ? 1 : 0
+                case 3: return keyOpenSections
+                default: return 0
+                }
+            }()
         ))
     }
 

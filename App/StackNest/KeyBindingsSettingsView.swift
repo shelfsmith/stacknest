@@ -19,63 +19,59 @@ struct KeyBindingsSettingsView: View {
     @State private var expanded: Set<ViewerActionSection> = []
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if !enabled {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "info.circle")
-                        Text("キー設定は内蔵ビューア選択時のみ有効です。設定 ▸ 表示 でビューアを「内蔵ビューア」に切り替えてください。")
-                    }
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+        VStack(alignment: .leading, spacing: 14) {
+            if !enabled {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "info.circle")
+                    Text("キー設定は内蔵ビューア選択時のみ有効です。設定 ▸ 表示 でビューアを「内蔵ビューア」に切り替えてください。")
                 }
-                Group {
-                    ForEach(ViewerActionSection.allCases, id: \.self) { section in
-                        DisclosureGroup(isExpanded: Binding(
-                            get: { expanded.contains(section) },
-                            set: { isOpen in
-                                if isOpen { expanded.insert(section) } else { expanded.remove(section) }
-                                openSectionCount = expanded.count
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(nsColor: .quaternarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+            }
+            Group {
+                ForEach(ViewerActionSection.allCases, id: \.self) { section in
+                    DisclosureGroup(isExpanded: Binding(
+                        get: { expanded.contains(section) },
+                        set: { isOpen in
+                            if isOpen { expanded.insert(section) } else { expanded.remove(section) }
+                            openSectionCount = expanded.count
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(section.actions, id: \.self) { action in
+                                row(for: action)
                             }
-                        )) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(section.actions, id: \.self) { action in
-                                    row(for: action)
-                                }
-                            }
-                            .padding(.top, 4)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Text(section.title).font(.headline)
-                                let changed = bindings.changedCount(in: section)
-                                if changed > 0 {
-                                    Text("\(changed) 件変更")
-                                        .font(.caption)
-                                        .padding(.horizontal, 6).padding(.vertical, 1)
-                                        .background(Color(nsColor: .quaternarySystemFill), in: Capsule())
-                                        .foregroundStyle(.secondary)
-                                }
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(section.title).font(.headline)
+                            let changed = bindings.changedCount(in: section)
+                            if changed > 0 {
+                                Text("\(changed) 件変更")
+                                    .font(.caption)
+                                    .padding(.horizontal, 6).padding(.vertical, 1)
+                                    .background(Color(nsColor: .quaternarySystemFill), in: Capsule())
+                                    .foregroundStyle(.secondary)
                             }
                         }
                     }
-                    Text("Esc は常にキャンセル / 閉じるに使われるため固定です。")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Divider()
-                    Button("すべて既定に戻す") {
-                        bindings.resetAll()
-                        conflictMessage.removeAll()
-                        persist()
-                    }
                 }
-                .disabled(!enabled)
-                .opacity(enabled ? 1 : 0.4)
+                Text("Esc は常にキャンセル / 閉じるに使われるため固定です。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                Button("すべて既定に戻す") {
+                    bindings.resetAll()
+                    conflictMessage.removeAll()
+                    persist()
+                }
             }
-            .padding(16)
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.4)
         }
-        .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder
