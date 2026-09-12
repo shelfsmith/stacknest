@@ -494,8 +494,9 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // G54-S1: 使える高さは画面ごとに違うので、画面が変わったら測り直す。
         // ・didChangeScreenNotification: 窓を別の画面へ動かした
         // ・didChangeScreenParametersNotification: 解像度変更・ディスプレイの抜き差し・Dock の表示切替
-        context.coordinator.observeScreenChanges(view: view) { [self] in
-            apply(to: view.window, delegate: context.coordinator)
+        context.coordinator.observeScreenChanges { [self, weak view, weak coordinator = context.coordinator] in
+            guard let view, let coordinator else { return }
+            apply(to: view.window, delegate: coordinator)
         }
         return view
     }
@@ -559,6 +560,8 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
 
     /// 窓が載っている画面で使える高さの `fraction` 倍を上限として、コンテンツ高さを丸める。
     /// 画面が特定できないとき（`window.screen` も `NSScreen.main` も nil）は上限なしで返す。
+    /// 同様に、算出した上限 (`limit`) が 0 以下（タイトルバー等の chrome が画面高さを超える等の異常値）の
+    /// ときも上限なしで `wanted` をそのまま返す。
     /// `setContentSize` はコンテンツ高さを取るので、窓全体との差（タイトルバー等）を引いてから比べる。
     static func clampToScreen(_ wanted: CGFloat, window: NSWindow, fraction: CGFloat) -> CGFloat {
         guard let screen = window.screen ?? NSScreen.main else { return wanted }
@@ -603,7 +606,16 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // onChange は @MainActor isolated closure なので、@Sendable な NotificationCenter コールバックへ
         // 素通しできない）。`onChange` を `@MainActor` と明示し、`Task { @MainActor in }` で
         // isolation を保ったままホップする（実行内容・タイミングは同じ: 常に main で呼ばれる）。
-        func observeScreenChanges(view: NSView, onChange: @escaping @MainActor () -> Void) {
+        //
+        // `onChange` 内で参照 (view, coordinator) を weak に落とすのは呼び出し側 (makeNSView) の責務。
+        // `NotificationCenter` は `addObserver(forName:...)` に渡したブロックを**登録が生きている間
+        // ずっと強参照**する（`screenObservers` に積むトークンとは独立）。もし `onChange` が
+        // コーディネータ (= このメソッドの self) を強参照していると、
+        // NotificationCenter（プロセス寿命） → block → onChange → self という経路ができ、
+        // self の refcount が 0 にならず `deinit` が永久に呼ばれない。`deinit` が呼ばれなければ
+        // `removeObserver` にも到達できず、コーディネータと NSView が両方リークしたまま
+        // 孤児化した observer が以後の画面変化ごとに発火し続ける。
+        func observeScreenChanges(onChange: @escaping @MainActor () -> Void) {
             guard screenObservers.isEmpty else { return }
             let center = NotificationCenter.default
             screenObservers = [
