@@ -860,12 +860,14 @@ final class AppState {
     }
 
     /// 統一された「本を開く」入口。grid/list の double-click・Enter・コンテキストメニューから呼ぶ。
-    /// useBuiltInImageViewer が true かつ先頭 book が内蔵表示可能なら内蔵ビューアを開く。
-    /// それ以外（外部設定 / 動画 / 非対応 / 失敗）は従来の外部ビューア起動にフォールバック。
+    /// G54-S2: 内蔵か外部かは**先頭の本の形式**に応じた設定で決める（`ViewerChoice`）。
+    /// 画像・アーカイブ・フォルダ・PDF は画像側、EPUB は EPUB 側、動画とテキストは常に外部。
+    /// 内蔵で開けなかったときに外部へ落ちるのは従来どおり（`openInBuiltInViewer` の中）。
     /// 複数選択時、内蔵ビューアは先頭 1 冊のみ開く（外部は各冊起動）。
     func openBooks(_ books: [BookRow], resumeDirect: Bool = false) {
-        guard !books.isEmpty else { return }
-        if viewerSettings.useBuiltInImageViewer, let first = books.first {
+        guard let first = books.first else { return }
+        let path = first.path ?? ""
+        if !path.isEmpty, ViewerChoice.shouldTryBuiltIn(forPath: path, settings: viewerSettings) {
             openInBuiltInViewer(first, resumeDirect: resumeDirect)
             return
         }
