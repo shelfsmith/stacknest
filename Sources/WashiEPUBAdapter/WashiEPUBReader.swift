@@ -10,7 +10,7 @@ import os
 /// `WashiEPUBRenderer.swift` と同じ subsystem/category（同一モジュール内で file-private のため別インスタンス）。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
-/// `shunnag/Washi`（1.16.0・revision c785293）による `EPUBReading` 実装。Washi の型を外に漏らさない。
+/// `shunnag/Washi` による `EPUBReading` 実装。Washi の型を外に漏らさない。
 public struct WashiEPUBReader: EPUBReading {
     public init() {}
 

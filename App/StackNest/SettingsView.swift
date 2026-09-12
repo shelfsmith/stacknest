@@ -23,13 +23,15 @@ struct SettingsView: View {
     /// Phase G3a: リモートキャッシュ使用量の表示テキスト（onAppear / クリア後に更新）。
     @State private var cacheUsageText = "—"
 
-    /// 現在表示中の設定タブ (0=一般 / 1=表示 / 2=取り込み)。
+    /// 現在表示中の設定タブ (0=一般 / 1=表示 / 2=取り込み / 3=内蔵ビューア)。
     /// SettingsWindowFixedSize にこの値を渡してタブ切替時に updateNSView を再発火させ、
     /// window 高さをアクティブタブのフィット高さに追従させる (TabView は active page のみ
     /// mount するため、最初のタブの高さに固定すると他タブで clip / 余白が生じる)。
     /// DEFAULT-OPEN = 一般 tab (tag=0)。
     @State private var settingsTab = 0
-    @State private var keyOpenSections = 0
+    /// tab 3（内蔵ビューア）の高さ再測を発火させる単調カウンタ。値そのものに意味はなく、
+    /// キー割り当ての節を開閉するたびに `onHeightChange` から `&+=1` されるだけの通知トークン。
+    @State private var keyHeightRevision = 0
 
     /// LocalControlController を @State で保持して observation に載せる（ローカルアクセスタブ用）。
     @State private var localControl = LocalControlController.shared
@@ -287,7 +289,7 @@ struct SettingsView: View {
                     BuiltInViewerSettingsForm(settings: settings)
                 }
                 Section("キー割り当て") {
-                    KeyBindingsSettingsView(enabled: true, openSectionCount: $keyOpenSections)
+                    KeyBindingsSettingsView(enabled: true, onHeightChange: { keyHeightRevision &+= 1 })
                 }
             }
             .formStyle(.grouped)
@@ -300,8 +302,6 @@ struct SettingsView: View {
         // この幅でタブバーは折り畳まれない（5 タブ時は ">>"(Navigation Tab Bar) に collapse した・4.2f）。
         // 縦は SettingsWindowFixedSize 側でアクティブタブのフィット高さに追従させる (grow / shrink 両方向)。
         // tab: settingsTab を渡すことで、タブ切替時に updateNSView が再発火する。
-        // contentRevision: 一般タブ（ローカルコントロール統合）でトグル ON/OFF によりセクションが
-        //   増減するため、その有効状態を版数に絡めて updateNSView を再発火 → 高さが追従する。
         .frame(width: 600)
         .background(SettingsWindowFixedSize(
             tabBarPadding: 32,
@@ -312,7 +312,7 @@ struct SettingsView: View {
             contentRevision: {
                 switch settingsTab {
                 case 0: return ServerPreferences.localAutomationEnabled() ? 1 : 0
-                case 3: return keyOpenSections
+                case 3: return keyHeightRevision
                 default: return 0
                 }
             }()
@@ -494,8 +494,15 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // G54-S1: 使える高さは画面ごとに違うので、画面が変わったら測り直す。
         // ・didChangeScreenNotification: 窓を別の画面へ動かした
         // ・didChangeScreenParametersNotification: 解像度変更・ディスプレイの抜き差し・Dock の表示切替
-        context.coordinator.observeScreenChanges { [self, weak view, weak coordinator = context.coordinator] in
+        context.coordinator.observeScreenChanges { [self, weak view, weak coordinator = context.coordinator] changedWindowID in
             guard let view, let coordinator else { return }
+            // didChangeScreenNotification（changedWindowID != nil）が別窓宛てのときは無視する。
+            // これが無いと、他の窓が画面をまたいだだけで settings 窓の高さが測り直され、
+            // ユーザーが手で広げた高さが fitted 高さへ巻き戻ってしまう。
+            // didChangeScreenParametersNotification（changedWindowID == nil）は全体変化なので常に通す。
+            if let changedWindowID, changedWindowID != view.window.map(ObjectIdentifier.init) {
+                return
+            }
             apply(to: view.window, delegate: coordinator)
         }
         return view
@@ -507,6 +514,13 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // Form のレイアウトパス（セクション追加）がまだ終わっておらず documentView.frame.height が
         // 旧値のことがある。1 runloop 後にもう一度計測して確実に追従させる。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            apply(to: nsView.window, delegate: context.coordinator)
+        }
+        // G54-S1: 上の 2 回は 一般 タブの非アニメーションなセクション増減向けにチューニングされている。
+        // 内蔵ビューアタブの DisclosureGroup はアニメーションして開閉するため、+0.05s 時点でも
+        // documentView の高さがまだ遷移途中で、開くと中間の高さでスナップし、閉じても高いまま残る
+        // ことがあった。アニメーション完了後にもう一度測り直す。
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             apply(to: nsView.window, delegate: context.coordinator)
         }
     }
@@ -528,7 +542,8 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // **scroll content の真サイズ** (= 全項目を表示しきる高さ)。これを使わないと、
         // fittingSize は ScrollView viewport size (現 window 高さ依存) を返し、循環参照で
         // max が現高さに張り付いて全項目を表示できなかった (smoke v12 で観測)。
-        // 「キー」タブも他タブ同様 documentView 全高に追従（ScrollView は maxHeight:.infinity で充填）。
+        // 内蔵ビューアタブ（G54-S1）専用の ScrollView（maxHeight:.infinity で充填）は撤去済みで、
+        // 今は他タブ同様 Form (.grouped) の NSScrollView の documentView 全高で測る。
         // これで全行が収まる高さに window が伸び、スクロール不要になる（画面より高い場合のみ内部スクロール）。
         let documentHeight = Self.findScrollViewDocumentHeight(in: contentView)
         let baseHeight = documentHeight ?? contentView.fittingSize.height
@@ -540,7 +555,7 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // NSScreen.visibleFrame はメニューバーと Dock を除いた「実際に窓を置ける領域」なので、
         // Dock の表示状態や外部ディスプレイの違いがそのまま反映される。
         let wanted = baseHeight + heightPadding
-        let fittedHeight = Self.clampToScreen(wanted, window: window, fraction: maxHeightScreenFraction)
+        let fittedHeight = Self.clampToScreen(wanted, window: window, fraction: maxHeightScreenFraction, minHeight: minHeight)
         delegate.maxHeight = fittedHeight
 
         // window.minSize/maxSize も併用 (scene が override する前提だが保険として残す)。
@@ -563,12 +578,15 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
     /// 同様に、算出した上限 (`limit`) が 0 以下（タイトルバー等の chrome が画面高さを超える等の異常値）の
     /// ときも上限なしで `wanted` をそのまま返す。
     /// `setContentSize` はコンテンツ高さを取るので、窓全体との差（タイトルバー等）を引いてから比べる。
-    static func clampToScreen(_ wanted: CGFloat, window: NSWindow, fraction: CGFloat) -> CGFloat {
+    /// `minHeight` 未満の画面（目安 ~310pt 以下）では `limit` が `minHeight` を割り込みうるため、
+    /// 上限が下限を下回らないよう `max(minHeight, limit)` で底上げしてから `wanted` と比べる
+    /// （呼び出し側が `window.maxSize < window.minSize` を設定してしまうのを防ぐ）。
+    static func clampToScreen(_ wanted: CGFloat, window: NSWindow, fraction: CGFloat, minHeight: CGFloat) -> CGFloat {
         guard let screen = window.screen ?? NSScreen.main else { return wanted }
         let chrome = max(0, window.frame.height - window.contentLayoutRect.height)
         let limit = screen.visibleFrame.height * fraction - chrome
         guard limit > 0 else { return wanted }
-        return min(wanted, limit)
+        return min(wanted, max(minHeight, limit))
     }
 
     /// SwiftUI Form (.grouped) は内部に NSScrollView を持つので、再帰的に探して
@@ -615,15 +633,23 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
         // self の refcount が 0 にならず `deinit` が永久に呼ばれない。`deinit` が呼ばれなければ
         // `removeObserver` にも到達できず、コーディネータと NSView が両方リークしたまま
         // 孤児化した observer が以後の画面変化ごとに発火し続ける。
-        func observeScreenChanges(onChange: @escaping @MainActor () -> Void) {
+        // G54-S1: didChangeScreenNotification は object にどの窓の画面が変わったかを積む
+        // （didChangeScreenParametersNotification は全体変化なので object を持たない）。
+        // 呼び出し側で「自分の窓宛てか」を判定できるよう、object をそのまま渡すのではなく
+        // `ObjectIdentifier` に写像してから `onChange` へ渡す。NSWindow 自体を Task 境界越しに
+        // 送るのは上のコメントの理由（`@Sendable` でない）でできないが、`ObjectIdentifier` は
+        // Sendable な値型なので同じ Task 越しのホップに乗せられる。nil は
+        // didChangeScreenParametersNotification（全体変化・常に通す）を表す。
+        func observeScreenChanges(onChange: @escaping @MainActor (ObjectIdentifier?) -> Void) {
             guard screenObservers.isEmpty else { return }
             let center = NotificationCenter.default
             screenObservers = [
-                center.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: .main) { _ in
-                    Task { @MainActor in onChange() }
+                center.addObserver(forName: NSWindow.didChangeScreenNotification, object: nil, queue: .main) { note in
+                    let changedWindowID = (note.object as AnyObject?).map(ObjectIdentifier.init)
+                    Task { @MainActor in onChange(changedWindowID) }
                 },
                 center.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { _ in
-                    Task { @MainActor in onChange() }
+                    Task { @MainActor in onChange(nil) }
                 },
             ]
         }

@@ -108,7 +108,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         super.init()
         hostView.host = self
         reader.delegate = self
-        // G51（spec §3.1・Washi 1.17.0 前提）: キーは窓（EPUBReaderWindowController）が共有の割り当て表で扱う。
+        // G51（spec §3.1・Washi 前提）: キーは窓（EPUBReaderWindowController）が共有の割り当て表で扱う。
         // - native monitor（forwardsKeyEventsNatively）で WebView より先に NSEvent を受け、`onKeyEvent` へ渡す。
         // - JS 既定ナビ（矢印・Space・PageUp/Down・Home/End）は止める。表が唯一の権威になるため
         //   （表で Space を外せば EPUB でも Space は送らない）。

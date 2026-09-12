@@ -6,10 +6,13 @@ struct KeyBindingsSettingsView: View {
     /// キー設定は内蔵ビューア専用。外部ビューア選択時は false でグレーアウトする。
     var enabled: Bool = true
 
-    /// G54-S1: 開いている節の数を親へ返す。親はこれを SettingsWindowFixedSize の
-    /// contentRevision に流し、開閉のたびに窓の高さを測り直させる（開閉は tab を変えないため、
-    /// これが無いと updateNSView が発火せず高さが追従しない）。
-    @Binding var openSectionCount: Int
+    /// G54-S1: 開閉のたびに親へ通知する。親はこれを SettingsWindowFixedSize の
+    /// contentRevision（単調増加のカウンタ）に反映し、窓の高さを測り直させる（開閉は tab を
+    /// 変えないため、これが無いと updateNSView が発火せず高さが追従しない）。
+    /// 値そのもの（開いている節の数）ではなく通知にしているのは、このビューが再構築され
+    /// `expanded` が `[]` にリセットされても、親側のカウンタとの食い違いで通知が飲み込まれない
+    /// ようにするため。
+    var onHeightChange: () -> Void
 
     @State private var bindings = ViewerKeyBindings.load()
     @State private var capturingAction: ViewerAction?
@@ -37,7 +40,7 @@ struct KeyBindingsSettingsView: View {
                         get: { expanded.contains(section) },
                         set: { isOpen in
                             if isOpen { expanded.insert(section) } else { expanded.remove(section) }
-                            openSectionCount = expanded.count
+                            onHeightChange()
                         }
                     )) {
                         VStack(alignment: .leading, spacing: 6) {
