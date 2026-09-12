@@ -33,7 +33,7 @@ struct BuiltInViewerSettingsForm: View {
                 .disabled(!settings.useBuiltInViewer)
 
             // 全 book 共通の全画面起動設定
-            Toggle("全画面で開く", isOn: $settings.openFullScreenByDefault)
+            Toggle("全画面で開く（画像ビューア）", isOn: $settings.openFullScreenByDefault)
                 .disabled(!settings.useBuiltInViewer)
 
             // G51（Q3=C-2）: EPUB の窓は別設定（行長が伸びると読みにくいので使い分けたい）。

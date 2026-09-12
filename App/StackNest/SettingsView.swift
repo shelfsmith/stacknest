@@ -203,12 +203,9 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Text("リモート共有・オフライン閲覧は、外部ビューア設定に関わらず常に内蔵ビューアで表示されます（このためキー設定は常時有効）。")
+                    Text("リモート閲覧は、外部ビューア設定に関わらず常に内蔵ビューアで表示されます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
-                    Text("内蔵ビューアの詳しい設定とキー割り当ては「内蔵ビューア」タブにあります。")
-                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("詳細ペイン") {
@@ -239,7 +236,7 @@ struct SettingsView: View {
                 }
 
                 Section("リモートキャッシュ") {
-                    Text("リモート閲覧の高速化用に、ページ・表紙をディスクへ自動キャッシュします（自動管理。オフライン ダウンロードとは別）。")
+                    Text("リモート閲覧の高速化用に、ページ・表紙をディスクへ自動キャッシュします。")
                         .font(.caption).foregroundStyle(.secondary)
                     Picker("上限", selection: Binding(
                         get: { RemoteCacheSettings.limitBytes() },
@@ -294,7 +291,7 @@ struct SettingsView: View {
             }
             .formStyle(.grouped)
             .tabItem {
-                Label("内蔵ビューア", systemImage: "book.pages")
+                Label("内蔵ビューア", systemImage: "book.closed")
             }
             .tag(3)
         }
