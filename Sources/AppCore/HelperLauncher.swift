@@ -20,7 +20,8 @@ public enum HelperLauncher {
         }
 
         let category = BookCategory.classify(path: path)
-        guard let viewerPath = settings.resolvedViewerPath(for: category) else {
+        // G54-S2b: EPUB だけ専用の指定を先に引く（無ければ従来どおり category → 既定）。
+        guard let viewerPath = settings.resolvedViewerPath(forPath: path, category: category) else {
             return .launchFailed(
                 path: path,
                 reason: "\(category.displayName) 用の外部ビューアが未設定です。設定 (⌘,) で選択してください。"

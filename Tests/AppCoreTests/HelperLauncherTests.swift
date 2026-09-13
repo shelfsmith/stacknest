@@ -161,6 +161,61 @@ import LibraryStore
         #expect(reason.contains("画像"))
     }
 
+    @Test("G54-S2b: EPUB は専用指定のアプリで開く")
+    @MainActor
+    func epubUsesItsOwnViewer() throws {
+        let suiteName = "test-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let settings = ViewerSettings(defaults: suite)
+        // .text の category override を実在するアプリに設定 -- EPUB の専用指定に負けることを確かめたい対照
+        settings.categoryViewerPaths[.text] = "/System/Applications/TextEdit.app"
+        // EPUB 専用指定は実在するアプリにする -- こちらが選ばれれば起動エラーは出ない
+        settings.epubViewerAppPath = "/System/Applications/Preview.app"
+        let tempEPUB = FileManager.default.temporaryDirectory
+            .appending(path: "HelperLauncher-\(UUID().uuidString).epub")
+        try Data().write(to: tempEPUB)
+        defer { try? FileManager.default.removeItem(at: tempEPUB) }
+        let book = makeBook(path: tempEPUB.path(percentEncoded: false), coverPath: "")
+        let err = HelperLauncher.open(book: book, settings: settings)
+        // 専用指定（実在パス）が選ばれるので、起動は成功しエラーは返らない。
+        // category override（TextEdit）が選ばれていたら同じく nil になってしまうため、これ単独では
+        // 「専用指定が引かれた」証拠にならない -- 次のテストで専用指定側だけを壊して切り分ける。
+        #expect(err == nil)
+    }
+
+    @Test("G54-S2b: EPUB の専用指定が実在しなければ、category 側ではなく専用指定側のエラーになる")
+    @MainActor
+    func epubUsesItsOwnViewerNotCategoryOverride() throws {
+        let suiteName = "test-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: suiteName)!
+        defer { suite.removePersistentDomain(forName: suiteName) }
+        let settings = ViewerSettings(defaults: suite)
+        // .text の category override は実在するアプリにしておく
+        settings.categoryViewerPaths[.text] = "/System/Applications/TextEdit.app"
+        // EPUB 専用指定だけを実在しないパスにする
+        let missingViewerPath = "/Applications/NoSuchApp\(UUID().uuidString).app"
+        settings.epubViewerAppPath = missingViewerPath
+        let tempEPUB = FileManager.default.temporaryDirectory
+            .appending(path: "HelperLauncher-\(UUID().uuidString).epub")
+        try Data().write(to: tempEPUB)
+        defer { try? FileManager.default.removeItem(at: tempEPUB) }
+        let book = makeBook(path: tempEPUB.path(percentEncoded: false), coverPath: "")
+        let err = HelperLauncher.open(book: book, settings: settings)
+        guard let err else {
+            Issue.record("Expected non-nil AppError, got nil")
+            return
+        }
+        if case let .launchFailed(_, reason) = err {
+            // category override（実在する TextEdit）ではなく、専用指定（実在しないパス）が
+            // 選ばれていることが、このエラーメッセージ（専用指定のパスを含む）で分かる。
+            #expect(reason.contains("外部ビューアが見つかりません"))
+            #expect(reason.contains(missingViewerPath))
+        } else {
+            Issue.record("Expected .launchFailed, got \(err)")
+        }
+    }
+
     @Test @MainActor
     func errorMessageMentionsFolderCategory() throws {
         let suiteName = "test-\(UUID().uuidString)"

@@ -38,6 +38,7 @@ public final class ViewerSettings {
     private let loupeShapeKey = "viewerLoupeShape"
     private let loupeSizeKey = "viewerLoupeSize"
     private let epubFontScaleKey = "epubFontScale"
+    private let epubViewerAppPathKey = "epubViewerAppPath"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -189,6 +190,23 @@ public final class ViewerSettings {
         }
     }
 
+    /// G54-S2b: EPUB だけ別の外部ビューアを指定する。未設定なら `.text` の指定→既定 の順に落ちる。
+    /// `BookCategory` は `pdf` `epub` `txt` `md` `rtf` をまとめて `.text` に入れるため、
+    /// 分類を増やさずにここで分ける（分類を増やすと `ContentEndpoints.formatString` 経由で
+    /// Web とリモートの通信内容まで変わってしまう）。
+    /// `categoryViewerPaths` に鍵を足さないのは、あちらが未知の鍵 1 つでデコードごと失敗して
+    /// 全カテゴリの指定が消える作りだから（上の TODO 参照）。
+    /// 永続化は `externalViewerAppPath` と同じ書き方（nil のときだけキーを消す）に揃える。
+    public var epubViewerAppPath: String? {
+        didSet {
+            if let value = epubViewerAppPath {
+                defaults.set(value, forKey: epubViewerAppPathKey)
+            } else {
+                defaults.removeObject(forKey: epubViewerAppPathKey)
+            }
+        }
+    }
+
     /// category 別 viewer override。nil の category は `externalViewerAppPath` に fallback。
     /// JSON-encoded Data として 1 key で保存。
     public var categoryViewerPaths: [BookCategory: String] {
@@ -204,6 +222,7 @@ public final class ViewerSettings {
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.externalViewerAppPath = defaults.string(forKey: defaultKey)
+        self.epubViewerAppPath = defaults.string(forKey: epubViewerAppPathKey)
         // Phase 2.5g: default ON for autoClassifyEnabled. UserDefaults bool(forKey:) returns false
         // when the key is absent, so use object(forKey:) to detect first-run state.
         if defaults.object(forKey: autoClassifyKey) == nil {
@@ -316,6 +335,16 @@ public final class ViewerSettings {
             return override
         }
         return externalViewerAppPath
+    }
+
+    /// G54-S2b: パスも見て解決する。拡張子が `epub` で専用指定が在ればそれを優先し、
+    /// 無ければ従来どおり category override → 既定 の順（`resolvedViewerPath(for:)` に委譲）。
+    public func resolvedViewerPath(forPath path: String, category: BookCategory) -> String? {
+        if (path as NSString).pathExtension.lowercased() == "epub",
+           let epub = epubViewerAppPath, !epub.isEmpty {
+            return epub
+        }
+        return resolvedViewerPath(for: category)
     }
 }
 
