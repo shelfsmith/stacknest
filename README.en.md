@@ -218,7 +218,7 @@ The startup mode can be changed in app preferences (`⌘,`) under "Startup":
 
 ### Configuring the external viewer
 
-By default, books open in the **built-in viewer**; the built-in / external choice is kept **separately for images and EPUB** (**Settings ▸ 表示 (Display) ▸ ビューア（画像） (Viewer, Images)** / **ビューア（EPUB） (Viewer, EPUB)**). Video and text (txt/md/rtf) can't be opened in the built-in viewer, so they always open externally. To use an external viewer, configure it in **Settings ▸ 表示 (Display) ▸ 外部ビューア (External Viewer)** (`⌘,`). Click "Choose…" and pick an image-viewer app (cooViewer, Avian, Preview, etc.). Without this, the system's Archive Utility would just extract `.zip` files instead of viewing them. The selected viewer is persisted across launches via `UserDefaults`.
+By default, books open in the **built-in viewer**; the built-in / external choice is kept **separately for images and EPUB** (**Settings ▸ 表示 (Display) ▸ ビューア (Viewer)**). Video and text (txt/md/rtf) can't be opened in the built-in viewer, so they always open externally. To use an external viewer, configure it in **Settings ▸ 表示 (Display) ▸ 外部ビューア (External Viewer)** (`⌘,`). Click "Choose…" and pick an image-viewer app (cooViewer, Avian, Preview, etc.). Without this, the system's Archive Utility would just extract `.zip` files instead of viewing them. The selected viewer is persisted across launches via `UserDefaults`.
 
 Once configured, double-clicking a book in the grid opens the file (or its cover image) directly in the chosen viewer.
 

@@ -191,33 +191,20 @@ struct SettingsView: View {
 
             // MARK: - Tab 3: 表示
             Form {
-                Section("ビューア（画像）") {
-                    Picker("ビューア", selection: $settings.useBuiltInImageViewer) {
-                        Text("内蔵ビューア").tag(true)
-                        Text("外部ビューア").tag(false)
+                Section("ビューア") {
+                    Picker("画像（アーカイブ・フォルダ・PDF・画像だけの EPUB など）",
+                           selection: $settings.useBuiltInImageViewer) {
+                        Text("内蔵").tag(true)
+                        Text("外部").tag(false)
                     }
                     .pickerStyle(.radioGroup)
 
-                    Text("アーカイブ・画像・フォルダ内の画像・PDF に適用されます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section("ビューア（EPUB）") {
-                    Picker("ビューア", selection: $settings.useBuiltInEPUBViewer) {
-                        Text("内蔵ビューア").tag(true)
-                        Text("外部ビューア").tag(false)
+                    Picker("電子書籍（EPUB）", selection: $settings.useBuiltInEPUBViewer) {
+                        Text("内蔵").tag(true)
+                        Text("外部").tag(false)
                     }
                     .pickerStyle(.radioGroup)
 
-                    Text("内蔵ビューアは、画像だけの EPUB は画像ビューアで、それ以外は EPUB 専用の窓で開きます。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Section {
-                    // 画像・EPUB 両方に共通する注記（どちらか一方のセクションに置くと、
-                    // 他方だけ見ている人に届かないため、見出しなしの共通セクションへ分離）。
                     Text("動画とテキスト（txt・md・rtf）は内蔵ビューアで開けないため、常に外部ビューアで開きます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
