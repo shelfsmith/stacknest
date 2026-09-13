@@ -455,12 +455,22 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
             dlItem.isEnabled = anyNotDownloaded
             menu.addItem(dlItem)
         } else {
-            let dlTitle = state.isDownloaded(book.id) ? String(localized: "ダウンロード済み")
-                                                      : String(localized: "ダウンロード")
-            let dlItem = NSMenuItem(title: dlTitle, action: #selector(ctxDownload(_:)), keyEquivalent: "")
-            dlItem.target = self; dlItem.representedObject = book.id
-            dlItem.isEnabled = !state.isDownloaded(book.id)
-            menu.addItem(dlItem)
+            // G54-S2b: ダウンロード済みのとき、押せない「ダウンロード済み」を出すだけだったのを
+            // 「オフラインから削除」に替える。グリッド表示には前からあった項目で、
+            // 一覧表示にだけ無いのは欠落だった（S2 の smoke 6-3 で発覚）。
+            if state.isDownloaded(book.id) {
+                let rmItem = NSMenuItem(title: String(localized: "オフラインから削除"),
+                                        action: #selector(ctxRemoveDownload(_:)), keyEquivalent: "")
+                rmItem.target = self; rmItem.representedObject = book.id
+                rmItem.isEnabled = true
+                menu.addItem(rmItem)
+            } else {
+                let dlItem = NSMenuItem(title: String(localized: "ダウンロード"),
+                                        action: #selector(ctxDownload(_:)), keyEquivalent: "")
+                dlItem.target = self; dlItem.representedObject = book.id
+                dlItem.isEnabled = true
+                menu.addItem(dlItem)
+            }
         }
         menu.addItem(NSMenuItem.separator())
 
@@ -571,6 +581,12 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         guard let id = sender.representedObject as? Int, let b = state.books.first(where: { $0.id == id }) else { return }
         // 4.2c-4: 単一 DL も一括と同じ進捗バー/×中断 UI を出す。
         state.startSingleDownload(b)
+    }
+    /// G54-S2b: 一覧表示からオフライン保存を削除する。グリッド表示の同名の項目と同じ処理を呼ぶ
+    /// （`App/StackNest/RemoteLibraryView.swift` の `downloadMenu`）。
+    @objc private func ctxRemoveDownload(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? Int else { return }
+        state.removeDownload(id)
     }
     /// 4.2c-3 (D2b): 複数選択に対する一括ダウンロード（未 DL のみ）。multiSelection を対象にする。
     /// v6 NG 修正: downloadSelected() 直呼びだと startBatchDownload() を通らずキャンセルトークンが
