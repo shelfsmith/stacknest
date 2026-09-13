@@ -5,7 +5,8 @@ import LibraryStore
 public enum HelperLauncher {
     /// Opens `book.path` using the user-configured external viewer.
     /// path から `BookCategory.classify` で category を判定し、
-    /// `settings.resolvedViewerPath(for:)` (= category override → default fallback) で viewer を解決する。
+    /// `settings.resolvedViewerPath(forPath:category:)` (= EPUB 専用指定 → category override → default
+    /// fallback) で viewer を解決する。EPUB 専用指定を見るのは category が `.text` の場合だけ。
     /// Returns `nil` if launch was dispatched, or an `AppError` describing the failure.
     @MainActor
     public static func open(book: BookRow, settings: ViewerSettings) -> AppError? {

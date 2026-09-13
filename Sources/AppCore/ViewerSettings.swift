@@ -11,6 +11,8 @@ import EPUBAdapter
 /// - `externalViewerAppPath`: 全 category の default fallback (既存 API、UserDefaults key 維持)
 /// - `categoryViewerPaths`: category 別の viewer override。未設定 category は default fallback を使う。
 ///   JSON-encoded `Data` として 1 key で保存。
+/// - `epubViewerAppPath`: EPUB だけの専用 viewer override（`categoryViewerPaths` とは別 key）。
+///   未設定 category override → default fallback の順に落ちる。
 @Observable
 @MainActor
 public final class ViewerSettings {
@@ -349,10 +351,13 @@ public final class ViewerSettings {
         return externalViewerAppPath
     }
 
-    /// G54-S2b: パスも見て解決する。拡張子が `epub` で専用指定が在ればそれを優先し、
+    /// G54-S2b: パスも見て解決する。分類が `.text` かつ拡張子が `epub` で専用指定が在ればそれを優先し、
     /// 無ければ従来どおり category override → 既定 の順（`resolvedViewerPath(for:)` に委譲）。
+    /// `category` を先に見るのは、展開済み EPUB のディレクトリ（`BookCategory.classify` は `.folder` にする）
+    /// を拡張子だけで EPUB 指定に引っぱらないため（`ViewerChoice.viewerSwitch(forPath:)` と同じ形に揃える）。
     public func resolvedViewerPath(forPath path: String, category: BookCategory) -> String? {
-        if (path as NSString).pathExtension.lowercased() == "epub",
+        if category == .text,
+           (path as NSString).pathExtension.lowercased() == "epub",
            let epub = epubViewerAppPath, !epub.isEmpty {
             return epub
         }

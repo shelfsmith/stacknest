@@ -73,6 +73,14 @@ struct ViewerSettingsEPUBViewerPathTests {
         #expect(s.resolvedViewerPath(forPath: "/tmp/a.zip", category: .archive) == "/Applications/Comic.app")
     }
 
+    @Test("拡張子が epub でも分類が folder なら専用指定を見ない")
+    func folderNamedLikeEPUBIsUnaffected() {
+        let s = makeSettings()
+        s.categoryViewerPaths[.folder] = "/Applications/Folder.app"
+        s.epubViewerAppPath = "/Applications/Books.app"
+        #expect(s.resolvedViewerPath(forPath: "/tmp/展開済み.epub", category: .folder) == "/Applications/Folder.app")
+    }
+
     @Test("専用指定が永続化される")
     func persists() {
         let name = "g54s2b-persist-\(UUID().uuidString)"
