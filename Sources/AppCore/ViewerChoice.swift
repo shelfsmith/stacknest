@@ -25,6 +25,10 @@ public enum ViewerChoice {
         case .text:
             // `.text` には pdf / epub / txt / md / rtf が混ざる。内蔵で描けるのは pdf と epub だけ。
             switch (path as NSString).pathExtension.lowercased() {
+            // G54-S2: 画像だけの EPUB も**すべて** EPUB 側の設定に従う。
+            // 「画像だけか」は開いてみないと分からず、振り分けの前に一度読むと
+            // 外部へ渡すだけの場合でも読み込みが入って開き始めが遅くなるため。
+            // 内蔵を選んでいれば、その先で画像ビューアと Washi の窓に振り分けられる。
             case "epub": return .epub
             case "pdf": return .image
             default: return .externalOnly

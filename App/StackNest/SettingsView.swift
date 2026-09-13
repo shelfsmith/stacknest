@@ -192,7 +192,7 @@ struct SettingsView: View {
             // MARK: - Tab 3: 表示
             Form {
                 Section("ビューア") {
-                    Picker("画像（アーカイブ・フォルダ・PDF・画像だけの EPUB など）",
+                    Picker("画像（アーカイブ・フォルダ・PDF・画像ファイル）",
                            selection: $settings.useBuiltInImageViewer) {
                         Text("内蔵").tag(true)
                         Text("外部").tag(false)
