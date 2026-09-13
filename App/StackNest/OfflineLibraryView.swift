@@ -338,6 +338,8 @@ struct OfflineLibraryView: View {
                     }
                     epubReader.fontScale = ViewerSettings.shared.epubFontScale
                     epubReader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
+                    // G54-S2b: 配色は開いた時点の設定を一度だけ渡す（開いている窓には反映しない）。
+                    epubReader.setTheme(ViewerSettings.shared.epubTheme)
                     controller.onClose = { [weak controller] in
                         guard let controller else { return }
                         ViewerWindowRegistry.shared.unregister(controller: controller)

@@ -1131,6 +1131,8 @@ final class AppState {
                 reader.onFontScaleChange = { [weak self] scale in
                     self?.viewerSettings.epubFontScale = scale
                 }
+                // G54-S2b: 配色は開いた時点の設定を一度だけ渡す（開いている窓には反映しない）。
+                reader.setTheme(self.viewerSettings.epubTheme)
                 controller.onClose = { [weak controller] in
                     guard let controller else { return }
                     ViewerWindowRegistry.shared.unregister(controller: controller)

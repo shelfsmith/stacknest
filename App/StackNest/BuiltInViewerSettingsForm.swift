@@ -2,6 +2,7 @@
 import SwiftUI
 import AppCore
 import LibraryStore
+import EPUBAdapter
 
 /// Phase 2.6c: 内蔵ビューアのグローバル設定を描画する共有フォーム。
 /// （項目数は増えるので数えて書かない。G40 でルーペの形・倍率・大きさが加わった）
@@ -36,6 +37,17 @@ struct BuiltInViewerSettingsForm: View {
 
             // G51（Q3=C-2）: EPUB の窓は別設定（行長が伸びると読みにくいので使い分けたい）。
             Toggle("全画面で開く（EPUB）", isOn: $settings.openEPUBFullScreenByDefault)
+
+            // G54-S2b: EPUB の配色。既定はシステムの外観に従う。
+            Picker("EPUB の配色", selection: $settings.epubTheme) {
+                Text("システムに合わせる").tag(EPUBReaderThemeValue.system)
+                Text("ライト").tag(EPUBReaderThemeValue.light)
+                Text("ダーク").tag(EPUBReaderThemeValue.dark)
+            }
+
+            Text("次に本を開いたときから反映されます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             // G15 V1: 複数ビューア窓の許可（OFF=単一ビューア維持／ON=別の本は別窓）。
             Toggle("複数ビューアの起動を許可", isOn: $settings.allowMultipleViewerWindows)

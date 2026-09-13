@@ -2128,6 +2128,8 @@ final class RemoteLibraryState {
             }
             reader.fontScale = ViewerSettings.shared.epubFontScale
             reader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
+            // G54-S2b: 配色は開いた時点の設定を一度だけ渡す（開いている窓には反映しない）。
+            reader.setTheme(ViewerSettings.shared.epubTheme)
             controller.onClose = { [weak controller] in
                 guard let controller else { return }
                 ViewerWindowRegistry.shared.unregister(controller: controller)
