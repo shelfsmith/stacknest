@@ -2,6 +2,7 @@
 import Testing
 import Foundation
 @testable import AppCore
+import EPUBAdapter
 
 @Suite struct ViewerSettingsTests {
     @Test @MainActor
@@ -181,6 +182,44 @@ import Foundation
         #expect(suite.bool(forKey: "useBuiltInEPUBViewer") == false)
         let s2 = ViewerSettings(defaults: suite)
         #expect(s2.useBuiltInEPUBViewer == false)
+    }
+
+    @Test("G54-S2b: EPUB の配色の既定はシステムに合わせる")
+    @MainActor
+    func epubThemeDefaultsToSystem() {
+        let s = ViewerSettings(defaults: UserDefaults(suiteName: "g54s2b-theme-\(UUID().uuidString)")!)
+        #expect(s.epubTheme == .system)
+    }
+
+    @Test("G54-S2b: EPUB の配色が永続化される")
+    @MainActor
+    func epubThemePersists() {
+        let name = "g54s2b-theme-persist-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: name)!
+        let s = ViewerSettings(defaults: suite)
+        s.epubTheme = .dark
+        #expect(suite.string(forKey: "epubTheme") == "dark")
+        #expect(ViewerSettings(defaults: suite).epubTheme == .dark)
+    }
+
+    @Test("G54-S2b: 壊れた値はシステムに倒す")
+    @MainActor
+    func epubThemeFallsBackOnGarbage() {
+        let suite = UserDefaults(suiteName: "g54s2b-theme-garbage-\(UUID().uuidString)")!
+        suite.set("sepia", forKey: "epubTheme")
+        #expect(ViewerSettings(defaults: suite).epubTheme == .system)
+    }
+
+    @Test("G54-S2b: 3 択とも往復できる")
+    @MainActor
+    func epubThemeRoundTripsAllCases() {
+        let name = "g54s2b-theme-roundtrip-\(UUID().uuidString)"
+        let suite = UserDefaults(suiteName: name)!
+        for theme in [EPUBReaderThemeValue.system, .light, .dark] {
+            let s = ViewerSettings(defaults: suite)
+            s.epubTheme = theme
+            #expect(ViewerSettings(defaults: suite).epubTheme == theme)
+        }
     }
 }
 

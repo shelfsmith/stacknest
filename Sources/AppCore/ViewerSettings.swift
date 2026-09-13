@@ -3,6 +3,7 @@ import CoreGraphics
 import Foundation
 import Observation
 import LibraryStore
+import EPUBAdapter
 
 /// UserDefaults を 1〜2 キーでラップする @Observable @MainActor クラス。
 /// テスト用に suite を注入できる。
@@ -38,6 +39,7 @@ public final class ViewerSettings {
     private let loupeShapeKey = "viewerLoupeShape"
     private let loupeSizeKey = "viewerLoupeSize"
     private let epubFontScaleKey = "epubFontScale"
+    private let epubThemeKey = "epubTheme"
     private let epubViewerAppPathKey = "epubViewerAppPath"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
@@ -172,6 +174,13 @@ public final class ViewerSettings {
             }
             defaults.set(epubFontScale, forKey: epubFontScaleKey)
         }
+    }
+
+    /// G54-S2b: EPUB の配色（既定はシステムの外観に従う）。
+    /// 契約側（`EPUBReaderViewing.setTheme`）と Washi への変換は既に通っているので、ここは値を持つだけ。
+    /// **開いている窓には反映しない**（契約に変更を通知する仕組みが無く、レンダラを作った直後にだけ渡す）。
+    public var epubTheme: EPUBReaderThemeValue {
+        didSet { defaults.set(epubTheme.rawValue, forKey: epubThemeKey) }
     }
 
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
@@ -317,6 +326,9 @@ public final class ViewerSettings {
         } else {
             self.epubFontScale = EPUBFontScale.clamp(defaults.double(forKey: epubFontScaleKey))
         }
+        // 壊れた値や未知の値はシステムに倒す（epubFontScale が範囲外を既定へ戻すのと同じ考え方）。
+        self.epubTheme = defaults.string(forKey: epubThemeKey)
+            .flatMap(EPUBReaderThemeValue.init(rawValue:)) ?? .system
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve
         // partial state when a BookCategory case is later renamed/removed.
