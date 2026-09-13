@@ -45,10 +45,6 @@ struct BuiltInViewerSettingsForm: View {
                 Text("ダーク").tag(EPUBReaderThemeValue.dark)
             }
 
-            Text("次に本を開いたときから反映されます。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
             // G15 V1: 複数ビューア窓の許可（OFF=単一ビューア維持／ON=別の本は別窓）。
             Toggle("複数ビューアの起動を許可", isOn: $settings.allowMultipleViewerWindows)
                 .help("OFF: 別の本を開くと既存のビューアを閉じて1つに保ちます。ON: 別の本は別ウィンドウで開きます。どちらでも同じ本は1つにまとまります。")

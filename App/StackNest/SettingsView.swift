@@ -241,9 +241,11 @@ struct SettingsView: View {
                     }
                     // G54-S2b: EPUB だけ別のアプリを指定できる（`BookCategory` は EPUB と PDF を
                     // まとめて「テキスト」に入れるため、種類別の行では分けられない）。
+                    // smoke のコメント: フォールバック先は既定のみ（`.text` は経由しない）ため、
+                    // 説明は他の行と同じく拡張子の表示に揃える。
                     viewerSettingsRow(
-                        label: "EPUB",
-                        caption: "未設定のときは テキスト の設定で開きます。",
+                        label: "電子書籍",
+                        caption: ".epub",
                         path: settings.epubViewerAppPath,
                         onChoose: { chooseEPUBViewer() },
                         onReset: settings.epubViewerAppPath != nil

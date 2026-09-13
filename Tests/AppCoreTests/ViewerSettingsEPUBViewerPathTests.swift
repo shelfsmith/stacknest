@@ -34,19 +34,28 @@ struct ViewerSettingsEPUBViewerPathTests {
         #expect(s.resolvedViewerPath(forPath: "/tmp/A.EPUB", category: .text) == "/Applications/Books.app")
     }
 
-    @Test("専用指定が無ければ テキスト の指定へ落ちる")
-    func fallsBackToCategory() {
+    @Test("専用指定が無ければ テキスト を飛ばして既定へ落ちる")
+    func fallsBackToDefaultSkippingCategory() {
         let s = makeSettings()
+        s.externalViewerAppPath = "/Applications/Default.app"
         s.categoryViewerPaths[.text] = "/Applications/Text.app"
-        #expect(s.resolvedViewerPath(forPath: "/tmp/a.epub", category: .text) == "/Applications/Text.app")
+        #expect(s.resolvedViewerPath(forPath: "/tmp/a.epub", category: .text) == "/Applications/Default.app")
     }
 
-    @Test("専用指定が空文字でも テキスト の指定へ落ちる")
+    @Test("専用指定が空文字でも テキスト を飛ばして既定へ落ちる")
     func emptyOverrideIsIgnored() {
         let s = makeSettings()
+        s.externalViewerAppPath = "/Applications/Default.app"
         s.epubViewerAppPath = ""
         s.categoryViewerPaths[.text] = "/Applications/Text.app"
-        #expect(s.resolvedViewerPath(forPath: "/tmp/a.epub", category: .text) == "/Applications/Text.app")
+        #expect(s.resolvedViewerPath(forPath: "/tmp/a.epub", category: .text) == "/Applications/Default.app")
+    }
+
+    @Test("テキスト の指定が在っても EPUB はそれを使わない（既定も未設定なら nil）")
+    func textOverrideAloneIsNeverUsedForEPUB() {
+        let s = makeSettings()
+        s.categoryViewerPaths[.text] = "/Applications/Text.app"
+        #expect(s.resolvedViewerPath(forPath: "/tmp/a.epub", category: .text) == nil)
     }
 
     @Test("どちらも無ければ既定へ落ちる")

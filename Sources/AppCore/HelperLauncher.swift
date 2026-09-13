@@ -5,8 +5,9 @@ import LibraryStore
 public enum HelperLauncher {
     /// Opens `book.path` using the user-configured external viewer.
     /// path から `BookCategory.classify` で category を判定し、
-    /// `settings.resolvedViewerPath(forPath:category:)` (= EPUB 専用指定 → category override → default
-    /// fallback) で viewer を解決する。EPUB 専用指定を見るのは category が `.text` の場合だけ。
+    /// `settings.resolvedViewerPath(forPath:category:)` (= EPUB は専用指定 → default fallback、
+    /// それ以外は category override → default fallback) で viewer を解決する。
+    /// EPUB 専用指定を見るのは category が `.text` の場合だけ。
     /// Returns `nil` if launch was dispatched, or an `AppError` describing the failure.
     @MainActor
     public static func open(book: BookRow, settings: ViewerSettings) -> AppError? {
@@ -21,11 +22,14 @@ public enum HelperLauncher {
         }
 
         let category = BookCategory.classify(path: path)
-        // G54-S2b: EPUB だけ専用の指定を先に引く（無ければ従来どおり category → 既定）。
+        // G54-S2b: EPUB だけ専用の指定を先に引く（無ければ `.text` を飛ばして既定）。
         guard let viewerPath = settings.resolvedViewerPath(forPath: path, category: category) else {
+            // G54-S2b: EPUB は `.text` に分類されるが、テキストの指定は経由しないので名前も分ける。
+            let viewerKindName = (category == .text && (path as NSString).pathExtension.lowercased() == "epub")
+                ? "電子書籍" : category.displayName
             return .launchFailed(
                 path: path,
-                reason: "\(category.displayName) 用の外部ビューアが未設定です。設定 (⌘,) で選択してください。"
+                reason: "\(viewerKindName) 用の外部ビューアが未設定です。設定 (⌘,) で選択してください。"
             )
         }
         guard FileManager.default.fileExists(atPath: viewerPath) else {

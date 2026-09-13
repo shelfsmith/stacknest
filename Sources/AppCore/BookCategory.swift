@@ -24,7 +24,7 @@ public enum BookCategory: String, CaseIterable, Codable, Sendable {
         case .image:   return ".jpg / .png / .gif / .webp / .heic / etc"
         case .folder:  return "(ディレクトリ書籍)"
         case .video:   return ".mp4 / .mov / .avi / .mkv / .webm / .m4v"
-        case .text:    return ".pdf / .epub / .txt / .md / .rtf"
+        case .text:    return ".pdf / .txt / .md / .rtf"
         }
     }
 

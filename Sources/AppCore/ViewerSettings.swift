@@ -12,7 +12,7 @@ import EPUBAdapter
 /// - `categoryViewerPaths`: category 別の viewer override。未設定 category は default fallback を使う。
 ///   JSON-encoded `Data` として 1 key で保存。
 /// - `epubViewerAppPath`: EPUB だけの専用 viewer override（`categoryViewerPaths` とは別 key）。
-///   未設定 category override → default fallback の順に落ちる。
+///   未設定なら default fallback に落ちる（`.text` の category override は経由しない）。
 @Observable
 @MainActor
 public final class ViewerSettings {
@@ -201,7 +201,8 @@ public final class ViewerSettings {
         }
     }
 
-    /// G54-S2b: EPUB だけ別の外部ビューアを指定する。未設定なら `.text` の指定→既定 の順に落ちる。
+    /// G54-S2b: EPUB だけ別の外部ビューアを指定する。未設定なら既定へ落ちる（`.text` の指定は経由しない。
+    /// smoke のコメント: テキスト用に選ぶアプリは EPUB を開けないことが多いため）。
     /// `BookCategory` は `pdf` `epub` `txt` `md` `rtf` をまとめて `.text` に入れるため、
     /// 分類を増やさずにここで分ける（分類を増やすと `ContentEndpoints.formatString` 経由で
     /// Web とリモートの通信内容まで変わってしまう）。
@@ -351,15 +352,14 @@ public final class ViewerSettings {
         return externalViewerAppPath
     }
 
-    /// G54-S2b: パスも見て解決する。分類が `.text` かつ拡張子が `epub` で専用指定が在ればそれを優先し、
-    /// 無ければ従来どおり category override → 既定 の順（`resolvedViewerPath(for:)` に委譲）。
+    /// G54-S2b: パスも見て解決する。分類が `.text` かつ拡張子が `epub` のときは**専用指定 → 既定**の順で、
+    /// **`.text` の指定は経由しない**（smoke のコメント: テキスト用に選ぶアプリは EPUB を開けないことが多い）。
     /// `category` を先に見るのは、展開済み EPUB のディレクトリ（`BookCategory.classify` は `.folder` にする）
     /// を拡張子だけで EPUB 指定に引っぱらないため（`ViewerChoice.viewerSwitch(forPath:)` と同じ形に揃える）。
     public func resolvedViewerPath(forPath path: String, category: BookCategory) -> String? {
-        if category == .text,
-           (path as NSString).pathExtension.lowercased() == "epub",
-           let epub = epubViewerAppPath, !epub.isEmpty {
-            return epub
+        if category == .text, (path as NSString).pathExtension.lowercased() == "epub" {
+            if let epub = epubViewerAppPath, !epub.isEmpty { return epub }
+            return externalViewerAppPath
         }
         return resolvedViewerPath(for: category)
     }
