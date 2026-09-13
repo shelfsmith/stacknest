@@ -239,6 +239,17 @@ struct SettingsView: View {
                                 : nil
                         )
                     }
+                    // G54-S2b: EPUB だけ別のアプリを指定できる（`BookCategory` は EPUB と PDF を
+                    // まとめて「テキスト」に入れるため、種類別の行では分けられない）。
+                    viewerSettingsRow(
+                        label: "EPUB",
+                        caption: "未設定のときは テキスト の設定で開きます。",
+                        path: settings.epubViewerAppPath,
+                        onChoose: { chooseEPUBViewer() },
+                        onReset: settings.epubViewerAppPath != nil
+                            ? { settings.epubViewerAppPath = nil }
+                            : nil
+                    )
                 }
 
                 Section("リモートキャッシュ") {
@@ -395,6 +406,13 @@ struct SettingsView: View {
     private func chooseCategoryViewer(_ category: BookCategory) {
         if let url = runViewerPicker() {
             settings.categoryViewerPaths[category] = url.path(percentEncoded: false)
+        }
+    }
+
+    /// G54-S2b: EPUB 専用の外部ビューアを選ぶ。
+    private func chooseEPUBViewer() {
+        if let url = runViewerPicker() {
+            settings.epubViewerAppPath = url.path(percentEncoded: false)
         }
     }
 
