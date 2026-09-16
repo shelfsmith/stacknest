@@ -26,6 +26,9 @@ public final class ViewerSettings {
     private let categoryKey = "categoryViewerPaths"
     private let autoClassifyKey = "autoClassifyEnabled"
     private let thickThresholdKey = "thickBookThreshold"
+    /// G54-S4 Task 8: `ImportDefaults.preferEPUBTitleKey` と同じ文字列リテラル。`autoClassifyEnabled` と
+    /// 同様、グローバル既定の UserDefaults キーを ImportDefaults と共有する（二重管理回避）。
+    private let preferEPUBTitleKey = "importPreferEPUBTitle"
     private let useBuiltInViewerKey = "useBuiltInViewer"
     private let useBuiltInEPUBViewerKey = "useBuiltInEPUBViewer"
     private let pageDirectionKey = "viewerPageDirection"
@@ -47,6 +50,13 @@ public final class ViewerSettings {
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
         didSet { defaults.set(autoClassifyEnabled, forKey: autoClassifyKey) }
+    }
+
+    /// G54-S4 Task 8: 取り込み時に EPUB の題名があればそれを使うか (default false ＝ ファイル名から
+    /// 作った題名を使う)。`ImportDefaults.globalPreferEPUBTitle`/`setGlobalPreferEPUBTitle` と同じキーを
+    /// 共有するので、サーバ側（`LibraryServerCore`）から書かれた値もこのプロパティにそのまま反映される。
+    public var preferEPUBTitle: Bool {
+        didSet { defaults.set(preferEPUBTitle, forKey: preferEPUBTitleKey) }
     }
 
     /// Phase 2.5g: archive の page 数閾値 (default 20)。範囲 5...100 を Settings UI + setter で強制。
@@ -242,6 +252,9 @@ public final class ViewerSettings {
         } else {
             self.autoClassifyEnabled = defaults.bool(forKey: autoClassifyKey)
         }
+        // G54-S4 Task 8: preferEPUBTitle は既定 false なので、鍵が無いときに false を返す
+        // `bool(forKey:)` をそのまま使える（`ImportDefaults.globalPreferEPUBTitle` と同じ考え方）。
+        self.preferEPUBTitle = defaults.bool(forKey: preferEPUBTitleKey)
         // Phase 2.5g: clamp stored threshold to [5, 100]; reset to default 20 outside range or unset.
         let storedThreshold = defaults.integer(forKey: thickThresholdKey)
         self.thickBookThreshold = storedThreshold >= 5 && storedThreshold <= 100 ? storedThreshold : 20

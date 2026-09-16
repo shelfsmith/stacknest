@@ -192,6 +192,10 @@ public final class LibrarySettings {
     public var importThickThreshold: Int? {
         didSet { persistImportThickThreshold() }
     }
+    /// G54-S4 Task 8: EPUB の題名を使うか（per-library override）。nil = グローバル既定に委譲。
+    public var importPreferEPUBTitle: Bool? {
+        didSet { persistImportPreferEPUBTitle() }
+    }
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibrarySettings")
     private static let columnsKey = "listViewColumns"
@@ -463,6 +467,12 @@ public final class LibrarySettings {
             self.importThickThreshold = n
         } else {
             self.importThickThreshold = nil
+        }
+        // G54-S4 Task 8: Load importPreferEPUBTitle per-library override. Absent key = nil (use global).
+        if let v = try? database.getLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey) {
+            self.importPreferEPUBTitle = (v == "1" || v == "true")
+        } else {
+            self.importPreferEPUBTitle = nil
         }
         // init 内の代入では didSet が発火しないため、移行で新規生成した場合は明示的に永続する。
         if didSeedPresets {
@@ -1091,6 +1101,21 @@ public final class LibrarySettings {
             }
         } catch {
             Self.logger.error("persist importThickThreshold failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// G54-S4 Task 8: importAutoClassify と同じ「値を指定したら上書き、指定しなければ鍵を消して
+    /// グローバル既定へ戻す」形。
+    private func persistImportPreferEPUBTitle() {
+        guard !isSyncingFromDatabase else { return }   // G25c: DB からの反映中は書き戻さない
+        do {
+            if let v = importPreferEPUBTitle {
+                try database.setLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey, value: v ? "true" : "false")
+            } else {
+                try database.deleteLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey)
+            }
+        } catch {
+            Self.logger.error("persist importPreferEPUBTitle failed: \(error.localizedDescription, privacy: .public)")
         }
     }
 

@@ -181,6 +181,13 @@ struct SettingsView: View {
                     Text("OFF にすると、フォルダは画像セット、それ以外は厚い本として登録されます。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    // G54-S4 Task 8: EPUB の題名を使うか。自動分類とは独立の取り込み設定。
+                    Toggle("EPUB の題名を使う", isOn: $settings.preferEPUBTitle)
+
+                    Text("EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)

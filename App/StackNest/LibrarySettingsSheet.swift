@@ -478,6 +478,35 @@ struct LibrarySettingsSheet: View {
             .onAppear {
                 if let v = settings.importThickThreshold { importThresholdInput = String(v) }
             }
+
+            Divider()
+
+            // G54-S4 Task 8: EPUB の題名を使うか（3-way: 既定に従う / 有効 / 無効）。
+            VStack(alignment: .leading, spacing: 6) {
+                Text("EPUB の題名を使う")
+                Picker("", selection: Binding(
+                    get: {
+                        switch settings.importPreferEPUBTitle {
+                        case nil: return 0
+                        case .some(true): return 1
+                        case .some(false): return 2
+                        }
+                    },
+                    set: { (sel: Int) in
+                        settings.importPreferEPUBTitle = (sel == 0) ? nil : (sel == 1)
+                    }
+                )) {
+                    Text("既定に従う（現在: \(ImportDefaults.globalPreferEPUBTitle() ? "有効" : "無効")）").tag(0)
+                    Text("このライブラリで有効").tag(1)
+                    Text("このライブラリで無効").tag(2)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+
+                Text("EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(8)
         }

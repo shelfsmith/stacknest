@@ -35,6 +35,8 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var importAutoClassify: Bool?
     @State private var thickThreshold: Int?
     @State private var thickThresholdInput: String = ""
+    /// G54-S4 Task 8: EPUB の題名を使うか（per-library override。nil = サーバのグローバル既定に委譲）。
+    @State private var preferEPUBTitle: Bool?
     @State private var importConfigLoaded = false
 
     // MARK: ロックタブ（canDelete 以上）
@@ -259,6 +261,35 @@ struct RemoteLibrarySettingsSheet: View {
                         }
                     }
                 }
+
+                Divider()
+
+                // G54-S4 Task 8: EPUB の題名を使うか（3-way: 既定に従う / 有効 / 無効）。
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("EPUB の題名を使う")
+                    Picker("", selection: Binding(
+                        get: {
+                            switch preferEPUBTitle {
+                            case nil: return 0
+                            case .some(true): return 1
+                            case .some(false): return 2
+                            }
+                        },
+                        set: { (sel: Int) in
+                            preferEPUBTitle = (sel == 0) ? nil : (sel == 1)
+                        }
+                    )) {
+                        Text("既定に従う").tag(0)
+                        Text("このライブラリで有効").tag(1)
+                        Text("このライブラリで無効").tag(2)
+                    }
+                    .pickerStyle(.radioGroup)
+                    .labelsHidden()
+
+                    Text("EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(8)
         }
@@ -272,6 +303,7 @@ struct RemoteLibrarySettingsSheet: View {
                 importAutoClassify = dto.autoClassifyEnabled
                 thickThreshold = dto.thickBookThreshold
                 if let t = dto.thickBookThreshold { thickThresholdInput = String(t) }
+                preferEPUBTitle = dto.preferEPUBTitle
             }
             // smoke b: 自動追加も同じ「取り込み」タブでロードする。
             watchConfig = await state.loadWatchConfig()
@@ -928,7 +960,9 @@ struct RemoteLibrarySettingsSheet: View {
         }
         // 2) 取り込み設定（監視が通ってから）
         state.errorText = nil
-        let importDTO = ImportConfigDTO(autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold)
+        let importDTO = ImportConfigDTO(
+            autoClassifyEnabled: importAutoClassify, thickBookThreshold: thickThreshold,
+            preferEPUBTitle: preferEPUBTitle)
         await state.saveImportConfig(importDTO)
         if state.errorText != nil { errorText = state.errorText; return }
         dismiss()
