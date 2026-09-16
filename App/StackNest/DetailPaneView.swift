@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 import LibraryStore
 import AppCore
 import ImageCache
+import ArchiveAdapter
 
 /// G4a: 外部表紙のクロップシートを `.sheet(item:)` で駆動するための下書き（画像＋バイト）。
 private struct ExternalCoverDraft: Identifiable {
@@ -528,10 +529,9 @@ struct DetailPaneView: View {
                         Button("表紙を編集") {
                             showCoverPicker = true
                         }
-                        // G50: 動画にはアーカイブのようなページ一覧が無い（代わりにシーン選択を出す）。
-                        // AVFoundation で開けない mkv/webm/avi も同じくページ一覧は無いので、
-                        // 動画カテゴリ全体で無効にする。
-                        .disabled(!isSingleSelection || !canEdit || Self.isVideoBook(book))
+                        // G54-S4: 「表紙を編集」の可否は分類ではなく表紙候補を取り出せるかで決める
+                        // （動画・txt・md・rtf など coverExtractor が nil を返す形式は押せない）。
+                        .disabled(!isSingleSelection || !canEdit || !Self.canEditCover(path: book.path))
                         if onSetExternalCover != nil {
                             Button("外部画像を表紙に設定…") {
                                 presentExternalImagePanel()
@@ -650,11 +650,12 @@ struct DetailPaneView: View {
         return VideoFrameExtractor.isSupported(url: url) ? url : nil
     }
 
-    /// G50: 動画の本か（AVFoundation が開けるかどうかは問わない）。
-    /// ページ一覧を前提にした導線を出さない判定に使う。
-    static func isVideoBook(_ book: BookRow) -> Bool {
-        guard let path = book.path else { return false }
-        return BookCategory.classify(path: path) == .video
+    /// G54-S4: 「表紙を編集」を出してよいか。**分類ではなく抽出器の有無**で決める。
+    /// 動画・txt・md・rtf は候補を取れないので押せない。zip 系・フォルダ・EPUB・PDF は押せる。
+    /// 対応形式が増えたときに、ここを書き直さなくて済む形にしてある。
+    static func canEditCover(path: String?) -> Bool {
+        guard let path, !path.isEmpty else { return false }
+        return ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) != nil
     }
 
     private func presentExternalImagePanel() {
