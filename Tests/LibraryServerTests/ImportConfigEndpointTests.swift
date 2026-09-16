@@ -217,17 +217,25 @@ struct ImportConfigEndpointTests {
     // MARK: - global
 
     /// global PUT(35) → GET で 35。末尾で元値へ復元。
+    // Important 2 修正: PUT ボディが `GlobalImportConfigDTO(autoClassifyEnabled:thickBookThreshold:)` の
+    // ように preferEPUBTitle を省略すると DTO の既定値 false が使われ、サーバはそれを無条件に
+    // グローバル設定へ書き込む（LibraryServerCore.swift の `ImportDefaults.setGlobalPreferEPUBTitle(dto.preferEPUBTitle)`）。
+    // この 3 つ目の鍵を保存・復元していなかったため、このテストがユーザーの preferEPUBTitle 設定を
+    // 黙って false へ書き換えたまま終わっていた（他テストとの直列化・実行順序次第で影響が残る）。
     @Test func globalPutThenGetRoundtrip() async throws {
         let savedAC = ImportDefaults.globalAutoClassify()
         let savedTH = ImportDefaults.globalThickThreshold()
+        let savedPT = ImportDefaults.globalPreferEPUBTitle()
         defer {
             ImportDefaults.setGlobalAutoClassify(savedAC)
             ImportDefaults.setGlobalThickThreshold(savedTH)
+            ImportDefaults.setGlobalPreferEPUBTitle(savedPT)
         }
         let fixture = try TestLibraryFixture(name: "ICGlobal", bookCount: 0)
         defer { fixture.cleanup() }
         let app = makeApp(fixture: fixture, adminTier: true)
-        let body = try JSONEncoder().encode(GlobalImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: 35))
+        let body = try JSONEncoder().encode(
+            GlobalImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: 35, preferEPUBTitle: savedPT))
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/import-config",
@@ -291,7 +299,8 @@ struct ImportConfigEndpointTests {
         let fixture = try TestLibraryFixture(name: "ICGlobalForbidden", bookCount: 0)
         defer { fixture.cleanup() }
         let app = makeApp(fixture: fixture)
-        let body = try JSONEncoder().encode(GlobalImportConfigDTO(autoClassifyEnabled: true, thickBookThreshold: 20))
+        let body = try JSONEncoder().encode(
+            GlobalImportConfigDTO(autoClassifyEnabled: true, thickBookThreshold: 20, preferEPUBTitle: false))
         try await app.test(.router) { client in
             try await client.execute(
                 uri: "/api/v1/import-config",

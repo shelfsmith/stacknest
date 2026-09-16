@@ -536,7 +536,8 @@ struct DetailPaneView: View {
                         }
                         // G54-S4: 「表紙を編集」の可否は分類ではなく表紙候補を取り出せるかで決める
                         // （動画・txt・md・rtf など coverExtractor が nil を返す形式は押せない）。
-                        .disabled(!isSingleSelection || !canEdit || !Self.canEditCover(path: book.path))
+                        .disabled(!isSingleSelection || !canEdit
+                                  || !Self.canEditCover(path: book.path, remoteFileExtension: remoteFileExtension))
                         if onSetExternalCover != nil {
                             Button("外部画像を表紙に設定…") {
                                 presentExternalImagePanel()
@@ -671,9 +672,21 @@ struct DetailPaneView: View {
     /// G54-S4: 「表紙を編集」を出してよいか。**分類ではなく抽出器の有無**で決める。
     /// 動画・txt・md・rtf は候補を取れないので押せない。zip 系・フォルダ・EPUB・PDF は押せる。
     /// 対応形式が増えたときに、ここを書き直さなくて済む形にしてある。
-    static func canEditCover(path: String?) -> Bool {
-        guard let path, !path.isEmpty else { return false }
-        return ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) != nil
+    ///
+    /// 修正ラウンド2: リモートはサーバが本の場所を秘匿するため `path` が常に nil
+    /// （`LibraryServerCore.makeBookDetailDTO` が `path: nil` を固定で入れる）。`path` だけで
+    /// 判定すると、リモート書庫のすべての本で「表紙を編集」が押せなくなる（旧判定は「動画かどうか」で
+    /// 場所が無ければ「動画でない＝有効」と扱われていたので気づかれなかった）。
+    /// `remoteFileExtension` はサーバが別途返す拡張子（`BookDetailDTO.fileExtension`）を渡す。
+    static func canEditCover(path: String?, remoteFileExtension: String? = nil) -> Bool {
+        if let path, !path.isEmpty {
+            return ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) != nil
+        }
+        guard let ext = remoteFileExtension else { return false }
+        // 拡張子が空＝サーバ側のフォルダ本。フォルダは候補を返せるので押せるままにする
+        // （実際に候補が空なら、従来どおりシートが「見つかりません」を出す）。
+        if ext.isEmpty { return true }
+        return ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: "x.\(ext)")) != nil
     }
 
     private func presentExternalImagePanel() {

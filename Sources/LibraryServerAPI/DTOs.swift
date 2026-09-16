@@ -687,9 +687,12 @@ public struct ImportConfigDTO: Codable, Sendable {
 public struct GlobalImportConfigDTO: Codable, Sendable {
     public var autoClassifyEnabled: Bool
     public var thickBookThreshold: Int
-    /// G54-S4: EPUB に題名があればそれを使うか（既定 false）。
+    /// G54-S4: EPUB に題名があればそれを使うか。
     public var preferEPUBTitle: Bool
-    public init(autoClassifyEnabled: Bool, thickBookThreshold: Int, preferEPUBTitle: Bool = false) {
+    // Important 3 修正: `BookImporter.add` の既定値を外したのと同じ理屈で、ここも既定値を外す。
+    // 全体設定は「全項目必須」が約束なので、省略できると黙って false を送ってしまう
+    // （実例: 修正前の `globalPutThenGetRoundtrip` がこれでユーザー設定を黙って書き換えていた）。
+    public init(autoClassifyEnabled: Bool, thickBookThreshold: Int, preferEPUBTitle: Bool) {
         self.autoClassifyEnabled = autoClassifyEnabled; self.thickBookThreshold = thickBookThreshold
         self.preferEPUBTitle = preferEPUBTitle
     }

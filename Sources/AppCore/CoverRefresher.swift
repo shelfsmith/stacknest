@@ -37,8 +37,15 @@ public enum CoverRefresher {
     public static func extractCoverData(sourceURL: URL, preferredName: String?) async throws -> Data {
         try await Task.detached(priority: .userInitiated) {
             if sourceURL.pathExtension.lowercased() == "pdf" {
-                guard let pdf = PDFBookContent(url: sourceURL),
-                      let data = pdf.coverJPEG(maxPixelSize: 1200) else {
+                guard let pdf = PDFBookContent(url: sourceURL) else { throw CoverRefreshError.unsupportedFormat }
+                // G54-S4 修正ラウンド2: 「表紙を編集」で選んだページ（`PDFCoverExtractor` が 1 始まりの
+                // ページ番号を名前にする）を尊重する。EPUB 分岐と同じ欠陥がここにもあり、preferredName を
+                // 一切見ずに常に 1 ページ目を返していた（DB にはページ番号が入るのにサムネイルは変わらない）。
+                // `@` 始まりは動画の場面指定（`CoverSource.videoTimePrefix`）等の印なのでページ番号として扱わない。
+                // 範囲外・数でないときは 1 ページ目に落ちる。
+                let index = preferredName.flatMap { $0.hasPrefix("@") ? nil : Int($0) }.map { $0 - 1 } ?? 0
+                let page = (0..<pdf.pageCount).contains(index) ? index : 0
+                guard let data = pdf.pageImageData(at: page, maxPixelSize: 1200) else {
                     throw CoverRefreshError.unsupportedFormat
                 }
                 return data

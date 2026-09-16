@@ -113,4 +113,44 @@ struct ArchiveAdapterDispatchTests {
         let url = URL(fileURLWithPath: "/tmp/foo.pdf")
         #expect(ArchiveAdapter.coverExtractor(for: url) is PDFCoverExtractor)
     }
+
+    // MARK: - Important 1: `importExtractor(for:)` を名指しで守る
+    //
+    // `coverExtractor` と `importExtractor` を分けた目的は「表紙候補の対応表（EPUB/PDF を含む）を
+    // 触っても取り込みが変わらない」ことの保証。上のテスト群は coverExtractor しか見ていないので、
+    // importExtractor 側を直接固定する。
+
+    @Test("取り込み用は EPUB を返さない（専用経路 EPUBAdapter.reader に任せる）")
+    func importExtractorReturnsNilForEPUB() {
+        let url = URL(fileURLWithPath: "/tmp/foo.epub")
+        #expect(ArchiveAdapter.importExtractor(for: url) == nil)
+    }
+
+    @Test("取り込み用は PDF を返さない（専用経路 PDFBookContent に任せる）")
+    func importExtractorReturnsNilForPDF() {
+        let url = URL(fileURLWithPath: "/tmp/foo.pdf")
+        #expect(ArchiveAdapter.importExtractor(for: url) == nil)
+    }
+
+    @Test("取り込み用は zip 系で libarchive の抽出器を返す",
+          arguments: ["zip", "cbz", "cbr", "rar", "7z", "cb7"])
+    func importExtractorReturnsLibarchiveForZipFamily(ext: String) {
+        let url = URL(fileURLWithPath: "/tmp/foo.\(ext)")
+        #expect(ArchiveAdapter.importExtractor(for: url) is LibarchiveCoverExtractor)
+    }
+
+    @Test("取り込み用はディレクトリでフォルダの抽出器を返す")
+    func importExtractorReturnsFolderExtractorForDirectory() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dispatch-import_\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(ArchiveAdapter.importExtractor(for: dir) is FolderCoverExtractor)
+    }
+
+    @Test("取り込み用は対応外の形式で nil を返す", arguments: ["mp4", "txt"])
+    func importExtractorReturnsNilForUnsupported(ext: String) {
+        let url = URL(fileURLWithPath: "/tmp/foo.\(ext)")
+        #expect(ArchiveAdapter.importExtractor(for: url) == nil)
+    }
 }
