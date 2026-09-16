@@ -77,7 +77,10 @@ struct DetailPaneView: View {
     /// （シーン選択はローカルの本にだけ出す）。
     /// G54-S4: クロップは別経路（`onSetCrop`/`onClearCrop`）で書くため、ここは秒数のまま変えない
     /// （`CoverPickerSheet` の onPicked が cover 書き込みと crop 書き込みを分けているのと同じ形）。
-    var onSetVideoSceneCover: ((Double, Int) async -> Void)? = nil
+    /// G54-S4 fixup（レビュー指摘 1）: `throws` にする。表紙の確定に失敗したのにクロップだけ
+    /// 書く/消すことが無いよう、呼び出し側が `do/catch` でゲートできる必要がある
+    /// （`CoverPickerSheet` の `onSetCover`＝`setCoverImageName` と同じ形）。
+    var onSetVideoSceneCover: ((Double, Int) async throws -> Void)? = nil
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
     /// @State and resets to the original (non-empty) title.
@@ -609,12 +612,15 @@ struct DetailPaneView: View {
                             // G54-S4: 場面（秒数）は従来どおり onSetVideoSceneCover へ。クロップは
                             // CoverPickerSheet の onPicked (:568-580) と同じ経路（onSetCrop/onClearCrop）
                             // で書く — AppState の中で database を直に叩く形にはしない。
+                            // G54-S4 fixup（レビュー指摘 1）: CoverPickerSheet の onPicked (:573) と同じ
+                            // ゲート。表紙の確定（handler）が失敗したら catch して return し、
+                            // クロップは書かない/消さない（既存のクロップを誤って消さないため）。
                             onPicked: { seconds, cropRect in
                                 videoSceneDraft = nil
                                 let handler = onSetVideoSceneCover
                                 let id = book.id
                                 Task {
-                                    await handler?(seconds, id)
+                                    do { try await handler?(seconds, id) } catch { return }
                                     if let cropRect {
                                         onSetCrop(id, BookRow.encodeCoverCropRect(cropRect))
                                     } else {

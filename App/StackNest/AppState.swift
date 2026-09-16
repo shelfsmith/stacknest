@@ -1851,6 +1851,14 @@ final class AppState {
         Self.coverLogger.info("setExternalCover: applyPatch+crop done, bookID=\(bookID, privacy: .public)")
     }
 
+    /// G54-S4 fixup（レビュー指摘 1）: `setVideoSceneCover` 冒頭の book/path 解決失敗を表す。
+    /// 従来は黙って `return`（成功扱い）していたが、呼び出し側（`DetailPaneView` の `onPicked`）が
+    /// 「表紙の確定に失敗したらクロップを書かない/消さない」ゲートを効かせるには、ここが必ず
+    /// 投げる必要がある（黙って return すると catch を素通りしてクロップ書き込みへ進んでしまう）。
+    struct VideoSceneCoverTargetUnavailable: Error, LocalizedError {
+        var errorDescription: String? { "対象の本が見つからないか、ファイルパスが不明です" }
+    }
+
     /// G50: 動画で選んだ場面を表紙にする。`setExternalCover` と同じ順序（ファイル書き込み →
     /// キャッシュ purge → DB 更新）だが、書き込む `cover_image_name` は時刻センチネル `@t=<秒>` で、
     /// `@external` と違って「表紙を再生成」で同じ場面を作り直せる。
@@ -1859,7 +1867,10 @@ final class AppState {
     /// （`database.updateBookCoverCropRect` を叩く従来のハンドラ）で行う — アーカイブのページを
     /// 選んだときと同じ経路にするため、ここで database を直に叩く形にはしない。
     func setVideoSceneCover(bookID: Int, seconds: Double, undoManager: UndoManager?) async throws {
-        guard let book = displayedBooks.first(where: { $0.id == bookID }), let path = book.path else { return }
+        // G54-S4 fixup（レビュー指摘 1）: 黙って return せず投げる（呼び出し側のクロップ書き込みゲートのため）。
+        guard let book = displayedBooks.first(where: { $0.id == bookID }), let path = book.path else {
+            throw VideoSceneCoverTargetUnavailable()
+        }
         let sourceURL = URL(fileURLWithPath: path)
         Self.coverLogger.info("setVideoSceneCover: bookID=\(bookID, privacy: .public), t=\(seconds, privacy: .public)")
         let thumbDir = bundleURL.appending(path: "Thumbnails")

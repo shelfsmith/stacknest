@@ -664,8 +664,11 @@ struct LibraryWindowContainer: View {
                         Task { await appState.regenerateThumbnail(for: book) }
                     },
                     // G50: 動画の場面を表紙にする。ローカルの本だけに出す導線（リモート/オフラインは未対応）。
+                    // G54-S4 fixup（レビュー指摘 1）: `try?` で握り潰すと DetailPaneView 側の
+                    // 「表紙が確定できなければクロップを書かない」ゲートに成否が伝わらない。
+                    // 利用者への見え方は従来どおり変わらない（呼び出し元の do/catch も return するだけ）。
                     onSetVideoSceneCover: { seconds, id in
-                        try? await appState.setVideoSceneCover(bookID: id, seconds: seconds, undoManager: appState.undoManager)
+                        try await appState.setVideoSceneCover(bookID: id, seconds: seconds, undoManager: appState.undoManager)
                     }
                 )
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 240)

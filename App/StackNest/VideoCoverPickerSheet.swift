@@ -59,6 +59,9 @@ struct VideoCoverPickerSheet: View {
             }
         }
         .padding(16)
+        // G54-S4 fixup（レビュー指摘 3）: crop 段階は VideoPlayer の暗黙の幅（640）を失うため、
+        // 段階を切り替えるとシートが縮む。両段階を通して最小幅を固定する。
+        .frame(minWidth: 640)
         .onDisappear { player.pause() }
     }
 
@@ -83,7 +86,8 @@ struct VideoCoverPickerSheet: View {
                 onCancel()
             }
             .keyboardShortcut(.cancelAction)
-            .disabled(isExtracting)
+            // G54-S4 fixup（レビュー指摘 4）: 抽出中でもキャンセルだけは押せるようにする
+            // （長い動画で待たされている間、シートを閉じる手段が無くなるのを防ぐ）。
             Button {
                 beginCrop()
             } label: {
@@ -143,6 +147,12 @@ struct VideoCoverPickerSheet: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         HStack {
+            // G54-S4 fixup（レビュー指摘 2）: crop 段階に .cancelAction が無いと Esc でシートを
+            // 閉じられない（「戻る」→「キャンセル」の 2 手が要る）。crop 段階にも直接キャンセルを置く。
+            Button("キャンセル") {
+                onCancel()
+            }
+            .keyboardShortcut(.cancelAction)
             Button("戻る") {
                 stage = .scene
             }
