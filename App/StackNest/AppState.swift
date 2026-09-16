@@ -1854,6 +1854,10 @@ final class AppState {
     /// G50: 動画で選んだ場面を表紙にする。`setExternalCover` と同じ順序（ファイル書き込み →
     /// キャッシュ purge → DB 更新）だが、書き込む `cover_image_name` は時刻センチネル `@t=<秒>` で、
     /// `@external` と違って「表紙を再生成」で同じ場面を作り直せる。
+    /// G54-S4: クロップは書かない（このメソッドの責務は場面＝秒数から表紙を作るところまで）。
+    /// クロップの設定/解除は呼び出し側（`DetailPaneView`）が既存の `onSetCrop`/`onClearCrop` 経路
+    /// （`database.updateBookCoverCropRect` を叩く従来のハンドラ）で行う — アーカイブのページを
+    /// 選んだときと同じ経路にするため、ここで database を直に叩く形にはしない。
     func setVideoSceneCover(bookID: Int, seconds: Double, undoManager: UndoManager?) async throws {
         guard let book = displayedBooks.first(where: { $0.id == bookID }), let path = book.path else { return }
         let sourceURL = URL(fileURLWithPath: path)

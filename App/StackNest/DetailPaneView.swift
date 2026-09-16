@@ -75,6 +75,8 @@ struct DetailPaneView: View {
     var onRegenerateCover: ((Int) -> Void)? = nil
     /// G50: 動画の場面を表紙にする（秒, bookID）。ローカルのみ注入・リモート/オフラインは nil
     /// （シーン選択はローカルの本にだけ出す）。
+    /// G54-S4: クロップは別経路（`onSetCrop`/`onClearCrop`）で書くため、ここは秒数のまま変えない
+    /// （`CoverPickerSheet` の onPicked が cover 書き込みと crop 書き込みを分けているのと同じ形）。
     var onSetVideoSceneCover: ((Double, Int) async -> Void)? = nil
 
     /// Bumped when title rejection happens, so EditableTextField gets a fresh
@@ -604,11 +606,21 @@ struct DetailPaneView: View {
                     .sheet(item: $videoSceneDraft) { draft in
                         VideoCoverPickerSheet(
                             url: draft.url,
-                            onPicked: { seconds in
+                            // G54-S4: 場面（秒数）は従来どおり onSetVideoSceneCover へ。クロップは
+                            // CoverPickerSheet の onPicked (:568-580) と同じ経路（onSetCrop/onClearCrop）
+                            // で書く — AppState の中で database を直に叩く形にはしない。
+                            onPicked: { seconds, cropRect in
                                 videoSceneDraft = nil
                                 let handler = onSetVideoSceneCover
                                 let id = book.id
-                                Task { await handler?(seconds, id) }
+                                Task {
+                                    await handler?(seconds, id)
+                                    if let cropRect {
+                                        onSetCrop(id, BookRow.encodeCoverCropRect(cropRect))
+                                    } else {
+                                        onClearCrop(id)
+                                    }
+                                }
                             },
                             onCancel: { videoSceneDraft = nil }
                         )

@@ -26,7 +26,7 @@ struct VideoCoverPickerSheetTests {
     @Test("シートを NSHostingView に載せてもクラッシュしない（AVKit のメタデータ解決）")
     func sheetBuildsWithoutCrashing() throws {
         let url = URL(fileURLWithPath: "/dev/null")   // 再生はしない。生成できるかだけを見る
-        let sheet = VideoCoverPickerSheet(url: url, onPicked: { _ in }, onCancel: {})
+        let sheet = VideoCoverPickerSheet(url: url, onPicked: { _, _ in }, onCancel: {})
         let host = NSHostingView(rootView: sheet)
         host.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
         let window = NSWindow(contentRect: host.frame,
