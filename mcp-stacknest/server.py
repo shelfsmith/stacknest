@@ -285,12 +285,14 @@ def stacknest_import_config_get(library: str, library_token: str | None = None) 
 def stacknest_import_config_set(library: str,
                                 auto_classify: bool | None = None,
                                 thick: int | None = None,
+                                prefer_epub_title: bool | None = None,
                                 library_token: str | None = None) -> str:
     """ライブラリのインポート設定 override を更新する（指定分のみ）。
     auto_classify: 自動ジャンル分類 ON/OFF。thick: 厚み検出閾値（ページ数）。
+    prefer_epub_title: EPUB に題名があればそれを使うか（未指定＝グローバル既定に委譲。省略で override 解除）。
     library_token は省略時キャッシュ自動使用のロック庫解錠トークン。"""
     cli.import_config_set(library, auto_classify=auto_classify, thick=thick,
-                          library_token=library_token)
+                          prefer_epub_title=prefer_epub_title, library_token=library_token)
     return f"import config updated for library {library!r}"
 
 
@@ -301,9 +303,10 @@ def stacknest_import_config_global_get() -> Any:
 
 
 @mcp.tool()
-def stacknest_import_config_global_set(auto_classify: bool, thick: int) -> str:
-    """グローバルインポート設定を更新する（両値必須・全ライブラリ共通の既定・admin）。"""
-    cli.import_config_global_set(auto_classify, thick)
+def stacknest_import_config_global_set(auto_classify: bool, thick: int, prefer_epub_title: bool) -> str:
+    """グローバルインポート設定を更新する（全値必須・全ライブラリ共通の既定・admin）。
+    prefer_epub_title: EPUB に題名があればそれを使うか。"""
+    cli.import_config_global_set(auto_classify, thick, prefer_epub_title)
     return "global import config updated"
 
 

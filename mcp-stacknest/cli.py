@@ -385,14 +385,18 @@ def import_config_get(library: str, *, library_token: str | None = None) -> Any:
 def import_config_set(library: str, *,
                       auto_classify: bool | None = None,
                       thick: int | None = None,
+                      prefer_epub_title: bool | None = None,
                       library_token: str | None = None) -> None:
     """ライブラリのインポート設定 override を更新する（指定分のみ）。
-    auto_classify は bool（文字列 "true"/"false" として CLI へ）、thick は整数。"""
+    auto_classify・prefer_epub_title は bool（文字列 "true"/"false" として CLI へ）、thick は整数。"""
     flags: dict[str, Any] = {}
     if auto_classify is not None:
         flags["auto-classify"] = "true" if auto_classify else "false"
     if thick is not None:
         flags["thick"] = thick
+    # G54-S4 Task 7: 未指定 (None) は override 削除（= グローバル既定に委譲）。auto_classify と同じ形。
+    if prefer_epub_title is not None:
+        flags["prefer-epub-title"] = "true" if prefer_epub_title else "false"
     _with_library(library, library_token,
         lambda tok: run(build_argv("import-config", sub="set", library=library,
                                    flags=flags, json_output=False), library_token=tok))
@@ -403,11 +407,12 @@ def import_config_global_get() -> Any:
     return json.loads(run(build_argv("import-config-global", sub="get")))
 
 
-def import_config_global_set(auto_classify: bool, thick: int) -> None:
-    """グローバルインポート設定を更新する（両値必須・CLI が必須オプション）。"""
+def import_config_global_set(auto_classify: bool, thick: int, prefer_epub_title: bool) -> None:
+    """グローバルインポート設定を更新する（全値必須・CLI が必須オプション）。"""
     flags: dict[str, Any] = {
         "auto-classify": "true" if auto_classify else "false",
         "thick": thick,
+        "prefer-epub-title": "true" if prefer_epub_title else "false",
     }
     run(build_argv("import-config-global", sub="set", flags=flags, json_output=False))
 

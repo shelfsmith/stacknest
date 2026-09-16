@@ -1433,7 +1433,9 @@ public struct LibraryServerCore: Sendable {
             let lib = try await resolver.resolveLibrary(request, context)
             let ac = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libAutoClassifyKey)) ?? nil).map { $0 == "1" || $0 == "true" }
             let th = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libThickThresholdKey)) ?? nil).flatMap { Int($0) }
-            return ImportConfigDTO(autoClassifyEnabled: ac, thickBookThreshold: th)
+            // G54-S4 Task 7: preferEPUBTitle も autoClassifyEnabled と同じ扱い（未設定は nil＝グローバル既定に委譲）。
+            let pt = ImportDefaults.preferEPUBTitleOverride(db: lib.db)
+            return ImportConfigDTO(autoClassifyEnabled: ac, thickBookThreshold: th, preferEPUBTitle: pt)
         }
         // A2: per-library 取り込み設定の更新（RW）。nil 指定は override 削除（= グローバル既定へ戻す）。
         api.put("libraries/:lib/import-config") { [self] request, context in
@@ -1442,6 +1444,8 @@ public struct LibraryServerCore: Sendable {
             let dto = try await request.decode(as: ImportConfigDTO.self, context: context)
             if let ac = dto.autoClassifyEnabled { try lib.db.setLibrarySetting(key: ImportDefaults.libAutoClassifyKey, value: ac ? "true" : "false") } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libAutoClassifyKey) }
             if let th = dto.thickBookThreshold { try lib.db.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: String(max(5, min(100, th)))) } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libThickThresholdKey) }
+            // G54-S4 Task 7: 値を指定したら上書き、指定しなければ DB の鍵を消して既定へ戻す（autoClassifyEnabled と同じ形）。
+            if let pt = dto.preferEPUBTitle { try lib.db.setLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey, value: pt ? "true" : "false") } else { try lib.db.deleteLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey) }
             self.notifySettingsChanged(lib.uuid)
             return dto
         }
@@ -1610,7 +1614,9 @@ public struct LibraryServerCore: Sendable {
         }
         // A2: グローバル取り込み既定の取得（庫非依存・R 可）。サーバ canonical（UserDefaults）。
         api.get("import-config") { _, _ in
-            GlobalImportConfigDTO(autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold())
+            GlobalImportConfigDTO(
+                autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold(),
+                preferEPUBTitle: ImportDefaults.globalPreferEPUBTitle())
         }
         // A2: グローバル取り込み既定の更新（庫非依存・admin）。
         api.put("import-config") { request, context in
@@ -1618,7 +1624,11 @@ public struct LibraryServerCore: Sendable {
             let dto = try await request.decode(as: GlobalImportConfigDTO.self, context: context)
             ImportDefaults.setGlobalAutoClassify(dto.autoClassifyEnabled)
             ImportDefaults.setGlobalThickThreshold(dto.thickBookThreshold)
-            return GlobalImportConfigDTO(autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold())
+            // G54-S4 Task 7: preferEPUBTitle も他の 2 項目と同じ扱い（サーバ canonical を UserDefaults に書く）。
+            ImportDefaults.setGlobalPreferEPUBTitle(dto.preferEPUBTitle)
+            return GlobalImportConfigDTO(
+                autoClassifyEnabled: ImportDefaults.globalAutoClassify(), thickBookThreshold: ImportDefaults.globalThickThreshold(),
+                preferEPUBTitle: ImportDefaults.globalPreferEPUBTitle())
         }
         // A2: 本のパス再リンク（RW）。relinkBook で path 更新＋ハッシュ NULL 化。
         api.post("libraries/:lib/books/:id/relink") { [self] request, context in

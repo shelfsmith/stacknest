@@ -723,10 +723,12 @@ struct ImportSet: ParsableCommand {
     @OptionGroup var common: CommonOptions
     @Option(name: [.customLong("auto-classify")], help: "自動分類 (true/false)") var autoClassify: Bool?
     @Option(name: .long, help: "厚い本判定閾値") var thick: Int?
+    // G54-S4 Task 7: 未指定 (nil) は override 削除（= グローバル既定に委譲）。autoClassify と同じ形。
+    @Option(name: [.customLong("prefer-epub-title")], help: "EPUB の題名を使う (true/false)") var preferEPUBTitle: Bool?
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        let body = ImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick)
+        let body = ImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick, preferEPUBTitle: preferEPUBTitle)
         print(String(data: try client.importPut(uuid: lib.id, body: body), encoding: .utf8) ?? "")
     } }
 }
@@ -749,9 +751,11 @@ struct ImportGlobalSet: ParsableCommand {
     @OptionGroup var common: CommonOptions
     @Option(name: [.customLong("auto-classify")], help: "自動分類 (true/false)") var autoClassify: Bool
     @Option(name: .long, help: "厚い本判定閾値") var thick: Int
+    // G54-S4 Task 7: グローバルは常に全項目を指定する（サーバ canonical・autoClassify と同じ形）。
+    @Option(name: [.customLong("prefer-epub-title")], help: "EPUB の題名を使う (true/false)") var preferEPUBTitle: Bool
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
-        let body = GlobalImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick)
+        let body = GlobalImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick, preferEPUBTitle: preferEPUBTitle)
         print(String(data: try client.importGlobalPut(body: body), encoding: .utf8) ?? "")
     } }
 }

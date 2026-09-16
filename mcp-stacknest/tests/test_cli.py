@@ -285,10 +285,11 @@ def test_high_level_global_get_path(monkeypatch):
 def test_high_level_global_set_path(monkeypatch):
     captured = {}
     monkeypatch.setattr(cli, "run", lambda argv, **k: captured.setdefault("argv", argv) or "{}")
-    cli.import_config_global_set(False, 30)
+    cli.import_config_global_set(False, 30, True)
     assert captured["argv"][:2] == ["import-config-global", "set"]
     assert "--auto-classify" in captured["argv"] and "false" in captured["argv"]
     assert "--thick" in captured["argv"] and "30" in captured["argv"]
+    assert "--prefer-epub-title" in captured["argv"] and "true" in captured["argv"]
 
 
 def test_high_level_dedup_no_sub(monkeypatch):
@@ -299,6 +300,29 @@ def test_high_level_dedup_no_sub(monkeypatch):
     cli.dedup_scan("M")
     assert captured["argv"][0] == "dedup"
     assert "scan" not in captured["argv"]
+
+
+def test_high_level_import_config_set_prefer_epub_title_specified(monkeypatch):
+    # G54-S4 Task 7: prefer_epub_title=False を明示指定 → --prefer-epub-title false が argv に乗る
+    # （未指定 None との区別＝override 削除ではなく明示 false であることが argv 有無で分かる）。
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.import_config_set("M", prefer_epub_title=False)
+    assert captured["argv"][:2] == ["import-config", "set"]
+    assert "--prefer-epub-title" in captured["argv"] and "false" in captured["argv"]
+
+
+def test_high_level_import_config_set_prefer_epub_title_unspecified(monkeypatch):
+    # 未指定 (None) は override 解除（= グローバル既定に委譲）: --prefer-epub-title は argv に現れない。
+    captured = {}
+    def fake_run(argv, **k):
+        captured["argv"] = argv; return "{}"
+    monkeypatch.setattr(cli, "run", fake_run)
+    cli.import_config_set("M")
+    assert captured["argv"][:2] == ["import-config", "set"]
+    assert "--prefer-epub-title" not in captured["argv"]
 
 
 # --- 整合性検査（integrity・G27a）---

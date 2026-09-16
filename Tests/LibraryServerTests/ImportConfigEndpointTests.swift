@@ -94,6 +94,76 @@ struct ImportConfigEndpointTests {
         }
     }
 
+    // MARK: - per-library: preferEPUBTitle（G54-S4 Task 7・autoClassifyEnabled と同じ書き方）
+
+    /// 未設定なら preferEPUBTitle=nil。
+    @Test func perLibraryPreferEPUBTitleGetDefaultIsNil() async throws {
+        let fixture = try TestLibraryFixture(name: "ICLibPTDefault", bookCount: 0)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/import-config",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { resp in
+                #expect(resp.status == .ok)
+                let dto = try JSONDecoder().decode(ImportConfigDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.preferEPUBTitle == nil)
+            }
+        }
+    }
+
+    /// PUT(true) → GET 反映。
+    @Test func perLibraryPreferEPUBTitlePutThenGetRoundtrip() async throws {
+        let fixture = try TestLibraryFixture(name: "ICLibPTRound", bookCount: 0)
+        defer { fixture.cleanup() }
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture, adminTier: true)
+        let body = try JSONEncoder().encode(ImportConfigDTO(preferEPUBTitle: true))
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/import-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in #expect(resp.status == .ok) }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/import-config",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { resp in
+                let dto = try JSONDecoder().decode(ImportConfigDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.preferEPUBTitle == true)
+            }
+        }
+    }
+
+    /// PUT(nil) で override 削除 → GET が nil に戻る。
+    @Test func perLibraryPreferEPUBTitlePutNilClearsOverride() async throws {
+        let fixture = try TestLibraryFixture(name: "ICLibPTClear", bookCount: 0)
+        defer { fixture.cleanup() }
+        // 事前に override を入れておく。
+        try fixture.db.setLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey, value: "true")
+        let lib = fixture.servedLibrary()
+        let app = makeApp(fixture: fixture, adminTier: true)
+        let body = try JSONEncoder().encode(ImportConfigDTO(preferEPUBTitle: nil))
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/import-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in #expect(resp.status == .ok) }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/import-config",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { resp in
+                let dto = try JSONDecoder().decode(ImportConfigDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.preferEPUBTitle == nil)
+            }
+        }
+    }
+
     /// PUT は RW 専用：R は 403。
     @Test func perLibraryPutRequiresWrite() async throws {
         let fixture = try TestLibraryFixture(name: "ICLibForbidden", bookCount: 0)
@@ -177,6 +247,41 @@ struct ImportConfigEndpointTests {
                 let dto = try JSONDecoder().decode(GlobalImportConfigDTO.self, from: Data(buffer: resp.body))
                 #expect(dto.autoClassifyEnabled == false)
                 #expect(dto.thickBookThreshold == 35)
+            }
+        }
+    }
+
+    /// global PUT(preferEPUBTitle=true) → GET で true。末尾で元値へ復元（G54-S4 Task 7）。
+    @Test func globalPreferEPUBTitlePutThenGetRoundtrip() async throws {
+        let savedAC = ImportDefaults.globalAutoClassify()
+        let savedTH = ImportDefaults.globalThickThreshold()
+        let savedPT = ImportDefaults.globalPreferEPUBTitle()
+        defer {
+            ImportDefaults.setGlobalAutoClassify(savedAC)
+            ImportDefaults.setGlobalThickThreshold(savedTH)
+            ImportDefaults.setGlobalPreferEPUBTitle(savedPT)
+        }
+        let fixture = try TestLibraryFixture(name: "ICGlobalPT", bookCount: 0)
+        defer { fixture.cleanup() }
+        let app = makeApp(fixture: fixture, adminTier: true)
+        let body = try JSONEncoder().encode(GlobalImportConfigDTO(autoClassifyEnabled: false, thickBookThreshold: 35, preferEPUBTitle: true))
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/import-config",
+                method: .put,
+                headers: [.authorization: "Bearer W", .contentType: "application/json"],
+                body: .init(bytes: Array(body))
+            ) { resp in
+                #expect(resp.status == .ok)
+                let dto = try JSONDecoder().decode(GlobalImportConfigDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.preferEPUBTitle == true)
+            }
+            try await client.execute(
+                uri: "/api/v1/import-config",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { resp in
+                let dto = try JSONDecoder().decode(GlobalImportConfigDTO.self, from: Data(buffer: resp.body))
+                #expect(dto.preferEPUBTitle == true)
             }
         }
     }
