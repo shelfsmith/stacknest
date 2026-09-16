@@ -47,6 +47,18 @@ public enum CoverRefresher {
             // reader 未登録 → 既存の「作れない」経路（unsupportedFormat）。reader はあるがその本に
             // 表紙が無い（G48-2 Task 6） → 原因が異なるので noCoverImage を区別して throw する。
             if sourceURL.pathExtension.lowercased() == "epub" {
+                // G54-S4 修正ラウンド1: 「表紙を編集」で選んだ EPUB 内のエントリ（preferredName）は、
+                // アーカイブ（zip/cbz 等）と同じく尊重する。`@` 始まりは動画の場面指定
+                // （`CoverSource.videoTimePrefix`）等の印であり、アーカイブのエントリ名ではないので除く。
+                // 実在を確かめてから使う — `LibarchiveCoverExtractor.extractCoverImage(from:preferredName:)`
+                // は該当エントリが無いと natural sort 先頭へ黙って落ちる（LibarchiveCoverExtractor.swift:32-37）。
+                // 素通しにすると、名前が古くなった EPUB で「既定の表紙」が「中の適当な 1 枚目」に
+                // 劣化してしまう（EPUB の 1 枚目は表紙でないことが多い）。
+                if let name = preferredName, !name.hasPrefix("@"),
+                   let ex = ArchiveAdapter.coverExtractor(for: sourceURL),
+                   let listing = try? await ex.listImageEntries(in: sourceURL), listing.names.contains(name) {
+                    return try await ex.extractCoverImage(from: sourceURL, preferredName: name)
+                }
                 guard let reader = EPUBAdapter.reader else {
                     throw CoverRefreshError.unsupportedFormat
                 }

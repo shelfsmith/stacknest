@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 import Testing
 import Foundation
+import AppKit
+import PDFKit
 import LibraryStore
 @testable import AppCore
 
@@ -44,6 +46,50 @@ struct BookImporterTests {
 
     private static func onePixelPNG() -> Data {
         Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC")!
+    }
+
+    // G54-S4 修正ラウンド1: `ArchiveAdapter.importExtractor(for:)` を導入した理由そのものの回帰網。
+    // 単独 PDF の取り込みは archiveExtractor 経由ではなく `PDFBookContent` の専用分岐
+    // （`BookImporter.swift` の `else if ... == "pdf"`）でページ数・表紙を作る。Task2 で
+    // `coverExtractor(for:)` に `case "pdf"` を足しても、取り込み専用の `importExtractor(for:)`
+    // が pdf を含まなければこの分岐は壊れないはず — それをここで固定する。
+    @Test func addsSinglePDFAndWritesPageCount() async throws {
+        let (importer, db, dir) = try makeImporter()
+        let pdfURL = dir.appendingPathComponent("sample.pdf")
+        try Self.threePagePDF().write(to: pdfURL)
+
+        let r = await importer.add(urls: [pdfURL], autoClassifyEnabled: false, thickThreshold: 100)
+        #expect(r.addedIDs.count == 1)
+        #expect(r.coverFailures.isEmpty)
+
+        guard let id = r.addedIDs.first else {
+            Issue.record("expected one added book id")
+            return
+        }
+        guard let book = try db.fetchAllBooks().first(where: { $0.id == id }) else {
+            Issue.record("expected book row for inserted id")
+            return
+        }
+        #expect(book.pages == 3)
+    }
+
+    /// 32x32 白ページを 3 枚持つ最小 PDF を作る（`CoverSourceTests.swift` の NSImage 起こし方に倣う）。
+    private static func threePagePDF() -> Data {
+        let doc = PDFDocument()
+        for i in 0..<3 {
+            let img = NSImage(size: NSSize(width: 32, height: 32))
+            img.lockFocus()
+            NSColor.white.drawSwatch(in: NSRect(x: 0, y: 0, width: 32, height: 32))
+            img.unlockFocus()
+            guard let page = PDFPage(image: img) else {
+                fatalError("PDFPage(image:) failed to build test fixture page")
+            }
+            doc.insert(page, at: i)
+        }
+        guard let data = doc.dataRepresentation() else {
+            fatalError("PDFDocument.dataRepresentation() failed to build test fixture")
+        }
+        return data
     }
 
     // G9b Task2: archive モードの列挙結果（ディレクトリ候補）が BookImporter に渡ると、

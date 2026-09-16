@@ -166,6 +166,52 @@ struct EPUBReaderGlobalTests {
                 _ = try await CoverRefresher.extractCoverData(sourceURL: try tmpEPUB(), preferredName: nil)
             }
         }
+
+        /// `.epub` を zip として書き出す（`tmpEPUB()` の "zz" ダミーと違い、実際に
+        /// `ArchiveAdapter.coverExtractor(for:)`/`LibarchiveCoverExtractor` で開ける中身を持つ）。
+        /// `DamagedZipFixture.makeStoredZip` は `Tests/ArchiveAdapterTests` の同名ヘルパの意図的な
+        /// 複製（同ファイルのコメント参照）。
+        private func tmpEPUBWithEntries(_ entries: [(String, Data)]) throws -> URL {
+            let u = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("pref-\(UUID().uuidString).epub")
+            try DamagedZipFixture.makeStoredZip(entries).write(to: u)
+            return u
+        }
+
+        // G54-S4 修正ラウンド1: 「表紙を編集」で選んだ EPUB 内のエントリ（preferredName）が
+        // 実際に尊重されることをここで確認する（直すまでは reader の既定表紙が常に返っていた）。
+        @Test("preferredName で選んだ EPUB 内エントリの画像が返る（reader の既定表紙に落ちない）")
+        func preferredEntryIsRespected() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            let readerCover = Data([0xFF, 0xD8, 0x00])   // reader の既定表紙 — 選ばれてはいけない
+            EPUBAdapter.reader = StubReader(cover: readerCover)
+
+            let page01 = Data([0x01, 0x02, 0x03])
+            let page02 = Data([0x04, 0x05, 0x06])        // preferredName で明示的に選ぶ方
+            let url = try tmpEPUBWithEntries([("page01.png", page01), ("page02.png", page02)])
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let data = try await CoverRefresher.extractCoverData(sourceURL: url, preferredName: "page02.png")
+            #expect(data == page02)
+        }
+
+        // 実在確認を挟まないと、名前が古くなった EPUB で natural sort 先頭（page01）に
+        // 黙って落ちてしまう（LibarchiveCoverExtractor.swift:32-37）。それは改悪なので、
+        // reader の既定表紙に落ちることを確認する。
+        @Test("実在しないエントリ名を渡すと reader の既定表紙に落ちる（アーカイブ先頭ではない）")
+        func missingEntryFallsBackToReaderCover() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            let readerCover = Data([0xFF, 0xD8, 0x09])
+            EPUBAdapter.reader = StubReader(cover: readerCover)
+
+            let page01 = Data([0x01, 0x02, 0x03])        // natural sort 先頭 — 落ちてはいけない
+            let url = try tmpEPUBWithEntries([("page01.png", page01)])
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let data = try await CoverRefresher.extractCoverData(
+                sourceURL: url, preferredName: "does-not-exist.png")
+            #expect(data == readerCover)
+        }
     }
 
     /// G48 修正ラウンド1: `BookImporter.add` の表紙生成分岐は `CoverRefresher.extractCoverData` を
