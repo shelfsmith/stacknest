@@ -105,4 +105,12 @@ struct ArchiveAdapterDispatchTests {
         #expect(listing?.names.contains("page02.png") == true)
         #expect(listing?.names.contains("chapter1.xhtml") == false)
     }
+
+    // MARK: - G54-S4: PDF は専用の抽出器
+
+    @Test("PDF は専用の抽出器が返る")
+    func pdfUsesItsOwnExtractor() {
+        let url = URL(fileURLWithPath: "/tmp/foo.pdf")
+        #expect(ArchiveAdapter.coverExtractor(for: url) is PDFCoverExtractor)
+    }
 }

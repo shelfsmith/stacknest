@@ -6,7 +6,7 @@ extension ArchiveAdapter {
     /// `coverExtractor(for:)` と `importExtractor(for:)` の両方がこの集合を土台にする。
     private static let libarchiveExtensions: Set<String> = ["zip", "cbz", "cbr", "rar", "7z", "cb7"]
 
-    /// **表紙候補を選ぶ用。** フォルダ・zip 系アーカイブに加え、EPUB（G54-S4 以降。将来 PDF も）のように
+    /// **表紙候補を選ぶ用。** フォルダ・zip 系アーカイブに加え、EPUB・PDF（G54-S4）のように
     /// 取り込み時は専用経路を持つが「中の画像を表紙として選び直したい」形式も対象にする
     /// （詳細ペインの「表紙を編集」・cover-candidates/entry-image API が使う）。
     /// Returns nil for unsupported types.
@@ -21,6 +21,10 @@ extension ArchiveAdapter {
         // EPUB 専用の抽出器は作らない（取り込み側の `EPUBAdapter.reader` は別目的の別経路）。
         if ext == "epub" || Self.libarchiveExtensions.contains(ext) {
             return LibarchiveCoverExtractor()
+        }
+        // G54-S4: PDF はページを描いて候補にする（実体のエントリが無いのでページ番号を名前にする）。
+        if ext == "pdf" {
+            return PDFCoverExtractor()
         }
         return nil
     }
