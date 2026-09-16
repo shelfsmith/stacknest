@@ -39,4 +39,28 @@ struct ImportDefaultsDBTests {
         try d.setLibrarySetting(key: ImportDefaults.libThickThresholdKey, value: "abc")
         #expect(ImportDefaults.thickThresholdOverride(db: d) == nil)
     }
+
+    @Test("G54-S4: override が無ければグローバル既定（false）を使う")
+    func preferEPUBTitleOverrideAbsentUsesGlobal() throws {
+        let d = try db(); let u = suite()
+        ImportDefaults.setGlobalPreferEPUBTitle(true, defaults: u)
+        #expect(ImportDefaults.preferEPUBTitleOverride(db: d) == nil)
+        #expect(ImportDefaults.effectivePreferEPUBTitle(db: d, defaults: u) == true)
+    }
+
+    @Test("G54-S4: 庫ごとの override が全体設定より優先される")
+    func preferEPUBTitleOverridePresentWins() throws {
+        let d = try db(); let u = suite()
+        ImportDefaults.setGlobalPreferEPUBTitle(false, defaults: u)
+        try d.setLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey, value: "true")
+        #expect(ImportDefaults.preferEPUBTitleOverride(db: d) == true)
+        #expect(ImportDefaults.effectivePreferEPUBTitle(db: d, defaults: u) == true)
+    }
+
+    @Test("G54-S4: override の \"1\" も真として解釈される")
+    func preferEPUBTitleOverrideOneParsed() throws {
+        let d = try db()
+        try d.setLibrarySetting(key: ImportDefaults.libPreferEPUBTitleKey, value: "1")
+        #expect(ImportDefaults.preferEPUBTitleOverride(db: d) == true)
+    }
 }

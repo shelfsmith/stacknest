@@ -33,4 +33,26 @@ public enum ImportDefaults {
     public static func effectiveThickThreshold(db: Database, defaults: UserDefaults = .standard) -> Int {
         effectiveThickThreshold(override: thickThresholdOverride(db: db), defaults: defaults)
     }
+
+    // MARK: - G54-S4: EPUB の題名を使うか（取り込み設定）
+    /// EPUB に題名があればそれを使うか（既定 false ＝ ファイル名から作った題名を使う）。
+    /// 既定が false なので、鍵が無いときに false を返す `bool(forKey:)` をそのまま使える
+    /// （`autoClassify` は既定 true なので `object(forKey:)` で first-run を見分けている）。
+    public static let preferEPUBTitleKey = "importPreferEPUBTitle"
+    public static let libPreferEPUBTitleKey = "import_prefer_epub_title"
+    public static func globalPreferEPUBTitle(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: preferEPUBTitleKey)
+    }
+    public static func setGlobalPreferEPUBTitle(_ v: Bool, defaults: UserDefaults = .standard) {
+        defaults.set(v, forKey: preferEPUBTitleKey)
+    }
+    public static func effectivePreferEPUBTitle(override: Bool?, defaults: UserDefaults = .standard) -> Bool {
+        override ?? globalPreferEPUBTitle(defaults: defaults)
+    }
+    public static func preferEPUBTitleOverride(db: Database) -> Bool? {
+        ((try? db.getLibrarySetting(key: libPreferEPUBTitleKey)) ?? nil).map { $0 == "1" || $0 == "true" }
+    }
+    public static func effectivePreferEPUBTitle(db: Database, defaults: UserDefaults = .standard) -> Bool {
+        effectivePreferEPUBTitle(override: preferEPUBTitleOverride(db: db), defaults: defaults)
+    }
 }

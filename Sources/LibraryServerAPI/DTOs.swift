@@ -675,8 +675,11 @@ public struct LockRemoveRequest: Codable, Sendable {
 public struct ImportConfigDTO: Codable, Sendable {
     public var autoClassifyEnabled: Bool?
     public var thickBookThreshold: Int?
-    public init(autoClassifyEnabled: Bool? = nil, thickBookThreshold: Int? = nil) {
+    /// G54-S4: EPUB に題名があればそれを使うか（per-library override。nil = グローバル既定に委譲）。
+    public var preferEPUBTitle: Bool?
+    public init(autoClassifyEnabled: Bool? = nil, thickBookThreshold: Int? = nil, preferEPUBTitle: Bool? = nil) {
         self.autoClassifyEnabled = autoClassifyEnabled; self.thickBookThreshold = thickBookThreshold
+        self.preferEPUBTitle = preferEPUBTitle
     }
 }
 
@@ -684,8 +687,22 @@ public struct ImportConfigDTO: Codable, Sendable {
 public struct GlobalImportConfigDTO: Codable, Sendable {
     public var autoClassifyEnabled: Bool
     public var thickBookThreshold: Int
-    public init(autoClassifyEnabled: Bool, thickBookThreshold: Int) {
+    /// G54-S4: EPUB に題名があればそれを使うか（既定 false）。
+    public var preferEPUBTitle: Bool
+    public init(autoClassifyEnabled: Bool, thickBookThreshold: Int, preferEPUBTitle: Bool = false) {
         self.autoClassifyEnabled = autoClassifyEnabled; self.thickBookThreshold = thickBookThreshold
+        self.preferEPUBTitle = preferEPUBTitle
+    }
+    /// G54-S4: 合成の `Codable` は非 Optional の `preferEPUBTitle` を必須として扱い、鍵の無い古い JSON
+    /// （この項目導入前に保存されたグローバル設定）の decode で `keyNotFound` を投げることを実測で確認したため、
+    /// 自前の `init(from:)` で `preferEPUBTitle` だけ `decodeIfPresent ?? false` にする。
+    /// 既存の 2 項目（`autoClassifyEnabled`・`thickBookThreshold`）は従来どおり必須のまま変えない。
+    /// `encode(to:)` はここで実装していないため、コンパイラが `CodingKeys` ごと合成する（Encodable は影響を受けない）。
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        autoClassifyEnabled = try c.decode(Bool.self, forKey: .autoClassifyEnabled)
+        thickBookThreshold = try c.decode(Int.self, forKey: .thickBookThreshold)
+        preferEPUBTitle = try c.decodeIfPresent(Bool.self, forKey: .preferEPUBTitle) ?? false
     }
 }
 
