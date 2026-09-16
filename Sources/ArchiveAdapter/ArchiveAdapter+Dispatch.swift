@@ -12,7 +12,10 @@ extension ArchiveAdapter {
         }
         let ext = url.pathExtension.lowercased()
         switch ext {
-        case "zip", "cbz", "cbr", "rar", "7z", "cb7":
+        // G54-S4: EPUB は zip なので libarchive がそのまま読める。中身は画像の拡張子で絞られる
+        // （`LibarchiveCoverExtractor.imageExtensions`）ので、XHTML や CSS は候補に並ばない。
+        // EPUB 専用の抽出器は作らない（取り込み側の `EPUBAdapter.reader` は別目的の別経路）。
+        case "zip", "cbz", "cbr", "rar", "7z", "cb7", "epub":
             return LibarchiveCoverExtractor()
         default:
             return nil

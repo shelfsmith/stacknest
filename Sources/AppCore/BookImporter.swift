@@ -111,7 +111,13 @@ public struct BookImporter: Sendable {
                 // (pageCount == 0 が条件) とは排他的 — フラグを PDF 側で上書きする必要はない。
                 var pageCountTruncated = false
                 var coverDataOverride: Data? = nil
-                let archiveExtractor = ArchiveAdapter.coverExtractor(for: url)
+                // G54-S4 Task1: `ArchiveAdapter.coverExtractor(for:)` は EPUB にも
+                // LibarchiveCoverExtractor を返すようになった（詳細ペインの「表紙を編集」で
+                // EPUB 内の画像を候補にするため）。だが取り込み時の EPUB 表紙・ページ数は
+                // 従来どおり `EPUBAdapter.reader` 経由に固定する（下の epub 分岐）ので、
+                // ここでは epub を汎用アーカイブ枝に渡さない。
+                let archiveExtractor = url.pathExtension.lowercased() == "epub"
+                    ? nil : ArchiveAdapter.coverExtractor(for: url)
                 if let extractor = archiveExtractor {
                     if let counted = try? await extractor.countImageEntries(in: url) {
                         pageCount = counted.count
