@@ -239,7 +239,7 @@ struct EPUBReaderGlobalTests {
             let epub = dir.appendingPathComponent("sample.epub")
             try Data("zz".utf8).write(to: epub)
 
-            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100)
+            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
             #expect(result.addedIDs.count == 1)
             #expect(result.coverFailures.isEmpty)
             #expect(try db.fetchAllBooks().count == 1)
@@ -263,7 +263,7 @@ struct EPUBReaderGlobalTests {
             let epub = dir.appendingPathComponent("sample.epub")
             try Data("zz".utf8).write(to: epub)
 
-            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100)
+            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
             guard let id = result.addedIDs.first else {
                 Issue.record("expected one added book id")
                 return
@@ -281,13 +281,128 @@ struct EPUBReaderGlobalTests {
             let epub = dir.appendingPathComponent("sample.epub")
             try Data("zz".utf8).write(to: epub)
 
-            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100)
+            let result = await importer.add(urls: [epub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
             guard let id = result.addedIDs.first else {
                 Issue.record("expected one added book id")
                 return
             }
             let book = try db.fetchAllBooks().first { $0.id == id }
             #expect(book?.pageDirection == nil)
+        }
+    }
+
+    /// G54-S4 Task 6: 「EPUB の題名を使う」設定が実際の題名の決め方を変えることを確認する。
+    /// 著者の扱いは対象外（`EPUBMetadataMerge.merged` のまま・既存の作法どおり）。
+    @Suite("G54-S4: EPUB の題名を使うか")
+    struct BookImporterEPUBTitle {
+        /// 題名・著者を差し替えられる reader。共有 `StubReader` は題名が "t" 固定のため専用に用意する。
+        private struct TitleStubReader: EPUBReading {
+            let title: String?
+            let author: String?
+            func open(url: URL) async throws -> EPUBBookInfo {
+                EPUBBookInfo(title: title, author: author, language: nil, readingDirection: .unknown)
+            }
+            func coverImageData(url: URL, maxPixelSize: Int) async throws -> Data? { nil }
+            func openImageBook(url: URL) async throws -> (any EPUBImageBookReading)? { nil }
+        }
+
+        private func makeImporter() throws -> (BookImporter, Database, URL) {
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("bi-epub-title-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let db = try Database.openInMemory()
+            try db.migrate()
+            let fmt = try FilenameFormat(raw: "@title")
+            let importer = BookImporter(database: db, bundleURL: dir, format: fmt)
+            return (importer, db, dir)
+        }
+
+        @Test("設定 OFF なら EPUB に題名があってもファイル名から作った題名になる")
+        func offUsesFilenameTitle() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = TitleStubReader(title: "EPUB Title", author: nil)
+
+            let (importer, db, dir) = try makeImporter()
+            let epub = dir.appendingPathComponent("filename-title.epub")
+            try Data("zz".utf8).write(to: epub)
+
+            let result = await importer.add(
+                urls: [epub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
+            guard let id = result.addedIDs.first else {
+                Issue.record("expected one added book id")
+                return
+            }
+            let book = try db.fetchAllBooks().first { $0.id == id }
+            #expect(book?.title == "filename-title")
+        }
+
+        @Test("設定 ON なら EPUB の題名になる")
+        func onUsesEPUBTitle() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = TitleStubReader(title: "EPUB Title", author: nil)
+
+            let (importer, db, dir) = try makeImporter()
+            let epub = dir.appendingPathComponent("filename-title.epub")
+            try Data("zz".utf8).write(to: epub)
+
+            let result = await importer.add(
+                urls: [epub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: true)
+            guard let id = result.addedIDs.first else {
+                Issue.record("expected one added book id")
+                return
+            }
+            let book = try db.fetchAllBooks().first { $0.id == id }
+            #expect(book?.title == "EPUB Title")
+        }
+
+        @Test("設定 ON でも EPUB の題名が空白だけならファイル名から作った題名に落ちる")
+        func onFallsBackWhenEPUBTitleBlank() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = TitleStubReader(title: "   ", author: nil)
+
+            let (importer, db, dir) = try makeImporter()
+            let epub = dir.appendingPathComponent("filename-title.epub")
+            try Data("zz".utf8).write(to: epub)
+
+            let result = await importer.add(
+                urls: [epub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: true)
+            guard let id = result.addedIDs.first else {
+                Issue.record("expected one added book id")
+                return
+            }
+            let book = try db.fetchAllBooks().first { $0.id == id }
+            #expect(book?.title == "filename-title")
+        }
+
+        @Test("著者の扱いは設定に影響されない（ON でも OFF でも既存規則どおり）")
+        func authorHandlingUnaffected() async throws {
+            let saved = EPUBAdapter.reader; defer { EPUBAdapter.reader = saved }
+            EPUBAdapter.reader = TitleStubReader(title: "EPUB Title", author: "EPUB Author")
+
+            let (importerOff, dbOff, dirOff) = try makeImporter()
+            let epubOff = dirOff.appendingPathComponent("filename-title.epub")
+            try Data("zz".utf8).write(to: epubOff)
+            let resultOff = await importerOff.add(
+                urls: [epubOff], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
+            guard let idOff = resultOff.addedIDs.first else {
+                Issue.record("expected one added book id (off)")
+                return
+            }
+            let bookOff = try dbOff.fetchAllBooks().first { $0.id == idOff }
+
+            let (importerOn, dbOn, dirOn) = try makeImporter()
+            let epubOn = dirOn.appendingPathComponent("filename-title.epub")
+            try Data("zz".utf8).write(to: epubOn)
+            let resultOn = await importerOn.add(
+                urls: [epubOn], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: true)
+            guard let idOn = resultOn.addedIDs.first else {
+                Issue.record("expected one added book id (on)")
+                return
+            }
+            let bookOn = try dbOn.fetchAllBooks().first { $0.id == idOn }
+
+            #expect(bookOff?.author == "EPUB Author")
+            #expect(bookOn?.author == "EPUB Author")
         }
     }
 }

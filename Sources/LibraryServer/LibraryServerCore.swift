@@ -986,10 +986,13 @@ public struct LibraryServerCore: Sendable {
             // （config の起動時スナップショットではなく、リモート設定変更を即時反映するため）。
             let acOverride = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libAutoClassifyKey)) ?? nil).map { $0 == "1" || $0 == "true" }
             let thOverride = ((try? lib.db.getLibrarySetting(key: ImportDefaults.libThickThresholdKey)) ?? nil).flatMap { Int($0) }
+            // G54-S4 Task 6: preferEPUBTitle も同じ「リクエスト時に per-library override を解決」の流儀に従う。
+            let ptOverride = ImportDefaults.preferEPUBTitleOverride(db: lib.db)
             let result = await importer.add(
                 urls: urls,
                 autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(override: acOverride),
-                thickThreshold: ImportDefaults.effectiveThickThreshold(override: thOverride))
+                thickThreshold: ImportDefaults.effectiveThickThreshold(override: thOverride),
+                preferEPUBTitle: ImportDefaults.effectivePreferEPUBTitle(override: ptOverride))
             // 行が増えるので全リロード通知（onBookChanged はメタ更新用で新規行に効かない）。
             if !result.addedIDs.isEmpty { self.notifyStructureChanged(lib.uuid) }
             return AddBooksReplyDTO(

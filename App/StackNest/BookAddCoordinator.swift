@@ -19,6 +19,7 @@ public final class BookAddCoordinator {
         await importer.add(
             urls: urls,
             autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(db: database),
-            thickThreshold: ImportDefaults.effectiveThickThreshold(db: database))
+            thickThreshold: ImportDefaults.effectiveThickThreshold(db: database),
+            preferEPUBTitle: ImportDefaults.effectivePreferEPUBTitle(db: database))
     }
 }

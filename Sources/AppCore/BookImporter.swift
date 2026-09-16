@@ -76,7 +76,11 @@ public struct BookImporter: Sendable {
     ///   - urls: ファイル / フォルダ URL のリスト
     ///   - autoClassifyEnabled: 自動分類を有効化するか (ViewerSettings.shared を読まない)
     ///   - thickThreshold: archive の page 数閾値 (autoClassifyEnabled == true 時のみ参照)
-    public func add(urls: [URL], autoClassifyEnabled: Bool, thickThreshold: Int) async -> ImportResult {
+    ///   - preferEPUBTitle: G54-S4: EPUB に題名があればそれを優先するか
+    ///     (`ImportDefaults.effectivePreferEPUBTitle` の解決結果を渡す。ここでは読まない)。
+    ///     既定 false — この引数を意識しない既存呼び出し元（他のテスト等）を壊さないための
+    ///     デフォルト値であって、本番呼び出し元は必ず明示的に解決値を渡す（下記 4 箇所参照）。
+    public func add(urls: [URL], autoClassifyEnabled: Bool, thickThreshold: Int, preferEPUBTitle: Bool = false) async -> ImportResult {
         var result = ImportResult()
         let existingPaths = (try? Set(database.fetchAllBooks().map { $0.path ?? "" })) ?? []
         let thumbnailsDir = bundleURL.appendingPathComponent("Thumbnails")
@@ -202,7 +206,7 @@ public struct BookImporter: Sendable {
                 if url.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader {
                     epubInfo = try? await reader.open(url: url)
                 }
-                let id = try insertBookRecord(for: url, bookType: bookType, epubInfo: epubInfo)
+                let id = try insertBookRecord(for: url, bookType: bookType, epubInfo: epubInfo, preferEPUBTitle: preferEPUBTitle)
                 result.addedIDs.append(id)
 
                 if let pagesToWrite = TruncatedReadPolicy.pageCountToWrite(
@@ -258,7 +262,7 @@ public struct BookImporter: Sendable {
 
     /// Builds a BookRecord from the URL and inserts it, returning the auto-assigned row id.
     /// `bookType` は caller 側で自動分類済みの値を渡す (Phase 2.5g).
-    private func insertBookRecord(for url: URL, bookType: Int, epubInfo: EPUBBookInfo? = nil) throws -> Int {
+    private func insertBookRecord(for url: URL, bookType: Int, epubInfo: EPUBBookInfo? = nil, preferEPUBTitle: Bool) throws -> Int {
         let basename = url.deletingPathExtension().lastPathComponent
         // Parse format fields for non-title metadata (author, genre, keywords, etc.).
         // Title is always set to basename verbatim — FilenameFormatter reverse-parse may split
@@ -301,9 +305,21 @@ public struct BookImporter: Sendable {
         }
         let parsed = FilenameParser.parse(title: resolvedTitle, filename: url.lastPathComponent)
 
+        // G54-S4: 設定が ON のときだけ EPUB の題名を優先する。
+        // 既定（false）では今までどおり、ファイル名から作った題名（`resolvedTitle`）が勝つ
+        // （`EPUBMetadataMerge.merged` は「既存値が空でなければ既存」なので、実質 EPUB の題名は使われない）。
+        // 合成規則そのものは変えない（著者が同じ規則を使っており、著者の扱いは変えないため）。
+        let mergedTitle: String
+        if preferEPUBTitle, let fromEPUB = epubInfo?.title,
+           !fromEPUB.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            mergedTitle = fromEPUB
+        } else {
+            mergedTitle = EPUBMetadataMerge.merged(existing: resolvedTitle, fromEPUB: epubInfo?.title) ?? resolvedTitle
+        }
+
         let record = BookRecord(
             id: 0,  // placeholder — insertBookReturningID uses auto-assign (omits id column)
-            title: EPUBMetadataMerge.merged(existing: resolvedTitle, fromEPUB: epubInfo?.title) ?? resolvedTitle,
+            title: mergedTitle,
             author: EPUBMetadataMerge.merged(existing: fields[.author], fromEPUB: epubInfo?.author),
             genre: fields[.genre],
             path: url.path,

@@ -2103,7 +2103,8 @@ final class AppState {
             let result = await importer.add(
                 urls: urls,
                 autoClassifyEnabled: ImportDefaults.effectiveAutoClassify(db: db),
-                thickThreshold: ImportDefaults.effectiveThickThreshold(db: db))
+                thickThreshold: ImportDefaults.effectiveThickThreshold(db: db),
+                preferEPUBTitle: ImportDefaults.effectivePreferEPUBTitle(db: db))
             presentWatchSummary(result)
         }
     }
