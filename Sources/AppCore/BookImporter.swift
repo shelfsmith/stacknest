@@ -78,9 +78,10 @@ public struct BookImporter: Sendable {
     ///   - thickThreshold: archive の page 数閾値 (autoClassifyEnabled == true 時のみ参照)
     ///   - preferEPUBTitle: G54-S4: EPUB に題名があればそれを優先するか
     ///     (`ImportDefaults.effectivePreferEPUBTitle` の解決結果を渡す。ここでは読まない)。
-    ///     既定 false — この引数を意識しない既存呼び出し元（他のテスト等）を壊さないための
-    ///     デフォルト値であって、本番呼び出し元は必ず明示的に解決値を渡す（下記 4 箇所参照）。
-    public func add(urls: [URL], autoClassifyEnabled: Bool, thickThreshold: Int, preferEPUBTitle: Bool = false) async -> ImportResult {
+    ///     `autoClassifyEnabled` と同じく既定値を持たない — 渡し忘れをコンパイルエラーで止めるため
+    ///     （既定値があると、新しい取り込み経路を足す人が気づかず省略してもビルドが通ってしまい、
+    ///     その経路だけ設定が黙って効かなくなる）。
+    public func add(urls: [URL], autoClassifyEnabled: Bool, thickThreshold: Int, preferEPUBTitle: Bool) async -> ImportResult {
         var result = ImportResult()
         let existingPaths = (try? Set(database.fetchAllBooks().map { $0.path ?? "" })) ?? []
         let thumbnailsDir = bundleURL.appendingPathComponent("Thumbnails")

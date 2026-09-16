@@ -24,11 +24,11 @@ struct BookImporterTests {
         let png = dir.appendingPathComponent("sample.png")
         try Self.onePixelPNG().write(to: png)
 
-        let r1 = await importer.add(urls: [png], autoClassifyEnabled: false, thickThreshold: 100)
+        let r1 = await importer.add(urls: [png], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r1.addedIDs.count == 1)
         #expect(try db.fetchAllBooks().count == 1)
 
-        let r2 = await importer.add(urls: [png], autoClassifyEnabled: false, thickThreshold: 100)
+        let r2 = await importer.add(urls: [png], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r2.addedIDs.isEmpty)
         #expect(r2.alreadyPresent == [png])
         #expect(try db.fetchAllBooks().count == 1)
@@ -37,7 +37,7 @@ struct BookImporterTests {
     @Test func nonexistentPathIsFailedNotAdded() async throws {
         let (importer, db, dir) = try makeImporter()
         let ghost = dir.appendingPathComponent("does-not-exist.cbz")
-        let r = await importer.add(urls: [ghost], autoClassifyEnabled: false, thickThreshold: 100)
+        let r = await importer.add(urls: [ghost], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.isEmpty)
         #expect(r.failed.count == 1)
         #expect(r.failed.first?.0 == ghost)
@@ -58,7 +58,7 @@ struct BookImporterTests {
         let pdfURL = dir.appendingPathComponent("sample.pdf")
         try Self.threePagePDF().write(to: pdfURL)
 
-        let r = await importer.add(urls: [pdfURL], autoClassifyEnabled: false, thickThreshold: 100)
+        let r = await importer.add(urls: [pdfURL], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.count == 1)
         #expect(r.coverFailures.isEmpty)
 
@@ -122,7 +122,7 @@ struct BookImporterTests {
             return
         }
 
-        let archiveResult = await importer.add(urls: archiveCandidates, autoClassifyEnabled: false, thickThreshold: 100)
+        let archiveResult = await importer.add(urls: archiveCandidates, autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(archiveResult.addedIDs.count == 2)   // VolumeA(フォルダ本) + loose.txt
         let books = try db.fetchAllBooks()
         guard let folderBook = books.first(where: { $0.path == dirCandidate.path }) else {
@@ -155,7 +155,7 @@ struct BookImporterTests {
         try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
         try Data("just text, no images here".utf8).write(to: sub.appendingPathComponent("readme.txt"))
 
-        let r1 = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100)
+        let r1 = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r1.addedIDs.isEmpty)
         #expect(r1.failed.count == 1)
         #expect(r1.failed.first?.0 == sub)
@@ -163,7 +163,7 @@ struct BookImporterTests {
 
         // 後から本物の画像が追加された同じフォルダは、再取込で今度こそ成功しなければならない。
         try Self.onePixelPNG().write(to: sub.appendingPathComponent("page01.png"))
-        let r2 = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100)
+        let r2 = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r2.addedIDs.count == 1)
         #expect(try db.fetchAllBooks().count == 1)
     }
@@ -178,7 +178,7 @@ struct BookImporterTests {
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
         try Self.onePixelPNG().write(to: nested.appendingPathComponent("page01.png"))
 
-        let r = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100)
+        let r = await importer.add(urls: [sub], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.isEmpty)
         #expect(r.failed.count == 1)
         #expect(try db.fetchAllBooks().count == 0)
@@ -191,7 +191,7 @@ struct BookImporterTests {
         let txt = dir.appendingPathComponent("loose.txt")
         try Data("plain".utf8).write(to: txt)
 
-        let r = await importer.add(urls: [txt], autoClassifyEnabled: false, thickThreshold: 100)
+        let r = await importer.add(urls: [txt], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.count == 1)
         #expect(try db.fetchAllBooks().count == 1)
     }
@@ -206,7 +206,7 @@ struct BookImporterTests {
         let zipURL = dir.appendingPathComponent("damaged.zip")
         try DamagedZipFixture.makeDamagedZip().write(to: zipURL)
 
-        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: false, thickThreshold: 100)
+        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: false, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.count == 1)
         let books = try db.fetchAllBooks()
         guard let book = books.first(where: { $0.path == zipURL.path }) else {
@@ -230,7 +230,7 @@ struct BookImporterTests {
         let zipURL = dir.appendingPathComponent("damaged-type.zip")
         try DamagedZipFixture.makeDamagedZip().write(to: zipURL)
 
-        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: true, thickThreshold: 100)
+        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: true, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.count == 1)
         guard let book = try db.fetchAllBooks().first(where: { $0.path == zipURL.path }) else {
             Issue.record("expected the damaged zip to be imported as a book")
@@ -249,7 +249,7 @@ struct BookImporterTests {
         try DamagedZipFixture.makeStoredZip(
             (1...6).map { ("\($0).png", DamagedZipFixture.tinyPNG) }).write(to: zipURL)
 
-        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: true, thickThreshold: 100)
+        let r = await importer.add(urls: [zipURL], autoClassifyEnabled: true, thickThreshold: 100, preferEPUBTitle: false)
         #expect(r.addedIDs.count == 1)
         guard let book = try db.fetchAllBooks().first(where: { $0.path == zipURL.path }) else {
             Issue.record("expected the healthy zip to be imported as a book")
