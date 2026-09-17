@@ -1109,23 +1109,30 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     /// タイマー発火時の 1 ステップ。advance の結果に応じて次巻/ループ/停止を処理する。
     /// AdvanceResult の分岐は goNext() のものと意味的に一致させること（片方を変えたら両方更新）。
-    private func autoAdvanceTick() {
+    /// G54-S3 final review fix: テストから直接叩けるよう internal（新規の本番呼び出し元は追加していない。
+    /// 本番の呼び出しは引き続き toggleAutoAdvance() が張るタイマーのみ）。
+    func autoAdvanceTick() {
         // スワップ中（await 中）の 2 回目のタイマー発火が重複スワップを開始しないようにする。
         guard !isSwapping else { return }
+        let turn = preparePageTurn(forward: true)   // G54-S3: model を動かす前に旧ページを撮る
         let result = model.advance()
         switch result {
         case .moved:
+            armPageTurn(turn)
             loadCurrentPage()
             persistCurrent()
         case .endLoop:
+            cancelPageTurn()                         // G54-S3: 先頭へのループはジャンプ扱い
             loadCurrentPage()
             persistCurrent()
             hudNote("先頭ページに移動しました")
         case .endNextBook:
+            cancelPageTurn()                         // G54-S3: 巻送りには演出しない
             // 成功時のノートは performSwap 内の hudNote が発火。次巻なし時は loadVolume 内で
             // hudNote("次の巻なし")＋stopAutoAdvance() が発火する（タイマー停止もそこで担う）。
             loadNextVolumeNow()
         case .endStop:
+            cancelPageTurn()                         // G54-S3: 動かなかった送りに演出しない
             stopAutoAdvance()
             hudNote("最終ページです")
         }

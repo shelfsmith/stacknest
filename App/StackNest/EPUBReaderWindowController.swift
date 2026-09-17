@@ -321,6 +321,10 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
                 self.scheduleHudHide()
             }
         }
+        // G54-S3 final review fix (Important #2): キー操作由来の短い非表示タイマーが既に動いている
+        // ところへ非同期ノート（最終ページです／次の巻なし等）が来ても、全体が先に隠れてしまわない
+        // よう、ノート表示に合わせて非表示タイマーを張り直す（画像ビューアの hudNote と同じ挙動）。
+        scheduleHudHide()
     }
 
     // MARK: - G54-S3 進捗 HUD

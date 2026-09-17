@@ -118,4 +118,25 @@ struct ViewerPageTurnWiringTests {
         #expect(a.calls == ["cancel", "capture", "cancel"])
         c.close()
     }
+
+    // G54-S3 final review fix (Important #1): スライドショーの自動送りも goNext() と同じ配線で
+    // 演出を掛けること（autoAdvanceTick() が model.advance()/loadCurrentPage() を直呼びして
+    // preparePageTurn/armPageTurn/cancelPageTurn を素通りしていた欠陥の回帰テスト）。
+    @Test func slideshowTickAnimatesLikeGoNext() async {
+        let (c, a, clock) = await make()
+        clock.t = clock.t.addingTimeInterval(1)
+        c.autoAdvanceTick()
+        await waitUntil { a.calls.contains { $0.hasPrefix("run") } }
+        #expect(a.calls == ["cancel", "capture", "run(slide,true)"])
+        #expect(c.currentPageForTesting == 1)
+        c.close()
+    }
+
+    @Test func slideshowTickAtTheLastPageCancelsWithoutRunning() async {
+        let (c, a, clock) = await make(pages: 1)
+        clock.t = clock.t.addingTimeInterval(1)
+        c.autoAdvanceTick()                          // 1 ページの本: advance は endStop
+        #expect(a.calls == ["cancel", "capture", "cancel"])
+        c.close()
+    }
 }
