@@ -129,6 +129,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
             return event
         }
         refreshProgress()
+        // G54-S3: 画像ビューアと同じく、開いた直後に一度出して 2 秒後に隠す。
+        showHUDThenScheduleHide()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
