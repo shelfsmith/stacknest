@@ -157,10 +157,11 @@ struct VideoCoverPickerSheet: View {
                 stage = .scene
             }
             Spacer()
-            Button("切り抜かずに決定") {
-                finish(cropRect: nil)
-            }
-            Button("この切り抜きで決定") {
+            // G54-S4 smoke fix: 「この切り抜きで決定」「切り抜かずに決定」の 2 ボタンを統合。
+            // 切り抜き矩形が全体のまま（未編集 or リセット後）なら nil（切り抜き無し）として保存する
+            // 正規化は元から入っていたもの（旧「この切り抜きで決定」の分岐）をそのまま流用する。
+            // これにより「操作せず決定」も「リセットしてから決定」も自動的に切り抜き無しになる。
+            Button("決定") {
                 let toSave: CGRect? = (cropRect == Self.fullRect) ? nil : cropRect
                 finish(cropRect: toSave)
             }

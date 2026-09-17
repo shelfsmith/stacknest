@@ -545,8 +545,9 @@ struct DetailPaneView: View {
                             .disabled(!isSingleSelection || !canEdit)
                         }
                         // G50: 動画はページの概念が無いので「表紙を編集」の代わりにこちらを出す。
+                        // G54-S4 smoke fix: 項目名を「シーンから表紙を選択…」に変更（出す条件は動画のみで変更なし）。
                         if onSetVideoSceneCover != nil, let videoURL = Self.videoSceneSourceURL(for: book) {
-                            Button("動画からシーンを選ぶ…") {
+                            Button("シーンから表紙を選択…") {
                                 videoSceneDraft = VideoSceneDraft(url: videoURL)
                             }
                             .disabled(!isSingleSelection || !canEdit)
