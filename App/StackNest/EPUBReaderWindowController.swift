@@ -14,6 +14,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     // `.view` だけ持つと Washi の delegate（weak）経由の位置変化通知が消える。
     private let reader: any EPUBReaderViewing
     private let persist: (EPUBLocatorValue) -> Void
+    /// G54-S3: 演出・ノンブル・自動送りの間隔などを読む設定。テストは専用の suite を渡す。
+    private let settings: ViewerSettings
+    private var presentationObserver: NSObjectProtocol?
     private(set) var book: BookRow
     var onClose: (() -> Void)?
 
@@ -42,14 +45,27 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private let container = NSView()
     private var helpOverlayHosting: PassthroughHostingView<ViewerHelpOverlayView>?
     private var helpOverlayTimer: Timer?
-    private var hudNoteHosting: PassthroughHostingView<EPUBHUDNoteView>?
-    private var hudNoteTimer: Timer?
     /// 直近に出したノート（テスト用）。
     private(set) var lastHUDNote: String?
 
-    init(book: BookRow, reader: any EPUBReaderViewing, persist: @escaping (EPUBLocatorValue) -> Void) {
+    // MARK: G54-S3 — 進捗 HUD（画像ビューアと同じ `ViewerHUDView`）
+    private var hudHosting: PassthroughHostingView<ViewerHUDView>?
+    private var hudVisible = true
+    private var hudNoteText: String?
+    private var hudNoteTimer: Timer?
+    private var idleTimer: Timer?
+    private var mouseMovedMonitor: Any?
+    private let hudNoteDuration: TimeInterval = 3.0
+    private let hudIdleHideDelay: TimeInterval = 2.0
+    /// いま HUD に出している中身（テスト用に読める）。
+    private(set) var progressDisplay = EPUBProgressDisplay.make(
+        globalPageCount: nil, currentGlobalPageRange: nil, spineIndex: nil, spineProgress: nil, spineCount: nil)
+
+    init(book: BookRow, reader: any EPUBReaderViewing, settings: ViewerSettings = .shared,
+         persist: @escaping (EPUBLocatorValue) -> Void) {
         self.book = book
         self.reader = reader
+        self.settings = settings
         self.persist = persist
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1100),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -68,18 +84,26 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         help.frame = container.bounds
         container.addSubview(help)
         helpOverlayHosting = help
-        let note = PassthroughHostingView(rootView: EPUBHUDNoteView(text: nil))
-        note.autoresizingMask = [.width, .height]
-        note.frame = container.bounds
-        container.addSubview(note)
-        hudNoteHosting = note
+        // G54-S3: 画像ビューアと同じ HUD（本全体の「N / M」＋進捗バー＋ノート）。
+        let hud = PassthroughHostingView(rootView: ViewerHUDView(
+            progressText: progressDisplay.text, progressFraction: progressDisplay.fraction,
+            isVisible: true, pageDirection: .leftToRight))
+        hud.autoresizingMask = [.width, .height]
+        hud.frame = container.bounds
+        container.addSubview(hud)
+        hudHosting = hud
         window.contentView = container
         window.center()
         // G48-2 最終レビュー E: 本ごとに一意な autosave name（固定名は 2 窓目で false を返す）。
         window.setFrameAutosaveName("EPUBReaderWindow-\(book.id)")
         super.init(window: window)
         window.delegate = self
-        reader.onLocatorChange = { [weak self] loc in self?.schedulePersist(loc) }
+        reader.onLocatorChange = { [weak self] loc in
+            self?.schedulePersist(loc)
+            self?.refreshProgress()
+        }
+        // G54-S3: 計測の完了・無効化で HUD の「計測中…」と「N / M」を切り替える。
+        reader.onPageCensusChange = { [weak self] in self?.refreshProgress() }
         // G51: キーは窓が握る。Washi 側は native monitor で受けた NSEvent をここへ渡すだけ。
         reader.onKeyEvent = { [weak self] event in self?.handleKey(event) ?? false }
         reader.onReachBookEdge = { [weak self] forward in self?.reachedBookEdge(forward: forward) }
@@ -88,22 +112,42 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         ) { [weak self] _ in
             Task { @MainActor in self?.bindings = ViewerKeyBindings.load() }
         }
+        // G54-S3: 演出とノンブルを reader に入れ、設定の変更も開いている窓に届ける。
+        // 通知は `ViewerSettings`（@MainActor）の didSet から同期に投げられるので、queue: nil で同期に受ける。
+        applyPresentationSettings()
+        presentationObserver = NotificationCenter.default.addObserver(
+            forName: .viewerEPUBPresentationChanged, object: nil, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyPresentationSettings() }
+        }
+        // G54-S3: WebView の上でもマウス移動を拾えるよう、窓単位の local monitor で受ける。
+        window.acceptsMouseMovedEvents = true
+        mouseMovedMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { [weak self] event in
+            MainActor.assumeIsolated {
+                if let self, event.window === self.window { self.showHUDThenScheduleHide() }
+            }
+            return event
+        }
+        refreshProgress()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     @MainActor
     deinit {
         if let o = bindingsObserver { NotificationCenter.default.removeObserver(o) }
+        if let o = presentationObserver { NotificationCenter.default.removeObserver(o) }
+        if let m = mouseMovedMonitor { NSEvent.removeMonitor(m) }
         autoAdvanceTimer?.invalidate()
         helpOverlayTimer?.invalidate()
         hudNoteTimer?.invalidate()
+        idleTimer?.invalidate()
     }
 
     /// G51: 表示。`openEPUBFullScreenByDefault` なら、窓が on-screen になった直後（1 runloop 後）に全画面へ
     /// （画像ビューアの T-F1 と同じ作法。`toggleFullScreen` は on-screen になってから呼ぶ必要がある）。
     func present() {
         showWindow(nil)
-        if ViewerSettings.shared.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) {
+        if settings.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) {
             DispatchQueue.main.async { [weak w] in w?.toggleFullScreen(nil) }
         }
     }
@@ -174,14 +218,18 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
              .skipForward, .skipBackward, .toggleLoupe:
             break   // `epubSupported` に無い。handleKey が弾くのでここには来ない
         }
+        // G54-S3: 画像ビューアと同じく、送り系のアクションで HUD を出す。
+        if action.showsHUD { showHUDThenScheduleHide() }
     }
 
-    /// 本全体に対する割合で飛ぶ。census（全体ページ数）があればページ単位、無ければ spine 単位で代替。
+    /// 本全体に対する割合で飛ぶ。census（全体ページ数）があればページ単位、無ければ章単位で代替し、
+    /// G54-S3: 代替したことをノートで示す（計測の前後で飛び先が変わる理由が見えるように）。
     private func jumpToPercent(_ fraction: Double) {
         if let count = reader.globalPageCount, let page = EPUBPercentJump.globalPage(fraction: fraction, pageCount: count) {
             reader.go(toGlobalPage: page)
         } else if let spines = reader.spineItemCount, let spine = EPUBPercentJump.spineIndex(fraction: fraction, spineCount: spines) {
             reader.go(to: EPUBLocatorValue(spine: spine, progress: 0, cfi: nil, engine: nil))
+            hudNote("計測中のため章単位で移動")
         }
     }
 
@@ -198,7 +246,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
             hudNote("スライドショー 停止")
             return
         }
-        let interval = max(1.0, ViewerSettings.shared.autoAdvanceInterval)
+        let interval = max(1.0, settings.autoAdvanceInterval)
         autoAdvanceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.reader.goForward() }
         }
@@ -208,7 +256,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// 本の端に達した（手動・自動どちらでも）。末尾では「最後のページの次」の設定に従う（画像ビューアと同じ）。
     private func reachedBookEdge(forward: Bool) {
         guard forward else { return }
-        switch ViewerSettings.shared.endOfBookBehavior {
+        switch settings.endOfBookBehavior {
         case .stop:
             stopAutoAdvance()
             hudNote("最終ページです")
@@ -256,13 +304,66 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         }
     }
 
-    /// 短いテキストを約 3 秒出す（画像ビューアの `hudNote` 相当。進捗 HUD は持ち込まない）。
+    /// 短いテキストを約 3 秒出す（画像ビューアの `hudNote` と同じく、進捗 HUD のノート枠を使う）。
     private func hudNote(_ text: String) {
         lastHUDNote = text
-        hudNoteHosting?.rootView = EPUBHUDNoteView(text: text)
+        hudNoteText = text
+        hudVisible = true
+        updateHUD()
         hudNoteTimer?.invalidate()
-        hudNoteTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.hudNoteHosting?.rootView = EPUBHUDNoteView(text: nil) }
+        hudNoteTimer = Timer.scheduledTimer(withTimeInterval: hudNoteDuration, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.hudNoteText = nil
+                self.updateHUD()
+                self.scheduleHudHide()
+            }
+        }
+    }
+
+    // MARK: - G54-S3 進捗 HUD
+
+    /// 演出とノンブルを reader に入れる（init と設定変更の通知から）。
+    private func applyPresentationSettings() {
+        reader.pageTurnStyle = settings.pageTurnStyle
+        reader.showsFolio = settings.showsEPUBFolio
+    }
+
+    /// 位置の変化・計測の完了で HUD の中身を作り直す。
+    private func refreshProgress() {
+        progressDisplay = EPUBProgressDisplay.make(
+            globalPageCount: reader.globalPageCount,
+            currentGlobalPageRange: reader.currentGlobalPageRange,
+            spineIndex: reader.locator?.spine,
+            spineProgress: reader.locator?.progress,
+            spineCount: reader.spineItemCount)
+        updateHUD()
+    }
+
+    private func updateHUD() {
+        hudHosting?.rootView = ViewerHUDView(
+            progressText: progressDisplay.text,
+            progressFraction: progressDisplay.fraction,
+            isVisible: hudVisible,
+            pageDirection: reader.isRightToLeft ? .rightToLeft : .leftToRight,
+            noteText: hudNoteText)
+    }
+
+    private func showHUDThenScheduleHide() {
+        hudVisible = true
+        updateHUD()
+        scheduleHudHide()
+    }
+
+    /// 画像ビューアと同じ: ノート表示中はノートが消えるまで隠さない。
+    private func scheduleHudHide() {
+        idleTimer?.invalidate()
+        let delay = (hudNoteText != nil) ? (hudNoteDuration + 0.3) : hudIdleHideDelay
+        idleTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.hudVisible = false
+                self?.updateHUD()
+            }
         }
     }
 
@@ -289,28 +390,10 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         stopAutoAdvance()
         helpOverlayTimer?.invalidate()
         hudNoteTimer?.invalidate()
+        idleTimer?.invalidate()
+        if let m = mouseMovedMonitor { NSEvent.removeMonitor(m); mouseMovedMonitor = nil }
         // レビュー申し送り #2: pending も reader.locator も nil のときは何も書かない(既存値を残す)。
         flushPersist()
         onClose?()
-    }
-}
-
-/// G51: EPUB 窓の一時ノート（「見開き」「次の巻なし」など）。画像ビューアの HUD ノートと同じ見た目の最小版。
-struct EPUBHUDNoteView: View {
-    var text: String?
-    var body: some View {
-        VStack {
-            Spacer()
-            if let text {
-                Text(text)
-                    .font(.system(size: 13, weight: .semibold))
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
-                    .foregroundStyle(.white)
-                    .padding(.bottom, 28)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeInOut(duration: 0.15), value: text)
     }
 }
