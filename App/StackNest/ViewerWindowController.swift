@@ -3,6 +3,7 @@ import AppKit
 import SwiftUI
 import LibraryStore
 import AppCore
+import EPUBAdapter
 import RemoteClient
 import OSLog
 
@@ -210,6 +211,21 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     ///   勝つ」という不変条件（旧 Critical fix の意図）を、近傍プリフェッチを巻き込まずに保つ。
     private var contentGeneration = 0
     private var renderRequest = 0
+
+    // MARK: - G54-S3: ページ送りの演出
+
+    /// 演出の部品。テストは記録用の偽物に差し替える。
+    var pageTurnAnimator: any PageTurnAnimating = PageTurnOverlay()
+    /// 設定・「視差効果を減らす」・時計の読み口（テストで差し替える）。
+    var pageTurnStyleProvider: @MainActor () -> PageTurnStyleValue = { ViewerSettings.shared.pageTurnStyle }
+    var reduceMotionProvider: @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    var now: @MainActor () -> Date = { Date() }
+    /// 直近の隣への送りの時刻（演出したかどうかに関わらず更新する。Washi と同じ）。
+    private var lastPageTurnDate = Date.distantPast
+    /// 撮った旧ページを、どの描画要求（`renderRequest`）で動かすか。
+    private var pendingPageTurn: (plan: PageTurnPlan, renderRequest: Int)?
+    /// テスト用: 現在ページの表示待ちか（案P のペーシング中は送りが無視される）。
+    var hasPendingDisplay: Bool { isDisplayPending }
 
     init(
         content: BookContent,
@@ -498,10 +514,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // (pumpPrefetch) はこれの影響を受けてはならない（re-review Important fix）。
         renderRequest += 1
         let rr = renderRequest
+        // G54-S3: この描画要求に結びついていない保留中の演出（ジャンプ等で上書きされた送り）は外す。
+        if let pending = pendingPageTurn, pending.renderRequest != rr { cancelPageTurn() }
         let cg = contentGeneration
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
         let pages = currentSpreadPages()
-        guard !pages.isEmpty else { isDisplayPending = false; canvas.setImages([]); updateHUD(); return }
+        guard !pages.isEmpty else { cancelPageTurn(); isDisplayPending = false; canvas.setImages([]); updateHUD(); return }
 
         // G18 C4: 見開き（ページ集合）が変わったら、ズーム再デコードで残っている高解像状態を
         // 後始末する。離脱先の高解像デコードを prefetch/lastDecodeTarget から明示的に破棄し
@@ -538,6 +556,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         if cachedAll.count == pages.count {
             isDisplayPending = false   // 案P: 即表示＝ペーシング解除（held-key の次送りを許可）
             canvas.setImages(cachedAll)
+            firePageTurnIfArmed(renderRequest: rr)
             updateHUD()
             recordOrientationsThenMaybeReload(displayedPages: pages, images: cachedAll)
             recomputePrefetch()
@@ -588,6 +607,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             // 正しい現在見開きを表示し直す（loadCurrentPage が renderRequest を進め、pending も再確立する）。
             guard self.model.currentSpreadIndex == token else { self.loadCurrentPage(); return }
             self.canvas.setImages(imgs)
+            self.firePageTurnIfArmed(renderRequest: rr)
             self.updateHUD()
             // G38 再レビュー Important #2: loadCurrentPage 冒頭の予約はデコード**前**に置かれている。
             // プリフェッチ未済のページ（パーセントジャンプ・巻移動・初回表示）でデコードが
@@ -784,23 +804,62 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         )
     }
 
+    /// G54-S3: 隣への送りの直前に呼ぶ。演出するなら旧ページを撮って計画を返す。
+    /// 演出しないときは撮らない（押しっぱなしの送りを遅くしない）。
+    private func preparePageTurn(forward: Bool) -> PageTurnPlan? {
+        let current = now()
+        let elapsed = current.timeIntervalSince(lastPageTurnDate)
+        lastPageTurnDate = current
+        cancelPageTurn()
+        guard let plan = PageTurnDecision.plan(
+            style: pageTurnStyleProvider(), reduceMotion: reduceMotionProvider(),
+            secondsSinceLastTurn: elapsed, forward: forward,
+            rightToLeft: model.options.pageDirection == .rightToLeft),
+              pageTurnAnimator.capture(from: canvas) else { return nil }
+        return plan
+    }
+
+    /// G54-S3: 直後の `loadCurrentPage()` の描画要求に計画を結びつける（`loadCurrentPage` が renderRequest を 1 進めるため +1）。
+    private func armPageTurn(_ plan: PageTurnPlan?) {
+        guard let plan else { return }
+        pendingPageTurn = (plan, renderRequest + 1)
+    }
+
+    /// G54-S3: 保留中の演出と被せ物を外す。
+    private func cancelPageTurn() {
+        pendingPageTurn = nil
+        pageTurnAnimator.cancel()
+    }
+
+    /// G54-S3: `canvas.setImages` の直後に呼ぶ。この描画要求に結びついた演出があれば動かす。
+    private func firePageTurnIfArmed(renderRequest rr: Int) {
+        guard let pending = pendingPageTurn, pending.renderRequest == rr else { return }
+        pendingPageTurn = nil
+        pageTurnAnimator.run(pending.plan)
+    }
+
     private func goNext() {
         // 案P（cooViewer 流ペーシング）: 現ページがまだ表示されていない（miss デコード中）間は
         // held-key の次送りを無視し、model が表示より先へ暴走するのを防ぐ（1 枚ずつ滑らかに流す）。
         guard !isDisplayPending else { return }
+        let turn = preparePageTurn(forward: true)   // G54-S3: model を動かす前に旧ページを撮る
         navDirection = 1
         let result = model.advance()
         switch result {
         case .moved:
+            armPageTurn(turn)
             loadCurrentPage()
             persistCurrent()
         case .endStop:
+            cancelPageTurn()                         // G54-S3: 動かなかった送りに演出しない
             hudNote("最終ページです")
         case .endLoop:
+            cancelPageTurn()                         // G54-S3: 先頭へのループはジャンプ扱い
             loadCurrentPage()
             persistCurrent()
             hudNote("先頭ページに移動しました")
         case .endNextBook:
+            cancelPageTurn()                         // G54-S3: 巻送りには演出しない
             // 成功時のノートは performSwap 内の hudNote が発火する。
             // 次巻なし時は loadVolume 内の hudNote("次の巻なし") が発火する。
             loadNextVolumeNow()
@@ -809,8 +868,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     private func goPrev() {
         guard !isDisplayPending else { return }   // 案P: 現ページ表示前は次送りを止める（後方も同様）
+        let turn = preparePageTurn(forward: false)
         navDirection = -1
+        let before = (model.currentPage, model.currentSpreadIndex)
         model.goBack()
+        // G54-S3: 先頭で戻った（位置が変わらない）なら演出しない。
+        if (model.currentPage, model.currentSpreadIndex) == before { cancelPageTurn() } else { armPageTurn(turn) }
         loadCurrentPage()
         persistCurrent()
     }
@@ -888,7 +951,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         return true
     }
 
-    private func perform(_ action: ViewerAction) {
+    func perform(_ action: ViewerAction) {
         // 巻スワップ中（await content.pageCount 中）は古い model に対する全入力を無視する。
         guard !isSwapping else { return }
         // スライドショー中はトグル以外のあらゆる手動操作で自動進行を解除する。
@@ -1087,6 +1150,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // contentGeneration 不一致で pending を落とさず、以後 goNext/goPrev が永久に no-op になる
         // （矢印が全く効かなくなる＝本フェーズが直そうとした症状の恒久版）。
         isDisplayPending = false
+        cancelPageTurn()   // G54-S3: 巻の差し替えに入ったら旧巻の被せ物を残さない
         // G18 C3 review Critical fix: 解決 await の間に完了しうる古い Task（旧巻の loadCurrentPage/
         // checkAndRedecodeForResize/pumpPrefetch 等）を、この時点で既に「古いコンテンツ世代」として
         // 無効化しておく。これは本/コンテンツの切替そのものなので contentGeneration をバンプする
@@ -1300,6 +1364,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         flushPersistNow()                // 閉じる前にデバウンス待ちの読書位置を確定書き込みする
         stopAutoAdvance()
+        cancelPageTurn()   // G54-S3
         idleTimer?.invalidate()
         idleTimer = nil
         hudNoteTimer?.invalidate()
