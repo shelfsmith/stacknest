@@ -3,6 +3,19 @@ import AppKit
 import LibraryStore
 
 public enum HelperLauncher {
+    /// 実際にアプリを起動する処理。**テストから差し替えるための継ぎ目。**
+    /// 既定は `NSWorkspace` で開く。テストはここを差し替えて、本物のアプリを起動させない
+    /// （かつて、テストが実在アプリに空の一時ファイルを開かせ、`defer` で消したせいで
+    /// 「ファイルが見つかりません」のダイアログが開発機に溜まる事故があった）。
+    @MainActor
+    public static var launch: (_ fileURL: URL, _ viewerURL: URL) -> Void = { fileURL, viewerURL in
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([fileURL], withApplicationAt: viewerURL, configuration: config) { _, _ in
+            // Completion handler errors are intentionally ignored:
+            // we have no synchronous channel to surface them to the alert UI.
+        }
+    }
+
     /// Opens `book.path` using the user-configured external viewer.
     /// path から `BookCategory.classify` で category を判定し、
     /// `settings.resolvedViewerPath(forPath:category:)` (= EPUB は専用指定 → default fallback、
@@ -40,11 +53,7 @@ public enum HelperLauncher {
         }
         let viewerURL = URL(fileURLWithPath: viewerPath)
         let fileURL = URL(fileURLWithPath: path)
-        let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([fileURL], withApplicationAt: viewerURL, configuration: config) { _, _ in
-            // Completion handler errors are intentionally ignored:
-            // we have no synchronous channel to surface them to the alert UI.
-        }
+        launch(fileURL, viewerURL)
         return nil
     }
 }

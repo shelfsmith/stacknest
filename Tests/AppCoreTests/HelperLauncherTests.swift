@@ -4,7 +4,11 @@ import Foundation
 @testable import AppCore
 import LibraryStore
 
-@Suite struct HelperLauncherTests {
+/// `HelperLauncher.launch` は `@MainActor` の static var（テスト用の継ぎ目）を差し替えるため、
+/// 並行実行させると他テストの上書きと競合する。`.serialized` で直列化する
+/// （前例: `Tests/LibraryServerTests/ImportConfigEndpointTests.swift`）。
+@Suite("HelperLauncherTests", .serialized)
+struct HelperLauncherTests {
     private func makeBook(path: String?, coverPath: String) -> BookRow {
         BookRow(
             id: 1,
@@ -26,11 +30,31 @@ import LibraryStore
         )
     }
 
+    /// `HelperLauncher.launch` を「呼ばれたことだけ記録する」ものに差し替える。
+    /// 呼び出し元は必ず `defer` で復元すること（既定の `NSWorkspace` 経由の起動は
+    /// 開発機で実在アプリを開いてしまうため、テストからは絶対に走らせない）。
+    @MainActor
+    private func recordingLaunch(into calls: RecordedCalls) -> (URL, URL) -> Void {
+        { fileURL, viewerURL in
+            calls.entries.append((fileURL: fileURL, viewerURL: viewerURL))
+        }
+    }
+
+    /// launch 呼び出しを溜めるための箱。クロージャからの capture 用に reference 型にする。
+    @MainActor
+    private final class RecordedCalls {
+        var entries: [(fileURL: URL, viewerURL: URL)] = []
+    }
+
     @Test @MainActor
     func returnsErrorWhenViewerNotSet() throws {
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         // book file は実在させて「file 不在」error を回避し、「viewer 未設定」error path を test
         let tempZip = FileManager.default.temporaryDirectory
@@ -50,6 +74,7 @@ import LibraryStore
         } else {
             Issue.record("Expected .launchFailed, got \(err)")
         }
+        #expect(calls.entries.isEmpty)  // viewer 未設定で弾かれているので launch には到達しない
     }
 
     @Test @MainActor
@@ -57,6 +82,10 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         settings.externalViewerAppPath = "/System/Applications/Preview.app"
         let book = makeBook(path: nil, coverPath: "")
@@ -70,6 +99,7 @@ import LibraryStore
         } else {
             Issue.record("Expected .launchFailed, got \(err)")
         }
+        #expect(calls.entries.isEmpty)  // path 不在で弾かれているので launch には到達しない
     }
 
     @Test @MainActor
@@ -77,6 +107,10 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         settings.externalViewerAppPath = "/Applications/NoSuchApp\(UUID().uuidString).app"
         // book file は実在させて「file 不在」error を回避し、「viewer 実体不在」error path を test
@@ -96,6 +130,7 @@ import LibraryStore
         } else {
             Issue.record("Expected .launchFailed, got \(err)")
         }
+        #expect(calls.entries.isEmpty)  // viewer 実体不在で弾かれているので launch には到達しない
     }
 
     @Test @MainActor
@@ -103,6 +138,10 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         settings.externalViewerAppPath = "/System/Applications/Preview.app"
         let book = makeBook(path: "/nonexistent/path/\(UUID().uuidString).zip", coverPath: "")
@@ -116,6 +155,7 @@ import LibraryStore
         } else {
             Issue.record("Expected .launchFailed, got \(err)")
         }
+        #expect(calls.entries.isEmpty)  // file 不在で弾かれているので launch には到達しない
     }
 
     @Test @MainActor
@@ -146,6 +186,10 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         let tempImage = FileManager.default.temporaryDirectory
             .appending(path: "HelperLauncher-\(UUID().uuidString).jpg")
@@ -159,6 +203,7 @@ import LibraryStore
         }
         // image category の displayName が含まれる
         #expect(reason.contains("画像"))
+        #expect(calls.entries.isEmpty)  // viewer 未設定で弾かれているので launch には到達しない
     }
 
     @Test("G54-S2b: EPUB は専用指定のアプリで開く")
@@ -167,10 +212,15 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
-        // .text の category override を実在するアプリに設定 -- EPUB の専用指定に負けることを確かめたい対照
+        // .text の category override を別アプリに設定 -- EPUB の専用指定に負けることを確かめたい対照。
+        // 実在確認は HelperLauncher 内で fileExists により行われるだけで、launch は継ぎ目経由なので
+        // 実際に起動されることはない。
         settings.categoryViewerPaths[.text] = "/System/Applications/TextEdit.app"
-        // EPUB 専用指定は実在するアプリにする -- こちらが選ばれれば起動エラーは出ない
         settings.epubViewerAppPath = "/System/Applications/Preview.app"
         let tempEPUB = FileManager.default.temporaryDirectory
             .appending(path: "HelperLauncher-\(UUID().uuidString).epub")
@@ -179,9 +229,19 @@ import LibraryStore
         let book = makeBook(path: tempEPUB.path(percentEncoded: false), coverPath: "")
         let err = HelperLauncher.open(book: book, settings: settings)
         // 専用指定（実在パス）が選ばれるので、起動は成功しエラーは返らない。
-        // category override（TextEdit）が選ばれていたら同じく nil になってしまうため、これ単独では
-        // 「専用指定が引かれた」証拠にならない -- 次のテストで専用指定側だけを壊して切り分ける。
         #expect(err == nil)
+        // 継ぎ目で記録した実際の呼び出しを直接見て、category override（TextEdit）ではなく
+        // 専用指定（Preview）が渡されたことを確かめる -- 「エラーが返らない」だけでは
+        // category override が選ばれていても同じ結果になり証拠にならなかったため、ここを強化した。
+        guard let call = calls.entries.first else {
+            Issue.record("Expected launch to be called once, got none")
+            return
+        }
+        #expect(calls.entries.count == 1)
+        // URL(fileURLWithPath:) はアプリバンドルのような directory を末尾 "/" 付きで正規化するため、
+        // 期待値も同じ経路で作って比較する（生文字列比較だと trailing slash の有無で誤って落ちる）。
+        #expect(call.viewerURL == URL(fileURLWithPath: "/System/Applications/Preview.app"))
+        #expect(call.fileURL == URL(fileURLWithPath: tempEPUB.path(percentEncoded: false)))
     }
 
     @Test("G54-S2b: EPUB の専用指定が実在しなければ、category 側ではなく専用指定側のエラーになる")
@@ -190,6 +250,10 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         // .text の category override は実在するアプリにしておく
         settings.categoryViewerPaths[.text] = "/System/Applications/TextEdit.app"
@@ -214,6 +278,7 @@ import LibraryStore
         } else {
             Issue.record("Expected .launchFailed, got \(err)")
         }
+        #expect(calls.entries.isEmpty)  // viewer 実体不在で弾かれているので launch には到達しない
     }
 
     @Test @MainActor
@@ -221,6 +286,10 @@ import LibraryStore
         let suiteName = "test-\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: suiteName)!
         defer { suite.removePersistentDomain(forName: suiteName) }
+        let calls = RecordedCalls()
+        let originalLaunch = HelperLauncher.launch
+        defer { HelperLauncher.launch = originalLaunch }
+        HelperLauncher.launch = recordingLaunch(into: calls)
         let settings = ViewerSettings(defaults: suite)
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "HelperLauncher-folder-\(UUID().uuidString)")
@@ -233,5 +302,6 @@ import LibraryStore
             return
         }
         #expect(reason.contains("フォルダ"))
+        #expect(calls.entries.isEmpty)  // viewer 未設定で弾かれているので launch には到達しない
     }
 }
