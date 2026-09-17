@@ -15,8 +15,13 @@ final class FakeEPUBReader: EPUBReaderViewing {
     var fontScale: Double = 1.0
     var columnMode: EPUBColumnModeValue = .auto
     var globalPageCount: Int?
-    var currentGlobalPage: Int?
     var spineItemCount: Int?
+    // G54-S3: 初期値はアプリの既定（off / false）と逆にしておく。窓が設定を入れたことをテストで検出するため。
+    var pageTurnStyle: PageTurnStyleValue = .slide
+    var showsFolio: Bool = true
+    var isRightToLeft: Bool = false
+    var currentGlobalPageRange: ClosedRange<Int>?
+    var onPageCensusChange: (() -> Void)?
 
     /// 呼ばれた順に記録。テストは文字列で照合する。
     var calls: [String] = []

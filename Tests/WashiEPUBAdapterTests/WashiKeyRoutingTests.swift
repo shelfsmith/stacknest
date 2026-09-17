@@ -62,7 +62,7 @@ struct WashiKeyRoutingTests {
     @Test func censusAccessorsAreNilBeforeLoad() {
         let host = WashiReaderHost()
         #expect(host.globalPageCount == nil)
-        #expect(host.currentGlobalPage == nil)
+        #expect(host.currentGlobalPageRange == nil)
         #expect(host.spineItemCount == nil)
         host.go(toGlobalPage: 3)       // 落ちない・何もしない
         host.goToBookStart()           // publication 無し: 落ちない

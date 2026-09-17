@@ -88,6 +88,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     var onKeyEvent: ((NSEvent) -> Bool)?
     /// G51: 本の端に達した通知（自動送りの停止判断）。
     var onReachBookEdge: ((Bool) -> Void)?
+    /// G54-S3: census の完了・無効化の通知（窓の HUD を更新する）。
+    var onPageCensusChange: (() -> Void)?
     private(set) var locator: EPUBLocatorValue?
 
     /// `makeReaderView` が open 済みの publication を置いておく場所。窓に載って実寸が
@@ -227,8 +229,10 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     /// 全体ページ数（Washi の census）。計測完了まで nil。
     var globalPageCount: Int? { reader.censusTotalPages }
-    /// 表示中の最初のページの全体番号（0 始まり）。`currentGlobalPageRange` は 1 始まり。
-    var currentGlobalPage: Int? { reader.currentGlobalPageRange.map { $0.lowerBound - 1 } }
+    /// 表示中のページの全体番号の範囲（0 始まり）。Washi の `currentGlobalPageRange` は 1 始まり。
+    var currentGlobalPageRange: ClosedRange<Int>? {
+        reader.currentGlobalPageRange.map { ($0.lowerBound - 1)...($0.upperBound - 1) }
+    }
     func go(toGlobalPage page: Int) {
         guard let locator = reader.censusLocator(forGlobalPage: page) else { return }
         reader.go(to: locator)
@@ -244,6 +248,39 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reader.settings.fontScale = 1.0
         onFontScaleChange?(1.0)
     }
+
+    // MARK: G54-S3 — 演出・ノンブル・綴じ方向
+
+    /// `reader.settings` への代入は再ページ割りを走らせうるので、同値なら代入しない。
+    var pageTurnStyle: PageTurnStyleValue {
+        get {
+            switch reader.settings.pageTurnStyle {
+            case .none: return .off
+            case .fade: return .fade
+            case .slide: return .slide
+            }
+        }
+        set {
+            let mapped: EPUBPageTurnStyle
+            switch newValue {
+            case .off: mapped = .none
+            case .fade: mapped = .fade
+            case .slide: mapped = .slide
+            }
+            guard reader.settings.pageTurnStyle != mapped else { return }
+            reader.settings.pageTurnStyle = mapped
+        }
+    }
+
+    var showsFolio: Bool {
+        get { reader.settings.showsPageFurniture }
+        set {
+            guard reader.settings.showsPageFurniture != newValue else { return }
+            reader.settings.showsPageFurniture = newValue
+        }
+    }
+
+    var isRightToLeft: Bool { reader.isRTL }
 
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
@@ -282,5 +319,10 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     func readerView(_ view: EPUBReaderView, didReachBookEdge forward: Bool) {
         onReachBookEdge?(forward)
+    }
+
+    /// G54-S3: 全体ページ数の計測が完了・無効化された。
+    func readerViewDidUpdatePageCensus(_ view: EPUBReaderView) {
+        onPageCensusChange?()
     }
 }

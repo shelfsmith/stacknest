@@ -43,9 +43,6 @@ public protocol EPUBReaderViewing: AnyObject {
     func pageRight()
     /// 全体ページ数（本全体・現在のメトリクスでの実測）。計測が終わるまで nil。
     var globalPageCount: Int? { get }
-    /// いま表示している最初のページの全体ページ番号（0 始まり）。計測が終わるまで nil。
-    /// （G51 時点では窓側に利用者なし。進捗表示の第二弾で使う）
-    var currentGlobalPage: Int? { get }
     /// 全体ページ番号（0 始まり）へ。計測が終わっていなければ何もしない。
     func go(toGlobalPage page: Int)
     /// spine（読み順）の項目数。読み込み前は nil。
@@ -59,4 +56,17 @@ public protocol EPUBReaderViewing: AnyObject {
     func adjustFontScale(by delta: Double)
     /// フォント倍率を等倍（1.0）へ戻す（変化があれば `onFontScaleChange`）。
     func resetFontScale()
+
+    // MARK: G54-S3 — 演出・ノンブル・本全体の進捗
+
+    /// ページ送りの演出。
+    var pageTurnStyle: PageTurnStyleValue { get set }
+    /// 各ページの下余白に章内のノンブルを出すか。
+    var showsFolio: Bool { get set }
+    /// 右綴じ（右から左へ読む）か。読み込み前は false。
+    var isRightToLeft: Bool { get }
+    /// 表示中のページの全体ページ番号の範囲（0 始まり・見開きなら 2 ページ分）。計測が終わるまで nil。
+    var currentGlobalPageRange: ClosedRange<Int>? { get }
+    /// 全体ページ数の計測が完了した、または無効になった（文字倍率・窓幅の変更など）ときに呼ばれる。
+    var onPageCensusChange: (() -> Void)? { get set }
 }
