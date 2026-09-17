@@ -45,6 +45,18 @@ struct BuiltInViewerSettingsForm: View {
                 Text("ダーク").tag(EPUBReaderThemeValue.dark)
             }
 
+            // G54-S3: ページ送りの演出（画像ビューアと EPUB の両方に効く）。
+            Picker("ページ送りの演出", selection: $settings.pageTurnStyle) {
+                Text("なし").tag(PageTurnStyleValue.off)
+                Text("フェード").tag(PageTurnStyleValue.fade)
+                Text("スライド").tag(PageTurnStyleValue.slide)
+            }
+            .help("画像ビューアと EPUB の両方に効きます。キーを押し続けたときと「視差効果を減らす」が有効なときは省きます。")
+
+            // G54-S3: Washi が各ページの下余白に出す章内のノンブル。本全体の位置は下端の進捗表示に出る。
+            Toggle("EPUB のノンブルを表示", isOn: $settings.showsEPUBFolio)
+                .help("各ページの下余白に章ごとのページ番号を出します。本全体の位置は下端の進捗表示で分かります。")
+
             // G15 V1: 複数ビューア窓の許可（OFF=単一ビューア維持／ON=別の本は別窓）。
             Toggle("複数ビューアの起動を許可", isOn: $settings.allowMultipleViewerWindows)
                 .help("OFF: 別の本を開くと既存のビューアを閉じて1つに保ちます。ON: 別の本は別ウィンドウで開きます。どちらでも同じ本は1つにまとまります。")

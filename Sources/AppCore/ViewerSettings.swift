@@ -46,6 +46,8 @@ public final class ViewerSettings {
     private let epubFontScaleKey = "epubFontScale"
     private let epubThemeKey = "epubTheme"
     private let epubViewerAppPathKey = "epubViewerAppPath"
+    private let pageTurnStyleKey = "pageTurnStyle"
+    private let showsEPUBFolioKey = "showsEPUBFolio"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -193,6 +195,24 @@ public final class ViewerSettings {
     /// **開いている窓には反映しない**（契約に変更を通知する仕組みが無く、レンダラを作った直後にだけ渡す）。
     public var epubTheme: EPUBReaderThemeValue {
         didSet { defaults.set(epubTheme.rawValue, forKey: epubThemeKey) }
+    }
+
+    /// G54-S3: ページ送りの演出（画像ビューアと EPUB の両方に効く・既定は演出なし）。
+    /// 画像ビューアは送りのたびにこの値を読む。EPUB の窓は通知を受けて開いている reader へ入れ直す。
+    public var pageTurnStyle: PageTurnStyleValue {
+        didSet {
+            defaults.set(pageTurnStyle.rawValue, forKey: pageTurnStyleKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G54-S3: EPUB の各ページの下余白に章内のノンブルを出すか（既定 false）。
+    /// 本全体の位置は窓の HUD が出すので、既定では消す。
+    public var showsEPUBFolio: Bool {
+        didSet {
+            defaults.set(showsEPUBFolio, forKey: showsEPUBFolioKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
     }
 
     /// 現在の設定から ViewerOptions を組み立てる（ViewerModel に渡す）。
@@ -345,6 +365,11 @@ public final class ViewerSettings {
         // 壊れた値や未知の値はシステムに倒す（epubFontScale が範囲外を既定へ戻すのと同じ考え方）。
         self.epubTheme = defaults.string(forKey: epubThemeKey)
             .flatMap(EPUBReaderThemeValue.init(rawValue:)) ?? .system
+        // G54-S3: 壊れた値や未知の値は演出なしに倒す。`PageTurnStyleValue.off` と型を明示する。
+        self.pageTurnStyle = defaults.string(forKey: pageTurnStyleKey)
+            .flatMap(PageTurnStyleValue.init(rawValue:)) ?? PageTurnStyleValue.off
+        // キー不在で false（defaults.bool の既定と一致）。
+        self.showsEPUBFolio = defaults.bool(forKey: showsEPUBFolioKey)
         // TODO(2.5e+): silent decode failure here resets the entire categoryViewerPaths map.
         // Consider decoding into [String: String] first and skipping unknown keys to preserve
         // partial state when a BookCategory case is later renamed/removed.
@@ -382,4 +407,8 @@ public extension Notification.Name {
     /// G40: ルーペの見た目（倍率・形）が変わった。開いているビューア窓が再描画するために使う。
     static let viewerLoupeAppearanceChanged =
         Notification.Name("app.shelfsmith.stacknest.viewerLoupeAppearanceChanged")
+
+    /// G54-S3: EPUB の窓の見せ方（ページ送りの演出・ノンブル）が変わった。開いている EPUB の窓が reader へ入れ直す。
+    static let viewerEPUBPresentationChanged =
+        Notification.Name("app.shelfsmith.stacknest.viewerEPUBPresentationChanged")
 }
