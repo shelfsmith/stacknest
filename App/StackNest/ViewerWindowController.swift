@@ -226,6 +226,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private var pendingPageTurn: (plan: PageTurnPlan, renderRequest: Int)?
     /// テスト用: 現在ページの表示待ちか（案P のペーシング中は送りが無視される）。
     var hasPendingDisplay: Bool { isDisplayPending }
+    /// G54-S3 fix round 1 (Minor B): テスト用の現在ページ読み口。演出が「送りが起きたときだけ」動く
+    /// ことを、副作用（capture/run が呼ばれない）だけでなく実際にページが動いたことでも確かめるため。
+    var currentPageForTesting: Int { model.currentPage }
 
     init(
         content: BookContent,
@@ -1507,6 +1510,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 巻スワップ・別ページへの通常ロード・さらに新しいリサイズ再デコードのいずれが後から
         // 起きても、この Task の現在ページ書き込みは renderRequest/contentGeneration ガードで弾かれる。
         renderRequest += 1
+        // G54-S3 fix round 1: renderRequest を進める＝この再デコードが元の loadCurrentPage の
+        // 描画要求を上書きする。その loadCurrentPage に結びついた保留中の演出があれば、この再デコードは
+        // firePageTurnIfArmed を呼ばない（呼ぶのは loadCurrentPage/goNext/goPrev の経路だけ）ので、
+        // 被せ物が新ページの上に取り残される。ここで明示的に外す。
+        if pendingPageTurn != nil { cancelPageTurn() }
         // G19 案P Codex High #1 fix: renderRequest を進める＝進行中の loadCurrentPage の pending load を
         // 無効化する。この再デコードが現在ページの表示責任を**引き継ぐ**。ただし再レビュー（Codex Medium）
         // 指摘のとおり、ここで即クリアするとまだ表示していないのに held-key の次送りを許してしまい
@@ -1611,6 +1619,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // zoomToken は「このズーム再デコードがより新しいズーム再デコードに置き換わっていないか」を
         // 判定する専用トークン（renderRequest は resize 再デコード/通常ページ送りとも共有されるため）。
         renderRequest += 1
+        // G54-S3 fix round 1: resize 再デコードと同じ理由で、この renderRequest 更新が元の
+        // loadCurrentPage の描画要求を上書きする。保留中の演出があれば被せ物が取り残されるので外す。
+        if pendingPageTurn != nil { cancelPageTurn() }
         // G19 案P Codex High #1 fix（再レビューで修正）: resize 再デコードと同じ扱い。pending は
         // ここでは落とさず、下の Task が現在ページを表示するまで保持する（成功／デコード失敗で表示断念
         // のいずれかでクリア。guard-fail 経路は別の描画要求が owner）。実際はズームジェスチャは現在ページ

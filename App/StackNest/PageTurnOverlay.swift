@@ -13,6 +13,14 @@ protocol PageTurnAnimating: AnyObject {
     func cancel()
 }
 
+/// G54-S3 fix round 1: 被せ物専用の NSView。既定の `hitTest` は自分自身を返すため、被せている間
+/// マウスクリック・スクロール・ピンチが `ViewerCanvasView` ではなくこの被せ物に届いてしまい、
+/// 0.25 秒間隔のクリック送りを取りこぼす（`PassthroughHostingView` と同じ回避）。`nil` を返して
+/// ヒットテストを素通りさせる — 被せ物は見た目だけで、入力には無関係。
+private final class PageTurnCoverView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// G54-S3: Washi と同じ方式の演出。送る直前のキャンバスを画像として撮って被せ、新ページを描いた直後に
 /// その被せ物をスライドで抜く（またはフェードで消す）。キャンバスの描画（ズーム・パン・ルーペ）には触れない。
 @MainActor
@@ -25,12 +33,15 @@ final class PageTurnOverlay: PageTurnAnimating {
               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return false }
         view.cacheDisplay(in: view.bounds, to: rep)
         guard let image = rep.cgImage else { return false }
-        let cover = NSView(frame: view.frame)
+        let cover = PageTurnCoverView(frame: view.frame)
         cover.wantsLayer = true
         // キャンバスの黒背景は layer の属性で `cacheDisplay` に写らないので、被せ物の側で塗る。
         cover.layer?.backgroundColor = NSColor.black.cgColor
         cover.layer?.contents = image
         cover.layer?.contentsGravity = .resize
+        // G54-S3 fix round 1 (Minor A): 被せている間にウィンドウがリサイズ/フルスクリーン化されても
+        // キャンバスと同じ矩形を保つ（さもないと被せ物だけ旧サイズのまま残りズレる）。
+        cover.autoresizingMask = [.width, .height]
         parent.addSubview(cover, positioned: .above, relativeTo: view)
         self.cover = cover
         return true

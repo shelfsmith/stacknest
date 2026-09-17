@@ -73,6 +73,9 @@ struct ViewerPageTurnWiringTests {
         await waitUntil { !c.hasPendingDisplay }
         #expect(!a.calls.contains("capture"))
         #expect(!a.calls.contains { $0.hasPrefix("run") })
+        // G54-S3 fix round 1 (Minor B): 演出が無いこと「だけ」ではなく、送り自体は起きたことも確かめる
+        // （perform が丸ごと no-op でも上の #expect は素通りしてしまうため）。
+        #expect(c.currentPageForTesting == 1)
         c.close()
     }
 
@@ -83,16 +86,21 @@ struct ViewerPageTurnWiringTests {
         c.perform(.nextPage)                         // 時計を進めない＝経過 0 秒
         await waitUntil { !c.hasPendingDisplay }
         #expect(a.calls.filter { $0 == "capture" }.count == 1)
+        // G54-S3 fix round 1 (Minor B): 2 回とも実際に送れたことを確認する。
+        #expect(c.currentPageForTesting == 2)
         c.close()
     }
 
     @Test func jumpsNeverCapture() async {
-        let (c, a, _) = await make()
+        let (c, a, _) = await make()   // pages: 5（既定）
         c.perform(.jumpToPercent50)
         await waitUntil { !c.hasPendingDisplay }
+        // G54-S3 fix round 1 (Minor B): ジャンプ自体は起きたことを確認する。
+        #expect(c.currentPageForTesting != 0)
         c.perform(.lastPage)
         await waitUntil { !c.hasPendingDisplay }
         #expect(!a.calls.contains("capture"))
+        #expect(c.currentPageForTesting == 4)   // pageCount(5) - 1
         c.close()
     }
 
