@@ -3,11 +3,11 @@ import AVKit
 import SwiftUI
 import AppCore
 
-/// G50: 動画の表紙にする場面を選ぶシート。
+/// G50: 動画の表紙にするシーンを選ぶシート。
 /// 標準のプレイヤー（シークバー付き）で頭出しし、その時刻を呼び出し側へ返す。
 /// 実際のフレーム抽出と保存は `AppState.setVideoSceneCover` が行う。
 ///
-/// G54-S4: 場面を選んだだけで終わっていたのを、続けてクロップまで決められる 2 段構えにした。
+/// G54-S4: シーンを選んだだけで終わっていたのを、続けてクロップまで決められる 2 段構えにした。
 /// - 段階 1（`.scene`）: 従来どおりプレイヤーで頭出しする。
 /// - 段階 2（`.crop`）: 選んだ秒数のフレームをプレビュー用に取り出し `CoverCropPicker` で切り抜きを決める。
 ///   ここで作るプレビューは UI 表示専用（低優先度のプレビュー）で、実際に表紙として保存するフレームは
@@ -67,7 +67,7 @@ struct VideoCoverPickerSheet: View {
 
     @ViewBuilder
     private var sceneStage: some View {
-        Text("表紙にする場面を選んでください")
+        Text("表紙にするシーンを選んでください")
             .font(.headline)
         VideoPlayer(player: player)
             .frame(minWidth: 640, minHeight: 360)
@@ -77,7 +77,7 @@ struct VideoCoverPickerSheet: View {
                 .foregroundStyle(.orange)
         }
         HStack {
-            Text("再生・シークして、使いたい場面で止めてください")
+            Text("再生・シークして、使いたいシーンで止めてください")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -95,7 +95,7 @@ struct VideoCoverPickerSheet: View {
                     ProgressView()
                         .controlSize(.small)
                 } else {
-                    Text("この場面を表紙にする")
+                    Text("決定")
                 }
             }
             .keyboardShortcut(.defaultAction)
@@ -169,7 +169,7 @@ struct VideoCoverPickerSheet: View {
         }
     }
 
-    /// scene 段階の「この場面を表紙にする」。フレームを抽出できたら crop 段階へ進む。
+    /// scene 段階の「決定」。フレームを抽出できたら crop 段階へ進む。
     /// 失敗（動画が読めない等）したら crop へは進まず、scene 段階のままエラーを出す。
     private func beginCrop() {
         player.pause()
@@ -182,7 +182,7 @@ struct VideoCoverPickerSheet: View {
                 guard let image = NSImage(data: data) else {
                     await MainActor.run {
                         isExtracting = false
-                        extractError = "この場面のプレビューを作れませんでした。場面を選び直してください"
+                        extractError = "このシーンのプレビューを作れませんでした。シーンを選び直してください"
                     }
                     return
                 }
@@ -198,7 +198,7 @@ struct VideoCoverPickerSheet: View {
             } catch {
                 await MainActor.run {
                     isExtracting = false
-                    extractError = "この場面のフレームを取り出せませんでした。場面を選び直してください"
+                    extractError = "このシーンのフレームを取り出せませんでした。シーンを選び直してください"
                 }
             }
         }
