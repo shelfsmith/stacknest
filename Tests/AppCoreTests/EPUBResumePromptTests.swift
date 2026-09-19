@@ -29,4 +29,16 @@ struct EPUBResumePromptTests {
     @Test func negativeValuesAreTreatedAsTheBeginning() {
         #expect(EPUBResumePrompt.shouldAsk(locator: loc(-1, -0.5)) == false)
     }
+
+    /// レビュー修正 Minor 3: `progress` が 1 を超える値は `EPUBLocatorValue` の init で 1.0 にクランプされる
+    /// （先頭ではないので訊く）。
+    @Test func progressAboveOneClampsToOneAndAsks() {
+        #expect(EPUBResumePrompt.shouldAsk(locator: loc(0, 1.5)) == true)
+    }
+
+    /// レビュー修正 Minor 3: `spine` が負でも init で 0 にクランプされるが、`progress` は正のまま残るので
+    /// （＝章内で進んでいる）訊く。
+    @Test func negativeSpineWithPositiveProgressClampsSpineAndAsks() {
+        #expect(EPUBResumePrompt.shouldAsk(locator: loc(-1, 0.5)) == true)
+    }
 }

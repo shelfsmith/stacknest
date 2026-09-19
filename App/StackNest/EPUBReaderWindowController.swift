@@ -374,6 +374,12 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// reader がまだ読み込み中でも保存は行う（画像ビューアが `storedLastPage = 0` を書くのと同じ考え方）。
     func restartFromBeginning() {
         reader.goToBookStart()
+        // レビュー修正: デバウンス中の古い位置がこの後に書き戻らないよう、保留分を先に捨てる
+        // （そのままだと直後のデバウンス発火や windowWillClose の flush が、いま保存した
+        // 先頭位置を古い locator で上書きしてしまう）。
+        persistTimer?.invalidate()
+        persistTimer = nil
+        pending = nil
         persist(EPUBLocatorValue(spine: 0, progress: 0, cfi: nil, engine: nil))
     }
 

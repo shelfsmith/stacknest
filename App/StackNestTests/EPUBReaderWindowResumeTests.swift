@@ -64,4 +64,19 @@ struct EPUBReaderWindowResumeTests {
         c.markResumeDialogShown()
         #expect(c.shouldAskResume == false)
     }
+
+    /// レビュー修正 Minor 1: 「最初から」を押す直前にデバウンス中の書き込みが積まれていても、
+    /// その後の flush（本来は 0.4 秒後のタイマーだが、ここでは windowWillClose の flush 経路で確認する）が
+    /// 先頭位置を古い locator で上書きしない。
+    @Test func restartingDropsAPendingDebouncedWrite() {
+        let (c, r, box) = make(resume: EPUBLocatorValue(spine: 3, progress: 0.5, cfi: nil, engine: nil))
+        // 章の途中まで読んだ位置がデバウンス待ちで pending に積まれている状態を再現する。
+        r.onLocatorChange?(EPUBLocatorValue(spine: 5, progress: 0.7, cfi: nil, engine: nil))
+        c.restartFromBeginning()
+        // flush 経路（窓を閉じるとき）を走らせても、上の pending が生き残って書き戻されないこと。
+        c.windowWillClose(Notification(name: NSWindow.willCloseNotification))
+        #expect(box.persisted.count == 1)
+        #expect(box.persisted.first?.spine == 0)
+        #expect(box.persisted.first?.progress == 0)
+    }
 }
