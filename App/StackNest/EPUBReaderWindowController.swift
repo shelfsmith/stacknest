@@ -374,13 +374,17 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// reader がまだ読み込み中でも保存は行う（画像ビューアが `storedLastPage = 0` を書くのと同じ考え方）。
     func restartFromBeginning() {
         reader.goToBookStart()
-        // レビュー修正: デバウンス中の古い位置がこの後に書き戻らないよう、保留分を先に捨てる
-        // （そのままだと直後のデバウンス発火や windowWillClose の flush が、いま保存した
-        // 先頭位置を古い locator で上書きしてしまう）。
+        let start = EPUBLocatorValue(spine: 0, progress: 0, cfi: nil, engine: nil)
+        // レビュー修正（Codex P2）: 保留中の遅延書き込みタイマーは止めるが、`pending` は
+        // nil にせず先頭に入れておく。`goToBookStart()` は非同期で、Washi が移動完了を
+        // `onLocatorChange` で知らせるまで `reader.locator` は古い位置のままなので、
+        // pending が nil だと windowWillClose の flush がその古い `reader.locator` に
+        // 落ちて、いま保存した先頭位置を上書きしてしまう。移動が完了すれば
+        // `onLocatorChange` → `schedulePersist` が pending を正しい値で上書きする。
         persistTimer?.invalidate()
         persistTimer = nil
-        pending = nil
-        persist(EPUBLocatorValue(spine: 0, progress: 0, cfi: nil, engine: nil))
+        pending = start
+        persist(start)
     }
 
     // MARK: - G54-S3 進捗 HUD
