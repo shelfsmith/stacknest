@@ -898,7 +898,7 @@ final class AppState {
         // G48-2b: 全ページ画像の EPUB（漫画）は既存の画像ビューアで開く（見開き・右綴じ・ズームが効く）。
         // テキストを含む本は従来どおり Washi の窓。判定は EPUB を開く必要があるので非同期。
         if (book.path as NSString?)?.pathExtension.lowercased() == "epub" {
-            guard let reader = EPUBAdapter.reader, let path = book.path else { openEPUBReader(book); return }
+            guard let reader = EPUBAdapter.reader, let path = book.path else { openEPUBReader(book, resumeDirect: resumeDirect); return }
             let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
             guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
             Task { @MainActor in
@@ -915,13 +915,13 @@ final class AppState {
                         self.presentBuiltInViewer(book, content: EPUBImageBookContent(handle: handle), identity: identity, resumeDirect: resumeDirect)
                     } else {
                         ViewerWindowRegistry.shared.cancelOpen(identity)
-                        self.openEPUBReader(book)
+                        self.openEPUBReader(book, resumeDirect: resumeDirect)
                     }
                 } catch {
                     // 最終レビュー Important #3: この分岐だけ他と違いログ無しで黙って Washi に落ちていた。
                     Self.logger.warning("openInBuiltInViewer: openImageBook failed for bookID=\(book.id, privacy: .public) path=\(path, privacy: .public): \(String(describing: error), privacy: .public) → falling back to the EPUB reader")
                     ViewerWindowRegistry.shared.cancelOpen(identity)
-                    self.openEPUBReader(book)   // 判定に失敗したら従来どおり Washi（そこでも失敗すれば外部へ）
+                    self.openEPUBReader(book, resumeDirect: resumeDirect)   // 判定に失敗したら従来どおり Washi（そこでも失敗すれば外部へ）
                 }
             }
             return
@@ -1101,7 +1101,7 @@ final class AppState {
     }
 
     /// G48-2: EPUB は契約 `EPUBAdapter.renderer` の窓で開く。未登録なら外部ビューアにフォールバック。
-    private func openEPUBReader(_ book: BookRow) {
+    private func openEPUBReader(_ book: BookRow, resumeDirect: Bool = false) {
         guard let renderer = EPUBAdapter.renderer, let path = book.path else { openInExternalViewer([book]); return }
         let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
         guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
@@ -1110,7 +1110,9 @@ final class AppState {
         Task { @MainActor in
             do {
                 let reader = try await renderer.makeReaderView(url: URL(fileURLWithPath: path), at: saved)
-                let controller = EPUBReaderWindowController(book: book, reader: reader) { [weak self] loc in
+                let controller = EPUBReaderWindowController(
+                    book: book, reader: reader, resumeLocator: saved,
+                    suppressResumeDialog: resumeDirect) { [weak self] loc in
                     guard let self, let data = try? JSONEncoder().encode(loc) else { return }
                     try? self.database?.updateEPUBLocator(bookID: book.id, json: String(decoding: data, as: UTF8.self))
                 }

@@ -1859,7 +1859,7 @@ final class RemoteLibraryState {
                 let localURL = self.offlineStore.fileURL(for: dl)
                 if (try? await reader.openImageBook(url: localURL)) == nil {
                     let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
-                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag, localFile: localURL)
+                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag, localFile: localURL, resumeDirect: resumeDirect)
                     return
                 }
             }
@@ -1884,7 +1884,7 @@ final class RemoteLibraryState {
                 // G48-3: テキスト EPUB は /file → Washi の窓。画像本 EPUB は従来のページ経路。
                 if RemoteEPUBRouting.route(filename: book.filename, manifestFormat: m.format) == .textEPUB {
                     await self.openRemoteEPUBReader(book: book, identity: identity, initial: m.epubLocator, version: m.etag,
-                                                    localFile: downloaded.map { self.offlineStore.fileURL(for: $0) })
+                                                    localFile: downloaded.map { self.offlineStore.fileURL(for: $0) }, resumeDirect: resumeDirect)
                     return
                 }
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
@@ -2073,7 +2073,7 @@ final class RemoteLibraryState {
     @MainActor
     /// `version` は manifest.etag（キャッシュの失効に使う）。`localFile` は DL 済みの本体（あればダウンロードしない）。
     private func openRemoteEPUBReader(book: BookListItemDTO, identity: ViewerIdentity, initial: EPUBLocatorDTO?,
-                                      version: String? = nil, localFile: URL? = nil) async {
+                                      version: String? = nil, localFile: URL? = nil, resumeDirect: Bool = false) async {
         guard let renderer = EPUBAdapter.renderer else {
             errorText = "EPUB リーダーが使えません"
             ViewerWindowRegistry.shared.cancelOpen(identity)
@@ -2109,7 +2109,9 @@ final class RemoteLibraryState {
             let libraryUUID = self.libraryUUID
             let libraryToken = self.libraryToken
             let bookID = book.id
-            let controller = EPUBReaderWindowController(book: row, reader: reader) { loc in
+            let controller = EPUBReaderWindowController(
+                book: row, reader: reader, resumeLocator: saved,
+                suppressResumeDialog: resumeDirect) { loc in
                 let dto = EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine)
                 Task {
                     do {

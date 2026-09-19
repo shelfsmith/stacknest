@@ -318,7 +318,9 @@ struct OfflineLibraryView: View {
                 do {
                     let epubReader = try await renderer.makeReaderView(url: fileURL, at: saved)
                     let store = self.store, sid = book.serverID, lib = book.libraryUUID, id = book.bookID
-                    let controller = EPUBReaderWindowController(book: row, reader: epubReader) { loc in
+                    let controller = EPUBReaderWindowController(
+                        book: row, reader: epubReader, resumeLocator: saved,
+                        suppressResumeDialog: resumeDirect) { loc in
                         store.updateEPUBLocator(serverID: sid, libraryUUID: lib, bookID: id,
                                                 locator: EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine))
                     }

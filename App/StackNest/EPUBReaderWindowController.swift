@@ -17,6 +17,18 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// G54-S3: 演出・ノンブル・自動送りの間隔などを読む設定。テストは専用の suite を渡す。
     private let settings: ViewerSettings
     private var presentationObserver: NSObjectProtocol?
+    // MARK: G54-S3b — 再開シート（画像ビューアの `showResumeDialogIfNeeded` と同じ作法）
+    /// 開いた時点の保存位置。シートを出すかどうかの判定だけに使う。
+    private let resumeLocator: EPUBLocatorValue?
+    /// 巻送り・「続きから」で開いた経路では訊かない（画像ビューアの `suppressResumeDialog` と同じ）。
+    private let suppressResumeDialog: Bool
+    /// 1 つの窓で 1 回だけ出す。
+    private var didShowResumeDialog = false
+    /// シートを出す条件（テストから読む）。
+    var shouldAskResume: Bool {
+        !suppressResumeDialog && !didShowResumeDialog
+            && EPUBResumePrompt.shouldAsk(locator: resumeLocator)
+    }
     private(set) var book: BookRow
     var onClose: (() -> Void)?
 
@@ -62,10 +74,13 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         globalPageCount: nil, currentGlobalPageRange: nil, spineIndex: nil, spineProgress: nil, spineCount: nil)
 
     init(book: BookRow, reader: any EPUBReaderViewing, settings: ViewerSettings = .shared,
+         resumeLocator: EPUBLocatorValue? = nil, suppressResumeDialog: Bool = false,
          persist: @escaping (EPUBLocatorValue) -> Void) {
         self.book = book
         self.reader = reader
         self.settings = settings
+        self.resumeLocator = resumeLocator
+        self.suppressResumeDialog = suppressResumeDialog
         self.persist = persist
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1100),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -147,11 +162,20 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
 
     /// G51: 表示。`openEPUBFullScreenByDefault` なら、窓が on-screen になった直後（1 runloop 後）に全画面へ
     /// （画像ビューアの T-F1 と同じ作法。`toggleFullScreen` は on-screen になってから呼ぶ必要がある）。
+    /// G54-S3b: 再開シートは窓が出た後に 1 回だけ。全画面で開くときは全画面遷移の後に出す
+    /// （画像ビューアと同じ理由＝遷移とシートのレースを避ける）。
     func present() {
         showWindow(nil)
         if settings.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) {
             DispatchQueue.main.async { [weak w] in w?.toggleFullScreen(nil) }
+            return   // 続きは windowDidEnterFullScreen
         }
+        showResumeDialogIfNeeded()
+    }
+
+    /// 全画面遷移の完了後に再開シートを出す（`didShowResumeDialog` があるので手動の全画面では出ない）。
+    func windowDidEnterFullScreen(_ notification: Notification) {
+        showResumeDialogIfNeeded()
     }
 
     /// G48-2 最終レビュー D: dedup で既存窓を前面化するとき、アプリが非アクティブだと窓だけ前に出て
@@ -325,6 +349,32 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         // ところへ非同期ノート（最終ページです／次の巻なし等）が来ても、全体が先に隠れてしまわない
         // よう、ノート表示に合わせて非表示タイマーを張り直す（画像ビューアの hudNote と同じ挙動）。
         scheduleHudHide()
+    }
+
+    // MARK: - G54-S3b 再開シート
+
+    /// 保存位置が本の先頭でなければ、窓の上に二択のシートを出す。
+    private func showResumeDialogIfNeeded() {
+        guard shouldAskResume, let window else { return }
+        markResumeDialogShown()
+        let alert = NSAlert()
+        alert.messageText = "続きから読みますか？"
+        alert.addButton(withTitle: "続きから")     // .alertFirstButtonReturn
+        alert.addButton(withTitle: "最初から")     // .alertSecondButtonReturn
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertSecondButtonReturn else { return }   // 続きから＝復元済みなので何もしない
+            self?.restartFromBeginning()
+        }
+    }
+
+    /// テストと `showResumeDialogIfNeeded` から使う。2 回目以降は訊かない。
+    func markResumeDialogShown() { didShowResumeDialog = true }
+
+    /// 「最初から」。本の先頭へ移動し、**その位置を保存する**（次に開いたときにまた訊かれないように）。
+    /// reader がまだ読み込み中でも保存は行う（画像ビューアが `storedLastPage = 0` を書くのと同じ考え方）。
+    func restartFromBeginning() {
+        reader.goToBookStart()
+        persist(EPUBLocatorValue(spine: 0, progress: 0, cfi: nil, engine: nil))
     }
 
     // MARK: - G54-S3 進捗 HUD
