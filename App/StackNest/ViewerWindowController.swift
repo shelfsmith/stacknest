@@ -392,6 +392,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         )
     }
 
+    /// G54-S3cd smoke fix: present() が要求した全画面化の実行主体。1 窓に付き高々 1 個。
+    /// 巻送りでビューア種別が切り替わったとき（旧窓を閉じた直後）でも確実に全画面へ入れるため、
+    /// 「他窓の全画面遷移中なら待つ」＋「有界リトライ」を `FullScreenEntryDriver` に委譲する。
+    private var fullScreenEntryDriver: FullScreenEntryDriver?
+
     func present() {
         window?.center()
         showWindow(nil)
@@ -402,15 +407,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // toggleFullScreen は window が on-screen になった直後に呼ぶ必要があるため
         // DispatchQueue.main.async で 1 runloop 遅延させる。
         // resume ダイアログは全画面遷移完了後（windowDidEnterFullScreen）に表示する（レース防止）。
-        if ViewerSettings.shared.openFullScreenByDefault,
-           let w = window,
-           !w.styleMask.contains(.fullScreen) {
-            DispatchQueue.main.async { [weak w] in
-                w?.toggleFullScreen(nil)
-            }
-            // resume ダイアログは windowDidEnterFullScreen で表示するため、ここでは呼ばない。
-        } else {
+        guard ViewerSettings.shared.openFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) else {
             showResumeDialogIfNeeded()
+            return
+        }
+        // resume ダイアログは windowDidEnterFullScreen で表示するため、ここでは呼ばない。
+        DispatchQueue.main.async { [weak self, weak w] in
+            guard let w else { return }
+            let driver = FullScreenEntryDriver(window: w)
+            self?.fullScreenEntryDriver = driver
+            driver.start()
         }
     }
 
@@ -1411,6 +1417,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         isClosed = true   // G54-S3cd: 以後に届いた巻送りの結果は捨てる
+        fullScreenEntryDriver?.stop()   // G54-S3cd smoke fix: 窓を閉じたら以後のリトライを止める
+        fullScreenEntryDriver = nil
         // 閉じる前にデバウンス待ちの読書位置を確定書き込みする。
         // G54-S3c: EPUB の窓へ渡すときは loadVolume が済ませているので送り直さない。
         if !skipsFlushOnClose { flushPersistNow() }

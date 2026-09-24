@@ -96,6 +96,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     var siblingLoadingNoteDelay: Duration = .milliseconds(400)
     /// G54-S3c: 閉じた後に届いた解決結果は捨てる。
     private var isClosed = false
+    /// G54-S3cd smoke fix: present() が要求した全画面化の実行主体。1 窓に付き高々 1 個。
+    private var fullScreenEntryDriver: FullScreenEntryDriver?
     /// G54-S3c: 差し替えのたびに進める。差し替え前の本の再開シートの結果を無視するのに使う。
     private var bookGeneration = 0
 
@@ -213,11 +215,19 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// （画像ビューアと同じ理由＝遷移とシートのレースを避ける）。
     func present() {
         showWindow(nil)
-        if settings.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) {
-            DispatchQueue.main.async { [weak w] in w?.toggleFullScreen(nil) }
-            return   // 続きは windowDidEnterFullScreen
+        guard settings.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) else {
+            showResumeDialogIfNeeded()
+            return
         }
-        showResumeDialogIfNeeded()
+        // G54-S3cd smoke fix: 画像ビューアの present() と同じ `FullScreenEntryDriver` を使う。
+        // 巻送りで画像ビューア→EPUB に切り替わったとき（旧窓を閉じた直後）も確実に全画面へ入る。
+        DispatchQueue.main.async { [weak self, weak w] in
+            guard let w else { return }
+            let driver = FullScreenEntryDriver(window: w)
+            self?.fullScreenEntryDriver = driver
+            driver.start()
+        }
+        // 続きは windowDidEnterFullScreen（resume シートはそこで表示する）。
     }
 
     /// 全画面遷移の完了後に再開シートを出す（`didShowResumeDialog` があるので手動の全画面では出ない）。
@@ -627,6 +637,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
 
     func windowWillClose(_ notification: Notification) {
         isClosed = true   // G54-S3c: 以後に届いた巻送りの結果は捨てる
+        fullScreenEntryDriver?.stop()   // G54-S3cd smoke fix: 窓を閉じたら以後のリトライを止める
+        fullScreenEntryDriver = nil
         stopAutoAdvance()
         helpOverlayTimer?.invalidate()
         hudNoteTimer?.invalidate()
