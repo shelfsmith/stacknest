@@ -197,6 +197,15 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
             const { index, fraction } = e.detail;
             schedule(toLocator({ index, fraction, cfi: view.lastLocation?.cfi }));
         });
+        // G54-S3d: 本の詳細シートで「最初から」を選んだ（restart=1）。本の先頭から開き、その位置を保存する
+        // （次に開いたときにまた訊かれないように。Mac の「最初から」と同じ考え方）。先頭の保存を先に送り、
+        // 移動後の relocate（cfi 付きの同じ位置）が 1 秒のデバウンスの後に上書きする。
+        if (query?.restart === "1") {
+            postEPUBProgress(uuid, bookId, toLocator({ index: 0, fraction: 0 })).catch(() => {});
+            await view.renderer.goTo({ index: 0, anchor: 0 });
+            view.history?.pushState?.(0);
+            return teardown;
+        }
         const target = restoreTarget(manifest.epubLocator);
         if (torn) return teardown;
         // 最終レビュー I1: cfi が解決できなければ spine+progress へ、index が範囲外なら先頭へ落とす

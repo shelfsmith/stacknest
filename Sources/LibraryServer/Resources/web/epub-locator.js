@@ -29,3 +29,17 @@ export function restoreTarget(locator) {
 
 /// 文字倍率（Mac の ViewerSettings.epubFontScale と同じ範囲）。
 export function clampScale(x) { return num(x, 0.5, 3.0, 1.0); }
+
+/// G54-S3d: 本の詳細シートで「続きから／最初から」を訊くか。Mac の `EPUBResumePrompt.shouldAsk` と同じ意味
+/// （保存位置が無い・本の先頭＝最初の章の先頭なら訊かない）。値は toLocator と同じ規則で丸める。
+export function offersEPUBResume(locator) {
+    if (!locator || typeof locator !== "object") return false;
+    const spine = Math.floor(num(locator.spine, 0, Number.MAX_SAFE_INTEGER, 0));
+    if (spine > 0) return true;
+    return num(locator.progress, 0, 1, 0) > 0;
+}
+
+/// G54-S3d: ファイル名が .epub か（詳細シートで manifest を取りに行くかどうかの判定）。
+export function isEPUBFilename(name) {
+    return typeof name === "string" && /\.epub$/i.test(name);
+}

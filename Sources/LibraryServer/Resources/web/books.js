@@ -3,8 +3,9 @@
 // 状態は URL（#/lib/<uuid>?page=&q=&sort=）に反映し、表示モード/per/sort は localStorage に記憶する。
 
 import { api, apiJSON, deviceToken, libToken, browseParam, fetchFacet,
-         ensureSessionToken, currentSessionToken } from "./api.js";
+         ensureSessionToken, currentSessionToken, fetchManifest } from "./api.js";
 import { startLiveSync } from "./livesync.js";
+import { offersEPUBResume, isEPUBFilename } from "./epub-locator.js";
 
 // ---- localStorage キー（端末ごとの表示設定） --------------------------------
 const VIEW_KEY = "stacknest.books.view";   // "list" | "grid" | "column"
@@ -993,12 +994,17 @@ function openDetail(uuid, book, deps) {
         const restartQ = restart ? "&restart=1" : "";
         location.hash = `#/lib/${encodeURIComponent(uuid)}/read/${book.id}?p=${ui}${restartQ}&from=${encodeURIComponent(fromHash)}`;
     };
-    const readerActions = lastUi
-        ? [ el("button", { type: "button", class: "btn-primary", text: "続きから読む", onClick: () => openAt(lastUi) }),
-            el("button", { type: "button", class: "btn-secondary", text: "最初から", onClick: () => openAt(1, true) }),
-            el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }) ]
-        : [ el("button", { type: "button", class: "btn-primary", text: "開く", onClick: () => openAt(1) }),
-            el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }) ];
+    // G54-S3d: 「続きから／最初から」の 2 択（zip は lastPage、テキスト EPUB は保存位置で出す・下の manifest 参照）。
+    const resumeActions = (resumeUi) => [
+        el("button", { type: "button", class: "btn-primary", text: "続きから読む", onClick: () => openAt(resumeUi) }),
+        el("button", { type: "button", class: "btn-secondary", text: "最初から", onClick: () => openAt(1, true) }),
+        el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }),
+    ];
+    const openActions = () => [
+        el("button", { type: "button", class: "btn-primary", text: "開く", onClick: () => openAt(1) }),
+        el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }),
+    ];
+    const actionsEl = el("div", { class: "modal-actions" }, lastUi ? resumeActions(lastUi) : openActions());
 
     const modal = el("div", { class: "modal detail-modal", role: "dialog", "aria-label": "本の詳細" }, [
         el("div", { class: "detail-header" }, [
@@ -1009,12 +1015,23 @@ function openDetail(uuid, book, deps) {
             ]),
         ]),
         rows.length ? el("div", { class: "detail-rows" }, rows) : null,
-        el("div", { class: "modal-actions" }, readerActions),
+        actionsEl,
     ]);
     overlay.append(modal);
     // #app 配下に置く（modal-overlay は position:fixed なのでビューポート基準のまま）。
     // route() 遷移時に既存の clear 機構でも除去され、上の hashchange ハンドラと二重に安全。
     appEl().append(overlay);
+
+    // G54-S3d: テキスト EPUB は位置をページ番号で持たないので、manifest の保存位置で訊く
+    // （Mac の EPUBResumePrompt と同じ意味: 位置が無い・本の先頭なら訊かない）。画像本 EPUB は format が
+    // "epub" でない（ページ経路）ので lastPage の選択肢のまま。取れるまで・取れなかったときは今の選択肢のまま
+    // （押せば従来どおり黙って続きから開く）。テキスト EPUB の「続きから」は p を見ないので p=1 でよい。
+    if (isEPUBFilename(book.filename)) {
+        fetchManifest(uuid, book.id).then((m) => {
+            if (!overlay.isConnected || !m || m.format !== "epub") return;
+            actionsEl.replaceChildren(...(offersEPUBResume(m.epubLocator) ? resumeActions(1) : openActions()));
+        }).catch(() => {});
+    }
 }
 
 /// ISO8601 日付文字列 → ローカル日付（YYYY/MM/DD）。失敗時は元文字列。
