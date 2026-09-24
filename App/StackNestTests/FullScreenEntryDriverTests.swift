@@ -215,6 +215,37 @@ struct FullScreenEntryDriverTests {
         #expect(fakes.toggleCallCount == 1, "二重に前進しないこと（toggle が 2 回呼ばれない）")
     }
 
+    /// Codex P2: 他窓の遷移を待っている間に（ユーザーの操作などで）全画面になったら、
+    /// 待ちが明けても toggle しない（トグルなので、呼ぶと達成済みの全画面を解除してしまう）。
+    @Test("待ちの間に全画面になったら、待ちが明けても toggle しない")
+    func doesNotToggleIfFullScreenReachedDuringWait() {
+        let fakes = Fakes()
+        fakes.otherTransitionInProgress = true
+        fakes.fullScreen = false
+        var transitionEndCompletion: (() -> Void)?
+        var timeoutBlock: (() -> Void)?
+        let driver = FullScreenEntryDriver(
+            config: .init(maxAttempts: 3, retryInterval: 0.3, transitionWaitTimeout: 1.5),
+            isFullScreen: { fakes.fullScreen },
+            isOtherTransitionInProgress: { fakes.otherTransitionInProgress },
+            toggle: { fakes.toggleCallCount += 1; fakes.fullScreen.toggle() },
+            schedule: { delay, block in
+                fakes.scheduledDelays.append(delay)
+                if delay == 1.5 { timeoutBlock = block } else { block() }
+            },
+            observeTransitionEnd: { completion in transitionEndCompletion = completion }
+        )
+        driver.start()
+        fakes.fullScreen = true   // 待ちの間にユーザーが手で全画面にした
+
+        transitionEndCompletion?()
+        timeoutBlock?()
+
+        #expect(fakes.toggleCallCount == 0, "達成済みの全画面をトグルで解除しないこと")
+        #expect(fakes.fullScreen)
+        #expect(driver.attemptsUsed == 0)
+    }
+
     @Test("start() を二重に呼んでも多重実行しない")
     func startIsIdempotentWhileRunning() {
         let fakes = Fakes()

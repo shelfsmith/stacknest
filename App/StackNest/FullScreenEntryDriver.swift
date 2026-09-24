@@ -187,6 +187,12 @@ final class FullScreenEntryDriver {
 
     private func attemptToggle() {
         guard isRunning else { return }
+        // Codex P2: 他窓の遷移を待つ間にユーザーが手で全画面にしていることがある。`toggleFullScreen` は
+        // トグルなので、ここで改めて確かめずに呼ぶと達成済みの全画面を解除してしまう。
+        if isFullScreen() {
+            isRunning = false
+            return
+        }
         attemptsUsed += 1
         toggle()
         schedule(config.retryInterval) { [weak self] in self?.verify() }
