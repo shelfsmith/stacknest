@@ -1386,32 +1386,52 @@ body {
   position: fixed;
   inset: 0;
   z-index: 50;
-  display: flex;
-  flex-direction: column;
   background: Canvas;
 }
 
+/* G54-S3d: バーは zip の .reader-chrome と同じく本文の上に重ねる半透明のバー。
+   画面中央のタップで出し入れする（epub-reader.js の toggleBar）。 */
 .epub-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 4px 8px;
   padding-top: max(4px, env(safe-area-inset-top));
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  color: #fff;
+  transition: opacity 0.2s, transform 0.2s;
 }
+
+.epub-bar.hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-100%);
+}
+
+.epub-bar .icon-btn { color: #fff; }
 
 .epub-spacer { flex: 1; }
 
+/* 本文は画面いっぱい（バーは上に重なる）。 */
 .epub-view {
-  flex: 1;
-  min-height: 0;
+  position: absolute;
+  inset: 0;
 }
 
+/* 左右のページ送りの操作域。バー（z-index 3）より下なので、バーが出ている間はバーのボタンが押せる。 */
 .epub-tap {
   position: absolute;
-  /* 最終レビュー Minor: バーの実高（ノッチの安全領域込み）の下から。「戻る」に被せない */
-  top: calc(48px + env(safe-area-inset-top));
+  top: 0;
   bottom: 0;
   width: 22%;
+  z-index: 2;
 }
 
 .epub-tap-left { left: 0; }

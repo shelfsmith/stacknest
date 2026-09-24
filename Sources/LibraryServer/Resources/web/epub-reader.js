@@ -5,7 +5,7 @@
 
 import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError, NetworkError } from "./api.js";
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
-import { isImageOnlySection, layoutChanges } from "./epub-section.js";
+import { isImageOnlySection, layoutChanges, shouldToggleBar } from "./epub-section.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
 const readScale = () => clampScale(localStorage.getItem(SCALE_KEY));
@@ -71,7 +71,16 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
     ]);
     const tapLeft = el("div", { class: "epub-tap epub-tap-left", onClick: () => view.goLeft() });
     const tapRight = el("div", { class: "epub-tap epub-tap-right", onClick: () => view.goRight() });
-    const root = el("div", { class: "epub-reader" }, [bar, view, tapLeft, tapRight]);
+    // G54-S3d: バーは zip の .reader-chrome と同じく本文の上に重ね、画面中央のタップで出し入れする。
+    // 中央には透明な操作域を置かない（本文のリンク・文字選択を塞がないため）。左右の操作域に当たらなかった
+    // クリック（＝中央）を、foliate の要素（章の外の余白）と各章の文書（下の load の受け手）で受ける。
+    const root = el("div", { class: "epub-reader" }, [view, tapLeft, tapRight, bar]);
+    let barVisible = true;
+    const toggleBar = () => {
+        barVisible = !barVisible;
+        bar.classList.toggle("hidden", !barVisible);
+    };
+    view.addEventListener("click", () => { if (!torn) toggleBar(); });
 
     const applyStyles = () => view.renderer?.setStyles?.(styles(scale));
     const setScale = (s) => { scale = clampScale(s); saveScale(scale); applyStyles(); };
@@ -169,6 +178,16 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
                 else view.renderer.setAttribute(name, value);
             }
             imageSection = imageOnly;
+        });
+        // G54-S3d: 章の文書の中のクリック（iframe の中なので上の view の click には届かない）。
+        view.addEventListener("load", (e) => {
+            const doc = e.detail?.doc;
+            doc?.addEventListener("click", (ev) => {
+                if (torn) return;
+                const onLink = Boolean(ev.target?.closest?.("a[href]"));
+                const hasSelection = String(doc.getSelection?.() ?? "") !== "";
+                if (shouldToggleBar({ defaultPrevented: ev.defaultPrevented, onLink, hasSelection })) toggleBar();
+            });
         });
         // renderer の relocate は {index, fraction}（spine 内の進行率）。view はこの内部リスナーを
         // open() の中で自分の renderer に先に登録しているため、ここで addEventListener した時点で

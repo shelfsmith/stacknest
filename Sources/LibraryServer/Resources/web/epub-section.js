@@ -32,3 +32,9 @@ export function layoutChanges(wasImageOnly, isImageOnly) {
     if (Boolean(wasImageOnly) === Boolean(isImageOnly)) return [];
     return Object.entries(IMAGE_SECTION_ATTRS).map(([name, value]) => [name, isImageOnly ? value : null]);
 }
+
+/// 章の文書の中のクリックでバーを出し入れするか。リンク（目次・注）・文字選択中・foliate が
+/// 既に処理したクリック（リンクは foliate が preventDefault する）では出し入れしない。
+export function shouldToggleBar({ defaultPrevented, onLink, hasSelection }) {
+    return !defaultPrevented && !onLink && !hasSelection;
+}

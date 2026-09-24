@@ -2,7 +2,7 @@
 // G54-S3d: テキスト EPUB の「画像 1 枚だけの章」の判定と、foliate の枠の切り替え（純関数）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isImageOnlySection, layoutChanges, IMAGE_SECTION_ATTRS }
+import { isImageOnlySection, layoutChanges, IMAGE_SECTION_ATTRS, shouldToggleBar }
     from "../Sources/LibraryServer/Resources/web/epub-section.js";
 
 /// querySelectorAll の件数だけを返す最小の document。
@@ -51,4 +51,14 @@ test("layoutChanges: 画像 → 文字で全部外す（null＝既定値に戻�
 test("layoutChanges: 変化が無ければ何もしない（再描画を起こさない）", () => {
     assert.deepEqual(layoutChanges(true, true), []);
     assert.deepEqual(layoutChanges(false, false), []);
+});
+
+test("shouldToggleBar: 素のクリックでバーを出し入れする", () => {
+    assert.equal(shouldToggleBar({ defaultPrevented: false, onLink: false, hasSelection: false }), true);
+});
+
+test("shouldToggleBar: リンク・文字選択中・処理済みのクリックでは出し入れしない", () => {
+    assert.equal(shouldToggleBar({ defaultPrevented: false, onLink: true, hasSelection: false }), false);
+    assert.equal(shouldToggleBar({ defaultPrevented: false, onLink: false, hasSelection: true }), false);
+    assert.equal(shouldToggleBar({ defaultPrevented: true, onLink: false, hasSelection: false }), false);
 });
