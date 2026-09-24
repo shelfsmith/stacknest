@@ -1101,46 +1101,16 @@ final class AppState {
     }
 
     /// G48-2: EPUB は契約 `EPUBAdapter.renderer` の窓で開く。未登録なら外部ビューアにフォールバック。
+    /// G54-S3c: reader の用意（`prepareEPUBReader`）と窓の組み立てを分け、前者を巻送りでも使う。
     private func openEPUBReader(_ book: BookRow, resumeDirect: Bool = false) {
-        guard let renderer = EPUBAdapter.renderer, let path = book.path else { openInExternalViewer([book]); return }
+        guard EPUBAdapter.renderer != nil, let path = book.path else { openInExternalViewer([book]); return }
         let identity = ViewerIdentity.local(bundlePath: bundleURL.path, bookID: book.id)
         guard ViewerWindowRegistry.shared.beginOpen(identity) else { return }
-        let saved = (try? database?.loadViewerState(bookID: book.id))?.epubLocatorJSON
-            .flatMap { try? JSONDecoder().decode(EPUBLocatorValue.self, from: Data($0.utf8)) }
         Task { @MainActor in
             do {
-                let reader = try await renderer.makeReaderView(url: URL(fileURLWithPath: path), at: saved)
-                let controller = EPUBReaderWindowController(
-                    book: book, reader: reader, resumeLocator: saved,
-                    suppressResumeDialog: resumeDirect) { [weak self] loc in
-                    guard let self, let data = try? JSONEncoder().encode(loc) else { return }
-                    try? self.database?.updateEPUBLocator(bookID: book.id, json: String(decoding: data, as: UTF8.self))
-                }
-                // G51: 巻送り。DB の series/volume で兄弟を引き、閉じてから通常の open 経路で開く
-                // （兄弟が画像本なら画像ビューア、EPUB なら Washi が選ばれる）。
-                controller.resolveSibling = { [weak self] cur, dir in
-                    guard let db = self?.database else { return .noSibling }
-                    let row: BookRow?
-                    switch dir {
-                    case .next: row = try? db.nextVolumeInSeries(after: cur)
-                    case .prev: row = try? db.prevVolumeInSeries(before: cur)
-                    }
-                    return row.map { .reopen($0) } ?? .noSibling
-                }
-                controller.openSibling = { [weak self] row in self?.openBooks([row], resumeDirect: true) }
-                // G48-2 smoke fix: 保存済みのフォント倍率を復元し、以降の変更（⌘+/⌘-/⌘0）を永続化する。
-                // 復元の代入を先にし、変更ハンドラの設置を後にすることで、復元自体が
-                // onFontScaleChange 経由の無駄な再保存を起こさない。
-                reader.fontScale = self.viewerSettings.epubFontScale
-                reader.onFontScaleChange = { [weak self] scale in
-                    self?.viewerSettings.epubFontScale = scale
-                }
-                // G54-S2b: 配色は開いた時点の設定を一度だけ渡す（開いている窓には反映しない）。
-                reader.setTheme(self.viewerSettings.epubTheme)
-                controller.onClose = { [weak controller] in
-                    guard let controller else { return }
-                    ViewerWindowRegistry.shared.unregister(controller: controller)
-                }
+                let prepared = try await self.prepareEPUBReader(book)
+                let controller = EPUBReaderWindowController(prepared: prepared, suppressResumeDialog: resumeDirect)
+                self.wireEPUBWindow(controller)
                 ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
                 controller.present()
                 self.markAsRead(book: book)   // 画像本と同じ: 開いたら unseen=0・play_date=now
@@ -1154,6 +1124,67 @@ final class AppState {
                 Self.logger.warning("openEPUBReader: makeReaderView failed for bookID=\(book.id, privacy: .public) path=\(path, privacy: .public): \(error.localizedDescription, privacy: .public) → falling back to external viewer")
                 self.openInExternalViewer([book])
             }
+        }
+    }
+
+    /// G54-S3c: EPUB の reader を用意する（窓には載せない）。開く経路と巻送りの両方で使う。
+    private func prepareEPUBReader(_ book: BookRow) async throws -> EPUBReaderWindowController.PreparedBook {
+        guard let renderer = EPUBAdapter.renderer, let path = book.path else {
+            throw EPUBAdapterError.cannotOpen("EPUB renderer or path unavailable")
+        }
+        let saved = (try? database?.loadViewerState(bookID: book.id))?.epubLocatorJSON
+            .flatMap { try? JSONDecoder().decode(EPUBLocatorValue.self, from: Data($0.utf8)) }
+        let reader = try await renderer.makeReaderView(url: URL(fileURLWithPath: path), at: saved)
+        let bookID = book.id
+        return EPUBReaderWindowController.PreparedBook(
+            book: book, reader: reader, resumeLocator: saved,
+            persist: { [weak self] loc in
+                guard let self, let data = try? JSONEncoder().encode(loc) else { return }
+                try? self.database?.updateEPUBLocator(bookID: bookID, json: String(decoding: data, as: UTF8.self))
+            })
+    }
+
+    /// G54-S3c: EPUB の窓の巻送り・閉じる処理を配線する（文字倍率と配色は窓が当てる）。
+    private func wireEPUBWindow(_ controller: EPUBReaderWindowController) {
+        controller.resolveSibling = { [weak self] cur, dir in
+            await self?.resolveEPUBSibling(cur, direction: dir) ?? .noSibling
+        }
+        // G54-S3c（spec §4.2）: 巻送りで開き直すときも、読みかけなら訊く（resumeDirect を付けない）。
+        controller.openSibling = { [weak self] row in self?.openBooks([row]) }
+        controller.onBookSwapped = { [weak self, weak controller] newBook in
+            guard let self, let controller else { return }
+            LastReadTracker.shared.record(.local(bundlePath: self.bundleURL.path, bookID: newBook.id, title: newBook.title))
+            // 画像ビューアの巻送りと同じ: 一覧の該当行だけをその場で既読にする（G34b）。
+            self.markVolumeAsReadAndReflect(bookID: newBook.id)
+            ViewerWindowRegistry.shared.reidentify(
+                to: .local(bundlePath: self.bundleURL.path, bookID: newBook.id), controller: controller)
+        }
+        controller.onClose = { [weak controller] in
+            guard let controller else { return }
+            ViewerWindowRegistry.shared.unregister(controller: controller)
+        }
+    }
+
+    /// G54-S3c: EPUB の窓の次（前）の巻。テキスト EPUB なら reader まで用意して返す（同じ窓で差し替える）。
+    /// それ以外、または読めないファイル（TCC 等）は開き直す — 通常の経路には親フォルダの許可を求める導線がある。
+    private func resolveEPUBSibling(_ cur: BookRow, direction: EPUBReaderWindowController.SiblingDirection)
+        async -> EPUBReaderWindowController.SiblingResolution {
+        guard let db = database else { return .noSibling }
+        let sibling: BookRow?
+        switch direction {
+        case .next: sibling = try? db.nextVolumeInSeries(after: cur)
+        case .prev: sibling = try? db.prevVolumeInSeries(before: cur)
+        }
+        guard let sibling else { return .noSibling }
+        guard let path = sibling.path, Self.probeReadable(URL(fileURLWithPath: path)) == .readable,
+              EPUBAdapter.renderer != nil else { return .reopen(sibling) }
+        let kind = await SiblingVolumeKind.probeLocal(path: path, reader: EPUBAdapter.reader).kind
+        guard kind == .textEPUB else { return .reopen(sibling) }
+        do {
+            return .swapIn(try await prepareEPUBReader(sibling))
+        } catch {
+            Self.logger.warning("resolveEPUBSibling: makeReaderView failed for bookID=\(sibling.id, privacy: .public): \(String(describing: error), privacy: .public)")
+            return .failed
         }
     }
 
