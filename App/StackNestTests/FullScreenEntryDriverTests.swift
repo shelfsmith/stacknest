@@ -148,6 +148,73 @@ struct FullScreenEntryDriverTests {
         #expect(fakes.toggleCallCount == 1, "stop() 後は再試行しないこと")
     }
 
+    /// レビュー Important（Fix round 1）: `observeTransitionEnd` が呼んだ完了クロージャを握ったまま
+    /// 二度と呼ばない状況（`will*` に対応する `did*` が来ない・遷移が壊れる等）でも、
+    /// `config.transitionWaitTimeout` の期限が来れば待たずに `toggle` を試みること。
+    @Test("他窓の遷移終了通知が来なくても、待ちの期限が来たら toggle を試みる")
+    func timesOutWaitingForOtherTransitionAndTogglesAnyway() {
+        let fakes = Fakes()
+        fakes.otherTransitionInProgress = true
+        fakes.fullScreen = false
+        var timeoutBlock: (() -> Void)?
+        let driver = FullScreenEntryDriver(
+            config: .init(maxAttempts: 3, retryInterval: 0.3, transitionWaitTimeout: 1.5),
+            isFullScreen: { fakes.fullScreen },
+            isOtherTransitionInProgress: { fakes.otherTransitionInProgress },
+            toggle: {
+                fakes.toggleCallCount += 1
+                fakes.fullScreen = true   // 1 回目の toggle で成功したことにする（有界リトライの巻き込みを避ける）
+            },
+            schedule: { delay, block in
+                fakes.scheduledDelays.append(delay)
+                if delay == 1.5 { timeoutBlock = block } else { block() }   // 検証(0.3秒)側は同期実行のまま
+            },
+            observeTransitionEnd: { _ in
+                fakes.transitionEndObserverCount += 1
+                // 実ウィンドウで通知が来ない状況を模す: 完了クロージャを一切呼ばない。
+            }
+        )
+        driver.start()
+        #expect(fakes.toggleCallCount == 0, "期限が来る前には toggle しないこと")
+        #expect(timeoutBlock != nil, "待ちに期限をスケジュールすること")
+
+        timeoutBlock?()   // 期限が来たことを模す
+
+        #expect(fakes.toggleCallCount == 1, "期限後は通知を待たずに toggle を試みること")
+    }
+
+    /// 遷移終了通知と期限の両方が（遅れて）来ても、前進するのは 1 回だけであること。
+    @Test("遷移終了通知と期限の両方が来ても、進むのは一度だけ")
+    func onlyProceedsOnceEvenIfBothTransitionEndAndTimeoutFire() {
+        let fakes = Fakes()
+        fakes.otherTransitionInProgress = true
+        fakes.fullScreen = false
+        var transitionEndCompletion: (() -> Void)?
+        var timeoutBlock: (() -> Void)?
+        let driver = FullScreenEntryDriver(
+            config: .init(maxAttempts: 3, retryInterval: 0.3, transitionWaitTimeout: 1.5),
+            isFullScreen: { fakes.fullScreen },
+            isOtherTransitionInProgress: { fakes.otherTransitionInProgress },
+            toggle: {
+                fakes.toggleCallCount += 1
+                fakes.fullScreen = true   // 1 回目の toggle で成功したことにする
+            },
+            schedule: { delay, block in
+                fakes.scheduledDelays.append(delay)
+                if delay == 1.5 { timeoutBlock = block } else { block() }
+            },
+            observeTransitionEnd: { completion in transitionEndCompletion = completion }
+        )
+        driver.start()
+        #expect(fakes.toggleCallCount == 0)
+
+        transitionEndCompletion?()   // 先に通知が来た
+        #expect(fakes.toggleCallCount == 1)
+
+        timeoutBlock?()   // 遅れて期限も来た
+        #expect(fakes.toggleCallCount == 1, "二重に前進しないこと（toggle が 2 回呼ばれない）")
+    }
+
     @Test("start() を二重に呼んでも多重実行しない")
     func startIsIdempotentWhileRunning() {
         let fakes = Fakes()

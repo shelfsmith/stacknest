@@ -21,18 +21,22 @@ final class FullScreenTransitionTracker {
 
     init() {
         let nc = NotificationCenter.default
+        // レビュー Minor: `queue: .main` により実行は必ずメインスレッドだが、NotificationCenter の
+        // `using:` クロージャの型自体は `@Sendable`（非隔離）なので、コンパイラは MainActor 隔離の
+        // `begin()`/`end()` をここから直接は呼ばせない。`MainActor.assumeIsolated` で
+        // 「実際にはメインスレッドで呼ばれる」という事実を型に伝える。
         observers = [
             nc.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.begin()
+                MainActor.assumeIsolated { self?.begin() }
             },
             nc.addObserver(forName: NSWindow.willExitFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.begin()
+                MainActor.assumeIsolated { self?.begin() }
             },
             nc.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.end()
+                MainActor.assumeIsolated { self?.end() }
             },
             nc.addObserver(forName: NSWindow.didExitFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.end()
+                MainActor.assumeIsolated { self?.end() }
             },
         ]
     }
@@ -86,6 +90,11 @@ final class FullScreenEntryDriver {
     struct Config {
         var maxAttempts: Int = 3
         var retryInterval: TimeInterval = 0.3
+        /// レビュー Important（Fix round 1）: 他窓の全画面遷移完了を待つ上限。
+        /// `FullScreenTransitionTracker` は対応の取れていない単純なカウンタなので、
+        /// `will*` に対応する `did*` が来ない場面（遷移中に窓が破棄される等）では
+        /// カウントが戻らず、通知待ちが無期限になりうる。期限が来たら通知を待たずに進む。
+        var transitionWaitTimeout: TimeInterval = 1.5
     }
 
     private let config: Config
@@ -120,7 +129,14 @@ final class FullScreenEntryDriver {
             isFullScreen: { [weak window] in window?.styleMask.contains(.fullScreen) ?? true },
             isOtherTransitionInProgress: { tracker.isTransitioning },
             toggle: { [weak window] in window?.toggleFullScreen(nil) },
-            schedule: { delay, block in DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: block) },
+            // レビュー Minor: `block`（`() -> Void`）は非 Sendable なので、そのまま `asyncAfter(execute:)`
+            // （`@Sendable` を要求）へは渡せない。実行は必ずメインスレッドなので `MainActor.assumeIsolated`
+            // で実行時に隔離を assert する薄いラッパーに包んで渡す。
+            schedule: { delay, block in
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    MainActor.assumeIsolated { block() }
+                }
+            },
             observeTransitionEnd: { completion in tracker.onNextTransitionEnd(completion) }
         )
     }
@@ -148,10 +164,25 @@ final class FullScreenEntryDriver {
             return
         }
         if attemptsUsed == 0 && isOtherTransitionInProgress() {
-            observeTransitionEnd { [weak self] in self?.attemptToggle() }
+            waitForOtherTransitionThenToggle()
             return
         }
         attemptToggle()
+    }
+
+    /// レビュー Important（Fix round 1）: 他窓の遷移完了通知と `transitionWaitTimeout` の期限の
+    /// どちらか先に来た方で 1 回だけ前進する。`did*` 通知が永遠に来ない場合でも、期限を過ぎれば
+    /// 通知を待たずに `attemptToggle()` へ進むので、待ちが無期限になることはない。
+    /// 両方が来ても二重に進まないよう `hasProceeded` フラグで 1 回だけに絞る。
+    private func waitForOtherTransitionThenToggle() {
+        var hasProceeded = false
+        let proceedOnce: () -> Void = { [weak self] in
+            guard !hasProceeded else { return }
+            hasProceeded = true
+            self?.attemptToggle()
+        }
+        observeTransitionEnd(proceedOnce)
+        schedule(config.transitionWaitTimeout, proceedOnce)
     }
 
     private func attemptToggle() {
