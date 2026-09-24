@@ -328,8 +328,9 @@ struct OfflineLibraryView: View {
                     // この関数では画像ビューア注入（openOfflinePages）の `serverID`/`libraryUUID` に
                     // 相当する変数が `sid`/`lib` という名前で既に定義されているのでそれを使う。
                     controller.resolveSibling = { [store] cur, dir in
-                        Self.resolveOfflineVolume(store: store, serverID: sid, libraryUUID: lib,
-                                                  current: cur, direction: dir == .next ? .next : .prev)?.book
+                        let row = Self.resolveOfflineVolume(store: store, serverID: sid, libraryUUID: lib,
+                                                            current: cur, direction: dir == .next ? .next : .prev)?.book
+                        return row.map { .reopen($0) } ?? .noSibling
                     }
                     controller.openSibling = { [store] row in
                         // `row.id` はこの関数で `DownloadedBook.bookID`（= detail.id）から作っている

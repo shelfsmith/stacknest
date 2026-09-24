@@ -1119,11 +1119,13 @@ final class AppState {
                 // G51: 巻送り。DB の series/volume で兄弟を引き、閉じてから通常の open 経路で開く
                 // （兄弟が画像本なら画像ビューア、EPUB なら Washi が選ばれる）。
                 controller.resolveSibling = { [weak self] cur, dir in
-                    guard let db = self?.database else { return nil }
+                    guard let db = self?.database else { return .noSibling }
+                    let row: BookRow?
                     switch dir {
-                    case .next: return try? db.nextVolumeInSeries(after: cur)
-                    case .prev: return try? db.prevVolumeInSeries(before: cur)
+                    case .next: row = try? db.nextVolumeInSeries(after: cur)
+                    case .prev: row = try? db.prevVolumeInSeries(before: cur)
                     }
+                    return row.map { .reopen($0) } ?? .noSibling
                 }
                 controller.openSibling = { [weak self] row in self?.openBooks([row], resumeDirect: true) }
                 // G48-2 smoke fix: 保存済みのフォント倍率を復元し、以降の変更（⌘+/⌘-/⌘0）を永続化する。

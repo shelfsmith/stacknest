@@ -6,7 +6,7 @@ import EPUBAdapter
 import LibraryStore
 @testable import StackNest
 
-/// G51（Q4）: 自動送りと巻送り。巻送りは同一窓でスワップせず、閉じてから兄弟を注入された経路で開く。
+/// G51（Q4）: 自動送りと巻送り。テキスト EPUB 以外の巻は閉じてから兄弟を注入された経路で開く（テキスト EPUB の差し替えは `EPUBReaderWindowSwapTests`）。
 @MainActor
 @Suite("G51: EPUB 窓の自動送りと巻送り")
 struct EPUBReaderWindowVolumeTests {
@@ -24,7 +24,7 @@ struct EPUBReaderWindowVolumeTests {
         var opened: [Int] = []
         c.resolveSibling = { cur, dir in
             #expect(cur.id == 1); #expect(dir == .next)
-            return sibling
+            return .reopen(sibling)
         }
         c.openSibling = { opened.append($0.id) }
         c.perform(.nextVolume)
@@ -34,7 +34,7 @@ struct EPUBReaderWindowVolumeTests {
 
     @Test func missingSiblingShowsNote() async throws {
         let (c, _) = make()
-        c.resolveSibling = { _, _ in nil }
+        c.resolveSibling = { _, _ in .noSibling }
         c.openSibling = { _ in Issue.record("開いてはいけない") }
         c.perform(.prevVolume)
         try await Task.sleep(for: .milliseconds(50))

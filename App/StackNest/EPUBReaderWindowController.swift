@@ -12,22 +12,32 @@ import LibraryStore
 final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, ViewerWindowControlling {
     // レビュー申し送り #1: 返ってきた `any EPUBReaderViewing` は窓が強参照で保持する。
     // `.view` だけ持つと Washi の delegate（weak）経由の位置変化通知が消える。
-    private let reader: any EPUBReaderViewing
-    private let persist: (EPUBLocatorValue) -> Void
+    private var reader: any EPUBReaderViewing
+    private var persist: (EPUBLocatorValue) -> Void
     /// G54-S3: 演出・ノンブル・自動送りの間隔などを読む設定。テストは専用の suite を渡す。
     private let settings: ViewerSettings
     private var presentationObserver: NSObjectProtocol?
     // MARK: G54-S3b — 再開シート（画像ビューアの `showResumeDialogIfNeeded` と同じ作法）
     /// 開いた時点の保存位置。シートを出すかどうかの判定だけに使う。
-    private let resumeLocator: EPUBLocatorValue?
+    private var resumeLocator: EPUBLocatorValue?
     /// 巻送り・「続きから」で開いた経路では訊かない（画像ビューアの `suppressResumeDialog` と同じ）。
-    private let suppressResumeDialog: Bool
+    /// G54-S3c: 巻送りで差し替えた巻では false（読みかけなら訊く・spec §4.2）。
+    private var suppressResumeDialog: Bool
     /// 1 つの窓で 1 回だけ出す。
     private var didShowResumeDialog = false
     /// シートを出す条件（テストから読む）。
     var shouldAskResume: Bool {
         !suppressResumeDialog && !didShowResumeDialog
             && EPUBResumePrompt.shouldAsk(locator: resumeLocator)
+    }
+    typealias ResumeSheetCompletion = @MainActor (NSApplication.ModalResponse) -> Void
+    /// 再開シートを出す処理。テストは記録用に差し替える（画面にシートを出さずに確かめるため）。
+    var resumeSheetPresenter: @MainActor (NSWindow, @escaping ResumeSheetCompletion) -> Void = { window, completion in
+        let alert = NSAlert()
+        alert.messageText = "続きから読みますか？"
+        alert.addButton(withTitle: "続きから")     // .alertFirstButtonReturn
+        alert.addButton(withTitle: "最初から")     // .alertSecondButtonReturn
+        alert.beginSheetModal(for: window) { response in completion(response) }
     }
     private(set) var book: BookRow
     var onClose: (() -> Void)?
@@ -44,11 +54,50 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// EPUB 用の文字倍率の 1 段。⌘+/⌘- 時代と同じ刻み。
     static let fontScaleStep = 0.1
 
-    // MARK: G51 — 巻送り（各 State が注入。未注入なら「次の巻なし」）
+    // MARK: G51 / G54-S3c — 巻送り（各 State が注入。未注入なら「次の巻なし」）
     enum SiblingDirection { case next, prev }
-    var resolveSibling: ((BookRow, SiblingDirection) async -> BookRow?)?
+
+    /// G54-S3c: 所有者が用意した巻。reader は作成済みで、まだ窓には載っていない
+    /// （Washi は窓に載って実寸が付いた時点で初めて本を読み込む）。開く経路と巻送りの両方で使う。
+    struct PreparedBook {
+        let book: BookRow
+        let reader: any EPUBReaderViewing
+        /// その巻の保存位置。再開シートを出すかの判定だけに使う。
+        let resumeLocator: EPUBLocatorValue?
+        /// その巻の位置の保存先。
+        let persist: (EPUBLocatorValue) -> Void
+    }
+
+    /// G54-S3c: 次（前）の巻の解決結果。
+    enum SiblingResolution {
+        /// テキスト EPUB。この窓の中で差し替える。
+        case swapIn(PreparedBook)
+        /// テキスト EPUB 以外（zip・画像本 EPUB など）。窓を閉じ、所有者の通常の経路で開き直す。
+        case reopen(BookRow)
+        /// 次（前）の巻が無い。
+        case noSibling
+        /// 次の巻はテキスト EPUB だが reader を用意できなかった。今の本のまま。
+        case failed
+
+        /// 使わなかった結果の後始末（用意済みの reader を放す）。
+        @MainActor func discard() {
+            if case .swapIn(let prepared) = self { prepared.reader.tearDown() }
+        }
+    }
+
+    var resolveSibling: (@MainActor (BookRow, SiblingDirection) async -> SiblingResolution)?
+    /// `.reopen` のとき、窓を閉じてから呼ぶ。
     var openSibling: ((BookRow) -> Void)?
+    /// G54-S3c: 同じ窓で差し替えた後に呼ぶ。所有者は窓の登録の付け替え・既読化・「最後に開いた本」の記録を行う
+    /// （画像ビューアの `onBookSwapped` と同じ役割）。
+    var onBookSwapped: ((BookRow) -> Void)?
     private var isResolvingSibling = false
+    /// G54-S3c: 解決がこれより長引いたら（リモートのダウンロードなど）「読み込み中…」を出す。テストは短くする。
+    var siblingLoadingNoteDelay: Duration = .milliseconds(400)
+    /// G54-S3c: 閉じた後に届いた解決結果は捨てる。
+    private var isClosed = false
+    /// G54-S3c: 差し替えのたびに進める。差し替え前の本の再開シートの結果を無視するのに使う。
+    private var bookGeneration = 0
 
     // MARK: G51 — 自動送り
     private var autoAdvanceTimer: Timer?
@@ -113,17 +162,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         window.setFrameAutosaveName("EPUBReaderWindow-\(book.id)")
         super.init(window: window)
         window.delegate = self
-        reader.onLocatorChange = { [weak self] loc in
-            self?.schedulePersist(loc)
-            self?.refreshProgress()
-        }
-        // G54-S3: 計測の完了・無効化で HUD の「計測中…」と「N / M」を切り替える。
-        reader.onPageCensusChange = { [weak self] in self?.refreshProgress() }
-        // G51: キーは窓が握る。Washi 側は native monitor で受けた NSEvent をここへ渡すだけ。
-        reader.onKeyEvent = { [weak self] event in self?.handleKey(event) ?? false }
-        reader.onReachBookEdge = { [weak self] forward in self?.reachedBookEdge(forward: forward) }
-        // G54-S3c: 文字倍率と配色は窓がまとめて当てる（差し替えでも同じ処理を使う）。
-        applyTextSettings(to: reader)
+        wire(reader)
         bindingsObserver = NotificationCenter.default.addObserver(
             forName: .viewerKeyBindingsChanged, object: nil, queue: .main
         ) { [weak self] _ in
@@ -131,7 +170,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         }
         // G54-S3: 演出とノンブルを reader に入れ、設定の変更も開いている窓に届ける。
         // 通知は `ViewerSettings`（@MainActor）の didSet から同期に投げられるので、queue: nil で同期に受ける。
-        applyPresentationSettings()
+        // （最初の適用は `wire` の中で済んでいる）
         presentationObserver = NotificationCenter.default.addObserver(
             forName: .viewerEPUBPresentationChanged, object: nil, queue: nil
         ) { [weak self] _ in
@@ -148,6 +187,12 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         refreshProgress()
         // G54-S3: 画像ビューアと同じく、開いた直後に一度出して 2 秒後に隠す。
         showHUDThenScheduleHide()
+    }
+    /// G54-S3c: 所有者が用意した巻で開く（開く経路と巻送りで同じ `PreparedBook` を使う）。
+    convenience init(prepared: PreparedBook, settings: ViewerSettings = .shared, suppressResumeDialog: Bool = false) {
+        self.init(book: prepared.book, reader: prepared.reader, settings: settings,
+                  resumeLocator: prepared.resumeLocator, suppressResumeDialog: suppressResumeDialog,
+                  persist: prepared.persist)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
@@ -296,27 +341,123 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         }
     }
 
-    // MARK: - G51 巻送り（同一窓でのスワップはしない: 閉じてから兄弟を通常の経路で開く）
+    // MARK: - G51 / G54-S3c 巻送り
+    // テキスト EPUB の巻はこの窓の中で差し替える。それ以外は閉じてから所有者の通常の経路で開く。
 
     private func loadSibling(_ direction: SiblingDirection) {
-        guard !isResolvingSibling else { return }
-        guard let resolveSibling, let openSibling else { hudNote(direction == .next ? "次の巻なし" : "前の巻なし"); return }
+        guard !isResolvingSibling, !isClosed else { return }
+        let noSiblingNote = direction == .next ? "次の巻なし" : "前の巻なし"
+        guard let resolveSibling, let openSibling else { hudNote(noSiblingNote); return }
+        // 解決から差し替え完了まで立てたまま（連打で二重に走らない）。
         isResolvingSibling = true
         let current = book
+        let loadingNote = scheduleSiblingLoadingNote(direction)
         Task { [weak self] in
-            let sibling = await resolveSibling(current, direction)
-            guard let self else { return }
-            self.isResolvingSibling = false
-            guard let sibling else {
-                self.hudNote(direction == .next ? "次の巻なし" : "前の巻なし")
+            let result = await resolveSibling(current, direction)
+            loadingNote.cancel()
+            guard let self else { result.discard(); return }
+            // 解決中に窓が閉じられた: 結果は捨てる（用意した reader も放す）。
+            guard !self.isClosed else {
+                self.isResolvingSibling = false
+                result.discard()
                 return
             }
-            // 先に閉じる（registry から外れる）→ 兄弟を各 State の通常経路で開く（EPUB でも画像本でも正しいビューアが選ばれる）。
-            // 明示 flushPersist は不要: windowWillClose が close() の中で必ず flush する（二重呼びは
-            // リモートで progress を 2 回 POST してしまうので避ける）。
-            self.window?.close()
-            openSibling(sibling)
+            switch result {
+            case .noSibling:
+                self.hudNote(noSiblingNote)
+            case .failed:
+                // reader を用意できなかった: 今の本のまま（窓・保存先・reader を変えない）。
+                self.hudNote(direction == .next ? "次の巻を開けません" : "前の巻を開けません")
+            case .reopen(let row):
+                // 明示 flushPersist は不要: windowWillClose が close() の中で必ず 1 回 flush する
+                // （二重に呼ぶとリモートで位置を 2 回 POST する）。
+                self.window?.close()
+                openSibling(row)
+            case .swapIn(let prepared):
+                self.swapIn(prepared, direction: direction)
+            }
+            self.isResolvingSibling = false
         }
+    }
+
+    /// G54-S3c: 用意済みの巻へ、この窓の中で差し替える。**await を挟まない**（途中の状態を作らない）。
+    /// 全画面・窓の位置（autosave 名は最初の本のまま）・キー割り当ては触らない。
+    private func swapIn(_ next: PreparedBook, direction: SiblingDirection) {
+        stopAutoAdvance()
+        // 1) 古い本の保存を 1 回だけ流す（窓は閉じないので windowWillClose の flush は走らない）。
+        flushPersist()
+        // 2) 古い本の再開シート: 世代を進めて完了ハンドラを無効にし、開いていれば閉じる。
+        bookGeneration += 1
+        dismissResumeSheet()
+        // 3) 古い reader を外す。
+        detach(reader)
+        // 4) 本ごとの状態を入れ替える。
+        book = next.book
+        reader = next.reader
+        persist = next.persist
+        resumeLocator = next.resumeLocator
+        suppressResumeDialog = false        // 巻送りでも読みかけなら訊く（spec §4.2）
+        didShowResumeDialog = false
+        // 5) 新しい reader を古いのと同じ位置（ヘルプ・HUD の下）へ入れ、コールバックと表示設定を当てる。
+        next.reader.view.autoresizingMask = [.width, .height]
+        next.reader.view.frame = container.bounds
+        container.addSubview(next.reader.view, positioned: .below, relativeTo: helpOverlayHosting)
+        wire(next.reader)
+        // 古い WebView ごとファーストレスポンダが消えるので、新しい本へ渡す
+        // （渡さないと Washi のネイティブキー監視が「フォーカスが無い」としてキーを流さない）。
+        if let responder = Self.firstResponderCandidate(in: next.reader.view) {
+            window?.makeFirstResponder(responder)
+        }
+        window?.title = next.book.title
+        refreshProgress()
+        onBookSwapped?(next.book)
+        hudNote("\(direction == .next ? "次の巻を開きました" : "前の巻を開きました")：\(next.book.title)")
+        // 6) 次の巻に読みかけがあれば訊く（画像ビューアの performSwap と同じ）。
+        showResumeDialogIfNeeded()
+    }
+
+    /// 古い reader を外す。**コールバックを先に外す**（後始末の途中で位置やキーの通知が来ても
+    /// 新しい本へ流れないように）→ 後始末（WebView・キー監視の解放）→ ビューを取り除く。
+    private func detach(_ old: any EPUBReaderViewing) {
+        old.onLocatorChange = nil
+        old.onPageCensusChange = nil
+        old.onKeyEvent = nil
+        old.onReachBookEdge = nil
+        old.onFontScaleChange = nil
+        old.tearDown()
+        old.view.removeFromSuperview()
+    }
+
+    /// reader のビューの中で最初にキー入力を受けられるビュー（Washi なら `EPUBReaderView`）。
+    static func firstResponderCandidate(in view: NSView) -> NSView? {
+        if view.acceptsFirstResponder { return view }
+        for sub in view.subviews {
+            if let found = firstResponderCandidate(in: sub) { return found }
+        }
+        return nil
+    }
+
+    /// 解決が `siblingLoadingNoteDelay` より長引いたら「読み込み中…」を出したままにする
+    /// （リモートのダウンロード中など。今の本は表示したまま）。結果が出たら通常のノートが上書きする。
+    private func scheduleSiblingLoadingNote(_ direction: SiblingDirection) -> Task<Void, Never> {
+        let delay = siblingLoadingNoteDelay
+        return Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self, self.isResolvingSibling, !self.isClosed else { return }
+            self.showStickyNote(direction == .next ? "次の巻を読み込み中…" : "前の巻を読み込み中…")
+        }
+    }
+
+    /// 消えないノート（`hudNote` と違い、タイマーで消さず HUD も隠さない）。
+    private func showStickyNote(_ text: String) {
+        lastHUDNote = text
+        hudNoteText = text
+        hudVisible = true
+        hudNoteTimer?.invalidate()
+        hudNoteTimer = nil
+        idleTimer?.invalidate()
+        idleTimer = nil
+        updateHUD()
     }
 
     // MARK: - G51 オーバーレイ
@@ -355,18 +496,23 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
 
     // MARK: - G54-S3b 再開シート
 
-    /// 保存位置が本の先頭でなければ、窓の上に二択のシートを出す。
-    private func showResumeDialogIfNeeded() {
+    /// 保存位置が本の先頭でなければ、窓の上に二択のシートを出す（テストから直接呼ぶので internal）。
+    func showResumeDialogIfNeeded() {
         guard shouldAskResume, let window else { return }
         markResumeDialogShown()
-        let alert = NSAlert()
-        alert.messageText = "続きから読みますか？"
-        alert.addButton(withTitle: "続きから")     // .alertFirstButtonReturn
-        alert.addButton(withTitle: "最初から")     // .alertSecondButtonReturn
-        alert.beginSheetModal(for: window) { [weak self] response in
+        let generation = bookGeneration
+        resumeSheetPresenter(window) { [weak self] response in
+            // G54-S3c: 差し替え前の本のシートの結果は捨てる（新しい本を「最初から」にしない）。
+            guard let self, self.bookGeneration == generation else { return }
             guard response == .alertSecondButtonReturn else { return }   // 続きから＝復元済みなので何もしない
-            self?.restartFromBeginning()
+            self.restartFromBeginning()
         }
+    }
+
+    /// G54-S3c: 開いている再開シートを閉じる（結果は世代で無視される）。
+    private func dismissResumeSheet() {
+        guard let window, let sheet = window.attachedSheet else { return }
+        window.endSheet(sheet, returnCode: .abort)
     }
 
     /// テストと `showResumeDialogIfNeeded` から使う。2 回目以降は訊かない。
@@ -390,6 +536,22 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     }
 
     // MARK: - G54-S3 進捗 HUD
+
+    /// reader に窓のコールバックと表示設定を当てる（init と差し替えで共有）。
+    /// 呼ぶ前に `self.reader` をその reader にしておくこと（`applyPresentationSettings` は `self.reader` を見る）。
+    private func wire(_ reader: any EPUBReaderViewing) {
+        reader.onLocatorChange = { [weak self] loc in
+            self?.schedulePersist(loc)
+            self?.refreshProgress()
+        }
+        // G54-S3: 計測の完了・無効化で HUD の「計測中…」と「N / M」を切り替える。
+        reader.onPageCensusChange = { [weak self] in self?.refreshProgress() }
+        // G51: キーは窓が握る。Washi 側は native monitor で受けた NSEvent をここへ渡すだけ。
+        reader.onKeyEvent = { [weak self] event in self?.handleKey(event) ?? false }
+        reader.onReachBookEdge = { [weak self] forward in self?.reachedBookEdge(forward: forward) }
+        applyTextSettings(to: reader)
+        applyPresentationSettings()
+    }
 
     /// G54-S3c: 文字倍率と配色を reader に当てる（以前は所有者 3 か所が同じことを書いていた）。
     /// 復元の代入を先にし、変更ハンドラの設置を後にする（復元自体が保存を起こさないように・G48-2 smoke fix と同じ）。
@@ -464,6 +626,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     }
 
     func windowWillClose(_ notification: Notification) {
+        isClosed = true   // G54-S3c: 以後に届いた巻送りの結果は捨てる
         stopAutoAdvance()
         helpOverlayTimer?.invalidate()
         hudNoteTimer?.invalidate()

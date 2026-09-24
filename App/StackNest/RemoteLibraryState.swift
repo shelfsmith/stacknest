@@ -2123,7 +2123,8 @@ final class RemoteLibraryState {
             }
             // G51: 巻送り（画像ビューアと同じ解決 `resolveRemoteVolume` の `book` だけ使う）。
             controller.resolveSibling = { [weak self] cur, dir in
-                await self?.resolveRemoteVolume(after: cur.id, direction: dir == .next ? "next" : "prev")?.book
+                let row = await self?.resolveRemoteVolume(after: cur.id, direction: dir == .next ? "next" : "prev")?.book
+                return row.map { .reopen($0) } ?? .noSibling
             }
             controller.openSibling = { [weak self] row in
                 Task { await self?.openBookByID(row.id, resumeDirect: true) }
