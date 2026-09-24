@@ -197,6 +197,42 @@ struct EPUBReaderWindowSwapTests {
         #expect(newBox.persisted.isEmpty)
     }
 
+    /// G54-S3cd 最終レビュー Minor #2: 2 回続けて差し替えても、保存先・onBookSwapped の順序・
+    /// 古い reader それぞれの後始末が正しく積み重なることを確かめる。
+    @Test func twoBackToBackSwapsLandOnTheThirdBook() async {
+        let (c, one, oneBox, _) = make()
+        one.locator = loc(3, 0.5)
+        let (secondPrepared, two, twoBox) = prepared(id: 2, title: "二巻")
+        let (thirdPrepared, three, threeBox) = prepared(id: 3, title: "三巻")
+        var swapped: [Int] = []
+        c.onBookSwapped = { swapped.append($0.id) }
+        var call = 0
+        c.resolveSibling = { _, _ in
+            call += 1
+            return .swapIn(call == 1 ? secondPrepared : thirdPrepared)
+        }
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 2 }
+        two.locator = loc(5, 0.2)
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 3 }
+        #expect(c.book.id == 3)
+        #expect(swapped == [2, 3])
+        // 1 冊目・2 冊目の reader はそれぞれちょうど 1 回だけ tearDown される。
+        #expect(one.calls.filter { $0 == "tearDown" }.count == 1)
+        #expect(two.calls.filter { $0 == "tearDown" }.count == 1)
+        #expect(!three.calls.contains("tearDown"))
+        // 保存先は常に「差し替え直前の本」だけ（1 冊目→2 冊目の差し替えで 1 冊目を 1 回、
+        // 2 冊目→3 冊目の差し替えで 2 冊目を 1 回。3 冊目はまだ保存していない）。
+        #expect(oneBox.persisted.map(\.spine) == [3])
+        #expect(twoBox.persisted.map(\.spine) == [5])
+        #expect(threeBox.persisted.isEmpty)
+        // 3 冊目の保存先は、窓を閉じたときの flush で確かめる（他のテストと同じ手筋）。
+        three.onLocatorChange?(loc(2, 0.75))
+        c.window?.close()
+        #expect(threeBox.persisted.map(\.spine) == [2])
+    }
+
     @Test func closingWhileResolvingDiscardsTheResult() async {
         let (c, _, _, _) = make()
         let (next, new, newBox) = prepared()

@@ -24,6 +24,7 @@ struct ViewerVolumeOpenInEPUBReaderTests {
     }
 
     final class Box { var persisted: [Int] = []; var opened: [Int] = [] }
+    final class Gate { var open = false }
 
     private func make(next: VolumeLoad?) async -> (ViewerWindowController, Box) {
         let box = Box()
@@ -71,5 +72,32 @@ struct ViewerVolumeOpenInEPUBReaderTests {
         c.perform(.nextVolume)
         await waitUntil { c.lastHUDNote != nil }
         #expect(c.lastHUDNote == "次の巻なし")
+    }
+
+    /// G54-S3cd 最終レビュー Important #1: 解決中（await resolve）にユーザーが窓を閉じたら、
+    /// 遅れて届いた結果は捨てる。`EPUBReaderWindowSwapTests.closingWhileResolvingDiscardsTheResult` に倣う。
+    @Test func closingWhileResolvingDiscardsTheResult() async {
+        let box = Box()
+        let gate = Gate()
+        let c = ViewerWindowController(
+            content: SolidPNGContent(count: 3), book: .g51Fixture(id: 1, title: "t"), pageCount: 3,
+            options: ViewerOptions(pageDirection: .leftToRight, endOfBookBehavior: .stop),
+            initialState: ResolvedViewerState(spreadEnabled: false, coverOffset: false, lastPage: 0, overrides: [:]),
+            loadNextVolume: { _ in
+                while !gate.open { try? await Task.sleep(for: .milliseconds(5)) }
+                return .openInEPUBReader(.g51Fixture(id: 2, title: "t2"))
+            },
+            loadPrevVolume: { _ in nil },
+            persistState: { b, _, _, _, _ in box.persisted.append(b.id) },
+            persistPageOverride: { _, _, _ in },
+            suppressResumeDialog: true)
+        await waitUntil { !c.hasPendingDisplay }
+        c.onOpenInEPUBReader = { box.opened.append($0.id) }
+        c.perform(.nextVolume)
+        c.window?.close()
+        gate.open = true
+        // 結果が届いてもなお opened が空のままであることを、十分な時間待って確かめる。
+        try? await Task.sleep(for: .milliseconds(200))
+        #expect(box.opened.isEmpty)
     }
 }

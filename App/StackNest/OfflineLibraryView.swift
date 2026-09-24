@@ -359,12 +359,7 @@ struct OfflineLibraryView: View {
         }
         // G54-S3c（spec §4.2）: 開き直すときも読みかけなら訊く。`row.id` は `DownloadedBook.bookID`
         // （`offlineBookRow` 参照）。同じ id が別のサーバにもありうるので、サーバとライブラリも合わせて引く。
-        controller.openSibling = { row in
-            if let downloaded = store.all().first(where: {
-                $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) {
-                self.openOffline(downloaded)
-            }
-        }
+        controller.openSibling = { row in self.reopenDownloadedSibling(row, serverID: serverID, libraryUUID: libraryUUID) }
         controller.onBookSwapped = { [weak controller] newBook in
             guard let controller else { return }
             LastReadTracker.shared.record(.offline(bookID: newBook.id, title: newBook.title))
@@ -376,6 +371,15 @@ struct OfflineLibraryView: View {
         controller.onClose = { [weak controller] in
             guard let controller else { return }
             ViewerWindowRegistry.shared.unregister(controller: controller)
+        }
+    }
+
+    /// G54-S3cd 最終レビュー Minor: EPUB の窓の `openSibling` と画像ビューアの `onOpenInEPUBReader` は
+    /// どちらも「DL 済みの一覧から一致する本を探して openOffline で開き直す」だけの同じ中身なので、ここへ集約する。
+    private func reopenDownloadedSibling(_ row: BookRow, serverID: UUID, libraryUUID: String) {
+        if let downloaded = store.all().first(where: {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) {
+            openOffline(downloaded)
         }
     }
 
@@ -506,12 +510,7 @@ struct OfflineLibraryView: View {
                 self.reload()
             }
             // G54-S3c: 次の巻がテキスト EPUB なら、通常の経路で EPUB の窓を開く（読みかけなら訊く）。
-            controller.onOpenInEPUBReader = { row in
-                if let downloaded = store.all().first(where: {
-                    $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) {
-                    self.openOffline(downloaded)
-                }
-            }
+            controller.onOpenInEPUBReader = { row in self.reopenDownloadedSibling(row, serverID: serverID, libraryUUID: libraryUUID) }
             // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
             // （serverID/libraryUUID はシリーズ内で不変・.remote へ統一済み＝C3）。
             // G26 fix round 2: pageCount 引数はローカル DB を持たないオフライン/リモート経路では使わない

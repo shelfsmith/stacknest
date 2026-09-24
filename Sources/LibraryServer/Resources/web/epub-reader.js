@@ -181,6 +181,7 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         });
         // G54-S3d: 章の文書の中のクリック（iframe の中なので上の view の click には届かない）。
         view.addEventListener("load", (e) => {
+            if (torn) return;
             const doc = e.detail?.doc;
             doc?.addEventListener("click", (ev) => {
                 if (torn) return;

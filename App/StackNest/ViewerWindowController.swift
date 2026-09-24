@@ -53,6 +53,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private(set) var lastHUDNote: String?
     /// G54-S3c: 閉じる前に保存を済ませたとき、`windowWillClose` で送り直さない。
     private var skipsFlushOnClose = false
+    /// G54-S3cd 最終レビュー Important #1: 巻送りの解決中（await resolve）に窓が閉じられたら、
+    /// 遅れて届いた結果（`.swap` も `.openInEPUBReader` も）は捨てる（spec §4.1 と同じ方針。
+    /// `EPUBReaderWindowController.isClosed` 参照）。
+    private var isClosed = false
 
     // Per-book spread state
     private var overrides: [Int: PageLayoutOverride] = [:]
@@ -1178,7 +1182,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         let cur = book
         Task { [weak self] in
             guard let self else { return }
-            guard let load = await resolve(cur) else {
+            let load = await resolve(cur)
+            // G54-S3cd 最終レビュー Important #1: 解決中にユーザーが窓を閉じていたら、
+            // 届いた結果（隣巻なし・.swap・.openInEPUBReader のいずれも）は捨てる。
+            guard !self.isClosed else {
+                self.isSwapping = false
+                return
+            }
+            guard let load else {
                 self.isSwapping = false
                 self.hudNote(noVolumeNote)
                 self.stopAutoAdvance()    // 自動進行中なら停止（手動時は既停止で無害）
@@ -1399,6 +1410,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        isClosed = true   // G54-S3cd: 以後に届いた巻送りの結果は捨てる
         // 閉じる前にデバウンス待ちの読書位置を確定書き込みする。
         // G54-S3c: EPUB の窓へ渡すときは loadVolume が済ませているので送り直さない。
         if !skipsFlushOnClose { flushPersistNow() }

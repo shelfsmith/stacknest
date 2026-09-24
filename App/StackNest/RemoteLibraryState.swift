@@ -2061,9 +2061,7 @@ final class RemoteLibraryState {
                 self.books = self.books.markingRead(bookID: newBook.id, at: Date())
             }
             // G54-S3c: 次の巻がテキスト EPUB なら、通常の経路で EPUB の窓を開く（読みかけなら訊く）。
-            controller.onOpenInEPUBReader = { [weak self] row in
-                Task { await self?.openBookByID(row.id, resumeDirect: false) }
-            }
+            controller.onOpenInEPUBReader = { [weak self] row in self?.reopenSiblingThroughTheOwner(row) }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.onSetBookPageDirection = { [weak self] id, dir in
                 Task { await self?.setRemoteDirection(bookID: id, direction: dir) }
@@ -2154,9 +2152,7 @@ final class RemoteLibraryState {
             await self?.resolveRemoteEPUBSibling(after: cur.id, direction: dir) ?? .noSibling
         }
         // G54-S3c（spec §4.2）: 巻送りで開き直すときも、読みかけなら訊く。
-        controller.openSibling = { [weak self] row in
-            Task { await self?.openBookByID(row.id, resumeDirect: false) }
-        }
+        controller.openSibling = { [weak self] row in self?.reopenSiblingThroughTheOwner(row) }
         controller.onBookSwapped = { [weak self, weak controller] newBook in
             guard let self, let controller else { return }
             ViewerWindowRegistry.shared.reidentify(
@@ -2290,6 +2286,12 @@ final class RemoteLibraryState {
             series: dto.series,
             volume: dto.volume
         )
+    }
+
+    /// G54-S3cd 最終レビュー Minor: 画像ビューアの `onOpenInEPUBReader` と EPUB の窓の `openSibling` は
+    /// どちらも「次の巻を所有者の通常の経路（openBookByID）で開き直す」だけの同じ中身なので、ここへ集約する。
+    private func reopenSiblingThroughTheOwner(_ row: BookRow) {
+        Task { await openBookByID(row.id, resumeDirect: false) }
     }
 
     /// 隣接巻をサーバから解決し NextVolume を組む。該当なし/失敗は nil。
