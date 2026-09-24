@@ -2070,15 +2070,39 @@ final class RemoteLibraryState {
 
     /// G48-3: リモート書庫のテキスト EPUB。本体を /file から取ってキャッシュし、ローカルと同じ Washi の窓で開く。
     /// 位置はサーバが正（初期値は manifest.epubLocator、書き戻しは POST /epub-progress）。
-    @MainActor
     /// `version` は manifest.etag（キャッシュの失効に使う）。`localFile` は DL 済みの本体（あればダウンロードしない）。
+    /// G54-S3c: reader の用意（`prepareRemoteEPUBReader`）と窓の組み立てを分け、前者を巻送りでも使う。
+    @MainActor
     private func openRemoteEPUBReader(book: BookListItemDTO, identity: ViewerIdentity, initial: EPUBLocatorDTO?,
                                       version: String? = nil, localFile: URL? = nil, resumeDirect: Bool = false) async {
-        guard let renderer = EPUBAdapter.renderer else {
+        do {
+            let prepared = try await prepareRemoteEPUBReader(book: book, initial: initial, version: version, localFile: localFile)
+            let controller = EPUBReaderWindowController(prepared: prepared, suppressResumeDialog: resumeDirect)
+            wireRemoteEPUBWindow(controller)
+            ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
+            controller.present()
+        } catch RemoteEPUBPrepareError.noRenderer {
             errorText = "EPUB リーダーが使えません"
             ViewerWindowRegistry.shared.cancelOpen(identity)
-            return
+        } catch RemoteEPUBPrepareError.downloadFailed {
+            errorText = "本を開けませんでした（EPUB の取得に失敗）"
+            ViewerWindowRegistry.shared.cancelOpen(identity)
+        } catch {
+            Self.epubLog.warning("openRemoteEPUBReader: makeReaderView failed bookID=\(book.id, privacy: .public)")
+            errorText = "本を開けませんでした"
+            ViewerWindowRegistry.shared.cancelOpen(identity)
         }
+    }
+
+    /// G54-S3c: リモートのテキスト EPUB を用意できなかった理由（利用者に見せる文言を分けるため）。
+    private enum RemoteEPUBPrepareError: Error { case noRenderer, downloadFailed }
+
+    /// G54-S3c: リモートのテキスト EPUB の reader を用意する（窓には載せない）。開く経路と巻送りの両方で使う。
+    /// 巻送りでは、ダウンロードの間も呼び出し元の窓は今の本を表示している。
+    private func prepareRemoteEPUBReader(book: BookListItemDTO, initial: EPUBLocatorDTO?,
+                                         version: String?, localFile: URL?)
+        async throws -> EPUBReaderWindowController.PreparedBook {
+        guard let renderer = EPUBAdapter.renderer else { throw RemoteEPUBPrepareError.noRenderer }
         let cache = RemoteEPUBCache()
         var fileURL = cache.fileURL(serverID: serverID, libraryUUID: libraryUUID, bookID: book.id, version: version)
         if let localFile, FileManager.default.fileExists(atPath: localFile.path) {
@@ -2088,61 +2112,96 @@ final class RemoteLibraryState {
                 let tmp = try await client.bookFile(libraryUUID: libraryUUID, bookID: book.id, libraryToken: libraryToken, onProgress: nil)
                 fileURL = try cache.store(temporaryFile: tmp, serverID: serverID, libraryUUID: libraryUUID, bookID: book.id, version: version)
             } catch {
-                Self.epubLog.warning("openRemoteEPUBReader: download failed bookID=\(book.id, privacy: .public)")
-                errorText = "本を開けませんでした（EPUB の取得に失敗）"
-                ViewerWindowRegistry.shared.cancelOpen(identity)
-                return
+                Self.epubLog.warning("prepareRemoteEPUBReader: download failed bookID=\(book.id, privacy: .public)")
+                throw RemoteEPUBPrepareError.downloadFailed
             }
         }
         let saved = initial.map { EPUBLocatorValue(spine: $0.spine, progress: $0.progress, cfi: $0.cfi, engine: $0.engine) }
-        do {
-            let reader = try await renderer.makeReaderView(url: fileURL, at: saved)
-            let row: BookRow
-            if let d = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: book.id, libraryToken: libraryToken) {
-                row = Self.mapDetail(d)
-            } else {
-                row = Self.makeBookRow(from: book)
-            }
-            // actor 境界を越える persist クロージャが MainActor 隔離の self を捕捉しないよう、
-            // 必要な値（Sendable）をローカルにコピーしてから渡す（coverImage(_:) と同じ方針）。
-            let client = self.client
-            let libraryUUID = self.libraryUUID
-            let libraryToken = self.libraryToken
-            let bookID = book.id
-            let controller = EPUBReaderWindowController(
-                book: row, reader: reader, resumeLocator: saved,
-                suppressResumeDialog: resumeDirect) { loc in
+        let reader = try await renderer.makeReaderView(url: fileURL, at: saved)
+        let row: BookRow
+        if let d = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: book.id, libraryToken: libraryToken) {
+            row = Self.mapDetail(d)
+        } else {
+            row = Self.makeBookRow(from: book)
+        }
+        // actor 境界を越える persist クロージャが MainActor 隔離の self を捕捉しないよう、
+        // 必要な値（Sendable）をローカルにコピーしてから渡す（coverImage(_:) と同じ方針）。
+        let client = self.client
+        let libraryUUID = self.libraryUUID
+        let libraryToken = self.libraryToken
+        let bookID = book.id
+        return EPUBReaderWindowController.PreparedBook(
+            book: row, reader: reader, resumeLocator: saved,
+            persist: { loc in
                 let dto = EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine)
                 Task {
                     do {
                         try await client.postEPUBProgress(libraryUUID: libraryUUID, bookID: bookID, locator: dto, libraryToken: libraryToken)
                     } catch {
-                        Self.epubLog.debug("openRemoteEPUBReader: postEPUBProgress failed bookID=\(bookID, privacy: .public)")
+                        Self.epubLog.debug("prepareRemoteEPUBReader: postEPUBProgress failed bookID=\(bookID, privacy: .public)")
                     }
                 }
-            }
-            // G51: 巻送り（画像ビューアと同じ解決 `resolveRemoteVolume` の `book` だけ使う）。
-            controller.resolveSibling = { [weak self] cur, dir in
-                let row = await self?.resolveRemoteVolume(after: cur.id, direction: dir == .next ? "next" : "prev")?.book
-                return row.map { .reopen($0) } ?? .noSibling
-            }
-            controller.openSibling = { [weak self] row in
-                Task { await self?.openBookByID(row.id, resumeDirect: true) }
-            }
-            reader.fontScale = ViewerSettings.shared.epubFontScale
-            reader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
-            // G54-S2b: 配色は開いた時点の設定を一度だけ渡す（開いている窓には反映しない）。
-            reader.setTheme(ViewerSettings.shared.epubTheme)
-            controller.onClose = { [weak controller] in
-                guard let controller else { return }
-                ViewerWindowRegistry.shared.unregister(controller: controller)
-            }
-            ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
-            controller.present()
+            })
+    }
+
+    /// G54-S3c: リモートの EPUB の窓の巻送り・閉じる処理を配線する（文字倍率と配色は窓が当てる）。
+    private func wireRemoteEPUBWindow(_ controller: EPUBReaderWindowController) {
+        controller.resolveSibling = { [weak self] cur, dir in
+            await self?.resolveRemoteEPUBSibling(after: cur.id, direction: dir) ?? .noSibling
+        }
+        // G54-S3c（spec §4.2）: 巻送りで開き直すときも、読みかけなら訊く。
+        controller.openSibling = { [weak self] row in
+            Task { await self?.openBookByID(row.id, resumeDirect: false) }
+        }
+        controller.onBookSwapped = { [weak self, weak controller] newBook in
+            guard let self, let controller else { return }
+            ViewerWindowRegistry.shared.reidentify(
+                to: .remote(serverID: self.serverID.uuidString, libraryUUID: self.libraryUUID, bookID: newBook.id),
+                controller: controller)
+            // G35b と同じ: 巻送りで開いた瞬間に一覧を既読化する（サーバへの通知は位置の保存が担う）。
+            self.books = self.books.markingRead(bookID: newBook.id, at: Date())
+            LastReadTracker.shared.record(.remote(
+                serverID: self.serverID, serverURL: self.client.baseURL.absoluteString,
+                libraryUUID: self.libraryUUID, libraryName: self.libraryName,
+                bookID: newBook.id, title: newBook.title, locked: self.locked))
+        }
+        controller.onClose = { [weak controller] in
+            guard let controller else { return }
+            ViewerWindowRegistry.shared.unregister(controller: controller)
+        }
+    }
+
+    /// G54-S3c: リモートの EPUB の窓の次（前）の巻。テキスト EPUB なら reader まで用意して返す。
+    /// 判定は DL 済みならそのファイル、無ければ manifest（`RemoteEPUBRouting`）。
+    private func resolveRemoteEPUBSibling(after bookID: Int, direction: EPUBReaderWindowController.SiblingDirection)
+        async -> EPUBReaderWindowController.SiblingResolution {
+        let dto: BookListItemDTO?
+        do {
+            dto = try await client.adjacentVolume(
+                libraryUUID: libraryUUID, bookID: bookID,
+                direction: direction == .next ? "next" : "prev", libraryToken: libraryToken)
         } catch {
-            Self.epubLog.warning("openRemoteEPUBReader: makeReaderView failed bookID=\(book.id, privacy: .public)")
-            errorText = "本を開けませんでした"
-            ViewerWindowRegistry.shared.cancelOpen(identity)
+            return .noSibling
+        }
+        guard let dto else { return .noSibling }
+        let downloaded = offlineStore.all().first {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
+        }
+        let localFile = downloaded.map { offlineStore.fileURL(for: $0) }
+        // 位置の初期値と（未 DL なら）判定の両方に manifest を使う（初回オープンと同じ）。
+        let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken)
+        let kind: SiblingVolumeKind
+        if let localFile, FileManager.default.fileExists(atPath: localFile.path) {
+            kind = await SiblingVolumeKind.probeLocal(path: localFile.path, reader: EPUBAdapter.reader).kind
+        } else {
+            kind = SiblingVolumeKind.remote(filename: dto.filename, manifestFormat: m?.format)
+        }
+        guard kind == .textEPUB else { return .reopen(Self.makeBookRow(from: dto)) }
+        do {
+            return .swapIn(try await prepareRemoteEPUBReader(book: dto, initial: m?.epubLocator, version: m?.etag, localFile: localFile))
+        } catch {
+            Self.epubLog.warning("resolveRemoteEPUBSibling: prepare failed bookID=\(dto.id, privacy: .public)")
+            return .failed
         }
     }
 

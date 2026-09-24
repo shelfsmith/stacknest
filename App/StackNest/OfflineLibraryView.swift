@@ -307,46 +307,16 @@ struct OfflineLibraryView: View {
         // G48-3: ダウンロード済みのテキスト EPUB はローカルと同じ Washi の窓。画像本は従来の画像経路（G48-2b）。
         // G51 offline-extension-migration: 起動時の移行（OfflineStore.migrateFileExtensions）で
         // ファイル実体の拡張子は本来のものへ揃っているため、ファイル名の拡張子を正として判定してよい。
-        if fileURL.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader, let renderer = EPUBAdapter.renderer {
+        if fileURL.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader, EPUBAdapter.renderer != nil {
             Task { @MainActor in
                 if (try? await reader.openImageBook(url: fileURL)) != nil {
                     self.openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage, resumeDirect: resumeDirect)
                     return
                 }
-                let saved = (self.store.all().first { $0.id == book.id }?.epubLocator)
-                    .map { EPUBLocatorValue(spine: $0.spine, progress: $0.progress, cfi: $0.cfi, engine: $0.engine) }
                 do {
-                    let epubReader = try await renderer.makeReaderView(url: fileURL, at: saved)
-                    let store = self.store, sid = book.serverID, lib = book.libraryUUID, id = book.bookID
-                    let controller = EPUBReaderWindowController(
-                        book: row, reader: epubReader, resumeLocator: saved,
-                        suppressResumeDialog: resumeDirect) { loc in
-                        store.updateEPUBLocator(serverID: sid, libraryUUID: lib, bookID: id,
-                                                locator: EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine))
-                    }
-                    // G51: 巻送り（画像ビューアと同じ `resolveOfflineVolume` の `book` だけ使う）。
-                    // この関数では画像ビューア注入（openOfflinePages）の `serverID`/`libraryUUID` に
-                    // 相当する変数が `sid`/`lib` という名前で既に定義されているのでそれを使う。
-                    controller.resolveSibling = { [store] cur, dir in
-                        let row = Self.resolveOfflineVolume(store: store, serverID: sid, libraryUUID: lib,
-                                                            current: cur, direction: dir == .next ? .next : .prev)?.book
-                        return row.map { .reopen($0) } ?? .noSibling
-                    }
-                    controller.openSibling = { [store] row in
-                        // `row.id` はこの関数で `DownloadedBook.bookID`（= detail.id）から作っている
-                        // （`offlineBookRow` 参照）ので同じフィールドで引き当てる。
-                        if let downloaded = store.all().first(where: { $0.bookID == row.id }) {
-                            openOffline(downloaded, resumeDirect: true)
-                        }
-                    }
-                    epubReader.fontScale = ViewerSettings.shared.epubFontScale
-                    epubReader.onFontScaleChange = { ViewerSettings.shared.epubFontScale = $0 }
-                    // G54-S2b: 配色は開いた時点の設定を一度だけ渡す（開いている窓には反映しない）。
-                    epubReader.setTheme(ViewerSettings.shared.epubTheme)
-                    controller.onClose = { [weak controller] in
-                        guard let controller else { return }
-                        ViewerWindowRegistry.shared.unregister(controller: controller)
-                    }
+                    let prepared = try await Self.prepareOfflineEPUBReader(store: self.store, book: book)
+                    let controller = EPUBReaderWindowController(prepared: prepared, suppressResumeDialog: resumeDirect)
+                    self.wireOfflineEPUBWindow(controller, serverID: book.serverID, libraryUUID: book.libraryUUID)
                     ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
                     controller.present()
                 } catch {
@@ -360,6 +330,73 @@ struct OfflineLibraryView: View {
         }
 
         openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage, resumeDirect: resumeDirect)
+    }
+
+    /// G54-S3c: オフラインのテキスト EPUB の reader を用意する（窓には載せない）。開く経路と巻送りの両方で使う。
+    private static func prepareOfflineEPUBReader(store: OfflineStore, book: DownloadedBook)
+        async throws -> EPUBReaderWindowController.PreparedBook {
+        guard let renderer = EPUBAdapter.renderer else { throw EPUBAdapterError.cannotOpen("EPUB renderer unavailable") }
+        let fileURL = store.fileURL(for: book)
+        let row = offlineBookRow(book, fileURL: fileURL)
+        let saved = (store.all().first { $0.id == book.id }?.epubLocator)
+            .map { EPUBLocatorValue(spine: $0.spine, progress: $0.progress, cfi: $0.cfi, engine: $0.engine) }
+        let reader = try await renderer.makeReaderView(url: fileURL, at: saved)
+        let sid = book.serverID, lib = book.libraryUUID, id = book.bookID
+        return EPUBReaderWindowController.PreparedBook(
+            book: row, reader: reader, resumeLocator: saved,
+            persist: { loc in
+                store.updateEPUBLocator(serverID: sid, libraryUUID: lib, bookID: id,
+                                        locator: EPUBLocatorDTO(spine: loc.spine, progress: loc.progress, cfi: loc.cfi, engine: loc.engine))
+            })
+    }
+
+    /// G54-S3c: オフラインの EPUB の窓の巻送り・閉じる処理を配線する（文字倍率と配色は窓が当てる）。
+    private func wireOfflineEPUBWindow(_ controller: EPUBReaderWindowController, serverID: UUID, libraryUUID: String) {
+        let store = self.store
+        controller.resolveSibling = { cur, dir in
+            await Self.resolveOfflineEPUBSibling(store: store, serverID: serverID, libraryUUID: libraryUUID,
+                                                 current: cur, direction: dir == .next ? .next : .prev)
+        }
+        // G54-S3c（spec §4.2）: 開き直すときも読みかけなら訊く。`row.id` は `DownloadedBook.bookID`
+        // （`offlineBookRow` 参照）。同じ id が別のサーバにもありうるので、サーバとライブラリも合わせて引く。
+        controller.openSibling = { row in
+            if let downloaded = store.all().first(where: {
+                $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) {
+                self.openOffline(downloaded)
+            }
+        }
+        controller.onBookSwapped = { [weak controller] newBook in
+            guard let controller else { return }
+            LastReadTracker.shared.record(.offline(bookID: newBook.id, title: newBook.title))
+            // G16 C3: オフラインとリモートは同じ本なので identity は `.remote` に揃えている。
+            ViewerWindowRegistry.shared.reidentify(
+                to: .remote(serverID: serverID.uuidString, libraryUUID: libraryUUID, bookID: newBook.id),
+                controller: controller)
+        }
+        controller.onClose = { [weak controller] in
+            guard let controller else { return }
+            ViewerWindowRegistry.shared.unregister(controller: controller)
+        }
+    }
+
+    /// G54-S3c: オフラインの EPUB の窓の次（前）の巻（DL 済みの隣の巻だけ）。テキスト EPUB なら reader まで用意する。
+    private static func resolveOfflineEPUBSibling(store: OfflineStore, serverID: UUID, libraryUUID: String,
+                                                  current: BookRow, direction: OfflineStore.AdjacentDirection)
+        async -> EPUBReaderWindowController.SiblingResolution {
+        guard let series = current.series, let volume = current.volume,
+              let sib = store.adjacentDownloaded(serverID: serverID, libraryUUID: libraryUUID,
+                                                 series: series, volume: volume, direction: direction)
+        else { return .noSibling }
+        let url = store.fileURL(for: sib)
+        let row = offlineBookRow(sib, fileURL: url)
+        let kind = await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader).kind
+        guard kind == .textEPUB, EPUBAdapter.renderer != nil else { return .reopen(row) }
+        do {
+            return .swapIn(try await prepareOfflineEPUBReader(store: store, book: sib))
+        } catch {
+            logger.warning("resolveOfflineEPUBSibling: makeReaderView failed for bookID=\(sib.bookID, privacy: .public): \(String(describing: error), privacy: .public)")
+            return .failed
+        }
     }
 
     /// G48-3: 従来の内蔵ビューア（画像本・PDF 等）で開く経路。openOffline から切り出し（挙動は変更なし）。
