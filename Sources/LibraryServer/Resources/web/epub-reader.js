@@ -25,13 +25,13 @@ function styles(scale) {
            付けた sn-image-only クラス（このファイルの load リスナーが付け外しする）が居るときだけ効く。
            flex は writing-mode に追従するので main/cross 軸を明示しなくても縦書き（vertical-rl）の
            本でも同じ書き方で中央寄せになる。
-           smoke-fix round 2 (2026-09-24): 最初の修正は `body > *`（1 段だけ）を対象にしていたが、
-           実機で `<section class="p-cover"><div class="main"><svg>...</svg></div></section>`
+           smoke-fix round 2 (2026-09-24): 最初の修正は 「body > *」（1 段だけ）を対象にしていたが、
+           実機で 「<section class="p-cover"><div class="main"><svg>...</svg></div></section>」
            のように 2 段（以上）包む本があり、伸びるのは section だけで中の div がまた
            shrink-to-fit に戻り、svg の width:100% が再び循環参照になって余白が戻った。
            決め打ちの深さをやめ、load リスナーが leaf（img/svg）から body までの**祖先すべて**に
-           JS で `sn-image-chain` クラスを付け（epub-section.js の imageChainAncestors、
-           book の CSS 側の詳細度に依存しない）、body と `.sn-image-chain` に**同一のルール**
+           JS で 「sn-image-chain」 クラスを付け（epub-section.js の imageChainAncestors、
+           book の CSS 側の詳細度に依存しない）、body と 「.sn-image-chain」 に**同一のルール**
            （100%×100%・flex column・stretch・center）を当てる。各段が「親から 100% の確定box を
            もらって同じ box を子に渡す」形になるので、何段包まれていても再帰的に効く（Playwright
            ヘッドレス計測: 2 段 section>div>svg・3 段包み・縦書きの 2 段包みで確認。書籍側 CSS が
