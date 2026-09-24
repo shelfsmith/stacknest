@@ -20,30 +20,43 @@ function styles(scale) {
             html { color-scheme: dark; background: #1b1b1b !important; color: #e6e6e6 !important; }
             a { color: #8ab4f8; }
         }
-        /* G54-S3d 修正: 画像 1 枚だけの章は ZIP ビューアと同じくレターボックス表示にする
+        /* G54-S3d/smoke-fix 修正: 画像 1 枚だけの章は ZIP ビューアと同じくレターボックス表示にする
            （画像を中央寄せし、上下（縦書きなら左右）は .epub-reader の背景色の帯）。html に
            付けた sn-image-only クラス（このファイルの load リスナーが付け外しする）が居るときだけ効く。
            flex は writing-mode に追従するので main/cross 軸を明示しなくても縦書き（vertical-rl）の
-           本でも同じ書き方で中央寄せになる（要実機確認 — 下記 JS 側コメント参照）。 */
+           本でも同じ書き方で中央寄せになる。
+           smoke-fix (2026-09-24): align-items:center（行方向）だと、body 直下の子（wrapper）は
+           row flex コンテナの主軸方向で shrink-to-fit（幅が不定）になる。多くのライトノベル系
+           EPUB は表紙を <div><svg width="100%" height="100%" viewBox="..."><image .../></svg></div>
+           のように 1 段包んで置くため、不定幅の中では svg の width:100% が循環参照になり
+           デフォルトの内在サイズ（≈300×150）にフォールバックして余白が戻っていた
+           （Playwright ヘッドレス計測で確認: old 402×740 期待に対し実測 300×385.7）。
+           flex-direction:column + align-items:stretch にすると、body の主軸が縦（進行方向）に
+           なり交差軸（幅、縦書きなら高さ）の子は stretch で確定サイズを持つため、循環参照が
+           解消される（同計測で 402×522.9 に回復）。 */
         html.sn-image-only body {
             box-sizing: border-box !important;
             width: 100% !important;
             height: 100% !important;
             margin: 0 !important;
             display: flex !important;
-            align-items: center !important;
+            flex-direction: column !important;
             justify-content: center !important;
+            align-items: stretch !important;
         }
+        /* body 直下の子（wrapper）は stretch でページいっぱいの確定サイズの箱になるが、中身
+           （img/svg）がその箱より小さい場合（例: ページと表紙のアスペクト比が違う本、
+           width/height 属性を持たない <img>）、箱の中で中央寄せする仕組みが無いと画像が
+           箱の開始端（上端、縦書きなら右端）に張り付く。wrapper 自身も centering flex に
+           することで、箱の中でも常に中央に来るようにする（計測で確認: これが無いと縦書きの
+           <div><img>（属性なし）が上端張り付きになる退行が新たに出た）。 */
         html.sn-image-only body > * {
             max-width: 100% !important;
             max-height: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
         }
-        /* body 直下の子（wrapper）については、body が flex コンテナで高さが確定しているため
-           max-height:% が正しく解決される。ただし img/svg が直下ではなく
-           <div><img></div> / <p><img></p> で 1 段包まれている本では、wrapper 自身の高さが
-           auto（img の内在サイズ依存）なので img の max-height:% はここでは解決されず
-           （% は「祖先が確定した高さを持つ」場合のみ有効）、img が箱をはみ出しうる
-           ＝要実機確認。ここでは直下でも入れ子でも効くだけ効かせる保険として付ける。 */
         html.sn-image-only body img,
         html.sn-image-only body svg {
             max-width: 100% !important;
