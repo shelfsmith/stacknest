@@ -122,6 +122,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         // G51: キーは窓が握る。Washi 側は native monitor で受けた NSEvent をここへ渡すだけ。
         reader.onKeyEvent = { [weak self] event in self?.handleKey(event) ?? false }
         reader.onReachBookEdge = { [weak self] forward in self?.reachedBookEdge(forward: forward) }
+        // G54-S3c: 文字倍率と配色は窓がまとめて当てる（差し替えでも同じ処理を使う）。
+        applyTextSettings(to: reader)
         bindingsObserver = NotificationCenter.default.addObserver(
             forName: .viewerKeyBindingsChanged, object: nil, queue: .main
         ) { [weak self] _ in
@@ -388,6 +390,15 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     }
 
     // MARK: - G54-S3 進捗 HUD
+
+    /// G54-S3c: 文字倍率と配色を reader に当てる（以前は所有者 3 か所が同じことを書いていた）。
+    /// 復元の代入を先にし、変更ハンドラの設置を後にする（復元自体が保存を起こさないように・G48-2 smoke fix と同じ）。
+    /// 配色は当てた時点の設定を 1 回だけ渡す（開いている窓には反映しない・G54-S2b）。
+    private func applyTextSettings(to reader: any EPUBReaderViewing) {
+        reader.fontScale = settings.epubFontScale
+        reader.onFontScaleChange = { [weak self] scale in self?.settings.epubFontScale = scale }
+        reader.setTheme(settings.epubTheme)
+    }
 
     /// 演出とノンブルを reader に入れる（init と設定変更の通知から）。
     private func applyPresentationSettings() {

@@ -69,4 +69,10 @@ public protocol EPUBReaderViewing: AnyObject {
     var currentGlobalPageRange: ClosedRange<Int>? { get }
     /// 全体ページ数の計測が完了した、または無効になった（文字倍率・窓幅の変更など）ときに呼ばれる。
     var onPageCensusChange: (() -> Void)? { get set }
+
+    // MARK: G54-S3c — 窓から外す
+
+    /// 巻送りで窓から外すときに呼ぶ。コールバックを外し、本の資源（WebView など）と
+    /// キー入力の監視を解放する。以後この reader は使わない。複数回呼んでも安全であること。
+    func tearDown()
 }

@@ -22,6 +22,9 @@ final class FakeEPUBReader: EPUBReaderViewing {
     var isRightToLeft: Bool = false
     var currentGlobalPageRange: ClosedRange<Int>?
     var onPageCensusChange: (() -> Void)?
+    /// G54-S3c: 当てられた配色（窓が倍率と配色をまとめて当てるようになったため、`calls` とは分けて記録する。
+    /// `calls` に積むと、キー操作の順序を照合する既存テストが全部ずれる）。
+    var themes: [EPUBReaderThemeValue] = []
 
     /// 呼ばれた順に記録。テストは文字列で照合する。
     var calls: [String] = []
@@ -29,7 +32,8 @@ final class FakeEPUBReader: EPUBReaderViewing {
     func go(to locator: EPUBLocatorValue) { calls.append("go(spine:\(locator.spine),progress:\(locator.progress))") }
     func goForward() { calls.append("goForward") }
     func goBackward() { calls.append("goBackward") }
-    func setTheme(_ theme: EPUBReaderThemeValue) { calls.append("setTheme") }
+    func setTheme(_ theme: EPUBReaderThemeValue) { themes.append(theme) }
+    func tearDown() { calls.append("tearDown") }
     func goToBookStart() { calls.append("goToBookStart") }
     func goToBookEnd() { calls.append("goToBookEnd") }
     func pageLeft() { calls.append("pageLeft") }

@@ -163,6 +163,24 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     var view: NSView { hostView }
 
+    /// G54-S3c: 巻送りで窓から外すとき。コールバックと delegate を外し、`unload()` で WebView と
+    /// 本の参照を放す。容れ物を親から外すと Washi は `viewDidMoveToWindow(nil)` で
+    /// ネイティブキー監視（`forwardsKeyEventsNatively`）を外す — 残ると外した本がキーを横取りする。
+    func tearDown() {
+        onLocatorChange = nil
+        onFontScaleChange = nil
+        onKeyEvent = nil
+        onReachBookEdge = nil
+        onPageCensusChange = nil
+        // まだ窓に載っていない（load 前）なら、以後 load させない。
+        pendingLoad = nil
+        hasPerformedInitialLoad = true
+        hostView.host = nil
+        reader.delegate = nil
+        reader.unload()
+        hostView.removeFromSuperview()
+    }
+
     func go(to locator: EPUBLocatorValue) {
         let mapped = WashiLocatorMapping.toWashi(locator)
         guard hasPerformedInitialLoad else {

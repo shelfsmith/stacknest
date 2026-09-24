@@ -30,6 +30,20 @@ struct EPUBReaderWindowPresentationTests {
         #expect(r.showsFolio == false)
     }
 
+    /// G54-S3c: 文字倍率と配色は窓が当てる（以前は所有者 3 か所が同じことを書いていた）。
+    /// 倍率の変更は設定へ書き戻す。
+    @Test func initAppliesFontScaleAndThemeFromSettings() {
+        let s = freshSettings()
+        s.epubFontScale = 1.4
+        s.epubTheme = .dark
+        let (c, r) = make(settings: s)
+        #expect(r.fontScale == 1.4)
+        #expect(r.themes == [.dark])
+        r.onFontScaleChange?(1.7)
+        #expect(s.epubFontScale == 1.7)
+        withExtendedLifetime(c) {}
+    }
+
     @Test func settingsChangeReachesOpenWindow() {
         let s = freshSettings()
         let (c, r) = make(settings: s)
