@@ -5,7 +5,8 @@
 
 import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError, NetworkError } from "./api.js";
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
-import { isImageOnlySection, layoutChanges, shouldToggleBar, imageChainAncestors } from "./epub-section.js";
+import { isImageOnlySection, layoutChanges, shouldToggleBar, imageChainAncestors, svgAspectRatioTargets }
+    from "./epub-section.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
 const readScale = () => clampScale(localStorage.getItem(SCALE_KEY));
@@ -226,6 +227,11 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
             if (imageOnly) {
                 const leaf = doc.body.querySelector("img, svg");
                 for (const el of imageChainAncestors(leaf, doc.body)) el.classList.add("sn-image-chain");
+                // smoke-fix round 3: Calibre/Kindle の表紙 svg は preserveAspectRatio="none" の
+                // ことがあり、round 2 で外枠を確定サイズに広げたので、この none がそのまま画像を
+                // 引き伸ばすようになった（以前は svg 自体が縮んでいたため表に出なかった）。
+                // Mac 版 Washi の prepareImagePage と同じく、常に xMidYMid meet に揃える。
+                for (const el of svgAspectRatioTargets(leaf)) el.setAttribute("preserveAspectRatio", "xMidYMid meet");
             }
             for (const [name, value] of layoutChanges(imageSection, imageOnly)) {
                 if (value === null) view.renderer.removeAttribute(name);

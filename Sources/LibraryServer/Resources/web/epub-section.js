@@ -44,6 +44,20 @@ export function imageChainAncestors(leaf, body) {
     return chain;
 }
 
+/// 画像 1 枚だけの章で、leaf が svg のとき、preserveAspectRatio を揃えるべき要素（svg 自身と、
+/// その中の image 要素すべて）を返す。leaf が img（svg でない）なら空。DOM は変更しない純粋関数
+/// ——実際の setAttribute は呼び出し側（epub-reader.js の load リスナー）で行う。
+/// smoke-fix round 3: Calibre/Kindle 製の本は表紙 svg に preserveAspectRatio="none" を使うことが
+/// あり、round 2 で外枠（svg/img の祖先すべて）をページいっぱいの確定サイズへ広げたことで、この
+/// none がそのまま画像を縦横比無視で引き伸ばすようになった（以前は svg 自体が縮んでいたため
+/// 表面化しなかった）。Mac 版 Washi（ReaderScripts.swift の prepareImagePage、cooViewer-oxr.3）と
+/// 同じ対処として、値が none のときだけでなく**常に** xMidYMid meet に揃える（none 限定の判定に
+/// すると、別の歪め値や未指定＝既定の none 相当が来たときにまた漏れる。meet を明示しても副作用は無い）。
+export function svgAspectRatioTargets(leaf) {
+    if (!leaf || String(leaf.localName ?? "").toLowerCase() !== "svg") return [];
+    return [leaf, ...leaf.querySelectorAll("image")];
+}
+
 /// renderer へ当てる操作の列（[属性名, 値 or null]。null は removeAttribute＝既定値へ戻す）。
 /// 前の章と同じ種類なら空（属性を触らない＝余計な再描画を起こさない）。
 export function layoutChanges(wasImageOnly, isImageOnly) {

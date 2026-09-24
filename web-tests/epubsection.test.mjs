@@ -2,7 +2,7 @@
 // G54-S3d: テキスト EPUB の「画像 1 枚だけの章」の判定と、foliate の枠の切り替え（純関数）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isImageOnlySection, layoutChanges, IMAGE_SECTION_ATTRS, shouldToggleBar, imageChainAncestors }
+import { isImageOnlySection, layoutChanges, IMAGE_SECTION_ATTRS, shouldToggleBar, imageChainAncestors, svgAspectRatioTargets }
     from "../Sources/LibraryServer/Resources/web/epub-section.js";
 
 /// querySelectorAll の件数だけを返す最小の document。
@@ -102,4 +102,36 @@ test("imageChainAncestors: body に辿り着かない（親が途中で尽きる
     const leaf = { parentElement: { parentElement: null } };
     const unrelatedBody = { name: "body" };
     assert.deepEqual(imageChainAncestors(leaf, unrelatedBody), [leaf.parentElement]);
+});
+
+/// image 要素の querySelectorAll("image") だけに応答する最小の svg 要素。
+function fakeSvg(images = []) {
+    return { localName: "svg", querySelectorAll: (sel) => (sel === "image" ? images : []) };
+}
+
+test("svgAspectRatioTargets: image を含まない svg は svg 自身のみ", () => {
+    const svg = fakeSvg([]);
+    assert.deepEqual(svgAspectRatioTargets(svg), [svg]);
+});
+
+test("svgAspectRatioTargets: svg の中の image も含める（Calibre の <svg><image></svg> 形）", () => {
+    const image = { name: "image" };
+    const svg = fakeSvg([image]);
+    assert.deepEqual(svgAspectRatioTargets(svg), [svg, image]);
+});
+
+test("svgAspectRatioTargets: 複数 image があれば全部含める", () => {
+    const image1 = { name: "image1" };
+    const image2 = { name: "image2" };
+    const svg = fakeSvg([image1, image2]);
+    assert.deepEqual(svgAspectRatioTargets(svg), [svg, image1, image2]);
+});
+
+test("svgAspectRatioTargets: leaf が img（svg でない）なら空", () => {
+    assert.deepEqual(svgAspectRatioTargets({ localName: "img" }), []);
+});
+
+test("svgAspectRatioTargets: leaf が無ければ空（例外を投げない）", () => {
+    assert.deepEqual(svgAspectRatioTargets(null), []);
+    assert.deepEqual(svgAspectRatioTargets(undefined), []);
 });
