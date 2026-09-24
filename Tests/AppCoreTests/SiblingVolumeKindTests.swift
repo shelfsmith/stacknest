@@ -77,4 +77,39 @@ struct SiblingVolumeKindTests {
         let r = await SiblingVolumeKind.probeLocal(path: "/a/b.cbz", reader: StubReader(mode: .mustNotBeCalled))
         #expect(r.kind == .other)
     }
+
+    // MARK: G54-S3c fix round 1 — リモートの次の巻を差し替える／開き直す／今の本のままにする
+
+    @Test func remoteManifestFailureWithoutLocalFileKeepsTheCurrentBook() {
+        // 未ダウンロードで manifest が取れなければ、開き直しても openViewer が同じ manifest で失敗する。
+        #expect(SiblingVolumeKind.remoteDecision(localKind: nil, manifestFetched: false,
+                                                 filename: "b.epub", manifestFormat: nil) == .failed)
+        #expect(SiblingVolumeKind.remoteDecision(localKind: nil, manifestFetched: false,
+                                                 filename: "b.zip", manifestFormat: nil) == .failed)
+    }
+
+    @Test func remoteManifestFailureWithLocalFileUsesTheLocalCheck() {
+        #expect(SiblingVolumeKind.remoteDecision(localKind: .textEPUB, manifestFetched: false,
+                                                 filename: "b.epub", manifestFormat: nil) == .swap)
+        #expect(SiblingVolumeKind.remoteDecision(localKind: .other, manifestFetched: false,
+                                                 filename: "b.epub", manifestFormat: nil) == .reopen)   // 画像本 EPUB
+        #expect(SiblingVolumeKind.remoteDecision(localKind: .other, manifestFetched: false,
+                                                 filename: "b.zip", manifestFormat: nil) == .reopen)
+    }
+
+    @Test func remoteWithLocalFileTrustsTheLocalCheckOverTheManifest() {
+        #expect(SiblingVolumeKind.remoteDecision(localKind: .textEPUB, manifestFetched: true,
+                                                 filename: "b.epub", manifestFormat: "epub") == .swap)
+        #expect(SiblingVolumeKind.remoteDecision(localKind: .other, manifestFetched: true,
+                                                 filename: "b.epub", manifestFormat: "epub") == .reopen)
+    }
+
+    @Test func remoteManifestFetchedWithoutLocalFileUsesTheManifest() {
+        #expect(SiblingVolumeKind.remoteDecision(localKind: nil, manifestFetched: true,
+                                                 filename: "b.zip", manifestFormat: "zip") == .reopen)
+        #expect(SiblingVolumeKind.remoteDecision(localKind: nil, manifestFetched: true,
+                                                 filename: "b.epub", manifestFormat: "text") == .reopen)  // 画像本 EPUB
+        #expect(SiblingVolumeKind.remoteDecision(localKind: nil, manifestFetched: true,
+                                                 filename: "b.epub", manifestFormat: "epub") == .swap)
+    }
 }

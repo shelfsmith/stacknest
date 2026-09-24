@@ -2173,6 +2173,8 @@ final class RemoteLibraryState {
 
     /// G54-S3c: リモートの EPUB の窓の次（前）の巻。テキスト EPUB なら reader まで用意して返す。
     /// 判定は DL 済みならそのファイル、無ければ manifest（`RemoteEPUBRouting`）。
+    /// 未ダウンロードで manifest が取れなければ今の本のまま（`SiblingVolumeKind.remoteDecision`）。
+    /// トークン失効（`.libraryLocked`）は書庫側の既存の処理（施錠・パスワードを求める）へ送り、今の本のまま。
     private func resolveRemoteEPUBSibling(after bookID: Int, direction: EPUBReaderWindowController.SiblingDirection)
         async -> EPUBReaderWindowController.SiblingResolution {
         let dto: BookListItemDTO?
@@ -2180,6 +2182,12 @@ final class RemoteLibraryState {
             dto = try await client.adjacentVolume(
                 libraryUUID: libraryUUID, bookID: bookID,
                 direction: direction == .next ? "next" : "prev", libraryToken: libraryToken)
+        } catch let e as RemoteClientError {
+            if case .libraryLocked = e {
+                presentRemoteError(e)
+                return .failed
+            }
+            return .noSibling
         } catch {
             return .noSibling
         }
@@ -2188,15 +2196,36 @@ final class RemoteLibraryState {
             $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.detail.id == dto.id
         }
         let localFile = downloaded.map { offlineStore.fileURL(for: $0) }
+            .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
         // 位置の初期値と（未 DL なら）判定の両方に manifest を使う（初回オープンと同じ）。
-        let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken)
-        let kind: SiblingVolumeKind
-        if let localFile, FileManager.default.fileExists(atPath: localFile.path) {
-            kind = await SiblingVolumeKind.probeLocal(path: localFile.path, reader: EPUBAdapter.reader).kind
-        } else {
-            kind = SiblingVolumeKind.remote(filename: dto.filename, manifestFormat: m?.format)
+        let m: ManifestDTO?
+        do {
+            m = try await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken)
+        } catch let e as RemoteClientError {
+            if case .libraryLocked = e {
+                presentRemoteError(e)
+                return .failed
+            }
+            m = nil
+        } catch {
+            m = nil
         }
-        guard kind == .textEPUB else { return .reopen(Self.makeBookRow(from: dto)) }
+        let localKind: SiblingVolumeKind?
+        if let localFile {
+            localKind = await SiblingVolumeKind.probeLocal(path: localFile.path, reader: EPUBAdapter.reader).kind
+        } else {
+            localKind = nil
+        }
+        switch SiblingVolumeKind.remoteDecision(localKind: localKind, manifestFetched: m != nil,
+                                                filename: dto.filename, manifestFormat: m?.format) {
+        case .failed:
+            Self.epubLog.warning("resolveRemoteEPUBSibling: manifest unavailable bookID=\(dto.id, privacy: .public)")
+            return .failed
+        case .reopen:
+            return .reopen(Self.makeBookRow(from: dto))
+        case .swap:
+            break
+        }
         do {
             return .swapIn(try await prepareRemoteEPUBReader(book: dto, initial: m?.epubLocator, version: m?.etag, localFile: localFile))
         } catch {

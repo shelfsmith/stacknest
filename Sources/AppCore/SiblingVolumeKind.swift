@@ -19,11 +19,40 @@ public enum SiblingVolumeKind: Equatable, Sendable {
     }
 
     /// リモート。判定の正はサーバの manifest（`RemoteEPUBRouting` と同じ規則）。
-    /// manifest が取れなかったときは `.other`（開き直す経路が失敗の表示まで面倒を見る）。
+    /// `manifestFormat == nil` は `.other`。ただしリモートの EPUB の窓の巻送りは、manifest が取れなかったときに
+    /// この関数へ来ない — `remoteDecision` が「取り込み済みならローカルの判定・未ダウンロードなら今の本のまま」に分ける。
     public static func remote(filename: String?, manifestFormat: String?) -> SiblingVolumeKind {
         guard let manifestFormat else { return .other }
         return RemoteEPUBRouting.route(filename: filename, manifestFormat: manifestFormat) == .textEPUB
             ? .textEPUB : .other
+    }
+
+    /// G54-S3c: リモートの EPUB の窓で、次（前）の巻をどう扱うか。
+    public enum RemoteSiblingDecision: Equatable, Sendable {
+        /// テキスト EPUB。同じ窓で差し替える。
+        case swap
+        /// テキスト EPUB 以外。窓を閉じて通常の経路で開き直す。
+        case reopen
+        /// 決められない（未ダウンロードで manifest が取れない）。今の本のまま。
+        case failed
+    }
+
+    /// G54-S3c: リモートの次（前）の巻の扱いを決める。
+    /// - `localKind`: 取り込み済み（ローカルのファイルがある）なら `probeLocal` の結果。未ダウンロードなら nil。
+    ///   取り込み済みならファイルそのものが正（manifest より優先）。
+    /// - `manifestFetched`: manifest を取れたか。未ダウンロードで取れなければ `.failed` ――
+    ///   開き直しても `openViewer` が同じ manifest を要るので必ず失敗し、窓だけ失う（spec §4.1「今の本のまま」）。
+    public static func remoteDecision(localKind: SiblingVolumeKind?, manifestFetched: Bool,
+                                      filename: String?, manifestFormat: String?) -> RemoteSiblingDecision {
+        let kind: SiblingVolumeKind
+        if let localKind {
+            kind = localKind
+        } else if manifestFetched {
+            kind = remote(filename: filename, manifestFormat: manifestFormat)
+        } else {
+            return .failed
+        }
+        return kind == .textEPUB ? .swap : .reopen
     }
 
     /// ローカル・オフラインのファイルを確かめる。.epub のときだけ `openImageBook` を呼ぶ。
