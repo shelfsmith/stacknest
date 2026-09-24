@@ -5,6 +5,7 @@
 
 import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError, NetworkError } from "./api.js";
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
+import { isImageOnlySection, layoutChanges } from "./epub-section.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
 const readScale = () => clampScale(localStorage.getItem(SCALE_KEY));
@@ -155,6 +156,20 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         await view.open(file);
         if (torn) return teardown;
         applyStyles();
+        // G54-S3d: 画像 1 枚だけの章では foliate の枠（余白・段組み）を外し、文字の章で戻す。
+        // foliate は章を読み込むたびに load を出し、その直後（同期）に枠の値を読んで描画する
+        // （paginator.js: iframe の load → afterLoad → load イベント → #beforeRender）ので、ここで当てた値はその章に効く。
+        // 最初の章もここを通る（open の後・init の前に登録している）。
+        let imageSection = false;
+        view.addEventListener("load", (e) => {
+            if (torn) return;
+            const imageOnly = isImageOnlySection(e.detail?.doc);
+            for (const [name, value] of layoutChanges(imageSection, imageOnly)) {
+                if (value === null) view.renderer.removeAttribute(name);
+                else view.renderer.setAttribute(name, value);
+            }
+            imageSection = imageOnly;
+        });
         // renderer の relocate は {index, fraction}（spine 内の進行率）。view はこの内部リスナーを
         // open() の中で自分の renderer に先に登録しているため、ここで addEventListener した時点で
         // 既に後着になり、view.lastLocation.cfi はこのハンドラが呼ばれる時点で更新済みになる。
