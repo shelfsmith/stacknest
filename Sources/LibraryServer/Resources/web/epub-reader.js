@@ -5,7 +5,7 @@
 
 import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError, NetworkError } from "./api.js";
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
-import { isImageOnlySection, layoutChanges, shouldToggleBar } from "./epub-section.js";
+import { isImageOnlySection, layoutChanges, shouldToggleBar, imageChainAncestors } from "./epub-section.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
 const readScale = () => clampScale(localStorage.getItem(SCALE_KEY));
@@ -25,37 +25,31 @@ function styles(scale) {
            付けた sn-image-only クラス（このファイルの load リスナーが付け外しする）が居るときだけ効く。
            flex は writing-mode に追従するので main/cross 軸を明示しなくても縦書き（vertical-rl）の
            本でも同じ書き方で中央寄せになる。
-           smoke-fix (2026-09-24): align-items:center（行方向）だと、body 直下の子（wrapper）は
-           row flex コンテナの主軸方向で shrink-to-fit（幅が不定）になる。多くのライトノベル系
-           EPUB は表紙を <div><svg width="100%" height="100%" viewBox="..."><image .../></svg></div>
-           のように 1 段包んで置くため、不定幅の中では svg の width:100% が循環参照になり
-           デフォルトの内在サイズ（≈300×150）にフォールバックして余白が戻っていた
-           （Playwright ヘッドレス計測で確認: old 402×740 期待に対し実測 300×385.7）。
-           flex-direction:column + align-items:stretch にすると、body の主軸が縦（進行方向）に
-           なり交差軸（幅、縦書きなら高さ）の子は stretch で確定サイズを持つため、循環参照が
-           解消される（同計測で 402×522.9 に回復）。 */
-        html.sn-image-only body {
+           smoke-fix round 2 (2026-09-24): 最初の修正は `body > *`（1 段だけ）を対象にしていたが、
+           実機で `<section class="p-cover"><div class="main"><svg>...</svg></div></section>`
+           のように 2 段（以上）包む本があり、伸びるのは section だけで中の div がまた
+           shrink-to-fit に戻り、svg の width:100% が再び循環参照になって余白が戻った。
+           決め打ちの深さをやめ、load リスナーが leaf（img/svg）から body までの**祖先すべて**に
+           JS で `sn-image-chain` クラスを付け（epub-section.js の imageChainAncestors、
+           book の CSS 側の詳細度に依存しない）、body と `.sn-image-chain` に**同一のルール**
+           （100%×100%・flex column・stretch・center）を当てる。各段が「親から 100% の確定box を
+           もらって同じ box を子に渡す」形になるので、何段包まれていても再帰的に効く（Playwright
+           ヘッドレス計測: 2 段 section>div>svg・3 段包み・縦書きの 2 段包みで確認。書籍側 CSS が
+           wrapper に margin/height:auto/display:inline-block を付けている想定も模擬して
+           上書きできることを確認 — 詳細は smoke-fix-image-width-report.md の Fix round 2）。 */
+        html.sn-image-only body,
+        html.sn-image-only .sn-image-chain {
             box-sizing: border-box !important;
             width: 100% !important;
             height: 100% !important;
             margin: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+            float: none !important;
             display: flex !important;
             flex-direction: column !important;
             justify-content: center !important;
             align-items: stretch !important;
-        }
-        /* body 直下の子（wrapper）は stretch でページいっぱいの確定サイズの箱になるが、中身
-           （img/svg）がその箱より小さい場合（例: ページと表紙のアスペクト比が違う本、
-           width/height 属性を持たない <img>）、箱の中で中央寄せする仕組みが無いと画像が
-           箱の開始端（上端、縦書きなら右端）に張り付く。wrapper 自身も centering flex に
-           することで、箱の中でも常に中央に来るようにする（計測で確認: これが無いと縦書きの
-           <div><img>（属性なし）が上端張り付きになる退行が新たに出た）。 */
-        html.sn-image-only body > * {
-            max-width: 100% !important;
-            max-height: 100% !important;
-            display: flex !important;
-            align-items: center !important;
-            justify-content: center !important;
         }
         html.sn-image-only body img,
         html.sn-image-only body svg {
@@ -226,6 +220,13 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
             // この documentElement のクラスで行う（margin 等の renderer 属性と同じ理由で
             // load の同期処理内で当てる＝この章の描画に間に合う）。
             doc?.documentElement?.classList.toggle("sn-image-only", imageOnly);
+            // smoke-fix round 2: 本の XHTML が何段包んでいても styles() の `.sn-image-chain`
+            // ルールが効くよう、leaf（img/svg）から body までの祖先すべてに印を付ける
+            // （section ごとに doc は毎回新規なので、外す処理は不要 — 前章の印が残ることはない）。
+            if (imageOnly) {
+                const leaf = doc.body.querySelector("img, svg");
+                for (const el of imageChainAncestors(leaf, doc.body)) el.classList.add("sn-image-chain");
+            }
             for (const [name, value] of layoutChanges(imageSection, imageOnly)) {
                 if (value === null) view.renderer.removeAttribute(name);
                 else view.renderer.setAttribute(name, value);

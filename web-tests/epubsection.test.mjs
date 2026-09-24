@@ -2,7 +2,7 @@
 // G54-S3d: テキスト EPUB の「画像 1 枚だけの章」の判定と、foliate の枠の切り替え（純関数）。
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isImageOnlySection, layoutChanges, IMAGE_SECTION_ATTRS, shouldToggleBar }
+import { isImageOnlySection, layoutChanges, IMAGE_SECTION_ATTRS, shouldToggleBar, imageChainAncestors }
     from "../Sources/LibraryServer/Resources/web/epub-section.js";
 
 /// querySelectorAll の件数だけを返す最小の document。
@@ -61,4 +61,45 @@ test("shouldToggleBar: リンク・文字選択中・処理済みのクリック
     assert.equal(shouldToggleBar({ defaultPrevented: false, onLink: true, hasSelection: false }), false);
     assert.equal(shouldToggleBar({ defaultPrevented: false, onLink: false, hasSelection: true }), false);
     assert.equal(shouldToggleBar({ defaultPrevented: true, onLink: false, hasSelection: false }), false);
+});
+
+/// parentElement だけを持つ最小要素。fakeChain("leaf","div","section","body") のように
+/// 内側から外側の順で並べて渡すと、その順で parentElement を繋いで最後の要素を body として返す。
+function fakeChain(...names) {
+    const els = names.map((name) => ({ name, parentElement: null }));
+    for (let i = 0; i < els.length - 1; i++) els[i].parentElement = els[i + 1];
+    return els;
+}
+
+test("imageChainAncestors: leaf が body の直下なら祖先は無し", () => {
+    const [leaf, body] = fakeChain("leaf", "body");
+    assert.deepEqual(imageChainAncestors(leaf, body), []);
+});
+
+test("imageChainAncestors: 1 段包み（<div><svg></div>）は div だけ", () => {
+    const [leaf, div, body] = fakeChain("leaf", "div", "body");
+    assert.deepEqual(imageChainAncestors(leaf, body), [div]);
+});
+
+test("imageChainAncestors: 2 段包み（<section><div><svg></div></section>）は内側→外側の順", () => {
+    const [leaf, div, section, body] = fakeChain("leaf", "div", "section", "body");
+    assert.deepEqual(imageChainAncestors(leaf, body), [div, section]);
+});
+
+test("imageChainAncestors: 3 段包みでも同じ形で全段を拾う", () => {
+    const [leaf, a, b, c, body] = fakeChain("leaf", "a", "b", "c", "body");
+    assert.deepEqual(imageChainAncestors(leaf, body), [a, b, c]);
+});
+
+test("imageChainAncestors: leaf/body が無ければ空（例外を投げない）", () => {
+    const [leaf, body] = fakeChain("leaf", "body");
+    assert.deepEqual(imageChainAncestors(null, body), []);
+    assert.deepEqual(imageChainAncestors(leaf, null), []);
+    assert.deepEqual(imageChainAncestors(null, null), []);
+});
+
+test("imageChainAncestors: body に辿り着かない（親が途中で尽きる）場合は打ち切る", () => {
+    const leaf = { parentElement: { parentElement: null } };
+    const unrelatedBody = { name: "body" };
+    assert.deepEqual(imageChainAncestors(leaf, unrelatedBody), [leaf.parentElement]);
 });

@@ -26,6 +26,24 @@ export function isImageOnlySection(doc) {
     return images === 1;
 }
 
+/// 画像 1 枚だけの章で、leaf（img か svg。isImageOnlySection が保証する唯一の画像要素）から
+/// body までの間にある祖先要素を、leaf に近い順（内側→外側）で返す（body 自身は含まない）。
+/// 本の XHTML が `<section><div>...</div></section>` のように何段包んでいても対応するため、
+/// 決め打ちの深さ（`body > *` 等）にしない。DOM は変更しない純粋関数——実際の
+/// `classList.add("sn-image-chain")` は呼び出し側（epub-reader.js の load リスナー）で行う。
+/// leaf や body が無い、または leaf が body の子孫でない（parentElement が途中で尽きる）場合は
+/// そこまでで打ち切る（無限ループにはしない）。
+export function imageChainAncestors(leaf, body) {
+    const chain = [];
+    if (!leaf || !body) return chain;
+    let node = leaf.parentElement ?? null;
+    while (node && node !== body) {
+        chain.push(node);
+        node = node.parentElement ?? null;
+    }
+    return chain;
+}
+
 /// renderer へ当てる操作の列（[属性名, 値 or null]。null は removeAttribute＝既定値へ戻す）。
 /// 前の章と同じ種類なら空（属性を触らない＝余計な再描画を起こさない）。
 export function layoutChanges(wasImageOnly, isImageOnly) {
