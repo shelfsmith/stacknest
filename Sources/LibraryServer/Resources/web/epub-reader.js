@@ -167,6 +167,7 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         window.removeEventListener("hashchange", onHashChange);
         try { view.close?.(); } catch {}
         root.remove();
+        document.documentElement.classList.remove("sn-scroll-lock");
     }
 
     function goBack() {
@@ -179,6 +180,9 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
     const main = appEl();
     while (main.firstChild) main.removeChild(main.firstChild);
     main.append(root);
+    // G54 web smoke: リーダー表示中は背後のドキュメントのスクロールを止める（style.css の
+    // html.sn-scroll-lock 参照）。teardown() で必ず外す（全離脱経路が teardown() を通る）。
+    document.documentElement.classList.add("sn-scroll-lock");
 
     // hashchange/pagehide/keydown はダウンロード開始前に登録する（レース対策。上のコメント参照）。
     window.addEventListener("keydown", onKey);

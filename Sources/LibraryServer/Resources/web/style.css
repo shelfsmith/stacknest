@@ -12,11 +12,14 @@
   --border: #d1d1d6;
   --bar-h: 48px;
   --tap: 44px;
-  /* G54 web smoke: iOS 26+ Safari の「スクロールエッジ blur」対策。env(safe-area-inset-top)
-     だけではタイトルがぼやける帯に掛かった（実機 smoke）ので、安全領域のさらに下へ
-     控えめな余白を追加する。app-bar の実高を参照する箇所（books-toolbar・nav-layer の
-     sticky top）も併せてこの分だけ伸ばす。 */
-  --bar-top-extra: 8px;
+  /* G54 web smoke: iOS 26/27 のホーム画面 web app で、スクロール可能なページの先頭に
+     ステータスバー帯の Liquid Glass フェードが掛かる（既定のステータスバーでも残る効果。
+     black-translucent 時のような深い blur ではなく薄いフェード）。env(safe-area-inset-top) は
+     ここでは 0 のため当てにならず、実機診断で「コンテンツが 20pt 沈めば鮮明になる」ことを
+     確認して固定値にした。app-bar の実高を参照する箇所（books-toolbar・nav-layer の
+     sticky top）も併せてこの分だけ伸ばす。フルスクリーンの固定レイヤー（.reader/.epub-reader
+     など、背後のドキュメントのスクロールを止めるもの）はこのフェードが出ないため対象外。 */
+  --bar-top-extra: 20px;
   /* G17 Pack A: 半透明クロム（app-bar・books-toolbar-row・reader-chrome の素材）。
      --surface の半透明版。ダークは prefers-color-scheme で上書き。 */
   --chrome-bg: rgba(255, 255, 255, 0.72);
@@ -51,6 +54,18 @@ html { height: 100%; }
    （＝smoke A1 NG「ナビバーが流れる」の根本原因）。body を content 高まで伸ばすことで app-bar の
    sticky が全スクロール範囲で効く。空/短コンテンツ時は min-height で従来どおり画面全体を占める。 */
 body { min-height: 100%; }
+
+/* G54 web smoke: リーダー（.reader / .epub-reader、いずれも position:fixed; inset:0 の
+   全画面レイヤー）が開いている間、背後のドキュメントのスクロールを止める。iOS 26/27 の
+   ホーム画面 web app では、スクロール可能なドキュメントの先頭にステータスバー帯の
+   Liquid Glass フェードが掛かる一方、フルスクリーン固定レイヤーでドキュメントのスクロール
+   自体を止めていればこのフェードは出ない（実機診断で確認）。reader.js / epub-reader.js が
+   リーダーのマウント/teardown に合わせて <html> にこのクラスを付け外しする。 */
+html.sn-scroll-lock,
+html.sn-scroll-lock body {
+  overflow: hidden;
+  height: 100%;
+}
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;

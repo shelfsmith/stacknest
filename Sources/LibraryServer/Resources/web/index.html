@@ -2,11 +2,17 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <!-- iPhone ホーム画面追加時のフルスクリーン表示用 -->
+  <!-- iPhone ホーム画面追加時のフルスクリーン表示用。
+       G54 web smoke: black-translucent + viewport-fit=cover は iOS 26/27 のホーム画面 web app で
+       ステータスバー帯に Liquid Glass の blur を常時描かせる（env(safe-area-inset-top) は 0 を返し
+       CSS 側では回避できない、実機診断ページで確認済み）。既定のステータスバー（黒帯の下にページが
+       始まる）ならこの blur は出ない。theme-color でステータスバー帯の色をアプリの配色に合わせる。 -->
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-title" content="StackNest">
   <title>StackNest</title>
   <!-- 4.2c-11: ブラウザタブ favicon（小サイズは簡略版・大サイズは iOS フルブリード）/ iOS ホーム追加アイコン / PWA manifest -->

@@ -429,6 +429,9 @@ export async function renderReader(uuid, bookId, query, deps) {
     const main = appEl();
     while (main.firstChild) main.removeChild(main.firstChild);
     main.append(readerEl);
+    // G54 web smoke: リーダー表示中は背後のドキュメントのスクロールを止める（style.css の
+    // html.sn-scroll-lock 参照）。teardown() で必ず外す（全離脱経路が teardown() を通る）。
+    document.documentElement.classList.add("sn-scroll-lock");
 
     // 8. chrome トグル
     let chromeVisible = true;
@@ -911,6 +914,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             deleteBook(book).catch(() => {});
         }
         readerEl.remove();
+        document.documentElement.classList.remove("sn-scroll-lock");
         if (activeReaderTeardown === teardown) activeReaderTeardown = null;
     }
 
