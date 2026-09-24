@@ -12,6 +12,11 @@
   --border: #d1d1d6;
   --bar-h: 48px;
   --tap: 44px;
+  /* G54 web smoke: iOS 26+ Safari の「スクロールエッジ blur」対策。env(safe-area-inset-top)
+     だけではタイトルがぼやける帯に掛かった（実機 smoke）ので、安全領域のさらに下へ
+     控えめな余白を追加する。app-bar の実高を参照する箇所（books-toolbar・nav-layer の
+     sticky top）も併せてこの分だけ伸ばす。 */
+  --bar-top-extra: 8px;
   /* G17 Pack A: 半透明クロム（app-bar・books-toolbar-row・reader-chrome の素材）。
      --surface の半透明版。ダークは prefers-color-scheme で上書き。 */
   --chrome-bg: rgba(255, 255, 255, 0.72);
@@ -67,8 +72,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  height: calc(var(--bar-h) + env(safe-area-inset-top));
-  padding: env(safe-area-inset-top) 12px 0;
+  height: calc(var(--bar-h) + env(safe-area-inset-top) + var(--bar-top-extra));
+  padding: calc(env(safe-area-inset-top) + var(--bar-top-extra)) 12px 0;
   background: var(--chrome-bg);
   backdrop-filter: var(--chrome-blur);
   -webkit-backdrop-filter: var(--chrome-blur);
@@ -282,7 +287,7 @@ body {
      検索/ソート行が画面上端に残る（下をコンテンツが流れる浮いた固定クロム）。
      top は app-bar の実高（バー高＋ノッチ安全領域）。 */
   position: sticky;
-  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + var(--bar-top-extra));
   z-index: 9;
   /* sticky 中の半透明マテリアルは**この親要素に一本化**する（検索ボックス周りの帯とソート行を
      同一レイヤで満たし、二重 blur による透明度のちぐはぐを解消＝smoke 自由記載 #2）。
@@ -755,7 +760,14 @@ body {
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
-  transition: opacity 0.2s, transform 0.2s;
+  /* smoke 自由記載 belt-and-braces: 非表示中も backdrop-filter が生き続けると
+     （transform で画面外へ出ていても）blur レイヤ自体は保持されるので、フェード完了後に
+     visibility:hidden + backdrop-filter:none も当てる。visibility は「hidden へ向かう」
+     遷移だけ終端でフリップする組み込み挙動があるので追加するだけでよい
+     （逆方向＝再表示は開始時に即フリップするのでフェードインが隠れない）。backdrop-filter は
+     その挙動がないため、.hidden 側だけ transition-delay をフェード時間ぶん足して揃える。 */
+  transition: opacity 0.2s, transform 0.2s, visibility 0.2s,
+              backdrop-filter 0s, -webkit-backdrop-filter 0s;
 }
 
 .reader-chrome.top {
@@ -771,6 +783,10 @@ body {
 .reader-chrome.hidden {
   opacity: 0;
   pointer-events: none;
+  visibility: hidden;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition-delay: 0s, 0s, 0s, 0.2s, 0.2s;
 }
 
 .reader-chrome.top.hidden    { transform: translateY(-100%); }
@@ -1260,7 +1276,7 @@ body {
    戻したときに幅が飛ばないようにする。 */
 .nav-layer {
   position: fixed;
-  top: calc(var(--bar-h) + env(safe-area-inset-top));
+  top: calc(var(--bar-h) + env(safe-area-inset-top) + var(--bar-top-extra));
   left: 0;
   right: 0;
   bottom: 0;
@@ -1406,23 +1422,36 @@ body {
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   color: #fff;
-  transition: opacity 0.2s, transform 0.2s;
+  /* smoke 自由記載 belt-and-braces: .reader-chrome と同じ理由（上記コメント参照）で
+     非表示中も backdrop-filter を落とす。 */
+  transition: opacity 0.2s, transform 0.2s, visibility 0.2s,
+              backdrop-filter 0s, -webkit-backdrop-filter 0s;
 }
 
 .epub-bar.hidden {
   opacity: 0;
   pointer-events: none;
   transform: translateY(-100%);
+  visibility: hidden;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transition-delay: 0s, 0s, 0s, 0.2s, 0.2s;
 }
 
 .epub-bar .icon-btn { color: #fff; }
 
 .epub-spacer { flex: 1; }
 
-/* 本文は画面いっぱい（バーは上に重なる）。 */
+/* 本文は画面いっぱい（バーは上に重なる）が、iOS 26+ Safari のスクロールエッジ blur
+   （ステータスバー下の帯を透過コンテンツに blur/fade を掛ける効果）を避けるため、
+   上下の安全領域だけは本文を明け渡す（`.epub-reader` の背景色がその帯を埋める）。
+   foliate 自身のテキスト余白（48px、`margin` 属性）はこれとは別に効くのでそのまま。 */
 .epub-view {
   position: absolute;
-  inset: 0;
+  top: env(safe-area-inset-top);
+  right: 0;
+  bottom: env(safe-area-inset-bottom);
+  left: 0;
 }
 
 /* 左右のページ送りの操作域。バー（z-index 3）より下なので、バーが出ている間はバーのボタンが押せる。 */

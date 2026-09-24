@@ -20,6 +20,36 @@ function styles(scale) {
             html { color-scheme: dark; background: #1b1b1b !important; color: #e6e6e6 !important; }
             a { color: #8ab4f8; }
         }
+        /* G54-S3d 修正: 画像 1 枚だけの章は ZIP ビューアと同じくレターボックス表示にする
+           （画像を中央寄せし、上下（縦書きなら左右）は .epub-reader の背景色の帯）。html に
+           付けた sn-image-only クラス（このファイルの load リスナーが付け外しする）が居るときだけ効く。
+           flex は writing-mode に追従するので main/cross 軸を明示しなくても縦書き（vertical-rl）の
+           本でも同じ書き方で中央寄せになる（要実機確認 — 下記 JS 側コメント参照）。 */
+        html.sn-image-only body {
+            box-sizing: border-box !important;
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }
+        html.sn-image-only body > * {
+            max-width: 100% !important;
+            max-height: 100% !important;
+        }
+        /* body 直下の子（wrapper）については、body が flex コンテナで高さが確定しているため
+           max-height:% が正しく解決される。ただし img/svg が直下ではなく
+           <div><img></div> / <p><img></p> で 1 段包まれている本では、wrapper 自身の高さが
+           auto（img の内在サイズ依存）なので img の max-height:% はここでは解決されず
+           （% は「祖先が確定した高さを持つ」場合のみ有効）、img が箱をはみ出しうる
+           ＝要実機確認。ここでは直下でも入れ子でも効くだけ効かせる保険として付ける。 */
+        html.sn-image-only body img,
+        html.sn-image-only body svg {
+            max-width: 100% !important;
+            max-height: 100% !important;
+            object-fit: contain !important;
+        }
     `;
 }
 
@@ -172,7 +202,13 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
         let imageSection = false;
         view.addEventListener("load", (e) => {
             if (torn) return;
-            const imageOnly = isImageOnlySection(e.detail?.doc);
+            const doc = e.detail?.doc;
+            const imageOnly = isImageOnlySection(doc);
+            // G54-S3d 修正: styles() の `.sn-image-only` はこのクラスがある間だけ効く。
+            // setStyles() は全章共通の <style> を差し込むだけなので、章ごとの出し分けは
+            // この documentElement のクラスで行う（margin 等の renderer 属性と同じ理由で
+            // load の同期処理内で当てる＝この章の描画に間に合う）。
+            doc?.documentElement?.classList.toggle("sn-image-only", imageOnly);
             for (const [name, value] of layoutChanges(imageSection, imageOnly)) {
                 if (value === null) view.renderer.removeAttribute(name);
                 else view.renderer.setAttribute(name, value);
