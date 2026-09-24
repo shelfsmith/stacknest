@@ -1028,10 +1028,10 @@ final class AppState {
                 options: options,
                 initialState: initialState,
                 loadNextVolume: { [weak self] cur in
-                    self?.resolveVolume(cur, direction: .next)
+                    await self?.resolveVolume(cur, direction: .next)
                 },
                 loadPrevVolume: { [weak self] cur in
-                    self?.resolveVolume(cur, direction: .prev)
+                    await self?.resolveVolume(cur, direction: .prev)
                 },
                 // G26 Codex Important #1: ローカルは第 5 引数（「最初から」の意思表示）を使わない。
                 // 打ち切りゲートは controller 側で通過済みで、ここは素直に書くだけの経路のため
@@ -1064,6 +1064,8 @@ final class AppState {
                 try? self?.refreshDisplayedBooks()
                 self?.refreshSelectedBook()
             }
+            // G54-S3c: 次の巻がテキスト EPUB なら、通常の経路で EPUB の窓を開く（読みかけなら訊く）。
+            controller.onOpenInEPUBReader = { [weak self] row in self?.openBooks([row]) }
             // G16 C1: 巻送りでローカルの bookID が変わったら、registry の identity を追従させる
             // （bundle は不変なので bundlePath はそのまま・bookID のみ張り替え）。
             controller.onBookSwapped = { [weak self, weak controller] newBook, pageCount, damaged in
@@ -1231,22 +1233,32 @@ final class AppState {
 
     private enum VolumeDirection { case next, prev }
 
-    /// 次/前の巻を解決して NextVolume を返す。content 化に失敗したら nil。
-    private func resolveVolume(_ cur: BookRow, direction: VolumeDirection) -> NextVolume? {
+    /// 次/前の巻を解決する。content 化に失敗したら nil。
+    /// G54-S3c: 次の巻がテキスト EPUB なら `.openInEPUBReader`（画像ビューアでは 0 ページになって止まっていた）。
+    /// 画像本 EPUB は判定で開いた handle をそのまま使う（同じ本を 2 回開かない）。
+    private func resolveVolume(_ cur: BookRow, direction: VolumeDirection) async -> VolumeLoad? {
         guard let db = database else { return nil }
         let sibling: BookRow?
         switch direction {
         case .next: sibling = try? db.nextVolumeInSeries(after: cur)
         case .prev: sibling = try? db.prevVolumeInSeries(before: cur)
         }
-        guard let next = sibling,
-              let content = try? BookContentFactory.make(for: next) else { return nil }
+        guard let next = sibling else { return nil }
+        let probe = await SiblingVolumeKind.probeLocal(path: next.path, reader: EPUBAdapter.reader)
+        if probe.kind == .textEPUB { return .openInEPUBReader(next) }
+        let content: BookContent
+        if let handle = probe.imageBook {
+            content = EPUBImageBookContent(handle: handle)
+        } else {
+            guard let made = try? BookContentFactory.make(for: next) else { return nil }
+            content = made
+        }
         // 巻送りで開く本も Stackroom 同様「閲覧開始」とみなし unseen=0 + play_date=now を更新する（D9）。
         // G48-2b: ただし実際に既読化するのは swap が確定した後（`onBookSwapped`）。
         // `BookContentFactory.make` は任意の .epub 兄弟に対して同期的に成功するため、ここで
         // 呼ぶと performSwap の 0 ページガードで中断された巻まで既読になってしまう。
         let state = Self.resolvedState(for: next, database: db)
-        return NextVolume(content: content, book: next, state: state)
+        return .swap(NextVolume(content: content, book: next, state: state))
     }
 
     /// 本ごとの保存状態を読み、raw mode int → PageLayoutOverride に変換した ResolvedViewerState を返す。

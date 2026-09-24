@@ -2060,6 +2060,10 @@ final class RemoteLibraryState {
                 // ここで足すと巻送りのたびに往復が増える。
                 self.books = self.books.markingRead(bookID: newBook.id, at: Date())
             }
+            // G54-S3c: 次の巻がテキスト EPUB なら、通常の経路で EPUB の窓を開く（読みかけなら訊く）。
+            controller.onOpenInEPUBReader = { [weak self] row in
+                Task { await self?.openBookByID(row.id, resumeDirect: false) }
+            }
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.onSetBookPageDirection = { [weak self] id, dir in
                 Task { await self?.setRemoteDirection(bookID: id, direction: dir) }
@@ -2290,7 +2294,8 @@ final class RemoteLibraryState {
 
     /// 隣接巻をサーバから解決し NextVolume を組む。該当なし/失敗は nil。
     /// content は RemoteBookContent（ストリーミング）なので未 DL の巻でも再生できる。
-    private func resolveRemoteVolume(after bookID: Int, direction: String) async -> NextVolume? {
+    /// G54-S3c: 次の巻がテキスト EPUB なら `.openInEPUBReader`。
+    private func resolveRemoteVolume(after bookID: Int, direction: String) async -> VolumeLoad? {
         let dto: BookListItemDTO?
         do {
             dto = try await client.adjacentVolume(
@@ -2310,10 +2315,19 @@ final class RemoteLibraryState {
         // （pageCount / damageNote / override / etag）を束で持ち回る。damageNote だけ別リクエストに
         // すると、巻送り先が破損本のときに「破損していない」と誤認して位置を書き戻しうる。
         var snapshot: RemoteBookSnapshot?
+        var manifestFormat: String?
         if offlineEntry == nil {
             if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
                 snapshot = RemoteBookSnapshot(manifest: m)
+                manifestFormat = m.format
+            }
+        }
+        // G54-S3c: DL 済みのテキスト EPUB は BookContentFactory が同期で成功してしまう（0 ページで止まる）ので先に見分ける。
+        if let dl = offlineEntry {
+            let url = offlineStore.fileURL(for: dl)
+            if await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader).kind == .textEPUB {
+                return .openInEPUBReader(Self.makeBookRow(from: dto))
             }
         }
         // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
@@ -2327,7 +2341,7 @@ final class RemoteLibraryState {
                 lastPage: max(0, dto.lastPage ?? 0),
                 overrides: remoteOverrides
             )
-            return NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン")
+            return .swap(NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン"))
         }
         // レビュー Minor3 fix: ここに到達するのは (a) offlineEntry == nil（上の manifest 取得済み）、
         // または (b) offlineEntry != nil だが BookContentFactory.make が失敗した場合。(b) は
@@ -2339,12 +2353,17 @@ final class RemoteLibraryState {
             if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
                 snapshot = RemoteBookSnapshot(manifest: m)
+                manifestFormat = m.format
             }
         }
         // G26 Codex Important #3: manifest が取れなければ次巻は開かない（nil ＝隣接巻なし扱い →
         // ビューアは「次の巻を開けません」で止まる）。ページ数も破損判定も分からないまま開くと、
         // 打ち切りゲートが無効な状態で読書位置を書き戻すことになる。
         guard let snapshot else { return nil }
+        // G54-S3c: テキスト EPUB はページ経路が無い（manifest の pageCount は 0）。EPUB の窓へ渡す。
+        if SiblingVolumeKind.remote(filename: dto.filename, manifestFormat: manifestFormat) == .textEPUB {
+            return .openInEPUBReader(Self.makeBookRow(from: dto))
+        }
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,
@@ -2355,7 +2374,7 @@ final class RemoteLibraryState {
             client: client, serverID: serverID, libraryUUID: libraryUUID,
             bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600, snapshot: snapshot)
         let row = Self.makeBookRow(from: dto)
-        return NextVolume(content: content, book: row, state: state, sourceLabel: "リモート")
+        return .swap(NextVolume(content: content, book: row, state: state, sourceLabel: "リモート"))
     }
 
     // MARK: - G8a: リモート即時同期（SSE 購読・反映・再接続）

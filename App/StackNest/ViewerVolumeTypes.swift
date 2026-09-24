@@ -20,3 +20,11 @@ struct NextVolume {
     /// （ローカルビューア=バッジなし、オフラインビューア=常に「オフライン」のため未指定で良い）。
     var sourceLabel: String? = nil
 }
+
+/// G54-S3c: 画像ビューアの巻送りの解決結果。
+enum VolumeLoad {
+    /// 同じ窓で差し替える（zip・フォルダ・PDF・画像本 EPUB）。
+    case swap(NextVolume)
+    /// テキスト EPUB。画像ビューアでは読めない（0 ページ）ので、窓を閉じて所有者の通常の経路で EPUB の窓を開く。
+    case openInEPUBReader(BookRow)
+}

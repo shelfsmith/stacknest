@@ -463,11 +463,11 @@ struct OfflineLibraryView: View {
                 // 開いた本のものを使う。`cur` を無視して最初の book から再解決すると 2 巻目で
                 // 止まる/自動進行が 2 巻目をループする（ローカル/リモートと同じく cur を使う）。
                 loadNextVolume: { [store] cur in
-                    Self.resolveOfflineVolume(store: store, serverID: serverID, libraryUUID: libraryUUID,
+                    await Self.resolveOfflineVolume(store: store, serverID: serverID, libraryUUID: libraryUUID,
                                               current: cur, direction: .next)
                 },
                 loadPrevVolume: { [store] cur in
-                    Self.resolveOfflineVolume(store: store, serverID: serverID, libraryUUID: libraryUUID,
+                    await Self.resolveOfflineVolume(store: store, serverID: serverID, libraryUUID: libraryUUID,
                                               current: cur, direction: .prev)
                 },
                 // 進捗を OfflineStore に永続化する（リモートサーバへの POST の代替）。
@@ -505,6 +505,13 @@ struct OfflineLibraryView: View {
                 ViewerWindowRegistry.shared.unregister(controller: controller)
                 self.reload()
             }
+            // G54-S3c: 次の巻がテキスト EPUB なら、通常の経路で EPUB の窓を開く（読みかけなら訊く）。
+            controller.onOpenInEPUBReader = { row in
+                if let downloaded = store.all().first(where: {
+                    $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) {
+                    self.openOffline(downloaded)
+                }
+            }
             // G16 C1: 巻送りで bookID が変わったら registry の identity を追従させる
             // （serverID/libraryUUID はシリーズ内で不変・.remote へ統一済み＝C3）。
             // G26 fix round 2: pageCount 引数はローカル DB を持たないオフライン/リモート経路では使わない
@@ -539,24 +546,33 @@ struct OfflineLibraryView: View {
         reload()
     }
 
-    /// DL 済の連続隣接巻を解決し NextVolume を組む。該当なし/失敗は nil。
+    /// DL 済の連続隣接巻を解決する。該当なし/失敗は nil。
     /// `current` は現在表示中の巻（多段巻送りで毎回更新される）。その series/volume を基点に解決する。
+    /// G54-S3c: 次の巻がテキスト EPUB なら `.openInEPUBReader`。画像本 EPUB は判定で開いた handle を使う。
     private static func resolveOfflineVolume(store: OfflineStore, serverID: UUID, libraryUUID: String,
                                              current: BookRow,
-                                             direction: OfflineStore.AdjacentDirection) -> NextVolume? {
+                                             direction: OfflineStore.AdjacentDirection) async -> VolumeLoad? {
         guard let series = current.series, let volume = current.volume else { return nil }
         guard let sib = store.adjacentDownloaded(
             serverID: serverID, libraryUUID: libraryUUID,
             series: series, volume: volume, direction: direction) else { return nil }
         let url = store.fileURL(for: sib)
         let row = offlineBookRow(sib, fileURL: url)
-        guard let content = try? BookContentFactory.make(for: row) else { return nil }
+        let probe = await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader)
+        if probe.kind == .textEPUB { return .openInEPUBReader(row) }
+        let content: BookContent
+        if let handle = probe.imageBook {
+            content = EPUBImageBookContent(handle: handle)
+        } else {
+            guard let made = try? BookContentFactory.make(for: row) else { return nil }
+            content = made
+        }
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,
             lastPage: max(0, sib.lastPage ?? 0),
             overrides: [:]
         )
-        return NextVolume(content: content, book: row, state: state)
+        return .swap(NextVolume(content: content, book: row, state: state))
     }
 }

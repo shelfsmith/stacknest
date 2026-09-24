@@ -25,8 +25,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     var onClose: () -> Void = {}
 
     // Phase 2.6b-2 injected closures
-    private let loadNextVolume: (BookRow) async -> NextVolume?
-    private let loadPrevVolume: (BookRow) async -> NextVolume?
+    private let loadNextVolume: (BookRow) async -> VolumeLoad?
+    private let loadPrevVolume: (BookRow) async -> VolumeLoad?
     /// (book, lastPage, spreadEnabled, coverOffset, restartedFromBeginning)
     ///
     /// G26 Codex Important #1: 第 5 引数は「この巻でユーザーが resume シートの『最初から』を
@@ -46,6 +46,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// true の巻については owner は pages を書いてはいけない（`TruncatedReadPolicy` 参照）。
     /// 本 controller は DB を一切知らないので、判断材料だけをここから外へ出す。
     var onBookSwapped: ((BookRow, Int, Bool) -> Void)?
+    /// G54-S3c: 次の巻がテキスト EPUB だったとき、窓を閉じた後に呼ぶ。所有者は通常の経路で EPUB の窓を開く
+    /// （読みかけなら EPUB の窓が訊く）。未設定なら差し替えずにノートを出すだけ。
+    var onOpenInEPUBReader: ((BookRow) -> Void)?
+    /// テスト用: 直近に出したノート。
+    private(set) var lastHUDNote: String?
+    /// G54-S3c: 閉じる前に保存を済ませたとき、`windowWillClose` で送り直さない。
+    private var skipsFlushOnClose = false
 
     // Per-book spread state
     private var overrides: [Int: PageLayoutOverride] = [:]
@@ -236,8 +243,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         pageCount: Int,
         options: ViewerOptions,
         initialState: ResolvedViewerState,
-        loadNextVolume: @escaping (BookRow) async -> NextVolume?,
-        loadPrevVolume: @escaping (BookRow) async -> NextVolume?,
+        loadNextVolume: @escaping (BookRow) async -> VolumeLoad?,
+        loadPrevVolume: @escaping (BookRow) async -> VolumeLoad?,
         persistState: @escaping (BookRow, Int, Bool, Bool, Bool) -> Void,
         persistPageOverride: @escaping (BookRow, Int, Int?) -> Void,
         suppressResumeDialog: Bool = false,
@@ -1066,6 +1073,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// HUD に短いテキストを ~3s 表示する（progress チャネルとは独立した専用ノートチャネル）。
     /// updateHUD() は hudNoteText を passthrough するので loadCurrentPage() が割り込んでもノートが消えない。
     private func hudNote(_ text: String) {
+        lastHUDNote = text
         hudNoteText = text
         hudVisible = true
         updateHUD()
@@ -1150,7 +1158,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
     /// 隣接巻の「解決(async)」と「atomic swap」を 1 つの isSwapping ガード＋1 つの Task に統合する。
     /// await 中は isSwapping=true で全入力/タイマーを無視し、旧 model と新 content の混在を防ぐ。
-    private func loadVolume(resolve: @escaping (BookRow) async -> NextVolume?,
+    private func loadVolume(resolve: @escaping (BookRow) async -> VolumeLoad?,
                             hudPrefix: String, noVolumeNote: String) {
         guard !isSwapping else { return }
         isSwapping = true
@@ -1170,14 +1178,33 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         let cur = book
         Task { [weak self] in
             guard let self else { return }
-            guard let nv = await resolve(cur) else {
+            guard let load = await resolve(cur) else {
                 self.isSwapping = false
                 self.hudNote(noVolumeNote)
                 self.stopAutoAdvance()    // 自動進行中なら停止（手動時は既停止で無害）
                 return
             }
-            await self.performSwap(nv, hudPrefix: hudPrefix)
+            switch load {
+            case .swap(let nv):
+                await self.performSwap(nv, hudPrefix: hudPrefix)
+            case .openInEPUBReader(let row):
+                self.handOverToEPUBReader(row)
+            }
         }
+    }
+
+    /// G54-S3c: 次の巻がテキスト EPUB。差し替えずに窓を閉じ、所有者の通常の経路で EPUB の窓を開く。
+    /// 旧巻の保存は loadVolume 冒頭（`flushPersistNow`）で済んでいるので、閉じるときは送り直さない。
+    private func handOverToEPUBReader(_ row: BookRow) {
+        isSwapping = false
+        stopAutoAdvance()
+        guard let open = onOpenInEPUBReader else {
+            hudNote("この巻はここでは開けません")
+            return
+        }
+        skipsFlushOnClose = true
+        window?.close()
+        open(row)
     }
 
     /// content/book/model を差し替えて、その巻の保存済み読書位置から表示する。
@@ -1372,7 +1399,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        flushPersistNow()                // 閉じる前にデバウンス待ちの読書位置を確定書き込みする
+        // 閉じる前にデバウンス待ちの読書位置を確定書き込みする。
+        // G54-S3c: EPUB の窓へ渡すときは loadVolume が済ませているので送り直さない。
+        if !skipsFlushOnClose { flushPersistNow() }
         stopAutoAdvance()
         cancelPageTurn()   // G54-S3
         idleTimer?.invalidate()
