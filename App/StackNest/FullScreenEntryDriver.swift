@@ -25,19 +25,32 @@ import os
 /// `ObjectIdentifier` はアドレスの同一性でしかないので、窓が解放された後に別のオブジェクトが同じ
 /// アドレスへ再利用されると、無関係な新しい窓が「まだ遷移中」と誤認されうる。そこで集合の要素を
 /// 弱参照の窓そのものに変え、`isTransitioning` 系のクエリのたびに「弱参照が生きていて、かつ
-/// `isVisible`（順序から外されていない）」窓だけへ絞り込む（`prune()`）。これにより、通知が一切来ない
-/// 経路（`orderOut` は `willClose` を発火しない）や、窓が解放されて `willClose` を送れない経路でも、
-/// 次にクエリされた時点で自己修復する。
+/// 登録から古すぎない」窓だけへ絞り込む（`prune()`）。これにより、通知が一切来ない経路や、窓が
+/// 解放されて `willClose` を送れない経路でも、次にクエリされた時点で自己修復する。
+///
+/// G54-S3e ハードニング fix round 1（controller ruling）: 当初は「`isVisible == false` なら
+/// 取り除く」という条件だった。だが全画面 Space のアニメーション中はウィンドウサーバー側の可視性が
+/// 一時的に反転することがあり、これだと本当に遷移中の窓を誤って取り除いてしまい、S3c で直した
+/// 窓間のレースを再発させかねない（controller の判断で `!isVisible` 条件は撤回）。代わりに
+/// 「`will*` から `staleAge`（既定 3 秒——全画面アニメーションは 1 秒未満で終わる）を過ぎても
+/// 対応する `did*`/`willClose` が来ない」ことを壊れた遷移の判定に使う。`staleAge` と時計は
+/// `init` から注入できる（テストがスリープせずに済むように）。
 @MainActor
 final class FullScreenTransitionTracker {
     static let shared = FullScreenTransitionTracker()
 
+    /// 全画面遷移が始まってから「`did*`/`willClose` が永遠に来ない壊れた遷移」とみなすまでの猶予。
+    /// 全画面遷移のアニメーションは通常 1 秒未満で終わるので、これより十分長い値にしてある。
+    static let defaultStaleAge: TimeInterval = 3.0
+
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FullScreen")
 
-    /// 遷移中と見なしている窓への弱参照。トラッカーは AppKit 通知に応じてだけ生きる補助オブジェクトなので、
-    /// 窓を強参照して生存期間を延ばしてはいけない。
+    /// 遷移中と見なしている窓への弱参照＋開始時刻。トラッカーは AppKit 通知に応じてだけ生きる
+    /// 補助オブジェクトなので、窓を強参照して生存期間を延ばしてはいけない。
     private struct WeakWindow {
         weak var window: NSWindow?
+        /// 直近の `will*`（同じ窓への 2 回目以降は上書きされる＝冪等な「リフレッシュ」）。
+        var beganAt: TimeInterval
     }
 
     /// `note.object` を `NSWindow` そのものとして取り出すための薄い箱。中身は `@unchecked Sendable` だが
@@ -51,6 +64,9 @@ final class FullScreenTransitionTracker {
     private var pendingCompletions: [(excludedID: ObjectIdentifier?, handler: () -> Void)] = []
     private var observers: [NSObjectProtocol] = []
 
+    private let staleAge: TimeInterval
+    private let now: () -> TimeInterval
+
     /// クエリのたびに `prune()` してから答える——`will*`/`did*` の到着順序にも `ObjectIdentifier` の
     /// アドレス再利用にも頼らない（`prune()` のドキュメント参照）。
     var isTransitioning: Bool { isTransitioningIgnoring(nil) }
@@ -58,7 +74,14 @@ final class FullScreenTransitionTracker {
     /// `excluding` の窓自身は「他の窓」に数えない——自窓の遷移で自窓のドライバが待つのを防ぐ。
     func isTransitioning(excluding id: ObjectIdentifier) -> Bool { isTransitioningIgnoring(id) }
 
-    init() {
+    /// - Parameters:
+    ///   - staleAge: `prune()` が壊れた遷移とみなす経過時間。既定は `defaultStaleAge`。
+    ///   - now: 現在時刻を返すクロージャ。既定は `ProcessInfo.processInfo.systemUptime`
+    ///     （単調増加でスリープ等の影響を受けにくい）。テストは偽の時計を注入してスリープを避ける。
+    init(staleAge: TimeInterval = FullScreenTransitionTracker.defaultStaleAge,
+         now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.staleAge = staleAge
+        self.now = now
         let nc = NotificationCenter.default
         // レビュー Minor: `queue: .main` により実行は必ずメインスレッドだが、NotificationCenter の
         // `using:` クロージャの型自体は `@Sendable`（非隔離）なので、コンパイラは MainActor 隔離の
@@ -136,7 +159,8 @@ final class FullScreenTransitionTracker {
     }
 
     private func begin(_ window: NSWindow) {
-        transitioningWindows[ObjectIdentifier(window)] = WeakWindow(window: window)
+        // 同じ窓への 2 回目以降の will*（辞書キーの上書き）は beganAt も更新する＝リフレッシュされる。
+        transitioningWindows[ObjectIdentifier(window)] = WeakWindow(window: window, beganAt: now())
         Self.logger.debug("begin: transitioning=\(self.transitioningWindows.count, privacy: .public)")
     }
 
@@ -152,40 +176,69 @@ final class FullScreenTransitionTracker {
         fireReadyCompletions()
     }
 
-    /// G54-S3e ハードニング: `will*`/`did*` の対応や `willCloseNotification` の到着に頼らず、
-    /// 集合をクエリするたび（`isTransitioning` 系・`onNextTransitionEnd`）に「本当にまだ生きていて
-    /// 遷移中と扱ってよい窓」だけへ絞り込む。取り除く条件は次のどちらか:
+    /// G54-S3e ハードニング（fix round 1 で `!isVisible` 条件を撤回・置換）: `will*`/`did*` の対応や
+    /// `willCloseNotification` の到着に頼らず、集合をクエリするたび（`isTransitioning` 系・
+    /// `onNextTransitionEnd`）に「本当にまだ生きていて遷移中と扱ってよい窓」だけへ絞り込む。
+    /// 取り除く条件は次のどちらか:
     /// - 弱参照が `nil`（解放済み）——`ObjectIdentifier` は解放されたアドレスが再利用されうるので、
     ///   弱参照そのものを保持して生死を確かめる（アドレスの同一性だけでは判定しない）。
-    /// - `isVisible == false`（順序から外された＝隠された）——`orderOut` は `willCloseNotification`
-    ///   を発火しないので、通知だけに頼るとこの経路を取りこぼす。
+    /// - `beganAt` から `staleAge` を超えて経過している（壊れた遷移）——`isVisible` は使わない。
+    ///   全画面 Space のアニメーション中はウィンドウサーバー側の可視性が一時的に反転しうるため、
+    ///   `isVisible` で判定すると本当に遷移中の窓まで誤って取り除き、S3c で直した窓間のレースを
+    ///   再発させかねない（controller ruling, fix round 1）。
     /// 取り除いた結果として集合が変化したら、保留中の完了ハンドラを再評価する
     /// （プルーニングだけで空になった＝`did*`/`willClose` どちらも来なかった経路の取りこぼし対策）。
+    /// 取り除いた件数を理由別（released/stale）にログへ残す。件数のみで、窓のタイトル・パスは出さない。
     private func prune() {
         let before = transitioningWindows.count
+        let nowValue = now()
+        var releasedCount = 0
+        var staleCount = 0
         transitioningWindows = transitioningWindows.filter { _, entry in
-            guard let window = entry.window else { return false }
-            return window.isVisible
+            guard entry.window != nil else {
+                releasedCount += 1
+                return false
+            }
+            if nowValue - entry.beganAt > staleAge {
+                staleCount += 1
+                return false
+            }
+            return true
+        }
+        if releasedCount > 0 || staleCount > 0 {
+            Self.logger.debug("prune: released=\(releasedCount, privacy: .public) stale=\(staleCount, privacy: .public)")
         }
         if transitioningWindows.count != before {
             fireReadyCompletions()
         }
     }
 
+    /// G54-S3e ハードニング fix round 1: ハンドラがトラッカーを再入的に操作しても
+    /// （新たな `onNextTransitionEnd` を登録する・別窓の `end`/`closeWindow` を誘発する等）
+    /// 二重発火・取りこぼしが起きないよう、「これから発火するもの(`ready`)」と
+    /// 「まだ待つもの(`remaining`)」を**先に確定**させ、`pendingCompletions` を
+    /// `remaining` へ**ハンドラを呼ぶ前に**書き換えてから `ready` を呼ぶ。こうすることで:
+    /// - ハンドラが新規登録した保留分は（`remaining` の上に）素直に積み増され、上書きで消えない。
+    /// - ハンドラが誘発した再入的な `fireReadyCompletions()` は、既に `remaining` に入れ替わった
+    ///   `pendingCompletions` を見るので、`ready` に入っているものを二重に処理しない。
     private func fireReadyCompletions() {
         guard !pendingCompletions.isEmpty else { return }
+        var ready: [(excludedID: ObjectIdentifier?, handler: () -> Void)] = []
         var remaining: [(excludedID: ObjectIdentifier?, handler: () -> Void)] = []
         for entry in pendingCompletions {
             if stillTransitioning(excluding: entry.excludedID) {
                 remaining.append(entry)
             } else {
-                entry.handler()
+                ready.append(entry)
             }
         }
-        pendingCompletions = remaining
+        pendingCompletions = remaining   // ハンドラを呼ぶ前に確定させる
+        for entry in ready {
+            entry.handler()
+        }
     }
 
-    /// テスト用: 実ウィンドウを渡して集合を直接動かす。弱参照＋`isVisible` プルーニングを検証するには
+    /// テスト用: 実ウィンドウを渡して集合を直接動かす。弱参照プルーニングを検証するには
     /// 実際に `weak` で保持できる `NSWindow` が要る——`ObjectIdentifier` だけでは弱参照を作れないため、
     /// 以前の `testBeginTransition(id:)`（任意の `NSObject` の識別子で足りた）から変更している。
     func testBeginTransition(window: NSWindow) { begin(window) }
@@ -209,11 +262,11 @@ final class FullScreenEntryDriver {
         var maxAttempts: Int = 3
         var retryInterval: TimeInterval = 0.3
         /// レビュー Important（Fix round 1）: 他窓の全画面遷移完了を待つ上限。
-        /// `FullScreenTransitionTracker`（G54-S3e ハードニングで窓ごとの弱参照集合＋クエリ時
-        /// プルーニングへ強化済み）は通知の到着順序にもアドレス再利用にも頼らず自己修復するが、
-        /// それでも「窓は生きていて可視だが AppKit が何らかの理由で `did*` を送ってこない」という
-        /// 未知の経路がゼロとは言い切れない。期限が来たら通知を待たずに進むことで、そうした場合でも
-        /// 通知待ちが無期限になることはない（プルーニングとは独立した二重の安全網）。
+        /// `FullScreenTransitionTracker`（G54-S3e ハードニングで窓ごとの弱参照集合＋クエリ時の
+        /// released/stale プルーニングへ強化済み）は通知の到着順序にもアドレス再利用にも頼らず
+        /// 自己修復するが、その自己修復自体が `staleAge`（既定 3 秒）を上限に働くものなので、
+        /// この `transitionWaitTimeout`（既定 1.5 秒）はそれとは独立に働く別の安全網——
+        /// トラッカー側の判定を待たずに、ドライバ自身の判断で通知待ちを打ち切る役目を持つ。
         var transitionWaitTimeout: TimeInterval = 1.5
     }
 

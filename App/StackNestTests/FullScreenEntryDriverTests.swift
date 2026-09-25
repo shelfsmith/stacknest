@@ -270,21 +270,22 @@ struct FullScreenEntryDriverTests {
 
 /// `FullScreenTransitionTracker` の遷移中集合・完了通知の配線。
 ///
-/// G54-S3e ハードニングで、集合の要素が「弱参照の窓＋クエリ時の `isVisible`/生死プルーニング」に
+/// G54-S3e ハードニングで、集合の要素が「弱参照の窓＋クエリ時の生死/経過時間プルーニング」に
 /// 変わったため、`testBeginTransition` は（以前の任意の `NSObject()` トークンではなく）実際の
 /// `NSWindow` を要求する。テストはユーザーの prefs に触れないテスト専用のオフスクリーン窓
-/// （`makeTrackerTestWindow()`）を使い、各窓は使い終えたら `orderOut` で画面から外す。
+/// （`makeTrackerTestWindow()`）を使う。
 ///
-/// プルーニングは「表示中である」ことも遷移中の条件に含める（`orderOut` は `willCloseNotification`
-/// を発火しないため、可視性そのものを見ないと取りこぼす経路がある）。そのため、集合の意味づけだけを
-/// 検証したいテストでも `orderFrontRegardless()` で明示的に表示してから `begin` する——表示していない
-/// 窓は `begin` した直後のクエリで（可視性プルーニングにより）即座に取り除かれてしまうため。
+/// fix round 1（controller ruling）: プルーニング条件から `isVisible` は撤回された（全画面
+/// アニメーション中の可視性反転で本当に遷移中の窓を誤って落としうるため）ので、テストの窓は
+/// 画面に出す必要が無い——`orderFrontRegardless()`/`orderOut()` の往復は不要になった。
+/// 経過時間の判定（`staleAge`）はテストの時計注入（`FullScreenTransitionTracker(staleAge:now:)`）で
+/// スリープせずに検証する。
 @MainActor
 @Suite("FullScreenTransitionTracker: 窓ごとの遷移中集合")
 struct FullScreenTransitionTrackerTests {
 
-    /// テスト専用のオフスクリーン窓。autosave 名を設定しない・タイトルも汎用のものにする等、
-    /// ユーザーの環境（prefs・ウィンドウ配置の記憶）には一切触れない。
+    /// テスト専用のオフスクリーン窓。autosave 名を設定しない・タイトルも汎用のものにする・
+    /// 一度も画面に出さない等、ユーザーの環境（prefs・ウィンドウ配置の記憶）には一切触れない。
     private func makeTrackerTestWindow() -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
@@ -312,12 +313,6 @@ struct FullScreenTransitionTrackerTests {
         let tracker = FullScreenTransitionTracker()
         let windowA = makeTrackerTestWindow()
         let windowB = makeTrackerTestWindow()
-        windowA.orderFrontRegardless()
-        windowB.orderFrontRegardless()
-        defer {
-            windowA.orderOut(nil)
-            windowB.orderOut(nil)
-        }
         let a = ObjectIdentifier(windowA)
         let b = ObjectIdentifier(windowB)
         tracker.testBeginTransition(window: windowA)
@@ -343,8 +338,6 @@ struct FullScreenTransitionTrackerTests {
     func repeatedBeginForSameWindowIsIdempotent() {
         let tracker = FullScreenTransitionTracker()
         let windowA = makeTrackerTestWindow()
-        windowA.orderFrontRegardless()
-        defer { windowA.orderOut(nil) }
         let a = ObjectIdentifier(windowA)
         tracker.testBeginTransition(window: windowA)
         tracker.testBeginTransition(window: windowA)   // 同じ窓への 2 回目の will*（idempotent）
@@ -359,8 +352,6 @@ struct FullScreenTransitionTrackerTests {
     func closingATransitioningWindowClearsItAndFiresHandlers() {
         let tracker = FullScreenTransitionTracker()
         let windowA = makeTrackerTestWindow()
-        windowA.orderFrontRegardless()
-        defer { windowA.orderOut(nil) }
         let a = ObjectIdentifier(windowA)
         tracker.testBeginTransition(window: windowA)
         var fireCount = 0
@@ -378,12 +369,6 @@ struct FullScreenTransitionTrackerTests {
         let tracker = FullScreenTransitionTracker()
         let windowA = makeTrackerTestWindow()
         let windowB = makeTrackerTestWindow()
-        windowA.orderFrontRegardless()
-        windowB.orderFrontRegardless()
-        defer {
-            windowA.orderOut(nil)
-            windowB.orderOut(nil)
-        }
         let a = ObjectIdentifier(windowA)
         let b = ObjectIdentifier(windowB)
         tracker.testBeginTransition(window: windowA)
@@ -398,8 +383,6 @@ struct FullScreenTransitionTrackerTests {
     func onNextTransitionEndExcludingOwnWindowFiresImmediately() {
         let tracker = FullScreenTransitionTracker()
         let windowA = makeTrackerTestWindow()
-        windowA.orderFrontRegardless()
-        defer { windowA.orderOut(nil) }
         let a = ObjectIdentifier(windowA)
         tracker.testBeginTransition(window: windowA)
 
@@ -422,12 +405,6 @@ struct FullScreenTransitionTrackerTests {
         let tracker = FullScreenTransitionTracker()
         let windowA = makeTrackerTestWindow()   // 自窓のつもり
         let windowB = makeTrackerTestWindow()   // 他窓のつもり
-        windowA.orderFrontRegardless()
-        windowB.orderFrontRegardless()
-        defer {
-            windowA.orderOut(nil)
-            windowB.orderOut(nil)
-        }
         let a = ObjectIdentifier(windowA)
         let b = ObjectIdentifier(windowB)
         tracker.testBeginTransition(window: windowA)
@@ -443,8 +420,9 @@ struct FullScreenTransitionTrackerTests {
 
     /// G54-S3e ハードニング: 窓が解放されたら（`will*` に対応する `did*` も `willClose` も来なくても）
     /// クエリのたびのプルーニングで集合から取り除かれ、保留中の完了ハンドラも発火すること。
-    /// `autoreleasepool` で囲み、`orderFrontRegardless()` 等 AppKit 内部が作る可能性のある
-    /// 一時的な自動解放参照までスコープの終わりで確実に排水してから検証する（デタミニスティックな解放）。
+    /// `autoreleasepool` で囲み、生成時に AppKit 内部が作る可能性のある一時的な自動解放参照まで
+    /// スコープの終わりで確実に排水してから検証する（デタミニスティックな解放。fix round 1 で
+    /// `isVisible` 条件を撤回したことで、この窓はそもそも画面に出す必要が無くなっている）。
     @Test("窓が解放されたら遷移エントリはプルーニングで消え、保留ハンドラが発火する")
     func prunesReleasedWindowAndFiresPendingHandlers() {
         let tracker = FullScreenTransitionTracker()
@@ -452,40 +430,82 @@ struct FullScreenTransitionTrackerTests {
 
         autoreleasepool {
             var window: NSWindow? = makeTrackerTestWindow()
-            window!.orderFrontRegardless()
             tracker.testBeginTransition(window: window!)
-            #expect(tracker.isTransitioning, "表示中の窓を begin した直後は遷移中であること")
+            #expect(tracker.isTransitioning, "begin 直後は遷移中であること")
 
             tracker.onNextTransitionEnd { fired = true }
             #expect(!fired, "まだ解放されていないので発火しないこと")
 
-            // AppKit は表示中の窓を内部（画面登録）で保持しているため、ARC だけで確実に解放させるには
-            // 先に orderOut で画面registry から外す必要がある（表示させたまま強参照を外すだけでは
-            // AppKit 側の内部参照が残り、この場では決定的に解放されない）。isVisible=false にも
-            // なるが、この場面で検証したいのは「弱参照が nil になる（released）」経路であり、
-            // 直後の解放そのものが本題。
-            window!.orderOut(nil)
-            window = nil   // 唯一の強参照を手放す → このスコープの終わりで確実に解放される
+            window = nil   // 唯一の強参照を手放す → 画面に出していない窓なので
+                            // AppKit 側の保持は無く、このスコープの終わりで確実に解放される
         }
 
         #expect(!tracker.isTransitioning, "解放された窓のエントリはプルーニングで取り除かれること")
         #expect(fired, "プルーニングで空になった時点で保留ハンドラが発火すること")
     }
 
-    /// G54-S3e ハードニング: `orderOut` は `willCloseNotification` を発火しない（閉じたのではなく
-    /// 隠しただけ）ので、通知だけに頼るこのトラッカーが「順序から外された＝もう遷移中とは扱えない」を
-    /// 検出できるのは `isVisible` を見るクエリ時プルーニングだけ。窓自体は解放しない
-    /// （解放によるプルーニングとは別の経路を検証するため）。
-    @Test("順序から外された（isVisible=false）窓の遷移エントリはプルーニングで消える")
-    func prunesTransitioningWindowThatIsOrderedOut() {
-        let tracker = FullScreenTransitionTracker()
+    /// G54-S3e ハードニング fix round 1（controller ruling）: `isVisible` によるプルーニングは
+    /// 撤回された（全画面アニメーション中の可視性反転で本当に遷移中の窓を誤って落としうるため）。
+    /// 代わりに `staleAge` を超えた経過時間で判定する。スリープを避けるため、偽の時計
+    /// （`FullScreenTransitionTracker(staleAge:now:)`）を注入する。
+    /// あわせて、同じ窓への 2 回目の `will*`（`begin` の再呼び出し）が `beganAt` を
+    /// リフレッシュすることも検証する——最初の `begin` からの通算では `staleAge` を超えていても、
+    /// 直近の `begin` からは超えていなければ、まだ遷移中のまま扱われること。
+    @Test("staleAge を超えて did*/willClose が来ない窓の遷移エントリはプルーニングで消える（偽の時計）")
+    func prunesStaleTransitioningWindowUsingFakeClock() {
+        var clockValue: TimeInterval = 0
+        let tracker = FullScreenTransitionTracker(staleAge: 3.0, now: { clockValue })
         let window = makeTrackerTestWindow()
-        window.orderFrontRegardless()
 
         tracker.testBeginTransition(window: window)
-        #expect(tracker.isTransitioning, "表示中の窓を begin した直後は遷移中であること")
+        #expect(tracker.isTransitioning, "begin 直後は遷移中であること")
 
-        window.orderOut(nil)   // close() ではないので willCloseNotification は来ない
-        #expect(!tracker.isTransitioning, "isVisible=false になった窓のエントリはプルーニングで取り除かれること")
+        clockValue += 2.9   // staleAge (3.0 秒) 未満はまだ壊れた遷移とみなさない
+        #expect(tracker.isTransitioning, "staleAge 未満ならまだ遷移中のまま")
+
+        // 同じ窓への 2 回目の will*（AppKit が退出アニメーション中に再試行する等）は beganAt を
+        // リフレッシュする。
+        tracker.testBeginTransition(window: window)
+        clockValue += 2.9   // 最初の begin からは通算 5.8 秒（staleAge 超過）だが、
+                            // リフレッシュ後からはまだ 2.9 秒
+        #expect(tracker.isTransitioning, "will* のリフレッシュ後は、そこからの経過時間で判定すること")
+
+        clockValue += 0.2   // リフレッシュ後から合計 3.1 秒 > staleAge(3.0 秒)
+        #expect(!tracker.isTransitioning, "リフレッシュ後も staleAge を超えたらプルーニングで取り除かれること")
+
+        withExtendedLifetime(window) {}
+    }
+
+    /// G54-S3e ハードニング fix round 1: `fireReadyCompletions()` はハンドラを呼ぶ前に
+    /// `pendingCompletions` を「まだ待つもの」へ確定させてから「発火するもの」を呼ぶ。
+    /// これにより、完了ハンドラの中から新たに `onNextTransitionEnd` を登録するという
+    /// 再入的な操作をしても、取りこぼしたり（登録が後の代入で消える）二重発火したり
+    /// （再入した `fireReadyCompletions()` が同じものをもう一度処理する）しないこと。
+    @Test("完了ハンドラの中から新たに onNextTransitionEnd を登録しても取りこぼさない・二重発火しない")
+    func fireReadyCompletionsIsSafeAgainstReentrantRegistration() {
+        let tracker = FullScreenTransitionTracker()
+        let windowA = makeTrackerTestWindow()   // 自窓のつもり（最後まで遷移中に残す）
+        let windowB = makeTrackerTestWindow()   // 他窓のつもり（先に終わる）
+        let a = ObjectIdentifier(windowA)
+        let b = ObjectIdentifier(windowB)
+        tracker.testBeginTransition(window: windowA)
+        tracker.testBeginTransition(window: windowB)
+
+        var outerFireCount = 0
+        var innerFireCount = 0
+        tracker.onNextTransitionEnd(excluding: a) {
+            outerFireCount += 1
+            // ハンドラの中から新たに登録する（再入）。A がまだ遷移中なので、これはすぐには
+            // 発火せず保留されるはず——取りこぼされていないかを後で確かめる。
+            tracker.onNextTransitionEnd { innerFireCount += 1 }
+        }
+
+        tracker.testEndTransition(id: b)   // B が終わる → outer が発火し、その中で inner を登録
+        #expect(outerFireCount == 1, "outer は 1 回だけ発火すること")
+        #expect(innerFireCount == 0, "A がまだ遷移中なので inner はまだ発火しないこと（取りこぼされてもいない）")
+
+        tracker.testEndTransition(id: a)   // A も終わる → 保留されていた inner が発火する
+        #expect(innerFireCount == 1, "保留されていた inner がここで発火すること（取りこぼされていない）")
+        #expect(outerFireCount == 1, "outer は二重発火しないこと")
     }
 }
