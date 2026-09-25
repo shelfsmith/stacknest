@@ -7,6 +7,104 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.15.0] - 2026-09-26 — Easier EPUB reading (whole-book progress, resume, volume turns in the same window), page-turn effects, a separate EPUB external viewer (Phase G54)
+
+> This release makes EPUB comfortable for everyday reading: you can see where you are in the whole book, choose
+> whether to resume, and move to the next volume without the window closing. The external viewer can be chosen for
+> EPUB separately from images, and offline books can open in external viewers too. Settings gain a
+> "Built-in viewer" tab that gathers the viewer settings and key bindings.
+
+### Added
+
+- **★ The EPUB window shows whole-book progress** ("N / M" and a progress bar), the same display as the image
+  viewer. It appears when the book opens and on page turns or mouse movement, then fades after a moment. Until the
+  whole book has been measured it reads "**計測中…**" (measuring), and the bar is estimated from the chapter position.
+  - A percentage jump made while measuring now says it moved by chapter ("計測中のため章単位で移動").
+  - The per-chapter page number (folio) under each page is now hidden by default; turn it back on with
+    "**EPUB のノンブルを表示**" (Show EPUB folio) under Settings ▸ Built-in viewer.
+- **★ Opening a partly read EPUB asks "続きから読みますか？"** (resume / start over), as image books already do.
+  A book still at its first page is not asked about.
+- **★ EPUB volume turns now stay in the same window** (previously the window closed and reopened). If the next
+  volume has a saved position, you are asked whether to resume.
+  - When the next volume is a text EPUB, **the image viewer (zip and so on) hands over to the EPUB window** (it used
+    to stop with "次の巻を開けません（0ページ）"). The EPUB window likewise hands over to an image volume.
+  - After such a switch, full screen **follows the destination's setting** ("Open full screen (images)" /
+    "Open full screen (EPUB)"). Between two full-screen windows, the new one waits until the old one has left full
+    screen, so no plain window flashes up and no alert sound plays.
+- **★ Page-turn effects** (Settings ▸ Built-in viewer ▸ "**ページ送りの演出**": none / fade / slide; default none).
+  **One setting for both the image viewer and EPUB.** It applies to turns to the adjacent page and to the slideshow,
+  not to jumps or volume changes, and is skipped while a key is held down or when Reduce Motion is on.
+- **EPUB colour theme** (Settings ▸ Built-in viewer ▸ "**EPUB の配色**": follow the system / light / dark).
+- **More ways into cover editing, per format.**
+  - "Edit cover" now works for **EPUB and PDF** (pick an image inside the EPUB, or a PDF page), remotely too.
+  - For video, the context-menu item is now "**シーンから表紙を選択…**" (Choose cover from a scene…, renamed from
+    0.14.3's "Choose a scene from the video…"), and the chosen scene **can then be cropped**. Pressing "決定"
+    (Done) without cropping uses the whole scene.
+  - "Edit cover" is now shown disabled for single image files (it only ever said the format was unsupported).
+- **Use the EPUB title at import** (Settings ▸ Import ▸ "**EPUB の題名を使う**"; off by default). It can be
+  overridden per library and set from the CLI / MCP as well, and applies only when importing (until now the EPUB
+  title was never used; the title always came from the file name).
+- **Text EPUBs in the web reader**:
+  - Pages holding a single image (cover, illustrations) are shown **full screen without margins**, letterboxed in the
+    background colour like zip books.
+  - The book's detail sheet offers "**続きから読む / 最初から**" (resume / start over) for a partly read book, as it
+    does for zip books.
+  - The top and bottom bars now float over the page like the zip reader's, and **a tap in the middle of the screen
+    shows or hides them**.
+- In a remote library, **"オフラインから削除" (Remove from offline) is now also in the list (table) view's context
+  menu**; it used to be in the grid view only.
+
+### Changed
+
+- **★ EPUB can have its own external viewer.**
+  - Under Settings ▸ Display ▸ Viewer, built-in vs external is chosen separately for "**images**" (archives, folders,
+    PDF, image files) and "**e-books (EPUB)**". If you had chosen the external viewer, EPUB stays external after the
+    update. The first-run wizard's choice sets both.
+  - The external-viewer assignments gain an "**電子書籍**" (e-book, .epub) row. EPUB used to belong to "テキスト"
+    (text) and could only use the same app as PDF. When unset, the default viewer is used.
+- **★ Offline (downloaded) books can open in the external viewer** too, for formats set to external (video
+  included). The external viewer receives a file named after **the book's title** rather than an internal number
+  (a hard link, so no extra disk space). A book whose page count the built-in viewer cannot read now falls back to
+  the external viewer, as it already did locally.
+- **Settings has a new "Built-in viewer" tab**, holding the built-in viewer settings formerly under "Display" and the
+  key bindings formerly in their own tab. Key bindings collapse per section (closed by default), and each section
+  shows how many keys differ from the defaults. The settings window no longer grows taller than the screen.
+- Updated upstream [Washi](https://github.com/shunnag/Washi) from 1.17.0 to **1.21.0**.
+  - 1.21.0 includes two fixes found while developing StackNest and sent upstream: removing the flicker at chapter
+    boundaries and image pages (a brief blank page, text reflowing after it appeared, images stretching before
+    settling) ([#9](https://github.com/shunnag/Washi/pull/9)), and showing single-image items (covers,
+    illustrations) without margins ([#10](https://github.com/shunnag/Washi/pull/10)). Thanks to
+    [shunnag](https://github.com/shunnag) for merging them.
+  - 1.19.0 makes the whole-book page count accurate (a chapter that timed out was counted as one page), and 1.18.0
+    hardens against malformed ZIPs and deeply nested XML.
+  - **Since 1.18.0, EPUBs containing two files with the same name no longer open** (an upstream safety measure).
+
+### Fixed
+
+- **The EPUB window did not remember its position and size** (it always opened centred at the default size).
+- **When the next volume cannot be opened, the window now stays** and shows "次の巻を開けません" (with
+  "（ファイルが見つかりません）" when the file is missing), so the current book remains readable. When folder access
+  permission is needed, the volume is still reopened so the permission prompt can appear.
+  - Remotely, when the next volume could not be fetched (sharing stopped, library closed, and so on), the viewer
+    said there was no next volume. It now says the volume cannot be opened.
+- **Opening a downloaded remote EPUB while the server was unreachable could overwrite the server's reading position
+  with the start of the book.** The position is no longer saved until you move.
+- Remote "Edit cover" now waits up to 60 seconds for the candidates (the server reads the whole archive, which takes
+  time for large ones), and failures are logged instead of silently leaving the list empty.
+- Images sent by the sharing server that carry **EXIF orientation** are now handled correctly: the rotation is
+  applied even when no downscaling is needed, and images whose orientation swaps width and height are no longer
+  sent without being downscaled.
+- In the web app added to the iPhone home screen, iOS 27's blur at the top edge covered a large part of the top of
+  the screen. This is reduced (the effect belongs to iOS itself, so a slight blur at the top while scrolling remains).
+
+### Known limitations
+
+- **EPUB support is still beta** (illustrations in text books do not form spreads, no full-text search or table of
+  contents, and so on; see "EPUB を読む（ベータ）" in the help).
+- **The app's interface and help are largely Japanese in this release.** An English interface and help are planned
+  for v0.16.0.
+- Reading position advanced in a remote EPUB while the server was unreachable is not sent to the server afterwards.
+
 ## [0.14.4] - 2026-09-12 — EPUB reading uses the built-in viewer's keys (Phase G51)
 
 > The EPUB window's keyboard handling was a separate world from the built-in viewer. This release brings the two
