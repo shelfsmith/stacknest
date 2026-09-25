@@ -24,7 +24,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
-        .package(url: "https://github.com/shunnag/Washi", revision: "679b5a81b6c4ee0064e5e92738ea83d4fb7d9481"),
+        .package(url: "https://github.com/shunnag/Washi", revision: "e7a3c591cb3c832f18928234511a195e57bd4973"),
     ],
     targets: [
         .target(
