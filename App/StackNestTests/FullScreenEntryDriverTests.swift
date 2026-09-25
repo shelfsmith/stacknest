@@ -267,10 +267,14 @@ struct FullScreenEntryDriverTests {
     }
 }
 
-/// `FullScreenTransitionTracker` のカウンタ・完了通知の配線。
-/// `testBeginTransition`/`testEndTransition` で実ウィンドウ無しにカウントを動かして検証する。
+/// `FullScreenTransitionTracker` の遷移中集合・完了通知の配線。
+/// `testBeginTransition(id:)`/`testEndTransition(id:)`/`testCloseWindow(id:)` で実ウィンドウ無しに
+/// 集合を動かして検証する（`ObjectIdentifier` の元は何でもよいので `NSObject()` を使う）。
+/// 注意: `NSObject()` は他から強参照されていないと関数の残りの実行中に解放されうり、解放された
+/// アドレスが次の `NSObject()` に再利用されて別々のつもりの `ObjectIdentifier` が衝突しかねない。
+/// そのため各トークンはローカル変数で保持してテスト内で生存させる（`withExtendedLifetime` 相当）。
 @MainActor
-@Suite("FullScreenTransitionTracker: 全画面遷移中カウンタ")
+@Suite("FullScreenTransitionTracker: 窓ごとの遷移中集合")
 struct FullScreenTransitionTrackerTests {
     @Test("遷移が無ければ即座に完了ハンドラを呼ぶ")
     func firesImmediatelyWhenIdle() {
@@ -280,19 +284,75 @@ struct FullScreenTransitionTrackerTests {
         #expect(fired)
     }
 
-    @Test("遷移中は完了ハンドラを保留し、カウントが 0 に戻った時点で 1 回だけ呼ぶ")
-    func firesOnceWhenCountReturnsToZero() {
+    @Test("2 つの窓が同時に遷移中なら、両方が終わるまで完了ハンドラを保留する")
+    func firesOnceWhenAllWindowsFinish() {
         let tracker = FullScreenTransitionTracker()
-        tracker.testBeginTransition()
-        tracker.testBeginTransition()   // 2 つの窓が同時に遷移中
+        let tokenA = NSObject()
+        let tokenB = NSObject()
+        let a = ObjectIdentifier(tokenA)
+        let b = ObjectIdentifier(tokenB)
+        tracker.testBeginTransition(id: a)
+        tracker.testBeginTransition(id: b)   // 2 つの窓が同時に遷移中
         var fireCount = 0
         tracker.onNextTransitionEnd { fireCount += 1 }
         #expect(fireCount == 0, "遷移が残っている間は呼ばないこと")
-        tracker.testEndTransition()
+        tracker.testEndTransition(id: a)
         #expect(fireCount == 0, "まだ 1 つ残っている間は呼ばないこと")
-        tracker.testEndTransition()
-        #expect(fireCount == 1, "カウントが 0 に戻った時点で 1 回呼ぶこと")
-        tracker.testEndTransition()   // 0 未満に落ちないこと（余分な end）
+        tracker.testEndTransition(id: b)
+        #expect(fireCount == 1, "集合が空に戻った時点で 1 回呼ぶこと")
+        tracker.testEndTransition(id: b)   // 既に無い窓の余分な end
         #expect(fireCount == 1, "余分な end で再発火しないこと")
+        withExtendedLifetime((tokenA, tokenB)) {}
+    }
+
+    /// G54-S3e smoke fix (自由記載): これが本来のバグの再現。AppKit が同じ窓に対して
+    /// `will*` を 2 回発行し（退出アニメーション中の再試行等）、対応する `did*` が 1 回しか来ない
+    /// 状況では、旧実装（無条件カウンタ）だとカウントが 1 のまま永遠に戻らず、以後すべての
+    /// 全画面化要求が `isOtherTransitionInProgress` の 1.5 秒待ちを毎回踏んでいた。
+    /// 窓ごとの集合なら、同じ窓の `will*` は重複して積まれない（Set の冪等性）ので
+    /// `did*` 1 回で空に戻る。
+    @Test("同じ窓への 2 回の will* の後、did* が 1 回来れば遷移なしに戻る")
+    func repeatedBeginForSameWindowIsIdempotent() {
+        let tracker = FullScreenTransitionTracker()
+        let tokenA = NSObject()
+        let a = ObjectIdentifier(tokenA)
+        tracker.testBeginTransition(id: a)
+        tracker.testBeginTransition(id: a)   // 同じ窓への 2 回目の will*（idempotent）
+        #expect(tracker.isTransitioning)
+        tracker.testEndTransition(id: a)     // did* は 1 回だけ
+        #expect(!tracker.isTransitioning, "同じ窓の重複 begin は 1 回の end で解消すること")
+        withExtendedLifetime(tokenA) {}
+    }
+
+    /// G54-S3e smoke fix (自由記載): 遷移の途中で窓が閉じられた場合（対応する did* が来ない）も、
+    /// `willCloseNotification` 相当の経路で集合から取り除かれ、固まらないこと。
+    @Test("遷移開始した窓が閉じられたら、遷移なしに戻り保留ハンドラが発火する")
+    func closingATransitioningWindowClearsItAndFiresHandlers() {
+        let tracker = FullScreenTransitionTracker()
+        let tokenA = NSObject()
+        let a = ObjectIdentifier(tokenA)
+        tracker.testBeginTransition(id: a)
+        var fireCount = 0
+        tracker.onNextTransitionEnd { fireCount += 1 }
+        #expect(fireCount == 0)
+        tracker.testCloseWindow(id: a)   // did* が来ないまま窓が閉じた
+        #expect(!tracker.isTransitioning, "did* を待たずに閉じた窓は取り除かれること")
+        #expect(fireCount == 1, "保留していた完了ハンドラが発火すること")
+        withExtendedLifetime(tokenA) {}
+    }
+
+    /// G54-S3e smoke fix: 自分自身が遷移中であることは、自分自身のドライバにとって
+    /// 「他の窓」ではない——`isOtherTransitionInProgress` はこれで自窓を除外する。
+    @Test("自窓の遷移は isTransitioning(excluding:) で「他」に数えない")
+    func ownWindowIsNotCountedAsOther() {
+        let tracker = FullScreenTransitionTracker()
+        let tokenA = NSObject()
+        let tokenB = NSObject()
+        let a = ObjectIdentifier(tokenA)
+        let b = ObjectIdentifier(tokenB)
+        tracker.testBeginTransition(id: a)
+        #expect(!tracker.isTransitioning(excluding: a), "自窓だけが遷移中なら「他」は無いこと")
+        #expect(tracker.isTransitioning(excluding: b), "別の窓から見れば「他」が遷移中であること")
+        withExtendedLifetime((tokenA, tokenB)) {}
     }
 }

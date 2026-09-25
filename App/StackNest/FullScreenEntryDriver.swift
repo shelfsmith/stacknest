@@ -1,23 +1,40 @@
 // SPDX-License-Identifier: MIT
 import AppKit
+import os
 
 /// G54-S3cd smoke fix: 巻送りでビューア種別が切り替わるとき（EPUB→画像ビューア／画像ビューア→EPUB）、
 /// 旧窓を閉じた直後に新窓を全画面化しようとすると AppKit が `toggleFullScreen` を無視することがある
 /// （旧窓の全画面 Space が退出アニメーション中のため）。
 ///
-/// アプリ全体で「いまどこかの窓が全画面遷移の途中か」を数えるだけの軽量トラッカー。
-/// `willEnterFullScreen`/`willExitFullScreen` で +1、対になる `didEnterFullScreen`/`didExitFullScreen` で
-/// -1 する。各窓コントローラ自身の `windowDidEnterFullScreen`（resume シート表示に使う）とは別の
-/// 独立したオブザーバなので、既存の表示順序には影響しない。
+/// アプリ全体で「いまどの窓が全画面遷移の途中か」を窓ごとに持つ軽量トラッカー。
+/// `willEnterFullScreen`/`willExitFullScreen` でその窓を集合へ挿入、対になる
+/// `didEnterFullScreen`/`didExitFullScreen` で取り除く。各窓コントローラ自身の
+/// `windowDidEnterFullScreen`（resume シート表示に使う）とは別の独立したオブザーバなので、
+/// 既存の表示順序には影響しない。
+///
+/// G54-S3e smoke fix (自由記載): 以前は窓を区別しない単純なカウンタだった。`will*` に対応する `did*`
+/// が来ない場面（窓が全画面のまま閉じられた／退出アニメーション中に AppKit が遷移を中断し再試行した）では
+/// カウントが 0 に戻らず、以後ずっと `isOtherTransitionInProgress` が真になり続け、巻送りのたびに
+/// 1.5 秒待ってから通常表示→全画面という劣化した見え方になっていた（`FullScreenEntryDriver.Config.
+/// transitionWaitTimeout`）。窓ごとの `Set<ObjectIdentifier>` にすることで、同じ窓への重複した `will*` は
+/// 冪等（集合への再挿入）になり、`NSWindow.willCloseNotification` でも取り除くことで「did* が永遠に来ない」
+/// 経路を塞ぐ。
 @MainActor
 final class FullScreenTransitionTracker {
     static let shared = FullScreenTransitionTracker()
 
-    private(set) var transitioningCount = 0
+    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FullScreen")
+
+    private(set) var transitioningWindows: Set<ObjectIdentifier> = []
     private var completionHandlers: [() -> Void] = []
     private var observers: [NSObjectProtocol] = []
 
-    var isTransitioning: Bool { transitioningCount > 0 }
+    var isTransitioning: Bool { !transitioningWindows.isEmpty }
+
+    /// `excluding` の窓自身は「他の窓」に数えない——自窓の遷移で自窓のドライバが待つのを防ぐ。
+    func isTransitioning(excluding id: ObjectIdentifier) -> Bool {
+        transitioningWindows.contains { $0 != id }
+    }
 
     init() {
         let nc = NotificationCenter.default
@@ -25,20 +42,38 @@ final class FullScreenTransitionTracker {
         // `using:` クロージャの型自体は `@Sendable`（非隔離）なので、コンパイラは MainActor 隔離の
         // `begin()`/`end()` をここから直接は呼ばせない。`MainActor.assumeIsolated` で
         // 「実際にはメインスレッドで呼ばれる」という事実を型に伝える。
+        // レビュー Minor（G54-S3e smoke fix）: `Notification`/`NSWindow` は非 Sendable なので、
+        // `MainActor.assumeIsolated` の隔離クロージャへそのまま渡すと「sending risks causing data
+        // races」で弾かれる。`ObjectIdentifier`（Sendable な値型）だけを隔離前に取り出して渡す。
         observers = [
-            nc.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.begin() }
+            nc.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: nil, queue: .main) { [weak self] note in
+                guard let id = Self.windowID(note) else { return }
+                MainActor.assumeIsolated { self?.begin(id) }
             },
-            nc.addObserver(forName: NSWindow.willExitFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.begin() }
+            nc.addObserver(forName: NSWindow.willExitFullScreenNotification, object: nil, queue: .main) { [weak self] note in
+                guard let id = Self.windowID(note) else { return }
+                MainActor.assumeIsolated { self?.begin(id) }
             },
-            nc.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.end() }
+            nc.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: nil, queue: .main) { [weak self] note in
+                guard let id = Self.windowID(note) else { return }
+                MainActor.assumeIsolated { self?.end(id) }
             },
-            nc.addObserver(forName: NSWindow.didExitFullScreenNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.end() }
+            nc.addObserver(forName: NSWindow.didExitFullScreenNotification, object: nil, queue: .main) { [weak self] note in
+                guard let id = Self.windowID(note) else { return }
+                MainActor.assumeIsolated { self?.end(id) }
+            },
+            // G54-S3e smoke fix: did* を待たずに窓が閉じられた場合の取りこぼし対策。
+            nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] note in
+                guard let id = Self.windowID(note) else { return }
+                MainActor.assumeIsolated { self?.closeWindow(id) }
             },
         ]
+    }
+
+    /// `note.object` を `NSWindow` として `ObjectIdentifier` に落とす。`nonisolated` のままでよい
+    /// （オブジェクトの同一性を読むだけで、隔離されたプロパティには触れない）。
+    private nonisolated static func windowID(_ note: Notification) -> ObjectIdentifier? {
+        (note.object as? NSWindow).map(ObjectIdentifier.init)
     }
 
     @MainActor
@@ -58,21 +93,35 @@ final class FullScreenTransitionTracker {
         completionHandlers.append(handler)
     }
 
-    private func begin() {
-        transitioningCount += 1
+    private func begin(_ id: ObjectIdentifier) {
+        transitioningWindows.insert(id)
+        Self.logger.debug("begin: transitioning=\(self.transitioningWindows.count, privacy: .public)")
     }
 
-    private func end() {
-        transitioningCount = max(0, transitioningCount - 1)
-        guard transitioningCount == 0, !completionHandlers.isEmpty else { return }
+    private func end(_ id: ObjectIdentifier) {
+        transitioningWindows.remove(id)
+        Self.logger.debug("end: transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        fireCompletionHandlersIfIdle()
+    }
+
+    private func closeWindow(_ id: ObjectIdentifier) {
+        transitioningWindows.remove(id)
+        Self.logger.debug("close: transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        fireCompletionHandlersIfIdle()
+    }
+
+    private func fireCompletionHandlersIfIdle() {
+        guard transitioningWindows.isEmpty, !completionHandlers.isEmpty else { return }
         let handlers = completionHandlers
         completionHandlers.removeAll()
         for h in handlers { h() }
     }
 
-    /// テスト用: カウントを直接動かす（実ウィンドウ無しで「遷移中」を作るため）。
-    func testBeginTransition() { begin() }
-    func testEndTransition() { end() }
+    /// テスト用: 集合を直接動かす（実ウィンドウ無しで「遷移中」を作るため）。
+    /// `id` の元は何でもよい（`ObjectIdentifier(NSObject())` 等）——同一性だけを使う。
+    func testBeginTransition(id: ObjectIdentifier) { begin(id) }
+    func testEndTransition(id: ObjectIdentifier) { end(id) }
+    func testCloseWindow(id: ObjectIdentifier) { closeWindow(id) }
 }
 
 /// G54-S3cd smoke fix: 「全画面化を要求 → 検証 → 必要なら待つ／リトライ」の決定ロジック。
@@ -122,12 +171,15 @@ final class FullScreenEntryDriver {
     }
 
     /// 便利イニシャライザ: 実際の `NSWindow` とアプリ共有のトラッカーを使う。
+    /// G54-S3e smoke fix: `isOtherTransitionInProgress` は自分が駆動している窓自身を除外する
+    /// （`ObjectIdentifier` は値なので窓を強参照しない——弱参照の `window` とは別に保持してよい）。
     convenience init(window: NSWindow, config: Config = Config(),
                       tracker: FullScreenTransitionTracker = .shared) {
+        let windowID = ObjectIdentifier(window)
         self.init(
             config: config,
             isFullScreen: { [weak window] in window?.styleMask.contains(.fullScreen) ?? true },
-            isOtherTransitionInProgress: { tracker.isTransitioning },
+            isOtherTransitionInProgress: { tracker.isTransitioning(excluding: windowID) },
             toggle: { [weak window] in window?.toggleFullScreen(nil) },
             // レビュー Minor: `block`（`() -> Void`）は非 Sendable なので、そのまま `asyncAfter(execute:)`
             // （`@Sendable` を要求）へは渡せない。実行は必ずメインスレッドなので `MainActor.assumeIsolated`
