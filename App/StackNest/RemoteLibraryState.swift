@@ -40,6 +40,10 @@ final class RemoteLibraryState {
     /// Phase 4.2b-2 Task 4: オフライン保存ストア（既定の Application Support ベース）。
     private let offlineStore = OfflineStore()
 
+    /// G54-S3e（spec §2.1-6）: 巻送りの判定で取った次の巻の manifest（本の ID と組・1 回限り）。
+    /// `openViewer` はそれが同じ本のものなら取り直さずに使う。
+    @ObservationIgnored private var manifestHandoff = OneShotHandoff<ManifestDTO>()
+
     /// オフライン DL/削除のたびに &+=1 する観測カウンタ。
     /// OfflineStore はディスクから読むため SwiftUI が直接観測できない。
     /// ビュー body で参照させ、ダウンロード済みバッジを再評価させるためのトリガ。
@@ -1858,7 +1862,7 @@ final class RemoteLibraryState {
                let reader = EPUBAdapter.reader {
                 let localURL = self.offlineStore.fileURL(for: dl)
                 if (try? await reader.openImageBook(url: localURL)) == nil {
-                    let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
+                    let m = await self.manifestForOpening(bookID: book.id)
                     // G54-S3e: manifest が取れなければ先頭から開くが、利用者が動くまでサーバへ保存しない。
                     await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag,
                                                     localFile: localURL, resumeDirect: resumeDirect,
@@ -1878,8 +1882,8 @@ final class RemoteLibraryState {
                 // 落ちると「破損していない本」として開いて位置を書き戻していた。
                 // 取れなかったときは**開かない** — 「破損していないことにして開く」は
                 // まさに守ろうとしている読書位置を壊す側の失敗なので、fail safe に倒す。
-                guard let m = try? await self.client.manifest(
-                    libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken) else {
+                // G54-S3e: 巻送りの判定で取ったばかりの manifest があればそれを使う（2 回目だけ落ちて窓を失わない）。
+                guard let m = await self.manifestForOpening(bookID: book.id) else {
                     self.errorText = "本を開けませんでした"
                     ViewerWindowRegistry.shared.cancelOpen(identity)
                     return
@@ -2183,6 +2187,7 @@ final class RemoteLibraryState {
     /// 判定は DL 済みならそのファイル、無ければ manifest（`RemoteEPUBRouting`）。
     /// 未ダウンロードで manifest が取れなければ今の本のまま（`SiblingVolumeKind.remoteDecision`）。
     /// トークン失効（`.libraryLocked`）は書庫側の既存の処理（施錠・パスワードを求める）へ送り、今の本のまま。
+    /// G54-S3e: 取り込み済みでテキスト以外なら manifest を取らない。開き直すときは取った manifest を引き継ぐ。
     private func resolveRemoteEPUBSibling(after bookID: Int, direction: EPUBReaderWindowController.SiblingDirection)
         async -> EPUBReaderWindowController.SiblingResolution {
         let dto: BookListItemDTO?
@@ -2205,24 +2210,23 @@ final class RemoteLibraryState {
         }
         let localFile = downloaded.map { offlineStore.fileURL(for: $0) }
             .flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
-        // 位置の初期値と（未 DL なら）判定の両方に manifest を使う（初回オープンと同じ）。
-        let m: ManifestDTO?
-        do {
-            m = try await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken)
-        } catch let e as RemoteClientError {
-            if case .libraryLocked = e {
-                presentRemoteError(e)
-                return .failed
-            }
-            m = nil
-        } catch {
-            m = nil
-        }
         let localKind: SiblingVolumeKind?
         if let localFile {
             localKind = await SiblingVolumeKind.probeLocal(path: localFile.path, reader: EPUBAdapter.reader).kind
         } else {
             localKind = nil
+        }
+        // G54-S3e（spec §2.1-7）: 取り込み済みでテキスト以外なら `.reopen` に決まる。開き直した先は手元のファイルで
+        // 読むので manifest は要らない。
+        guard SiblingVolumeKind.remoteNeedsManifest(localKind: localKind) else {
+            return .reopen(Self.makeBookRow(from: dto))
+        }
+        // 位置の初期値と（未 DL なら）判定の両方に manifest を使う（初回オープンと同じ）。
+        let m: ManifestDTO?
+        switch await fetchSiblingManifest(dto.id) {
+        case .locked: return .failed
+        case .unavailable: m = nil
+        case .fetched(let got): m = got
         }
         switch SiblingVolumeKind.remoteDecision(localKind: localKind, manifestFetched: m != nil,
                                                 filename: dto.filename, manifestFormat: m?.format) {
@@ -2230,6 +2234,8 @@ final class RemoteLibraryState {
             Self.epubLog.warning("resolveRemoteEPUBSibling: manifest unavailable bookID=\(dto.id, privacy: .public)")
             return .failed
         case .reopen:
+            // G54-S3e（spec §2.1-6）: 開き直す側（openViewer）が取り直さないよう、判定に使った manifest を引き継ぐ。
+            if let m { manifestHandoff.put(id: dto.id, value: m) }
             return .reopen(Self.makeBookRow(from: dto))
         case .swap:
             break
@@ -2297,21 +2303,60 @@ final class RemoteLibraryState {
         )
     }
 
+    /// G54-S3e: 次の巻の manifest を取った結果。錠の失効は `presentRemoteError` 済み（呼び出し側は留まるだけ）。
+    private enum SiblingManifest {
+        case fetched(ManifestDTO)
+        case unavailable
+        case locked
+    }
+
+    /// G54-S3e: 次の巻の manifest を取る（画像ビューアの巻送りと EPUB の窓の巻送りで同じ扱いにする）。
+    private func fetchSiblingManifest(_ bookID: Int) async -> SiblingManifest {
+        do {
+            return .fetched(try await client.manifest(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken))
+        } catch let e as RemoteClientError {
+            if case .libraryLocked = e {
+                presentRemoteError(e)
+                return .locked
+            }
+            return .unavailable
+        } catch {
+            return .unavailable
+        }
+    }
+
+    /// G54-S3e（spec §2.1-6）: 本を開くときの manifest。巻送りの判定で取ったばかりのもの（同じ本・1 回限り）が
+    /// あればそれを使い、無ければ取る。2 回取ると 2 回目だけ失敗して、窓を閉じた後に開けなくなる。
+    private func manifestForOpening(bookID: Int) async -> ManifestDTO? {
+        if let handed = manifestHandoff.take(id: bookID) { return handed }
+        return try? await client.manifest(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken)
+    }
+
     /// G54-S3cd 最終レビュー Minor: 画像ビューアの `onOpenInEPUBReader` と EPUB の窓の `openSibling` は
     /// どちらも「次の巻を所有者の通常の経路（openBookByID）で開き直す」だけの同じ中身なので、ここへ集約する。
     private func reopenSiblingThroughTheOwner(_ row: BookRow) {
         Task { await openBookByID(row.id, resumeDirect: false) }
     }
 
-    /// 隣接巻をサーバから解決し NextVolume を組む。該当なし/失敗は nil。
+    /// 隣接巻をサーバから解決し NextVolume を組む。該当なしは nil。
     /// content は RemoteBookContent（ストリーミング）なので未 DL の巻でも再生できる。
     /// G54-S3c: 次の巻がテキスト EPUB なら `.openInEPUBReader`。
+    /// G54-S3e: 錠の失効は書庫側へ送って留まる（`.unavailable(nil)`）。manifest が取れない未 DL の巻は
+    /// 「開けません」で留まる（以前は nil ＝「次の巻なし」）。テキスト EPUB へ渡すときは manifest を引き継ぐ。
     private func resolveRemoteVolume(after bookID: Int, direction: String) async -> VolumeLoad? {
+        let forward = direction == "next"
         let dto: BookListItemDTO?
         do {
             dto = try await client.adjacentVolume(
                 libraryUUID: libraryUUID, bookID: bookID,
                 direction: direction, libraryToken: libraryToken)
+        } catch let e as RemoteClientError {
+            // G54-S3e（spec §2.1-5）: EPUB の窓（`resolveRemoteEPUBSibling`）と揃える。
+            if case .libraryLocked = e {
+                presentRemoteError(e)
+                return .unavailable(note: nil)
+            }
+            return nil
         } catch {
             return nil
         }
@@ -2326,12 +2371,15 @@ final class RemoteLibraryState {
         // （pageCount / damageNote / override / etag）を束で持ち回る。damageNote だけ別リクエストに
         // すると、巻送り先が破損本のときに「破損していない」と誤認して位置を書き戻しうる。
         var snapshot: RemoteBookSnapshot?
-        var manifestFormat: String?
+        var manifest: ManifestDTO?
         if offlineEntry == nil {
-            if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
+            switch await fetchSiblingManifest(dto.id) {
+            case .locked: return .unavailable(note: nil)
+            case .unavailable: break
+            case .fetched(let m):
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
                 snapshot = RemoteBookSnapshot(manifest: m)
-                manifestFormat = m.format
+                manifest = m
             }
         }
         // G54-S3c: DL 済みのテキスト EPUB は BookContentFactory が同期で成功してしまう（0 ページで止まる）ので先に見分ける。
@@ -2361,18 +2409,25 @@ final class RemoteLibraryState {
         // （offlineEntry == nil の通常経路は既にフェッチ済みなので二重フェッチしない＝共通経路に
         // 追加のネットワーク往復は発生しない）。
         if offlineEntry != nil, snapshot == nil {
-            if let m = try? await client.manifest(libraryUUID: libraryUUID, bookID: dto.id, libraryToken: libraryToken) {
+            switch await fetchSiblingManifest(dto.id) {
+            case .locked: return .unavailable(note: nil)
+            case .unavailable: break
+            case .fetched(let m):
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
                 snapshot = RemoteBookSnapshot(manifest: m)
-                manifestFormat = m.format
+                manifest = m
             }
         }
-        // G26 Codex Important #3: manifest が取れなければ次巻は開かない（nil ＝隣接巻なし扱い →
-        // ビューアは「次の巻を開けません」で止まる）。ページ数も破損判定も分からないまま開くと、
-        // 打ち切りゲートが無効な状態で読書位置を書き戻すことになる。
-        guard let snapshot else { return nil }
+        // G26 Codex Important #3: manifest が取れなければ次巻は開かない。ページ数も破損判定も分からないまま
+        // 開くと、打ち切りゲートが無効な状態で読書位置を書き戻すことになる。
+        // G54-S3e（spec §2.1-5）: 窓は閉じずに「開けません」（以前は nil ＝「次の巻なし」と誤って出ていた）。
+        guard let snapshot, let manifest else {
+            return .unavailable(note: VolumeHandover.unavailableNote(forward: forward))
+        }
         // G54-S3c: テキスト EPUB はページ経路が無い（manifest の pageCount は 0）。EPUB の窓へ渡す。
-        if SiblingVolumeKind.remote(filename: dto.filename, manifestFormat: manifestFormat) == .textEPUB {
+        if SiblingVolumeKind.remote(filename: dto.filename, manifestFormat: manifest.format) == .textEPUB {
+            // G54-S3e（spec §2.1-6）: 開く側（openViewer）が取り直さないよう、判定に使った manifest を引き継ぐ。
+            manifestHandoff.put(id: dto.id, value: manifest)
             return .openInEPUBReader(Self.makeBookRow(from: dto))
         }
         let state = ResolvedViewerState(

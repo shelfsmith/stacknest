@@ -55,6 +55,13 @@ public enum SiblingVolumeKind: Equatable, Sendable {
         return kind == .textEPUB ? .swap : .reopen
     }
 
+    /// G54-S3e（spec §2.1-7）: リモートの EPUB の窓で、次（前）の巻の manifest を取る必要があるか。
+    /// 取り込み済みでテキスト以外（`remoteDecision` が manifest に関係なく `.reopen` を返す）なら要らない —
+    /// 開き直した先は手元のファイルで読むので、使わない manifest を取らない。
+    public static func remoteNeedsManifest(localKind: SiblingVolumeKind?) -> Bool {
+        localKind != .other
+    }
+
     /// ローカル・オフラインのファイルを確かめる。.epub のときだけ `openImageBook` を呼ぶ。
     /// 画像本なら開いた handle も返す（画像ビューアの巻送りで同じ本を 2 回開かないため）。
     public static func probeLocal(path: String?, reader: (any EPUBReading)?)

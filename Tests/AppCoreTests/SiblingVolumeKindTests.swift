@@ -112,4 +112,21 @@ struct SiblingVolumeKindTests {
         #expect(SiblingVolumeKind.remoteDecision(localKind: nil, manifestFetched: true,
                                                  filename: "b.epub", manifestFormat: "epub") == .swap)
     }
+
+    /// G54-S3e（spec §2.1-7）: 取り込み済みでテキスト以外（`.reopen` に決まる）なら manifest は要らない。
+    @Test func manifestIsNotNeededForADownloadedNonTextSibling() {
+        #expect(SiblingVolumeKind.remoteNeedsManifest(localKind: .other) == false)
+        #expect(SiblingVolumeKind.remoteNeedsManifest(localKind: .textEPUB) == true)   // 初期位置に要る
+        #expect(SiblingVolumeKind.remoteNeedsManifest(localKind: nil) == true)         // 判定に要る
+    }
+
+    /// 取らずに済ませても判定は変わらない（取り込み済みならファイルが正で、manifest の有無に関係なく `.reopen`）。
+    @Test func skippingTheManifestDoesNotChangeTheDecision() {
+        for fetched in [true, false] {
+            for format in ["epub", "archive", nil] as [String?] {
+                #expect(SiblingVolumeKind.remoteDecision(localKind: .other, manifestFetched: fetched,
+                                                         filename: "b.epub", manifestFormat: format) == .reopen)
+            }
+        }
+    }
 }
