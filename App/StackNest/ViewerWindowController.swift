@@ -14,6 +14,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// `nonisolated`: G18 C2 の off-main `loadImage`（nonisolated static func）から参照するため。
     /// `Logger` は値型・スレッドセーフに設計されており MainActor 隔離は不要。
     private nonisolated static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Viewer")
+    /// G54-S3e beep 診断: `.notice`（`log show` で追える）。タグは呼び出し箇所ごとに異なる
+    /// （"fs.fail"・"present"）。件数・真偽値・クラス名だけで、パス・題名は出さない。
+    private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
 
     private var content: BookContent
     private var book: BookRow
@@ -269,11 +272,14 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         self.storedLastPage = initialState.lastPage
         self.damageNote = damageNote
 
-        let window = NSWindow(
+        // G54-S3e beep 診断: `DiagnosticViewerWindow`（`noResponder(for:)` フック）を使う。
+        // 窓の構成（styleMask・frame 等）は従来と同一。
+        let window = DiagnosticViewerWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 760),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
+        window.diagnosticKind = "image"
         window.collectionBehavior.insert(.fullScreenPrimary)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -400,6 +406,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     func present() {
         window?.center()
         showWindow(nil)
+        // G54-S3e beep 診断: showWindow 直後の状態を記録する（firstResponder はクラス名だけ）。
+        let firstResponderClass = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        Self.diagLogger.notice("present kind=image openFullScreen=\(ViewerSettings.shared.openFullScreenByDefault, privacy: .public) firstResponder=\(firstResponderClass, privacy: .public)")
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         startCacheCoverageUpdatesIfRemote()
@@ -1463,6 +1472,16 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // 全画面遷移完了後に resume ダイアログを表示する（present() での同期呼び出しを回避）。
         // didShowResumeDialog ガードにより、手動の ctrl-cmd-F 時や再表示時には発火しない。
         showResumeDialogIfNeeded()
+    }
+
+    /// G54-S3e beep 診断: AppKit が全画面遷移を失敗させた経路（`will*` は来たが `did*` が来ない）を
+    /// 記録する。対応する通知が無いため、ログだけ残して他は何もしない（リトライは足さない）。
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        Self.diagLogger.notice("fs.fail enter kind=image")
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        Self.diagLogger.notice("fs.fail exit kind=image")
     }
 
     func windowDidResize(_ notification: Notification) {

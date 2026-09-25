@@ -4,12 +4,16 @@ import SwiftUI
 import AppCore
 import EPUBAdapter
 import LibraryStore
+import OSLog
 
 /// G48-2: EPUB 用の 2 つ目の窓。契約 `EPUBReaderViewing` の view を載せるだけで、Washi は知らない。
 /// G51: キーは**この窓**が共有の割り当て表（`ViewerKeyBindings`）で解決して契約経由で実行する
 /// （画像ビューアの `ViewerWindowController.handleKey` / `perform` と同じ作法）。
 @MainActor
 final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, ViewerWindowControlling {
+    /// G54-S3e beep 診断: `.notice`（`log show` で追える）。タグは呼び出し箇所ごとに異なる
+    /// （"fs.fail"・"present"）。件数・真偽値・クラス名だけで、パス・題名は出さない。
+    private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
     // レビュー申し送り #1: 返ってきた `any EPUBReaderViewing` は窓が強参照で保持する。
     // `.view` だけ持つと Washi の delegate（weak）経由の位置変化通知が消える。
     private var reader: any EPUBReaderViewing
@@ -143,9 +147,12 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         self.suppressResumeDialog = suppressResumeDialog
         self.persist = persist
         self.persistGate = EPUBInitialPersistGate(holdUntilMoved: holdsPersistUntilMoved)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1100),
+        // G54-S3e beep 診断: `DiagnosticViewerWindow`（`noResponder(for:)` フック）を使う。
+        // 窓の構成（styleMask・frame 等）は従来と同一。
+        let window = DiagnosticViewerWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1100),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
+        window.diagnosticKind = "epub"
         window.title = book.title
         // G51: 全画面（緑ボタン・toggleFullScreen）を許可する。
         window.collectionBehavior.insert(.fullScreenPrimary)
@@ -229,6 +236,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// （画像ビューアと同じ理由＝遷移とシートのレースを避ける）。
     func present() {
         showWindow(nil)
+        // G54-S3e beep 診断: showWindow 直後の状態を記録する（firstResponder はクラス名だけ）。
+        let firstResponderClass = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+        Self.diagLogger.notice("present kind=epub openFullScreen=\(self.settings.openEPUBFullScreenByDefault, privacy: .public) firstResponder=\(firstResponderClass, privacy: .public)")
         guard settings.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) else {
             showResumeDialogIfNeeded()
             return
@@ -247,6 +257,16 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// 全画面遷移の完了後に再開シートを出す（`didShowResumeDialog` があるので手動の全画面では出ない）。
     func windowDidEnterFullScreen(_ notification: Notification) {
         showResumeDialogIfNeeded()
+    }
+
+    /// G54-S3e beep 診断: AppKit が全画面遷移を失敗させた経路（`will*` は来たが `did*` が来ない）を
+    /// 記録する。対応する通知が無いため、ログだけ残して他は何もしない（リトライは足さない）。
+    func windowDidFailToEnterFullScreen(_ window: NSWindow) {
+        Self.diagLogger.notice("fs.fail enter kind=epub")
+    }
+
+    func windowDidFailToExitFullScreen(_ window: NSWindow) {
+        Self.diagLogger.notice("fs.fail exit kind=epub")
     }
 
     /// G48-2 最終レビュー D: dedup で既存窓を前面化するとき、アプリが非アクティブだと窓だけ前に出て

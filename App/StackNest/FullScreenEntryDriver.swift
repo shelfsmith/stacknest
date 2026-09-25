@@ -43,7 +43,9 @@ final class FullScreenTransitionTracker {
     /// 全画面遷移のアニメーションは通常 1 秒未満で終わるので、これより十分長い値にしてある。
     static let defaultStaleAge: TimeInterval = 3.0
 
-    private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FullScreen")
+    /// G54-S3e beep 診断: `log show` で追えるよう `.notice`（`.debug` は永続化されない）。
+    /// タグ "fs.tracker" で grep できる。件数・真偽値・通知種別だけ（窓のタイトル・パスは出さない）。
+    private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
 
     /// 遷移中と見なしている窓への弱参照＋開始時刻。トラッカーは AppKit 通知に応じてだけ生きる
     /// 補助オブジェクトなので、窓を強参照して生存期間を延ばしてはいけない。
@@ -95,24 +97,31 @@ final class FullScreenTransitionTracker {
         observers = [
             nc.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: nil, queue: .main) { [weak self] note in
                 guard let box = Self.windowBox(note) else { return }
-                MainActor.assumeIsolated { self?.begin(box.window) }
+                MainActor.assumeIsolated { self?.begin(box.window, source: "willEnter") }
             },
             nc.addObserver(forName: NSWindow.willExitFullScreenNotification, object: nil, queue: .main) { [weak self] note in
                 guard let box = Self.windowBox(note) else { return }
-                MainActor.assumeIsolated { self?.begin(box.window) }
+                MainActor.assumeIsolated { self?.begin(box.window, source: "willExit") }
             },
             nc.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: nil, queue: .main) { [weak self] note in
                 guard let id = Self.windowID(note) else { return }
-                MainActor.assumeIsolated { self?.end(id) }
+                MainActor.assumeIsolated { self?.end(id, source: "didEnter") }
             },
             nc.addObserver(forName: NSWindow.didExitFullScreenNotification, object: nil, queue: .main) { [weak self] note in
                 guard let id = Self.windowID(note) else { return }
-                MainActor.assumeIsolated { self?.end(id) }
+                MainActor.assumeIsolated { self?.end(id, source: "didExit") }
             },
             // G54-S3e smoke fix: did* を待たずに窓が閉じられた場合の取りこぼし対策。
+            // G54-S3e beep 診断: 「閉じた窓が全画面のままだったか」も窓自身（box.window）から読む
+            // ——集合に入っているかどうかとは独立に、beep の手がかりとして残す。
             nc.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { [weak self] note in
-                guard let id = Self.windowID(note) else { return }
-                MainActor.assumeIsolated { self?.closeWindow(id) }
+                guard let box = Self.windowBox(note) else { return }
+                // `styleMask` は MainActor 隔離のプロパティなので、`assumeIsolated` の中で読む。
+                MainActor.assumeIsolated {
+                    let id = ObjectIdentifier(box.window)
+                    let wasFullScreen = box.window.styleMask.contains(.fullScreen)
+                    self?.closeWindow(id, wasFullScreen: wasFullScreen)
+                }
             },
         ]
     }
@@ -158,21 +167,25 @@ final class FullScreenTransitionTracker {
         return transitioningWindows.keys.contains { $0 != excludedID }
     }
 
-    private func begin(_ window: NSWindow) {
+    /// - Parameter source: どの通知から呼ばれたか（"willEnter"/"willExit"、テスト経由なら既定の "test"）。
+    ///   ログのタグにしか使わない。
+    private func begin(_ window: NSWindow, source: String = "test") {
         // 同じ窓への 2 回目以降の will*（辞書キーの上書き）は beganAt も更新する＝リフレッシュされる。
         transitioningWindows[ObjectIdentifier(window)] = WeakWindow(window: window, beganAt: now())
-        Self.logger.debug("begin: transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        Self.diagLogger.notice("fs.tracker begin notification=\(source, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
     }
 
-    private func end(_ id: ObjectIdentifier) {
+    private func end(_ id: ObjectIdentifier, source: String = "test") {
         transitioningWindows.removeValue(forKey: id)
-        Self.logger.debug("end: transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        Self.diagLogger.notice("fs.tracker end notification=\(source, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
         fireReadyCompletions()
     }
 
-    private func closeWindow(_ id: ObjectIdentifier) {
+    /// - Parameter wasFullScreen: 閉じる窓自身（呼び出し側が通知の object から直接読む）が、
+    ///   閉じる時点で全画面 styleMask を持っていたか。beep 診断の手がかり（テスト経由の既定は false）。
+    private func closeWindow(_ id: ObjectIdentifier, wasFullScreen: Bool = false) {
         transitioningWindows.removeValue(forKey: id)
-        Self.logger.debug("close: transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        Self.diagLogger.notice("fs.tracker close wasFullScreen=\(wasFullScreen, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
         fireReadyCompletions()
     }
 
@@ -206,7 +219,7 @@ final class FullScreenTransitionTracker {
             return true
         }
         if releasedCount > 0 || staleCount > 0 {
-            Self.logger.debug("prune: released=\(releasedCount, privacy: .public) stale=\(staleCount, privacy: .public)")
+            Self.diagLogger.notice("fs.tracker prune released=\(releasedCount, privacy: .public) stale=\(staleCount, privacy: .public)")
         }
         if transitioningWindows.count != before {
             fireReadyCompletions()
@@ -258,6 +271,13 @@ final class FullScreenTransitionTracker {
 ///    （`maxAttempts` 回まで）。
 @MainActor
 final class FullScreenEntryDriver {
+    /// G54-S3e beep 診断: `.notice`（`log show` で追える）・タグ "fs.driver"。
+    private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
+    /// 1 回の窓オープンにつき 1 個作られる `FullScreenEntryDriver` を、ログの上でグループ化するための
+    /// 短い連番。値そのものに意味は無い（本の ID・窓のタイトルではない）。
+    private static var nextDriverID = 0
+    private let driverID: Int
+
     struct Config {
         var maxAttempts: Int = 3
         var retryInterval: TimeInterval = 0.3
@@ -292,6 +312,8 @@ final class FullScreenEntryDriver {
         self.toggle = toggle
         self.schedule = schedule
         self.observeTransitionEnd = observeTransitionEnd
+        Self.nextDriverID += 1
+        self.driverID = Self.nextDriverID
     }
 
     /// 便利イニシャライザ: 実際の `NSWindow` とアプリ共有のトラッカーを使う。
@@ -325,6 +347,12 @@ final class FullScreenEntryDriver {
         guard !isRunning else { return }
         isRunning = true
         attemptsUsed = 0
+        // G54-S3e beep 診断: 開始時点の判断材料（既に全画面か／他窓が遷移中か）を記録する。
+        // 直後に proceed() が同じ 2 つを読み直すが、ログ専用の追加呼び出しは副作用が無い
+        // （isOtherTransitionInProgress はトラッカーの自己修復クエリで冪等）。
+        let alreadyFullScreen = isFullScreen()
+        let otherInProgress = isOtherTransitionInProgress()
+        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) start alreadyFullScreen=\(alreadyFullScreen, privacy: .public) otherTransitionInProgress=\(otherInProgress, privacy: .public)")
         proceed()
     }
 
@@ -341,6 +369,7 @@ final class FullScreenEntryDriver {
         }
         if attemptsUsed >= config.maxAttempts {
             isRunning = false
+            Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) giveUp attempts=\(self.attemptsUsed, privacy: .public)")
             return
         }
         if attemptsUsed == 0 && isOtherTransitionInProgress() {
@@ -355,14 +384,18 @@ final class FullScreenEntryDriver {
     /// 通知を待たずに `attemptToggle()` へ進むので、待ちが無期限になることはない。
     /// 両方が来ても二重に進まないよう `hasProceeded` フラグで 1 回だけに絞る。
     private func waitForOtherTransitionThenToggle() {
+        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) wait begin")
         var hasProceeded = false
-        let proceedOnce: () -> Void = { [weak self] in
+        let proceedOnce: (String) -> Void = { [weak self] source in
             guard !hasProceeded else { return }
             hasProceeded = true
+            if let self {
+                Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) wait end source=\(source, privacy: .public)")
+            }
             self?.attemptToggle()
         }
-        observeTransitionEnd(proceedOnce)
-        schedule(config.transitionWaitTimeout, proceedOnce)
+        observeTransitionEnd { proceedOnce("transitionEnd") }
+        schedule(config.transitionWaitTimeout) { proceedOnce("timeout") }
     }
 
     private func attemptToggle() {
@@ -374,16 +407,46 @@ final class FullScreenEntryDriver {
             return
         }
         attemptsUsed += 1
+        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) attemptToggle attempt=\(self.attemptsUsed, privacy: .public)")
         toggle()
         schedule(config.retryInterval) { [weak self] in self?.verify() }
     }
 
     private func verify() {
         guard isRunning else { return }
-        if isFullScreen() {
+        let isFS = isFullScreen()
+        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) verify isFullScreen=\(isFS, privacy: .public)")
+        if isFS {
             isRunning = false
             return
         }
         proceed()
+    }
+}
+
+/// G54-S3e beep 診断: `ViewerWindowController`/`EPUBReaderWindowController` が作る窓をこのサブクラスに
+/// することで、「キー入力の行き先が無くて AppKit が既定のビープ（`NSBeep`）を鳴らす」経路をフックする。
+/// `noResponder(for:)` はこの経路で AppKit が呼ぶ（`keyDown:` のときだけ既定実装がビープする）——
+/// 挙動は変えず（`super` を必ず呼ぶ＝ビープはそのまま鳴る）、その直前の状態だけをログに残す。
+/// パス・題名・入力文字は出さない（キーコード・真偽値・クラス名だけ、すべて `.public`）。
+@MainActor
+final class DiagnosticViewerWindow: NSWindow {
+    /// `present()` が確定させる窓の種別（"image"/"epub"）。ログのタグにしか使わない。
+    var diagnosticKind: String = "image"
+
+    private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
+
+    override func noResponder(for eventSelector: Selector) {
+        // `NSApp.currentEvent` はベストエフォートの「今ディスパッチ中らしいイベント」であって、
+        // 必ずしもキーイベントとは限らない（システムの KitDefined イベント等が入っていることがある）。
+        // `.keyCode`/`.isARepeat` はキー系イベント（keyDown/keyUp/flagsChanged）以外に送ると
+        // アサーション違反で落ちる（`-[NSEvent keyCode]` は型を検査する）ので、`event.type == .keyDown`
+        // まで確認してから読む。
+        if eventSelector == #selector(NSResponder.keyDown(with:)),
+           let event = NSApp.currentEvent, event.type == .keyDown {
+            let responderClass = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
+            Self.diagLogger.notice("key.noResponder keyCode=\(event.keyCode, privacy: .public) isARepeat=\(event.isARepeat, privacy: .public) kind=\(self.diagnosticKind, privacy: .public) firstResponder=\(responderClass, privacy: .public) isKeyWindow=\(self.isKeyWindow, privacy: .public)")
+        }
+        super.noResponder(for: eventSelector)
     }
 }

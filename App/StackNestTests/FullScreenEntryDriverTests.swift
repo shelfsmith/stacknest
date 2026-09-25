@@ -509,3 +509,28 @@ struct FullScreenTransitionTrackerTests {
         #expect(outerFireCount == 1, "outer は二重発火しないこと")
     }
 }
+
+/// G54-S3e beep 診断: `DiagnosticViewerWindow` は `noResponder(for:)` をフックしてログを残すだけで、
+/// 必ず `super` に委譲する（挙動＝ビープが鳴るかどうかは変えない）。実際にビープが鳴るかは
+/// テスト環境では確認できない（`NSApp.currentEvent` も nil のまま）ので、安価なスモークテストとして
+/// 「クラッシュせずに呼べる」ことだけを確かめる（brief 項目 4 の optional なテスト）。
+@MainActor
+@Suite("DiagnosticViewerWindow: noResponder(for:) フック")
+struct DiagnosticViewerWindowTests {
+    @Test("keyDown 以外・keyDown のどちらでもクラッシュせず super へ委譲する")
+    func noResponderForwardsToSuperWithoutCrashing() {
+        let window = DiagnosticViewerWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.diagnosticKind = "image"
+
+        window.noResponder(for: #selector(NSResponder.keyDown(with:)))
+        window.noResponder(for: #selector(NSResponder.mouseDown(with:)))
+
+        #expect(true, "例外・クラッシュ無く完了すること")
+    }
+}
