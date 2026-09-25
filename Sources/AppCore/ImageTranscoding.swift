@@ -29,14 +29,19 @@ public struct ImageIOTranscoder: ImageTranscoding {
     public func scaled(_ data: Data, maxWidth: Int) -> Data {
         guard maxWidth > 0,
               let src = CGImageSourceCreateWithData(data as CFData, nil) else { return data }
+        let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
+        // G54-S3e（spec §2.6）: 回転の印（EXIF orientation）が 1 以外なら元のバイト列を返さない。
+        // 受け手（NSImage・Web・他の縮小経路）ごとに印の扱いが揃っている保証が無いので、再エンコードで回転を焼き込む。
+        let orientation = (props?[kCGImagePropertyOrientation] as? Int) ?? 1
+        var maxPixelSize = maxWidth
         // 元幅 ≤ maxWidth なら縮小不要（拡大しない）。
-        if let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
-           let w = props[kCGImagePropertyPixelWidth] as? Int, w <= maxWidth {
-            return data
+        if let w = props?[kCGImagePropertyPixelWidth] as? Int, w <= maxWidth {
+            guard orientation != 1, let h = props?[kCGImagePropertyPixelHeight] as? Int else { return data }
+            maxPixelSize = max(w, h)   // 縮めずに、回転だけ焼き込む
         }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: maxWidth,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
             kCGImageSourceCreateThumbnailWithTransform: true,
         ]
         guard let thumb = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)

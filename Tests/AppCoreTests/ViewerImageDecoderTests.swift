@@ -124,19 +124,7 @@ struct ViewerImageDecoderTests {
 
     /// 指定 EXIF orientation を埋め込んだ JPEG を合成する。
     private func makeJPEG(width: Int, height: Int, orientation: UInt32) -> Data {
-        let cs = CGColorSpaceCreateDeviceRGB()
-        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
-                            bytesPerRow: 0, space: cs,
-                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.setFillColor(CGColor(red: 0.3, green: 0.5, blue: 0.7, alpha: 1))
-        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        let img = ctx.makeImage()!
-        let out = NSMutableData()
-        let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil)!
-        let props: [CFString: Any] = [kCGImagePropertyOrientation: orientation]
-        CGImageDestinationAddImage(dest, img, props as CFDictionary)
-        _ = CGImageDestinationFinalize(dest)
-        return out as Data
+        OrientedJPEGFixture.make(width: width, height: height, orientation: orientation)
     }
 
     @Test func decodeLazyReturnsFullResolutionForUprightImage() {

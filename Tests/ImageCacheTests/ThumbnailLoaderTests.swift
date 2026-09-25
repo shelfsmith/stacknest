@@ -64,6 +64,29 @@ struct ThumbnailLoaderTests {
         #expect(img == nil)
     }
 
+    /// G54-S3e（spec §2.6）: 回転の印付きの thumbnail.jpg は回転後の向きで返る（表紙の縮小が印を残しても正しく見える）。
+    @Test("Applies the EXIF orientation of thumbnail.jpg")
+    func appliesEXIFOrientation() async throws {
+        let tmpBundle = FileManager.default.temporaryDirectory.appendingPathComponent("loader-\(UUID().uuidString)")
+        let bookDir = tmpBundle.appendingPathComponent("Thumbnails").appendingPathComponent("1")
+        try FileManager.default.createDirectory(at: bookDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmpBundle) }
+
+        let cs = CGColorSpaceCreateDeviceRGB()
+        let ctx = CGContext(data: nil, width: 400, height: 200, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0.3, green: 0.5, blue: 0.7, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 400, height: 200))
+        let thumbURL = bookDir.appendingPathComponent("thumbnail.jpg")
+        let dest = try #require(CGImageDestinationCreateWithURL(thumbURL as CFURL, UTType.jpeg.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, [kCGImagePropertyOrientation: UInt32(6)] as CFDictionary)
+        #expect(CGImageDestinationFinalize(dest))
+
+        let img = await ThumbnailLoader(bundleURL: tmpBundle).thumbnail(for: 1, maxPixelSize: 400)
+        #expect(img?.width == 200)
+        #expect(img?.height == 400)
+    }
+
     @Test("purge(bookID:) covers every size used by callers")
     func purgeCoversAllCallerSizes() async throws {
         // Detail Pane (CoverImageView) は 600、grid BookCell は 400 を要求する。
