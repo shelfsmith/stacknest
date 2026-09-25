@@ -538,6 +538,41 @@ public final class Database: @unchecked Sendable {
         }
     }
 
+    /// `bookIDs(forPaths:)` が 1 回の問い合わせに載せるパスの数。
+    /// SQLite の変数の上限（古い版では 999）を超えないように分割する。
+    static let bookIDsForPathsChunkSize = 500
+
+    /// パスの一覧から、そのパスを持つ本の ID を返す（PR #4）。
+    ///
+    /// シェルフを表示中にドロップしたファイルのうち、既にライブラリにあるもの
+    /// （`ImportResult.alreadyPresent` は URL だけを持つ）をシェルフへ入れるために使う。
+    /// 返す順は**渡したパスの順**（同じパスの本が複数あれば ID の昇順）。一致しないパスは無視し、
+    /// ID は重複させない。
+    public func bookIDs(forPaths paths: [String]) throws -> [Int] {
+        guard let q = queue, !paths.isEmpty else { return [] }
+        var seenPaths: Set<String> = []
+        let unique = paths.filter { seenPaths.insert($0).inserted }
+        var idsByPath: [String: [Int]] = [:]
+        try q.read { db in
+            var start = 0
+            while start < unique.count {
+                let chunk = Array(unique[start..<min(start + Self.bookIDsForPathsChunkSize, unique.count)])
+                let placeholders = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                let rows = try Row.fetchAll(
+                    db,
+                    sql: "SELECT id, path FROM book WHERE path IN (\(placeholders)) ORDER BY id",
+                    arguments: StatementArguments(chunk))
+                for row in rows {
+                    let path: String = row["path"]
+                    idsByPath[path, default: []].append(row["id"])
+                }
+                start += chunk.count
+            }
+        }
+        var seen: Set<Int> = []
+        return unique.flatMap { idsByPath[$0] ?? [] }.filter { seen.insert($0).inserted }
+    }
+
     public func fetchAllBooks() throws -> [BookRow] {
         guard let q = queue else { return [] }
         return try q.read { db in

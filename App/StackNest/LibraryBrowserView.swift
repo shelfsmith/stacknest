@@ -348,6 +348,10 @@ struct LibraryBrowserView: View {
 
     private func handleAdd(urls: [URL]) {
         guard let db = appState.database else { return }
+        // Pin the target shelf at drop time: a large import can take a while, and the sidebar
+        // selection may change before it finishes (PR #4).
+        let targetShelfID = appState.removableShelfID
+        let targetIsFavorites = targetShelfID != nil && targetShelfID == appState.favoritesShelfID
         Task {
             let format = (try? FilenameFormat(raw: appState.librarySettings?.filenameFormat ?? "@title"))
                 ?? (try! FilenameFormat(raw: "@title"))
@@ -357,9 +361,7 @@ struct LibraryBrowserView: View {
                 format: format
             )
             let result = await coord.add(urls: urls)
-            if !result.addedIDs.isEmpty, let shelfID = appState.removableShelfID {
-                appState.addBooksToShelf(shelfID, books: result.addedIDs)
-            }
+            let addedToShelf = appState.addImportedBooks(result, toShelf: targetShelfID)
             do { try appState.refreshDisplayedBooks() }
             catch { appState.error = .unexpected(error) }
             if !result.addedIDs.isEmpty, let uuid = appState.librarySettings?.libraryUUID {
@@ -367,7 +369,12 @@ struct LibraryBrowserView: View {
             }
             if !result.alreadyPresent.isEmpty {
                 let alert = NSAlert()
-                alert.messageText = "\(result.alreadyPresent.count) 件は既に登録済みです"
+                if addedToShelf {
+                    let dest = targetIsFavorites ? "お気に入り" : "シェルフ"
+                    alert.messageText = "\(result.alreadyPresent.count) 件は登録済みのため、\(dest)への追加だけ行いました"
+                } else {
+                    alert.messageText = "\(result.alreadyPresent.count) 件は既に登録済みです"
+                }
                 alert.runModal()
             }
         }

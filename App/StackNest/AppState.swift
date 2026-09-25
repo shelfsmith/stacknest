@@ -699,6 +699,34 @@ final class AppState {
         }
     }
 
+    /// ドロップ（または「＋」）で取り込んだ本をシェルフへ入れる（PR #4）。
+    ///
+    /// 新しく取り込んだ本（`addedIDs`）に加え、**既にライブラリにあった本**（`alreadyPresent`）も入れる
+    /// ―― シェルフを表示中にドロップしたのは、そのシェルフに入れるつもりの操作だから。
+    ///
+    /// `shelfID` は呼び出し側が**ドロップした時点で固定した値**を渡す（取り込み中にサイドバーの選択が
+    /// 変わっても、選び直した先に入れない）。nil（ライブラリ・スマートシェルフ・最近の項目）や、
+    /// 取り込みの間にそのシェルフが削除されていた場合は何もしない。
+    ///
+    /// - Returns: シェルフへの追加を行ったか（アラートの文言を切り替えるのに使う）。
+    @discardableResult
+    func addImportedBooks(_ result: BookImporter.ImportResult, toShelf shelfID: Int64?) -> Bool {
+        guard let shelfID, let db = database else { return false }
+        do {
+            let stillExists = try shelfID == favoritesShelfID
+                || db.fetchAllShelves().contains { $0.id == shelfID && !$0.isSmart }
+            guard stillExists else { return false }
+            let existing = try db.bookIDs(forPaths: result.alreadyPresent.map(\.path))
+            let ids = result.addedIDs + existing.filter { !result.addedIDs.contains($0) }
+            guard !ids.isEmpty else { return false }
+            addBooksToShelf(shelfID, books: ids)
+            return true
+        } catch {
+            self.error = .unexpected(error)
+            return false
+        }
+    }
+
     /// シェルフから本を一括除外する（FX2 の removeBooksFromShelf wrapper）。
     /// 手動シェルフ専用。お気に入りの場合は favorites cache も更新する。
     func removeBooksFromShelf(_ shelfID: Int64, books: [Int]) {
