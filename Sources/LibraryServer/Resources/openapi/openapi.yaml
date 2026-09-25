@@ -157,6 +157,10 @@ components:
           type: string
           nullable: true
           description: 表紙クロップ矩形 JSON（クロップ無しは null）
+        filename:
+          type: string
+          nullable: true
+          description: サーバ側ファイルの basename（フルパスではない）。path を持たない本は null（G15 V3。Web は S3d から使う）
         genre:
           type: string
           nullable: true
@@ -252,6 +256,11 @@ components:
         lastPage:
           type: integer
           nullable: true
+        epubLocator:
+          nullable: true
+          description: EPUB の読書位置（viewer state 由来・G48-2）。EPUB 以外・未読・壊れた値はキー省略
+          allOf:
+            - $ref: '#/components/schemas/EPUBLocatorDTO'
         rating:
           type: integer
           minimum: 0
@@ -295,6 +304,15 @@ components:
           type: string
           nullable: true
           description: ファイル拡張子（"zip"/"rar"/"pdf"/"" など）。パス秘匿のため拡張子のみ返す。
+        filename:
+          type: string
+          nullable: true
+          description: 表示用のファイル名（拡張子込み・パスは含まない）。旧サーバには無い（G12b-3a）
+        previous:
+          nullable: true
+          description: PATCH 応答だけに付く、今回変更したフィールドの更新前の値（変更外は null）。他のエンドポイントではキー省略（G16 A2）
+          allOf:
+            - $ref: '#/components/schemas/BookPatchDTO'
 
     BookPatchDTO:
       type: object
@@ -469,6 +487,16 @@ components:
           nullable: true
           allOf:
             - $ref: '#/components/schemas/BookListItemDTO'
+
+    EPUBLocatorDTO:
+      type: object
+      description: EPUB の読書位置（POST /epub-progress・manifest と同じ形・G48-2）
+      required: [spine, progress]
+      properties:
+        spine: { type: integer, description: spine index（0 始まり） }
+        progress: { type: number, description: spine 内の進行率 0…1 }
+        cfi: { type: string, nullable: true, description: 同じ engine のときだけ復元に使う補助 }
+        engine: { type: string, nullable: true, description: cfi を出したエンジン名（washi / foliate） }
 
     ManifestDTO:
       type: object
