@@ -1859,7 +1859,10 @@ final class RemoteLibraryState {
                 let localURL = self.offlineStore.fileURL(for: dl)
                 if (try? await reader.openImageBook(url: localURL)) == nil {
                     let m = try? await self.client.manifest(libraryUUID: self.libraryUUID, bookID: book.id, libraryToken: self.libraryToken)
-                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag, localFile: localURL, resumeDirect: resumeDirect)
+                    // G54-S3e: manifest が取れなければ先頭から開くが、利用者が動くまでサーバへ保存しない。
+                    await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag,
+                                                    localFile: localURL, resumeDirect: resumeDirect,
+                                                    holdPersistUntilMoved: m == nil)
                     return
                 }
             }
@@ -2076,9 +2079,11 @@ final class RemoteLibraryState {
     /// G54-S3c: reader の用意（`prepareRemoteEPUBReader`）と窓の組み立てを分け、前者を巻送りでも使う。
     @MainActor
     private func openRemoteEPUBReader(book: BookListItemDTO, identity: ViewerIdentity, initial: EPUBLocatorDTO?,
-                                      version: String? = nil, localFile: URL? = nil, resumeDirect: Bool = false) async {
+                                      version: String? = nil, localFile: URL? = nil, resumeDirect: Bool = false,
+                                      holdPersistUntilMoved: Bool = false) async {
         do {
-            let prepared = try await prepareRemoteEPUBReader(book: book, initial: initial, version: version, localFile: localFile)
+            let prepared = try await prepareRemoteEPUBReader(book: book, initial: initial, version: version,
+                                                             localFile: localFile, holdPersistUntilMoved: holdPersistUntilMoved)
             let controller = EPUBReaderWindowController(prepared: prepared, suppressResumeDialog: resumeDirect)
             wireRemoteEPUBWindow(controller)
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
@@ -2101,8 +2106,10 @@ final class RemoteLibraryState {
 
     /// G54-S3c: リモートのテキスト EPUB の reader を用意する（窓には載せない）。開く経路と巻送りの両方で使う。
     /// 巻送りでは、ダウンロードの間も呼び出し元の窓は今の本を表示している。
+    /// G54-S3e: `holdPersistUntilMoved` は manifest が取れずに手元のファイルで開くとき true
+    /// （サーバの読書位置を開いた直後の先頭で上書きしない・spec §2.1-8）。
     private func prepareRemoteEPUBReader(book: BookListItemDTO, initial: EPUBLocatorDTO?,
-                                         version: String?, localFile: URL?)
+                                         version: String?, localFile: URL?, holdPersistUntilMoved: Bool = false)
         async throws -> EPUBReaderWindowController.PreparedBook {
         guard let renderer = EPUBAdapter.renderer else { throw RemoteEPUBPrepareError.noRenderer }
         let cache = RemoteEPUBCache()
@@ -2143,7 +2150,8 @@ final class RemoteLibraryState {
                         Self.epubLog.debug("prepareRemoteEPUBReader: postEPUBProgress failed bookID=\(bookID, privacy: .public)")
                     }
                 }
-            })
+            },
+            holdsPersistUntilMoved: holdPersistUntilMoved)
     }
 
     /// G54-S3c: リモートの EPUB の窓の巻送り・閉じる処理を配線する（文字倍率と配色は窓が当てる）。
@@ -2227,7 +2235,8 @@ final class RemoteLibraryState {
             break
         }
         do {
-            return .swapIn(try await prepareRemoteEPUBReader(book: dto, initial: m?.epubLocator, version: m?.etag, localFile: localFile))
+            return .swapIn(try await prepareRemoteEPUBReader(book: dto, initial: m?.epubLocator, version: m?.etag,
+                                                             localFile: localFile, holdPersistUntilMoved: m == nil))
         } catch {
             Self.epubLog.warning("resolveRemoteEPUBSibling: prepare failed bookID=\(dto.id, privacy: .public)")
             return .failed

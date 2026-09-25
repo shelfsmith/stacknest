@@ -14,6 +14,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     // `.view` だけ持つと Washi の delegate（weak）経由の位置変化通知が消える。
     private var reader: any EPUBReaderViewing
     private var persist: (EPUBLocatorValue) -> Void
+    /// G54-S3e（spec §2.1-8）: manifest なしで開いた本の保存を、利用者が動くまで止める。差し替えで作り直す。
+    private var persistGate: EPUBInitialPersistGate
     /// G54-S3: 演出・ノンブル・自動送りの間隔などを読む設定。テストは専用の suite を渡す。
     private let settings: ViewerSettings
     private var presentationObserver: NSObjectProtocol?
@@ -70,6 +72,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         let resumeLocator: EPUBLocatorValue?
         /// その巻の位置の保存先。
         let persist: (EPUBLocatorValue) -> Void
+        /// G54-S3e: サーバの位置が分からないまま開いた（manifest なし）。利用者が動くまで保存しない。
+        var holdsPersistUntilMoved = false
     }
 
     /// G54-S3c: 次（前）の巻の解決結果。
@@ -130,6 +134,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
 
     init(book: BookRow, reader: any EPUBReaderViewing, settings: ViewerSettings = .shared,
          resumeLocator: EPUBLocatorValue? = nil, suppressResumeDialog: Bool = false,
+         holdsPersistUntilMoved: Bool = false,
          persist: @escaping (EPUBLocatorValue) -> Void) {
         self.book = book
         self.reader = reader
@@ -137,6 +142,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         self.resumeLocator = resumeLocator
         self.suppressResumeDialog = suppressResumeDialog
         self.persist = persist
+        self.persistGate = EPUBInitialPersistGate(holdUntilMoved: holdsPersistUntilMoved)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 1100),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
@@ -201,6 +207,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     convenience init(prepared: PreparedBook, settings: ViewerSettings = .shared, suppressResumeDialog: Bool = false) {
         self.init(book: prepared.book, reader: prepared.reader, settings: settings,
                   resumeLocator: prepared.resumeLocator, suppressResumeDialog: suppressResumeDialog,
+                  holdsPersistUntilMoved: prepared.holdsPersistUntilMoved,
                   persist: prepared.persist)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -418,6 +425,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         book = next.book
         reader = next.reader
         persist = next.persist
+        // G54-S3e: 門は本ごと（古い本の保存は 1) で古い門のまま済んでいる）。
+        persistGate = EPUBInitialPersistGate(holdUntilMoved: next.holdsPersistUntilMoved)
         resumeLocator = next.resumeLocator
         suppressResumeDialog = false        // 巻送りでも読みかけなら訊く（spec §4.2）
         didShowResumeDialog = false
@@ -568,6 +577,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// 呼ぶ前に `self.reader` をその reader にしておくこと（`applyPresentationSettings` は `self.reader` を見る）。
     private func wire(_ reader: any EPUBReaderViewing) {
         reader.onLocatorChange = { [weak self] loc in
+            // G54-S3e: 門は報告ごとに見る（保存はデバウンス後なので、保存だけを見ると最初の移動を取り違える）。
+            self?.persistGate.observe(loc)
             self?.schedulePersist(loc)
             self?.refreshProgress()
         }
@@ -657,10 +668,13 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private func flushPersist() {
         persistTimer?.invalidate()
         persistTimer = nil
+        // G54-S3e（spec §2.1-8）: manifest なしで開いた本は、利用者が動くまでサーバへ送らない
+        // （開いた直後の先頭でサーバの読書位置を上書きしない）。
+        defer { pending = nil }
+        guard persistGate.allowsPersist else { return }
         if let loc = pending ?? reader.locator {
             persist(loc)
         }
-        pending = nil
     }
 
     func windowWillClose(_ notification: Notification) {
