@@ -1874,11 +1874,13 @@ final class RemoteLibraryState {
             // オフライン近道に入るが、テキスト EPUB はページ経路では開けない（pageCount が throw）。
             // 画像本かどうかをここで判定し、テキストなら DL 済みファイルをそのまま Washi で開く
             // （位置の初期値だけ manifest から取る。取れなければ先頭）。
+            // G54-S3e（spec §2.2）: 画像本と判定した handle は捨てずに content に使う（遅延の content にもう一度開かせない）。
+            var imageBook: (any EPUBImageBookReading)?
             if readingOffline, let dl = downloaded,
                (book.filename ?? "").lowercased().hasSuffix(".epub"),
                let reader = EPUBAdapter.reader {
                 let localURL = self.offlineStore.fileURL(for: dl)
-                if (try? await reader.openImageBook(url: localURL)) == nil {
+                guard let handle = try? await reader.openImageBook(url: localURL) else {
                     let m = await self.manifestForOpening(bookID: book.id, handed: handedManifest)
                     // G54-S3e: manifest が取れなければ先頭から開くが、利用者が動くまでサーバへ保存しない。
                     await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag,
@@ -1886,9 +1888,10 @@ final class RemoteLibraryState {
                                                     holdPersistUntilMoved: m == nil)
                     return
                 }
+                imageBook = handle
             }
             if readingOffline, let offlineContent, let offlineRow {
-                content = offlineContent
+                content = SiblingVolumeKind.content(reusing: imageBook, orMake: { offlineContent })
                 row = offlineRow
                 sourceLabel = "オフライン"
                 damageNote = await offlineContent.damageNote
@@ -2404,16 +2407,22 @@ final class RemoteLibraryState {
             }
         }
         // G54-S3c: DL 済みのテキスト EPUB は BookContentFactory が同期で成功してしまう（0 ページで止まる）ので先に見分ける。
+        // G54-S3e（spec §2.2）: 画像本 EPUB は判定で開いた handle を使う（同じ本を 2 回開かない）。
+        var dlImageBook: (any EPUBImageBookReading)?
         if let dl = offlineEntry {
             let url = offlineStore.fileURL(for: dl)
-            if await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader).kind == .textEPUB {
+            let probe = await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader)
+            if probe.kind == .textEPUB {
                 return .openInEPUBReader(Self.makeBookRow(from: dto))
             }
+            dlImageBook = probe.imageBook
         }
         // 4.2c-3 (自由記載#1/#3): 次巻が DL 済みならオフラインから読む（負荷削減）＋ソースラベルを
         // 巻ごとに付け替える。未 DL はリモート解決のまま「リモート」バッジに更新する。
         if let dl = offlineEntry,
-           let made = try? BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) {
+           let made = try? SiblingVolumeKind.content(
+               reusing: dlImageBook,
+               orMake: { try BookContentFactory.make(for: offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))) }) {
             let row = offlineBookRow(dl, fileURL: offlineStore.fileURL(for: dl))
             let state = ResolvedViewerState(
                 spreadEnabled: ViewerSettings.shared.spreadByDefault,

@@ -76,6 +76,15 @@ public enum SiblingVolumeKind: Equatable, Sendable {
         }
     }
 
+    /// G54-S3e（spec §2.2）: 判定（`probeLocal`）で開いた画像本の handle があればそれで content を作り、
+    /// 無ければ `make` に任せる。遅延の `EPUBImageBookContent(lazyURL:)` に任せると同じ本をもう一度開く。
+    /// handle が非 nil なのは画像本と判定済みのときだけなので、テキスト EPUB の経路は変わらない。
+    public static func content(reusing imageBook: (any EPUBImageBookReading)?,
+                               orMake make: () throws -> BookContent) rethrows -> BookContent {
+        if let imageBook { return EPUBImageBookContent(handle: imageBook) }
+        return try make()
+    }
+
     private static func isEPUB(_ path: String?) -> Bool {
         guard let path else { return false }
         return (path as NSString).pathExtension.lowercased() == "epub"

@@ -309,8 +309,10 @@ struct OfflineLibraryView: View {
         // ファイル実体の拡張子は本来のものへ揃っているため、ファイル名の拡張子を正として判定してよい。
         if fileURL.pathExtension.lowercased() == "epub", let reader = EPUBAdapter.reader, EPUBAdapter.renderer != nil {
             Task { @MainActor in
-                if (try? await reader.openImageBook(url: fileURL)) != nil {
-                    self.openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage, resumeDirect: resumeDirect)
+                // G54-S3e（spec §2.2）: 判定で開いた画像本の handle をそのまま使う（遅延の content にもう一度開かせない）。
+                if let handle = try? await reader.openImageBook(url: fileURL) {
+                    self.openOfflinePages(book, row: row, identity: identity, freshLastPage: freshLastPage,
+                                          resumeDirect: resumeDirect, imageBook: handle)
                     return
                 }
                 do {
@@ -416,10 +418,11 @@ struct OfflineLibraryView: View {
 
     /// G48-3: 従来の内蔵ビューア（画像本・PDF 等）で開く経路。openOffline から切り出し（挙動は変更なし）。
     /// EPUB リーダー未登録・EPUB でない・画像本 EPUB（openImageBook が成功）の場合はここへ流れる。
-    private func openOfflinePages(_ book: DownloadedBook, row: BookRow, identity: ViewerIdentity, freshLastPage: Int?, resumeDirect: Bool) {
+    private func openOfflinePages(_ book: DownloadedBook, row: BookRow, identity: ViewerIdentity, freshLastPage: Int?, resumeDirect: Bool,
+                                  imageBook: (any EPUBImageBookReading)? = nil) {
         let content: BookContent
         do {
-            content = try BookContentFactory.make(for: row)
+            content = try SiblingVolumeKind.content(reusing: imageBook, orMake: { try BookContentFactory.make(for: row) })
         } catch {
             // G54-S2: ローカル（AppState.openInBuiltInViewer）と同じく、内蔵で作れなければ外部へ落とす。
             let bookPath = store.fileURL(for: book).path
@@ -575,13 +578,8 @@ struct OfflineLibraryView: View {
         let row = offlineBookRow(sib, fileURL: url)
         let probe = await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader)
         if probe.kind == .textEPUB { return .openInEPUBReader(row) }
-        let content: BookContent
-        if let handle = probe.imageBook {
-            content = EPUBImageBookContent(handle: handle)
-        } else {
-            guard let made = try? BookContentFactory.make(for: row) else { return nil }
-            content = made
-        }
+        guard let content = try? SiblingVolumeKind.content(
+            reusing: probe.imageBook, orMake: { try BookContentFactory.make(for: row) }) else { return nil }
         let state = ResolvedViewerState(
             spreadEnabled: ViewerSettings.shared.spreadByDefault,
             coverOffset: true,

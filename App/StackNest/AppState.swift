@@ -1263,13 +1263,8 @@ final class AppState {
         }
         let probe = await SiblingVolumeKind.probeLocal(path: next.path, reader: EPUBAdapter.reader)
         if probe.kind == .textEPUB { return .openInEPUBReader(next) }
-        let content: BookContent
-        if let handle = probe.imageBook {
-            content = EPUBImageBookContent(handle: handle)
-        } else {
-            guard let made = try? BookContentFactory.make(for: next) else { return nil }
-            content = made
-        }
+        guard let content = try? SiblingVolumeKind.content(
+            reusing: probe.imageBook, orMake: { try BookContentFactory.make(for: next) }) else { return nil }
         // 巻送りで開く本も Stackroom 同様「閲覧開始」とみなし unseen=0 + play_date=now を更新する（D9）。
         // G48-2b: ただし実際に既読化するのは swap が確定した後（`onBookSwapped`）。
         // `BookContentFactory.make` は任意の .epub 兄弟に対して同期的に成功するため、ここで

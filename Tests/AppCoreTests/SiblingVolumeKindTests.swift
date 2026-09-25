@@ -129,4 +129,25 @@ struct SiblingVolumeKindTests {
             }
         }
     }
+
+    // MARK: G54-S3e — 判定で開いた画像本の handle を使い回す
+
+    /// G54-S3e（spec §2.2）: 判定（`probeLocal`）で開いた画像本の handle があれば、それで content を作る。
+    /// 遅延の `EPUBImageBookContent(lazyURL:)` に任せると、同じ本をもう一度開く。
+    @Test func contentReusesTheProbedImageBook() async throws {
+        let content = try SiblingVolumeKind.content(reusing: FakeImageBook(), orMake: {
+            Issue.record("判定で開いた handle があるのに作り直してはいけない")
+            throw BookContentError.invalidPath("unused")
+        })
+        #expect(try await content.pageCount == 1)
+    }
+
+    @Test func contentFallsBackToMakeWithoutAHandle() throws {
+        var made = 0
+        _ = try SiblingVolumeKind.content(reusing: nil, orMake: {
+            made += 1
+            return EPUBImageBookContent(handle: FakeImageBook())
+        })
+        #expect(made == 1)
+    }
 }
