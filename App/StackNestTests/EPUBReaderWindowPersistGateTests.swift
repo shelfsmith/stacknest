@@ -90,6 +90,7 @@ struct EPUBReaderWindowPersistGateTests {
         c.resolveSibling = { _, _ in .swapIn(next) }
         c.perform(.nextVolume)
         await waitUntil { c.book.id == 2 }
+        #expect(c.book.id == 2)
         new.locator = loc(0, 0)
         new.onLocatorChange?(loc(0, 0))
         c.window?.close()
@@ -107,6 +108,7 @@ struct EPUBReaderWindowPersistGateTests {
         c.resolveSibling = { _, _ in .swapIn(next) }
         c.perform(.nextVolume)
         await waitUntil { c.book.id == 2 }
+        #expect(c.book.id == 2)
         new.onLocatorChange?(loc(0, 0))
         c.window?.close()
         #expect(oldBox.persisted.isEmpty)          // 動いていないので古い本は送らない

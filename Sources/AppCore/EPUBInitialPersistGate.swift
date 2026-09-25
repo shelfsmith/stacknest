@@ -20,7 +20,8 @@ public struct EPUBInitialPersistGate: Equatable, Sendable {
         allowsPersist = !holdUntilMoved
     }
 
-    /// reader が報告した位置を見る（保存の前に毎回呼ぶ）。
+    /// reader が報告した位置を見る（報告ごとに毎回呼ぶ。保存の前ではない——保存は 0.4 秒のデバウンス後なので、
+    /// 保存の呼び出しだけを見ると、開いてすぐ送った最初の移動を「最初の位置」と取り違える）。
     public mutating func observe(_ loc: EPUBLocatorValue) {
         guard !allowsPersist else { return }
         guard let first else {

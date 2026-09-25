@@ -1172,7 +1172,9 @@ public struct LibraryServerCore: Sendable {
                         Self.logger.warning("cover-candidates: listing failed bookID=\(row.id, privacy: .public) path=\(path, privacy: .private) error=\(Self.diagnosticSummary(of: error), privacy: .public)")
                     }
                 } else {
-                    Self.logger.warning("cover-candidates: unsupported format bookID=\(row.id, privacy: .public) path=\(path, privacy: .private)")
+                    // G54-S3e 最終レビュー: カバー抽出器を持たない形式（テキスト EPUB 等）は正常な結果であり
+                    // 異常ではない。warning ではなく info。
+                    Self.logger.info("cover-candidates: unsupported format bookID=\(row.id, privacy: .public) path=\(path, privacy: .private)")
                 }
             } else {
                 Self.logger.warning("cover-candidates: no path bookID=\(row.id, privacy: .public)")
@@ -1193,7 +1195,8 @@ public struct LibraryServerCore: Sendable {
             }
             let url = URL(fileURLWithPath: path)
             guard let ex = ArchiveAdapter.coverExtractor(for: url) else {
-                Self.logger.warning("entry-image: unsupported format bookID=\(row.id, privacy: .public) path=\(path, privacy: .private)")
+                // G54-S3e 最終レビュー: カバー抽出器を持たない形式は正常な結果。warning ではなく info。
+                Self.logger.info("entry-image: unsupported format bookID=\(row.id, privacy: .public) path=\(path, privacy: .private)")
                 throw HTTPError(.notFound)
             }
             var data: Data

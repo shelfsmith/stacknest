@@ -33,4 +33,27 @@ extension RemoteClientError {
         let flagged = headers.first { $0.key.caseInsensitiveCompare(libraryLockedHeader) == .orderedSame }?.value
         return flagged == "1" ? .libraryLocked : .forbidden
     }
+
+    /// G54-S3e 最終レビュー: 巻送りの「隣接巻を尋ねる」呼び出し（`adjacentVolume`）が投げたエラーをどう扱うか。
+    /// 呼び出し側（`RemoteLibraryState.resolveRemoteVolume` / `resolveRemoteEPUBSibling`）は
+    /// これに従って分岐する（純粋な写像として切り出し、SPM でテストできるようにする）。
+    public enum SiblingFetchOutcome: Equatable, Sendable {
+        /// 錠の失効。呼び出し側が `presentRemoteError` で処理する（今までどおり）。
+        case locked
+        /// 「次（前）の巻なし」と同じ扱い。`.cancelled` は上位の Task 打ち切り（追い越されただけ）、
+        /// `.notFound` はサーバが該当なしと答えた。
+        case noSibling
+        /// それ以外（オフライン・タイムアウト・サーバ障害・デコード失敗 等）。本当の失敗であり
+        /// 「次の巻なし」と黙って区別なく扱わない——「開けません」で留まる。
+        case unavailable
+    }
+
+    /// `SiblingFetchOutcome` へ分類する。
+    public var siblingFetchOutcome: SiblingFetchOutcome {
+        switch self {
+        case .libraryLocked: return .locked
+        case .cancelled, .notFound: return .noSibling
+        default: return .unavailable
+        }
+    }
 }

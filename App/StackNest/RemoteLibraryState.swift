@@ -1613,6 +1613,8 @@ final class RemoteLibraryState {
         do {
             return try await client.fetchCoverCandidates(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken).entries
         } catch {
+            // G54-S3e 最終レビュー: シートを閉じた等で打ち切られた in-flight リクエストは異常ではない。ログしない。
+            if case RemoteClientError.cancelled = error { return [] }
             Self.coverLog.warning("coverCandidates failed bookID=\(bookID, privacy: .public) error=\(Self.logSummary(error), privacy: .public)")
             return []
         }
@@ -1629,6 +1631,8 @@ final class RemoteLibraryState {
             }
             return image
         } catch {
+            // G54-S3e 最終レビュー: シートを閉じた等で打ち切られた in-flight リクエストは異常ではない。ログしない。
+            if case RemoteClientError.cancelled = error { return nil }
             Self.coverLog.warning("entryImage failed bookID=\(bookID, privacy: .public) error=\(Self.logSummary(error), privacy: .public)")
             return nil
         }
@@ -2243,11 +2247,17 @@ final class RemoteLibraryState {
                 libraryUUID: libraryUUID, bookID: bookID,
                 direction: direction == .next ? "next" : "prev", libraryToken: libraryToken)
         } catch let e as RemoteClientError {
-            if case .libraryLocked = e {
+            // G54-S3e 最終レビュー: `.cancelled`/`.notFound` だけ「次（前）の巻なし」。それ以外の本当の失敗
+            // （オフライン・タイムアウト・サーバ障害 等）を黙って「なし」にしない——窓は今の本のまま「開けません」。
+            switch e.siblingFetchOutcome {
+            case .locked:
                 presentRemoteError(e)
                 return .failed
+            case .noSibling:
+                return .noSibling
+            case .unavailable:
+                return .failed
             }
-            return .noSibling
         } catch {
             return .noSibling
         }
@@ -2392,8 +2402,11 @@ final class RemoteLibraryState {
     /// 隣接巻をサーバから解決し NextVolume を組む。該当なしは nil。
     /// content は RemoteBookContent（ストリーミング）なので未 DL の巻でも再生できる。
     /// G54-S3c: 次の巻がテキスト EPUB なら `.openInEPUBReader`。
-    /// G54-S3e: 錠の失効は書庫側へ送って留まる（`.unavailable(nil)`）。manifest が取れない未 DL の巻は
-    /// 「開けません」で留まる（以前は nil ＝「次の巻なし」）。テキスト EPUB へ渡すときは manifest を引き継ぐ。
+    /// G54-S3e: 錠の失効は書庫側へ送って留まる（`.unavailable`、文言は EPUB の窓と揃える）。manifest が
+    /// 取れない未 DL の巻は「開けません」で留まる（以前は nil ＝「次の巻なし」）。テキスト EPUB へ渡すときは
+    /// manifest を引き継ぐ。
+    /// G54-S3e 最終レビュー: `adjacentVolume` が投げた本当の失敗（オフライン・タイムアウト・サーバ障害 等）も
+    /// 「次の巻なし」ではなく「開けません」——`.cancelled`/`.notFound` だけ「なし」として扱う。
     private func resolveRemoteVolume(after bookID: Int, direction: String) async -> VolumeLoad? {
         let forward = direction == "next"
         let dto: BookListItemDTO?
@@ -2403,11 +2416,15 @@ final class RemoteLibraryState {
                 direction: direction, libraryToken: libraryToken)
         } catch let e as RemoteClientError {
             // G54-S3e（spec §2.1-5）: EPUB の窓（`resolveRemoteEPUBSibling`）と揃える。
-            if case .libraryLocked = e {
+            switch e.siblingFetchOutcome {
+            case .locked:
                 presentRemoteError(e)
-                return .unavailable(note: nil)
+                return .unavailable(note: VolumeHandover.unavailableNote(forward: forward))
+            case .noSibling:
+                return nil
+            case .unavailable:
+                return .unavailable(note: VolumeHandover.unavailableNote(forward: forward))
             }
-            return nil
         } catch {
             return nil
         }
@@ -2425,7 +2442,7 @@ final class RemoteLibraryState {
         var manifest: ManifestDTO?
         if offlineEntry == nil {
             switch await fetchSiblingManifest(dto.id) {
-            case .locked: return .unavailable(note: nil)
+            case .locked: return .unavailable(note: VolumeHandover.unavailableNote(forward: forward))
             case .unavailable: break
             case .fetched(let m):
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)
@@ -2467,7 +2484,7 @@ final class RemoteLibraryState {
         // 追加のネットワーク往復は発生しない）。
         if offlineEntry != nil, snapshot == nil {
             switch await fetchSiblingManifest(dto.id) {
-            case .locked: return .unavailable(note: nil)
+            case .locked: return .unavailable(note: VolumeHandover.unavailableNote(forward: forward))
             case .unavailable: break
             case .fetched(let m):
                 remoteOverrides = Self.decodePageOverrides(m.pageOverrides)

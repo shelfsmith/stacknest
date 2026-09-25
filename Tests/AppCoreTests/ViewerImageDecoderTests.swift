@@ -116,10 +116,6 @@ struct ViewerImageDecoderTests {
         #expect(decoded.cgImage.bitsPerPixel > 0)
     }
 
-    // EXIF 回転タグ付き fixture がリポジトリに存在しないため、回転適用の直接検証は行わない
-    // （kCGImageSourceCreateThumbnailWithTransform: true を ThumbnailLoader と同一に指定して
-    // いることのみをコードでミラーする。実 EXIF fixture が追加され次第、別テストで補強する）。
-
     // MARK: - G19 decodeLazy（AS 用フル解像度遅延デコード）
 
     /// 指定 EXIF orientation を埋め込んだ JPEG を合成する。

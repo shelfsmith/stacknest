@@ -17,6 +17,18 @@ struct EXIFOrientationTests {
         #expect(i.height == 400)
     }
 
+    /// 最終レビュー Minor: 縮小要否の判定は「表示上の幅」で行う。元幅（回転前）だけで比べると、
+    /// 縦長の元画像（orientation 5–8 で表示は横長になる）が縮め忘れになる。
+    /// 1000×2000・orientation 6（表示は 2000×1000）を maxWidth=1600 で縮めると、表示幅は 1600 以下になるはず。
+    @Test func transcoderDownscalesByDisplayedWidthNotRawWidth() throws {
+        let data = OrientedJPEGFixture.make(width: 1000, height: 2000, orientation: 6)
+        let out = ImageIOTranscoder().scaled(data, maxWidth: 1600)
+        let i = try #require(OrientedJPEGFixture.info(out))
+        #expect(i.orientation == 1)
+        // 回転を焼き込んだ後は width がそのまま表示上の幅。
+        #expect(i.width <= 1600)
+    }
+
     @Test func transcoderStillReturnsUprightSmallImagesByteForByte() {
         let data = OrientedJPEGFixture.make(width: 400, height: 200, orientation: 1)
         #expect(ImageIOTranscoder().scaled(data, maxWidth: 800) == data)
