@@ -27,4 +27,7 @@ enum VolumeLoad {
     case swap(NextVolume)
     /// テキスト EPUB。画像ビューアでは読めない（0 ページ）ので、窓を閉じて所有者の通常の経路で EPUB の窓を開く。
     case openInEPUBReader(BookRow)
+    /// G54-S3e: 次の巻はあるが、開けないと分かっている（ファイルが無い・サーバの情報が取れない・錠の失効）。
+    /// 窓は閉じずに今の巻のまま。`note` があれば HUD に出す（nil は所有者が別途知らせる場合）。
+    case unavailable(note: String?)
 }

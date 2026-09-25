@@ -1206,6 +1206,11 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 await self.performSwap(nv, hudPrefix: hudPrefix)
             case .openInEPUBReader(let row):
                 self.handOverToEPUBReader(row)
+            case .unavailable(let note):
+                // G54-S3e: 開けないと分かっている。窓は閉じず、「次の巻なし」と同じ後始末をして今の巻に留まる。
+                self.isSwapping = false
+                self.stopAutoAdvance()
+                if let note { self.hudNote(note) }
             }
         }
     }

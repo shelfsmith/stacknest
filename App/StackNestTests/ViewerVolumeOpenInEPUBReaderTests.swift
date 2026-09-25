@@ -23,7 +23,7 @@ struct ViewerVolumeOpenInEPUBReaderTests {
         }()
     }
 
-    final class Box { var persisted: [Int] = []; var opened: [Int] = [] }
+    final class Box { var persisted: [Int] = []; var opened: [Int] = []; var closed = false; var resolves = 0 }
     final class Gate { var open = false }
 
     private func make(next: VolumeLoad?) async -> (ViewerWindowController, Box) {
@@ -99,5 +99,49 @@ struct ViewerVolumeOpenInEPUBReaderTests {
         // 結果が届いてもなお opened が空のままであることを、十分な時間待って確かめる。
         try? await Task.sleep(for: .milliseconds(200))
         #expect(box.opened.isEmpty)
+    }
+
+    /// G54-S3e（spec §2.1-1）: 所有者が「次の巻は開けない」と判断したら、窓は閉じずに留まり、文言を HUD に出す。
+    /// 以前は留まる手段が `nil`（＝「次の巻なし」という誤った文言）しか無かった。
+    @Test func unavailableStaysOpenAndShowsTheNote() async {
+        let (c, box) = await make(next: .unavailable(note: "次の巻を開けません（ファイルが見つかりません）"))
+        c.onOpenInEPUBReader = { box.opened.append($0.id) }
+        c.onClose = { box.closed = true }
+        c.perform(.nextVolume)
+        await waitUntil { c.lastHUDNote != nil }
+        #expect(c.lastHUDNote == "次の巻を開けません（ファイルが見つかりません）")
+        #expect(box.opened.isEmpty)
+        #expect(!box.closed)
+        c.window?.close()
+    }
+
+    /// G54-S3e: 文言が無い（錠の失効など、所有者が書庫側で別途知らせる）ときは何も出さない。
+    /// Review Focus 2: 留まった後も、次の巻送りでもう一度解決に行く（`isSwapping` が戻っている）。
+    @Test func unavailableWithoutNoteIsSilentAndTheNextPressResolvesAgain() async {
+        let box = Box()
+        let c = ViewerWindowController(
+            content: SolidPNGContent(count: 3), book: .g51Fixture(id: 1, title: "t"), pageCount: 3,
+            options: ViewerOptions(pageDirection: .leftToRight, endOfBookBehavior: .stop),
+            initialState: ResolvedViewerState(spreadEnabled: false, coverOffset: false, lastPage: 0, overrides: [:]),
+            loadNextVolume: { _ in
+                box.resolves += 1
+                return .unavailable(note: nil)
+            },
+            loadPrevVolume: { _ in nil },
+            persistState: { b, _, _, _, _ in box.persisted.append(b.id) },
+            persistPageOverride: { _, _, _ in },
+            suppressResumeDialog: true)
+        await waitUntil { !c.hasPendingDisplay }
+        c.onClose = { box.closed = true }
+        c.perform(.nextVolume)
+        await waitUntil { box.resolves == 1 }
+        // 結果の処理（MainActor の Task の続き）が終わるのを待つ。
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(c.lastHUDNote == nil)
+        #expect(!box.closed)
+        c.perform(.nextVolume)
+        await waitUntil { box.resolves == 2 }
+        #expect(box.resolves == 2)
+        c.window?.close()
     }
 }
