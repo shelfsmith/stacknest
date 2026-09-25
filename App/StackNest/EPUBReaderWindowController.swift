@@ -32,13 +32,17 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     }
     typealias ResumeSheetCompletion = @MainActor (NSApplication.ModalResponse) -> Void
     /// 再開シートを出す処理。テストは記録用に差し替える（画面にシートを出さずに確かめるため）。
-    var resumeSheetPresenter: @MainActor (NSWindow, @escaping ResumeSheetCompletion) -> Void = { window, completion in
+    /// G54-S3e: 出したシートを返す。差し替えで閉じるのはこのシートだけ（他のシートには触らない）。
+    var resumeSheetPresenter: @MainActor (NSWindow, @escaping ResumeSheetCompletion) -> NSWindow? = { window, completion in
         let alert = NSAlert()
         alert.messageText = "続きから読みますか？"
         alert.addButton(withTitle: "続きから")     // .alertFirstButtonReturn
         alert.addButton(withTitle: "最初から")     // .alertSecondButtonReturn
         alert.beginSheetModal(for: window) { response in completion(response) }
+        return alert.window
     }
+    /// G54-S3e: 出している再開シート（`dismissResumeSheet` が閉じるのはこれだけ）。
+    private var resumeSheet: NSWindow?
     private(set) var book: BookRow
     var onClose: (() -> Void)?
 
@@ -98,8 +102,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private var isClosed = false
     /// G54-S3cd smoke fix: present() が要求した全画面化の実行主体。1 窓に付き高々 1 個。
     private var fullScreenEntryDriver: FullScreenEntryDriver?
-    /// G54-S3c: 差し替えのたびに進める。差し替え前の本の再開シートの結果を無視するのに使う。
-    private var bookGeneration = 0
+    /// G54-S3c: 差し替えのたびに進める。差し替え前の本の再開シートの結果・保存タイマーを無視するのに使う（テストが読む）。
+    private(set) var bookGeneration = 0
 
     // MARK: G51 — 自動送り
     private var autoAdvanceTimer: Timer?
@@ -160,9 +164,12 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         hudHosting = hud
         window.contentView = container
         window.center()
-        // G48-2 最終レビュー E: 本ごとに一意な autosave name（固定名は 2 窓目で false を返す）。
-        window.setFrameAutosaveName("EPUBReaderWindow-\(book.id)")
         super.init(window: window)
+        // G48-2 最終レビュー E: 本ごとに一意な autosave name（固定名は 2 窓目で false を返す）。
+        // G54-S3e: NSWindowController の指定イニシャライザ（super.init(window:)）が、その時点までに
+        // 窓へ付けていた autosave 名を消してしまう。付けるのは super.init の**後**でなければならない
+        // （前に付けていたため、これまで実質的に常に "" になっていた＝テストが "" 同士の比較で素通りしていた真因）。
+        window.setFrameAutosaveName("EPUBReaderWindow-\(book.id)")
         window.delegate = self
         wire(reader)
         bindingsObserver = NotificationCenter.default.addObserver(
@@ -357,7 +364,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private func loadSibling(_ direction: SiblingDirection) {
         guard !isResolvingSibling, !isClosed else { return }
         let noSiblingNote = direction == .next ? "次の巻なし" : "前の巻なし"
-        guard let resolveSibling, let openSibling else { hudNote(noSiblingNote); return }
+        // G54-S3e（spec §2.3 ③）: `openSibling` は `.reopen` のときだけ要る（差し替えだけなら無くてよい）。
+        guard let resolveSibling else { hudNote(noSiblingNote); return }
         // 解決から差し替え完了まで立てたまま（連打で二重に走らない）。
         isResolvingSibling = true
         let current = book
@@ -379,6 +387,11 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
                 // reader を用意できなかった: 今の本のまま（窓・保存先・reader を変えない）。
                 self.hudNote(direction == .next ? "次の巻を開けません" : "前の巻を開けません")
             case .reopen(let row):
+                // G54-S3e: 開き直す手段が無ければ窓を閉じない（画像ビューアの `handOverToEPUBReader` と同じ文言）。
+                guard let openSibling = self.openSibling else {
+                    self.hudNote("この巻はここでは開けません")
+                    break
+                }
                 // 明示 flushPersist は不要: windowWillClose が close() の中で必ず 1 回 flush する
                 // （二重に呼ぶとリモートで位置を 2 回 POST する）。
                 self.window?.close()
@@ -511,17 +524,21 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         guard shouldAskResume, let window else { return }
         markResumeDialogShown()
         let generation = bookGeneration
-        resumeSheetPresenter(window) { [weak self] response in
+        resumeSheet = resumeSheetPresenter(window) { [weak self] response in
             // G54-S3c: 差し替え前の本のシートの結果は捨てる（新しい本を「最初から」にしない）。
             guard let self, self.bookGeneration == generation else { return }
+            self.resumeSheet = nil
             guard response == .alertSecondButtonReturn else { return }   // 続きから＝復元済みなので何もしない
             self.restartFromBeginning()
         }
     }
 
     /// G54-S3c: 開いている再開シートを閉じる（結果は世代で無視される）。
+    /// G54-S3e: 付いているシートを何でも閉じていた。再開シートが付いているときだけ閉じる。
     private func dismissResumeSheet() {
-        guard let window, let sheet = window.attachedSheet else { return }
+        guard let sheet = resumeSheet else { return }
+        resumeSheet = nil
+        guard let window, window.sheets.contains(where: { $0 === sheet }) else { return }
         window.endSheet(sheet, returnCode: .abort)
     }
 
@@ -621,9 +638,17 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private func schedulePersist(_ loc: EPUBLocatorValue) {
         pending = loc
         persistTimer?.invalidate()
+        let generation = bookGeneration
         persistTimer = Timer.scheduledTimer(withTimeInterval: persistDebounceDelay, repeats: false) { [weak self] _ in
-            Task { @MainActor in self?.flushPersist() }
+            Task { @MainActor in self?.persistTimerFired(generation: generation) }
         }
+    }
+
+    /// G54-S3e（spec §2.3 ①）: 保存タイマーの発火。タイマーが Task を積んだ後に差し替えが走ると、その Task は
+    /// 新しい本に対して早すぎる保存をする。世代が変わっていたら何もしない（テストから直接呼ぶので internal）。
+    func persistTimerFired(generation: Int) {
+        guard generation == bookGeneration else { return }
+        flushPersist()
     }
 
     private func flushPersist() {

@@ -31,17 +31,28 @@ struct EPUBReaderWindowSwapTests {
         EPUBLocatorValue(spine: spine, progress: progress, cfi: nil, engine: nil)
     }
 
-    private func make(settings: ViewerSettings? = nil, resume: EPUBLocatorValue? = nil)
+    /// G54-S3e（spec §2.3 ②）: 窓の autosave 名は `EPUBReaderWindow-<id>`。前のテストの窓が同じ id で残っていると
+    /// AppKit が名前を拒否して "" になり、名前の比較が素通りする。テストごとに固有の id を使う。
+    private static var nextBookID = 1_000_000
+    private static func freshBookID() -> Int {
+        nextBookID += 1
+        return nextBookID
+    }
+
+    private func make(id: Int? = nil, settings: ViewerSettings? = nil, resume: EPUBLocatorValue? = nil)
         -> (EPUBReaderWindowController, FakeEPUBReader, Box, Sheets) {
         let reader = FakeEPUBReader()
         let box = Box()
         let c = EPUBReaderWindowController(
-            book: .g51Fixture(id: 1, title: "一巻"), reader: reader,
+            book: .g51Fixture(id: id ?? Self.freshBookID(), title: "一巻"), reader: reader,
             settings: settings ?? freshSettings(), resumeLocator: resume,
             persist: { box.persisted.append($0) })
         c.bindings = .defaults
         let sheets = Sheets()
-        c.resumeSheetPresenter = { _, completion in sheets.completions.append(completion) }
+        c.resumeSheetPresenter = { _, completion in
+            sheets.completions.append(completion)
+            return nil
+        }
         c.openSibling = { _ in Issue.record("開き直してはいけない") }
         return (c, reader, box, sheets)
     }
@@ -65,14 +76,16 @@ struct EPUBReaderWindowSwapTests {
 
     @Test func swapReplacesTheReaderInTheSameWindow() async {
         let (c, old, oldBox, _) = make()
+        defer { c.window?.close() }
         old.locator = loc(3, 0.5)
         let (next, new, newBox) = prepared()
         var swapped: [Int] = []
         c.onBookSwapped = { swapped.append($0.id) }
         c.resolveSibling = { _, _ in .swapIn(next) }
         let window = c.window
-        // 同じ id の窓が他のテストで生きていると AppKit は autosave 名を拒否して "" になるので、前後で比べる。
         let autosaveName = window?.frameAutosaveName
+        // G54-S3e: 固有 id なので名前は必ず付いている（""同士の比較で素通りしない）。
+        #expect(autosaveName == "EPUBReaderWindow-\(c.book.id)")
         c.perform(.nextVolume)
         await waitUntil { c.book.id == 2 }
         #expect(c.book.id == 2)
@@ -117,6 +130,7 @@ struct EPUBReaderWindowSwapTests {
         s.epubFontScale = 1.4
         s.epubTheme = .dark
         let (c, _, _, _) = make(settings: s)
+        defer { c.window?.close() }
         let (next, new, _) = prepared()
         c.resolveSibling = { _, _ in .swapIn(next) }
         c.perform(.nextVolume)
@@ -129,12 +143,14 @@ struct EPUBReaderWindowSwapTests {
 
     @Test func failureKeepsTheCurrentBook() async {
         let (c, old, oldBox, _) = make()
+        defer { c.window?.close() }
+        let firstID = c.book.id
         old.locator = loc(3, 0.5)
         c.resolveSibling = { _, _ in .failed }
         c.perform(.nextVolume)
         await waitUntil { c.lastHUDNote == "次の巻を開けません" }
         #expect(c.lastHUDNote == "次の巻を開けません")
-        #expect(c.book.id == 1)
+        #expect(c.book.id == firstID)
         #expect(!old.calls.contains("tearDown"))
         #expect(old.onLocatorChange != nil)
         #expect(old.view.superview != nil)
@@ -143,11 +159,13 @@ struct EPUBReaderWindowSwapTests {
 
     @Test func missingSiblingShowsNote() async {
         let (c, _, _, _) = make()
+        defer { c.window?.close() }
+        let firstID = c.book.id
         c.resolveSibling = { _, _ in .noSibling }
         c.perform(.prevVolume)
         await waitUntil { c.lastHUDNote == "前の巻なし" }
         #expect(c.lastHUDNote == "前の巻なし")
-        #expect(c.book.id == 1)
+        #expect(c.book.id == firstID)
     }
 
     @Test func nonTextSiblingClosesAndReopensThroughTheOwner() async {
@@ -164,6 +182,7 @@ struct EPUBReaderWindowSwapTests {
 
     @Test func asksAfterSwapWhenTheNextBookHasProgress() async {
         let (c, _, _, sheets) = make()
+        defer { c.window?.close() }
         let (next, _, _) = prepared(resume: loc(2, 0))
         c.resolveSibling = { _, _ in .swapIn(next) }
         c.perform(.nextVolume)
@@ -179,12 +198,14 @@ struct EPUBReaderWindowSwapTests {
             c.perform(.nextVolume)
             await waitUntil { c.book.id == 2 }
             #expect(sheets.completions.isEmpty)
+            c.window?.close()
         }
     }
 
     /// 古い本のシートが開いたまま差し替わっても、その「最初から」は新しい本に効かない。
     @Test func oldSheetResultDoesNotRestartTheNewBook() async {
         let (c, old, _, sheets) = make(resume: loc(3, 0.5))
+        defer { c.window?.close() }
         c.showResumeDialogIfNeeded()
         #expect(sheets.completions.count == 1)
         let (next, new, newBox) = prepared()
@@ -235,6 +256,7 @@ struct EPUBReaderWindowSwapTests {
 
     @Test func closingWhileResolvingDiscardsTheResult() async {
         let (c, _, _, _) = make()
+        let firstID = c.book.id
         let (next, new, newBox) = prepared()
         let gate = Gate()
         c.resolveSibling = { _, _ in
@@ -246,13 +268,14 @@ struct EPUBReaderWindowSwapTests {
         gate.open = true
         await waitUntil { new.calls.contains("tearDown") }
         #expect(new.calls.contains("tearDown"))
-        #expect(c.book.id == 1)
+        #expect(c.book.id == firstID)
         #expect(new.view.superview == nil)
         #expect(newBox.persisted.isEmpty)
     }
 
     @Test func repeatedPressesResolveOnlyOnce() async {
         let (c, _, _, _) = make()
+        defer { c.window?.close() }
         let gate = Gate()
         var count = 0
         c.resolveSibling = { _, _ in
@@ -271,6 +294,8 @@ struct EPUBReaderWindowSwapTests {
     /// リモートのダウンロードなど解決が長引くときは、今の本を出したまま「読み込み中…」を出す。
     @Test func slowResolutionShowsLoadingNoteWhileKeepingTheBook() async {
         let (c, old, _, _) = make()
+        defer { c.window?.close() }
+        let firstID = c.book.id
         c.siblingLoadingNoteDelay = .milliseconds(1)
         let (next, _, _) = prepared()
         let gate = Gate()
@@ -281,7 +306,7 @@ struct EPUBReaderWindowSwapTests {
         c.perform(.nextVolume)
         await waitUntil { c.lastHUDNote == "次の巻を読み込み中…" }
         #expect(c.lastHUDNote == "次の巻を読み込み中…")
-        #expect(c.book.id == 1)
+        #expect(c.book.id == firstID)
         #expect(old.view.superview != nil)
         gate.open = true
         await waitUntil { c.book.id == 2 }
@@ -294,11 +319,11 @@ struct EPUBReaderWindowSwapTests {
         do {
             let old = FakeEPUBReader()
             weakOld = old
-            c = EPUBReaderWindowController(book: .g51Fixture(id: 1, title: "一巻"), reader: old,
+            c = EPUBReaderWindowController(book: .g51Fixture(id: Self.freshBookID(), title: "一巻"), reader: old,
                                            settings: freshSettings(), persist: { _ in })
         }
-        c.resumeSheetPresenter = { _, _ in }
-        c.openSibling = { _ in }   // 未設定だと loadSibling が「次の巻なし」で止まる
+        defer { c.window?.close() }
+        c.resumeSheetPresenter = { _, _ in nil }
         let (next, _, _) = prepared()
         c.resolveSibling = { _, _ in .swapIn(next) }
         c.perform(.nextVolume)
@@ -310,6 +335,7 @@ struct EPUBReaderWindowSwapTests {
     /// 古い WebView ごとファーストレスポンダが消えるので、差し替え後は新しい本の中のビューへ渡す。
     @Test func swapHandsFocusToTheNewReader() async {
         let (c, _, _, _) = make()
+        defer { c.window?.close() }
         let (next, new, _) = prepared()
         let leaf = FocusableView()
         new.view.addSubview(leaf)
@@ -317,6 +343,87 @@ struct EPUBReaderWindowSwapTests {
         c.perform(.nextVolume)
         await waitUntil { c.book.id == 2 }
         #expect(c.window?.firstResponder === leaf)
+    }
+
+    /// G54-S3e（spec §2.3 ①）: 保存タイマーが発火して Task を積んだ後に差し替えが走ると、その Task は
+    /// 新しい本に対して早すぎる保存をしていた。世代が変わっていたら何もしない。
+    @Test func staleTimerFireAfterSwapDoesNotSaveTheNewBook() async {
+        let (c, old, _, _) = make()
+        defer { c.window?.close() }
+        let staleGeneration = c.bookGeneration
+        old.onLocatorChange?(loc(3, 0.5))                 // 古い本の保存タイマーを張る
+        let (next, new, newBox) = prepared()
+        new.locator = loc(0, 0)
+        c.resolveSibling = { _, _ in .swapIn(next) }
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 2 }
+        c.persistTimerFired(generation: staleGeneration) // 差し替え前に積まれた Task が後から走った
+        #expect(newBox.persisted.isEmpty)
+    }
+
+    /// G54-S3e（spec §2.3 ④）: 差し替えで閉じるのは再開シートだけ。他のシートには触らない。
+    @Test func swapLeavesOtherSheetsAlone() async throws {
+        let (c, _, _, _) = make()
+        defer { c.window?.close() }
+        let window = try #require(c.window)
+        window.orderFront(nil)
+        let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        window.beginSheet(other, completionHandler: nil)
+        try #require(window.attachedSheet === other)
+        let (next, _, _) = prepared()
+        c.resolveSibling = { _, _ in .swapIn(next) }
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 2 }
+        #expect(window.attachedSheet === other)
+        window.endSheet(other)
+    }
+
+    /// G54-S3e: 再開シートは今までどおり差し替えで閉じる（参照を持つ形に変えても）。
+    @Test func swapClosesTheResumeSheet() async throws {
+        let (c, _, _, _) = make(resume: loc(3, 0.5))
+        defer { c.window?.close() }
+        let window = try #require(c.window)
+        window.orderFront(nil)
+        c.resumeSheetPresenter = { parent, completion in
+            let sheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100),
+                                 styleMask: [.titled], backing: .buffered, defer: false)
+            parent.beginSheet(sheet) { completion($0) }
+            return sheet
+        }
+        c.showResumeDialogIfNeeded()
+        try #require(window.attachedSheet != nil)
+        let (next, _, _) = prepared()
+        c.resolveSibling = { _, _ in .swapIn(next) }
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 2 }
+        #expect(window.attachedSheet == nil)
+    }
+
+    /// G54-S3e（spec §2.3 ③）: `openSibling` は `.reopen` のときだけ要る。差し替えは無くても動く。
+    @Test func swapWorksWithoutOpenSibling() async {
+        let (c, _, _, _) = make()
+        defer { c.window?.close() }
+        c.openSibling = nil
+        let (next, _, _) = prepared()
+        c.resolveSibling = { _, _ in .swapIn(next) }
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 2 }
+        #expect(c.book.id == 2)
+    }
+
+    /// G54-S3e: `.reopen` で開き直す手段が無ければ、窓を閉じずに知らせる（画像ビューアと同じ文言）。
+    @Test func reopenWithoutOpenSiblingStays() async {
+        let (c, _, _, _) = make()
+        defer { c.window?.close() }
+        c.openSibling = nil
+        var closed = false
+        c.onClose = { closed = true }
+        c.resolveSibling = { _, _ in .reopen(.g51Fixture(id: 5, title: "zip")) }
+        c.perform(.nextVolume)
+        await waitUntil { c.lastHUDNote == "この巻はここでは開けません" }
+        #expect(c.lastHUDNote == "この巻はここでは開けません")
+        #expect(!closed)
     }
 
     @Test func firstResponderCandidateFindsTheFocusableDescendant() {
