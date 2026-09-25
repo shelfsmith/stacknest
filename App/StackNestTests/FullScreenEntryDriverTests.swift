@@ -4,6 +4,24 @@ import Foundation
 import AppKit
 @testable import StackNest
 
+/// テスト専用のオフスクリーン窓。autosave 名を設定しない・タイトルも汎用のものにする・
+/// 一度も画面に出さない等、ユーザーの環境（prefs・ウィンドウ配置の記憶）には一切触れない。
+/// `FullScreenEntryDriverTests`・`FullScreenTransitionTrackerTests` の両方から使う共通ヘルパ。
+@MainActor
+private func makeTrackerTestWindow() -> NSWindow {
+    let window = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 10, height: 10),
+        styleMask: [.borderless],
+        backing: .buffered,
+        defer: false
+    )
+    // ARC の最後の強参照が外れた時点で確実に解放されるようにする
+    // （`isReleasedWhenClosed`（既定 true）は `close()` 時に AppKit 側からも解放を試みるので、
+    // Swift 側で強参照管理する窓では二重解放を避けるため false にしておく）。
+    window.isReleasedWhenClosed = false
+    return window
+}
+
 /// G54-S3cd smoke fix: present() が要求した全画面化が、旧窓の全画面 Space 退出アニメーション中に
 /// 無視されるのを吸収する `FullScreenEntryDriver` の決定ロジック。
 ///
@@ -266,6 +284,86 @@ struct FullScreenEntryDriverTests {
         #expect(fakes.toggleCallCount == 1, "実行中の二重 start() は無視すること")
         withExtendedLifetime(scheduledBlocks) {}
     }
+
+    // MARK: - G54-S3e beep fix: 実際の FullScreenTransitionTracker との結線（beep-fix-brief.md）
+    //
+    // 以下 2 件は `isOtherTransitionInProgress`/`observeTransitionEnd` を実際の
+    // `FullScreenTransitionTracker` に結線し、「Space 退出保留」がドライバの待ち合わせに正しく
+    // 効くことを検証する（`toggle`/`isFullScreen`/`schedule` は他のテストと同じくフェイク）。
+
+    /// 「space-exit pending 中に開始したドライバは待ち、Space 変化の通知で 1 回だけ toggle する」
+    /// （brief のテスト項目）。
+    @Test("Space 退出保留中に開始したドライバは待ち、Space 変化の通知で 1 回だけ toggle する")
+    func waitsDuringSpaceExitPendingAndTogglesOnceAfterSpaceChange() {
+        let tracker = FullScreenTransitionTracker()
+        let oldWindow = makeTrackerTestWindow()
+        tracker.testCloseWindow(id: ObjectIdentifier(oldWindow), wasFullScreen: true)   // Space 退出保留
+
+        var fullScreen = false
+        var toggleCallCount = 0
+        var scheduledDelays: [TimeInterval] = []
+        let driver = FullScreenEntryDriver(
+            config: .init(transitionWaitTimeout: 1.5),
+            isFullScreen: { fullScreen },
+            isOtherTransitionInProgress: { tracker.isTransitioning },
+            toggle: { toggleCallCount += 1; fullScreen = true },
+            // transitionWaitTimeout(1.5秒) のスケジュールだけは即時実行しない（期限で待ちが明けた
+            // ことにしてしまうと、Space 変化を待つ検証にならない）。retryInterval(0.3秒)は同期実行のまま。
+            schedule: { delay, block in
+                scheduledDelays.append(delay)
+                if delay == 1.5 { /* 期限は来させない: Space 変化だけで待ちが明くことを確かめる */ } else { block() }
+            },
+            observeTransitionEnd: { completion in tracker.onNextTransitionEnd(completion) }
+        )
+        driver.start()
+        #expect(toggleCallCount == 0, "Space 退出保留中は toggle しないこと")
+
+        tracker.testActiveSpaceDidChange()   // Space 変化の通知が来た
+        #expect(toggleCallCount == 1, "Space 変化で待ちが明けたら 1 回だけ toggle すること")
+
+        withExtendedLifetime(oldWindow) {}
+    }
+
+    /// 「failed entry → next retry waits for space change/timeout, not 0.3 s」（brief のテスト項目）。
+    /// `schedule` は即時実行しないフェイクにして、AppKit の `windowDidFailToEnterFullScreen`
+    /// （= `driver.entryFailed()`）が verify() より先に届く実機の順序を模す。
+    @Test("failed entry の後は、次のリトライも Space 変化/期限を待つ（盲目の 0.3 秒連打をしない）")
+    func entryFailedMakesNextRetryWaitForSpaceChangeInsteadOfBlindRetry() {
+        let tracker = FullScreenTransitionTracker()
+        var fullScreen = false
+        var toggleCallCount = 0
+        var scheduledBlocks: [(delay: TimeInterval, block: () -> Void)] = []
+        var driver: FullScreenEntryDriver!
+        driver = FullScreenEntryDriver(
+            isFullScreen: { fullScreen },
+            isOtherTransitionInProgress: { tracker.isTransitioning },
+            toggle: { toggleCallCount += 1 },   // 常に失敗する想定（fullScreen を立てない）
+            schedule: { delay, block in scheduledBlocks.append((delay, block)) },
+            observeTransitionEnd: { completion in tracker.onNextTransitionEnd(completion) }
+        )
+        driver.start()   // この時点では他窓の遷移も Space 保留も無いので、1 回目は即座に toggle する
+        #expect(toggleCallCount == 1)
+        #expect(scheduledBlocks.count == 1, "verify() が retryInterval 後にスケジュールされること")
+        #expect(scheduledBlocks[0].delay == 0.3)
+
+        // AppKit が windowDidFailToEnterFullScreen を呼んだことを模す（verify() が走るより先）。
+        driver.entryFailed()
+        // ちょうどこのタイミングで、旧窓が全画面のまま閉じて Space 退出保留になったとする
+        // （実機ログどおり: 旧窓 close → 新窓 toggleFullScreen 失敗、がほぼ同時に起きる）。
+        let oldWindow = makeTrackerTestWindow()
+        tracker.testCloseWindow(id: ObjectIdentifier(oldWindow), wasFullScreen: true)
+
+        // verify() が走る（isFullScreen() はまだ false）→ proceed() は entryFailed のフラグにより
+        // 盲目に attemptToggle しない。
+        let verifyBlock = scheduledBlocks.removeFirst().block
+        verifyBlock()
+        #expect(toggleCallCount == 1, "entryFailed 後は、Space 退出保留が残っていれば即座に再試行しないこと")
+
+        tracker.testActiveSpaceDidChange()
+        #expect(toggleCallCount == 2, "Space 変化が来たら 1 回だけ再試行すること")
+
+        withExtendedLifetime(oldWindow) {}
+    }
 }
 
 /// `FullScreenTransitionTracker` の遷移中集合・完了通知の配線。
@@ -507,6 +605,64 @@ struct FullScreenTransitionTrackerTests {
         tracker.testEndTransition(id: a)   // A も終わる → 保留されていた inner が発火する
         #expect(innerFireCount == 1, "保留されていた inner がここで発火すること（取りこぼされていない）")
         #expect(outerFireCount == 1, "outer は二重発火しないこと")
+    }
+
+    // MARK: - G54-S3e beep fix: Space 退出保留（beep-fix-brief.md）
+
+    /// 全画面のまま閉じた窓（`wasFullScreen: true`）は、`NSWorkspace.activeSpaceDidChangeNotification`
+    /// が来るまで「遷移中」扱いのままであること。
+    @Test("wasFullScreen=true で閉じた窓は、Space 変化通知が来るまで isTransitioning を真にする")
+    func closeWithWasFullScreenTrueKeepsTransitioningUntilSpaceChanges() {
+        let tracker = FullScreenTransitionTracker()
+        let window = makeTrackerTestWindow()
+        let id = ObjectIdentifier(window)
+        #expect(!tracker.isTransitioning, "閉じる前は遷移中でないこと")
+
+        tracker.testCloseWindow(id: id, wasFullScreen: true)
+        #expect(tracker.isTransitioning, "全画面のまま閉じた直後は Space 退出保留として遷移中扱いにすること")
+
+        tracker.testActiveSpaceDidChange()
+        #expect(!tracker.isTransitioning, "Space 変化通知が来たら保留が解けること")
+    }
+
+    /// 全画面でなかった窓の close は、従来どおり Space 退出保留を立てないこと（回帰防止）。
+    @Test("wasFullScreen=false で閉じても Space 退出保留は立たない")
+    func closeWithWasFullScreenFalseDoesNotSetSpaceExitPending() {
+        let tracker = FullScreenTransitionTracker()
+        let window = makeTrackerTestWindow()
+        tracker.testCloseWindow(id: ObjectIdentifier(window), wasFullScreen: false)
+        #expect(!tracker.isTransitioning, "全画面でなかった窓の close は Space 退出保留を立てないこと")
+    }
+
+    /// Space 退出保留はデスクトップ全体に効くので、`excluding:` で閉じた窓自身を除外しても
+    /// （もちろん別窓を除外しても）「他」として数え続けること。
+    @Test("Space 退出保留は excluding: に関係なく「他」に数える")
+    func spaceExitPendingCountsAsOtherRegardlessOfExcluding() {
+        let tracker = FullScreenTransitionTracker()
+        let closedWindow = makeTrackerTestWindow()
+        let closedID = ObjectIdentifier(closedWindow)
+        tracker.testCloseWindow(id: closedID, wasFullScreen: true)
+
+        let otherID = ObjectIdentifier(makeTrackerTestWindow())
+        #expect(tracker.isTransitioning(excluding: otherID), "別窓を除外しても Space 保留は他窓に効くこと")
+        #expect(tracker.isTransitioning(excluding: closedID), "閉じた窓自身を除外しても Space 保留は効くこと")
+    }
+
+    /// `NSWorkspace.activeSpaceDidChangeNotification` が来ない場合の保険: `spaceExitTimeout` を
+    /// 超えた経過時間でプルーニングされて消えること（偽の時計でスリープを避ける）。
+    @Test("Space 退出保留は spaceExitTimeout を超えたらプルーニングで消える（偽の時計）")
+    func spaceExitPendingClearsAfterSpaceExitTimeoutUsingFakeClock() {
+        var clockValue: TimeInterval = 0
+        let tracker = FullScreenTransitionTracker(spaceExitTimeout: 1.2, now: { clockValue })
+        let window = makeTrackerTestWindow()
+        tracker.testCloseWindow(id: ObjectIdentifier(window), wasFullScreen: true)
+        #expect(tracker.isTransitioning)
+
+        clockValue += 1.1
+        #expect(tracker.isTransitioning, "spaceExitTimeout (1.2 秒) 未満はまだ保留のまま")
+
+        clockValue += 0.2   // 合計 1.3 秒 > 1.2 秒
+        #expect(!tracker.isTransitioning, "spaceExitTimeout を超えたら保留は自己修復で消えること")
     }
 }
 

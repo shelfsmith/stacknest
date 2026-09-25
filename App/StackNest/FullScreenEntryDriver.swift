@@ -43,6 +43,12 @@ final class FullScreenTransitionTracker {
     /// 全画面遷移のアニメーションは通常 1 秒未満で終わるので、これより十分長い値にしてある。
     static let defaultStaleAge: TimeInterval = 3.0
 
+    /// G54-S3e beep fix: 全画面のまま窓が閉じられてから「Space 退出アニメーションが終わった」と
+    /// みなすまでの猶予（`NSWorkspace.activeSpaceDidChangeNotification` が来ない場合の保険）。
+    /// `beep-diag-m4.log` の実測では、旧窓の `didExit` から実際に Space 退出アニメーションが
+    /// 終わるまで 0.6〜0.75 秒かかっていた。これより十分長い値にしてある。
+    static let defaultSpaceExitTimeout: TimeInterval = 1.2
+
     /// G54-S3e beep 診断: `log show` で追えるよう `.notice`（`.debug` は永続化されない）。
     /// タグ "fs.tracker" で grep できる。件数・真偽値・通知種別だけ（窓のタイトル・パスは出さない）。
     private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
@@ -65,9 +71,25 @@ final class FullScreenTransitionTracker {
     private var transitioningWindows: [ObjectIdentifier: WeakWindow] = [:]
     private var pendingCompletions: [(excludedID: ObjectIdentifier?, handler: () -> Void)] = []
     private var observers: [NSObjectProtocol] = []
+    /// `NSWorkspace.shared.notificationCenter` へ登録したオブザーバ。`NotificationCenter.default` とは
+    /// 別のインスタンスなので、`removeObserver` も別に呼ぶ必要がある（`observers` とは分けて持つ）。
+    private var workspaceObservers: [NSObjectProtocol] = []
 
     private let staleAge: TimeInterval
+    private let spaceExitTimeout: TimeInterval
     private let now: () -> TimeInterval
+
+    /// G54-S3e beep fix: 全画面のまま窓が閉じられた（`closeWindow(_:wasFullScreen: true)`）直後から
+    /// 「Space 退出保留」とみなす時刻。`nil` なら保留無し。`NSWorkspace.activeSpaceDidChangeNotification`
+    /// か `spaceExitTimeout` の経過のどちらか早い方で `nil` に戻る。
+    ///
+    /// 保留中は `isTransitioning`/`isTransitioning(excluding:)` を**どの窓についても**真にする
+    /// （全画面のまま窓を閉じたことで動く Space 退出アニメーションは、閉じた窓自身だけでなく
+    /// デスクトップ全体に影響するため、`excluding:` で除外しても無関係ではない）。これにより
+    /// `FullScreenEntryDriver` の「他窓の遷移中は待つ」ロジックが Space 退出アニメーションの
+    /// 完了も自然に待つようになり、退出アニメーション中の `toggleFullScreen` 失敗（AppKit の
+    /// ビープ）を防ぐ（root cause は `beep-diag-m4.log` で確認済み: `beep-fix-brief.md` 参照）。
+    private var spaceExitPendingAt: TimeInterval?
 
     /// クエリのたびに `prune()` してから答える——`will*`/`did*` の到着順序にも `ObjectIdentifier` の
     /// アドレス再利用にも頼らない（`prune()` のドキュメント参照）。
@@ -78,11 +100,15 @@ final class FullScreenTransitionTracker {
 
     /// - Parameters:
     ///   - staleAge: `prune()` が壊れた遷移とみなす経過時間。既定は `defaultStaleAge`。
+    ///   - spaceExitTimeout: Space 退出保留を `prune()` が諦めるまでの経過時間。既定は
+    ///     `defaultSpaceExitTimeout`。
     ///   - now: 現在時刻を返すクロージャ。既定は `ProcessInfo.processInfo.systemUptime`
     ///     （単調増加でスリープ等の影響を受けにくい）。テストは偽の時計を注入してスリープを避ける。
     init(staleAge: TimeInterval = FullScreenTransitionTracker.defaultStaleAge,
+         spaceExitTimeout: TimeInterval = FullScreenTransitionTracker.defaultSpaceExitTimeout,
          now: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.staleAge = staleAge
+        self.spaceExitTimeout = spaceExitTimeout
         self.now = now
         let nc = NotificationCenter.default
         // レビュー Minor: `queue: .main` により実行は必ずメインスレッドだが、NotificationCenter の
@@ -124,6 +150,15 @@ final class FullScreenTransitionTracker {
                 }
             },
         ]
+        // G54-S3e beep fix: `NSWorkspace.shared.notificationCenter` は `NotificationCenter.default` とは
+        // 別インスタンスなので observers とは別の配列で保持する（deinit で別々に removeObserver する）。
+        workspaceObservers = [
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.spaceDidChange() }
+            },
+        ]
     }
 
     /// `note.object` を `NSWindow` として `ObjectIdentifier` に落とす。`nonisolated` のままでよい
@@ -141,6 +176,8 @@ final class FullScreenTransitionTracker {
     deinit {
         let nc = NotificationCenter.default
         for o in observers { nc.removeObserver(o) }
+        let wnc = NSWorkspace.shared.notificationCenter
+        for o in workspaceObservers { wnc.removeObserver(o) }
     }
 
     /// 現在進行中の遷移が 1 つも無くなった時点で一度だけ呼ばれる。
@@ -163,6 +200,9 @@ final class FullScreenTransitionTracker {
     }
 
     private func stillTransitioning(excluding excludedID: ObjectIdentifier?) -> Bool {
+        // G54-S3e beep fix: Space 退出保留は特定の窓の遷移ではなく、デスクトップ全体（Space の
+        // アニメーション）に効くので、`excludedID` の除外に関係なく真になる。
+        if spaceExitPendingAt != nil { return true }
         guard let excludedID else { return !transitioningWindows.isEmpty }
         return transitioningWindows.keys.contains { $0 != excludedID }
     }
@@ -183,9 +223,28 @@ final class FullScreenTransitionTracker {
 
     /// - Parameter wasFullScreen: 閉じる窓自身（呼び出し側が通知の object から直接読む）が、
     ///   閉じる時点で全画面 styleMask を持っていたか。beep 診断の手がかり（テスト経由の既定は false）。
+    ///   G54-S3e beep fix: 真なら「Space 退出保留」に入る（`spaceExitPendingAt` セット）——
+    ///   全画面のまま窓が閉じると、Space 退出アニメーションが `didExit`/`willClose` の後もしばらく
+    ///   続き、その間に他窓が `toggleFullScreen` すると AppKit がビープ付きで失敗させる
+    ///   （`beep-diag-m4.log` で確認済みの root cause）。
     private func closeWindow(_ id: ObjectIdentifier, wasFullScreen: Bool = false) {
         transitioningWindows.removeValue(forKey: id)
+        if wasFullScreen {
+            spaceExitPendingAt = now()
+            Self.diagLogger.notice("fs.space exitPending set")
+        }
         Self.diagLogger.notice("fs.tracker close wasFullScreen=\(wasFullScreen, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        fireReadyCompletions()
+    }
+
+    /// `NSWorkspace.activeSpaceDidChangeNotification` のハンドラ（`nonisolated` の受信クロージャから
+    /// `MainActor.assumeIsolated` 越しに呼ばれる）。Space 退出保留を解除する（保留が無ければ何もしない）。
+    private func spaceDidChange() {
+        let wasPending = spaceExitPendingAt != nil
+        Self.diagLogger.notice("fs.space didChange pending=\(wasPending, privacy: .public)")
+        guard wasPending else { return }
+        spaceExitPendingAt = nil
+        Self.diagLogger.notice("fs.space exitPending cleared(reason: space)")
         fireReadyCompletions()
     }
 
@@ -204,6 +263,7 @@ final class FullScreenTransitionTracker {
     /// 取り除いた件数を理由別（released/stale）にログへ残す。件数のみで、窓のタイトル・パスは出さない。
     private func prune() {
         let before = transitioningWindows.count
+        let hadSpaceExitPending = spaceExitPendingAt != nil
         let nowValue = now()
         var releasedCount = 0
         var staleCount = 0
@@ -221,7 +281,13 @@ final class FullScreenTransitionTracker {
         if releasedCount > 0 || staleCount > 0 {
             Self.diagLogger.notice("fs.tracker prune released=\(releasedCount, privacy: .public) stale=\(staleCount, privacy: .public)")
         }
-        if transitioningWindows.count != before {
+        // G54-S3e beep fix: `NSWorkspace.activeSpaceDidChangeNotification` が来ない経路（保険）。
+        // 壊れた遷移のプルーニングと同じ「クエリのたびに自己修復する」設計に合わせる。
+        if let pendingAt = spaceExitPendingAt, nowValue - pendingAt > spaceExitTimeout {
+            spaceExitPendingAt = nil
+            Self.diagLogger.notice("fs.space exitPending cleared(reason: timeout)")
+        }
+        if transitioningWindows.count != before || (hadSpaceExitPending && spaceExitPendingAt == nil) {
             fireReadyCompletions()
         }
     }
@@ -256,7 +322,10 @@ final class FullScreenTransitionTracker {
     /// 以前の `testBeginTransition(id:)`（任意の `NSObject` の識別子で足りた）から変更している。
     func testBeginTransition(window: NSWindow) { begin(window) }
     func testEndTransition(id: ObjectIdentifier) { end(id) }
-    func testCloseWindow(id: ObjectIdentifier) { closeWindow(id) }
+    func testCloseWindow(id: ObjectIdentifier, wasFullScreen: Bool = false) { closeWindow(id, wasFullScreen: wasFullScreen) }
+    /// テスト用: 実際に `NSWorkspace` 通知を投げず（`queue: .main` の実配送は非同期でテストが
+    /// スリープせずには待てない）、ハンドラを直接同期に呼ぶ。
+    func testActiveSpaceDidChange() { spaceDidChange() }
 }
 
 /// G54-S3cd smoke fix: 「全画面化を要求 → 検証 → 必要なら待つ／リトライ」の決定ロジック。
@@ -287,6 +356,9 @@ final class FullScreenEntryDriver {
         /// 自己修復するが、その自己修復自体が `staleAge`（既定 3 秒）を上限に働くものなので、
         /// この `transitionWaitTimeout`（既定 1.5 秒）はそれとは独立に働く別の安全網——
         /// トラッカー側の判定を待たずに、ドライバ自身の判断で通知待ちを打ち切る役目を持つ。
+        /// G54-S3e beep fix: `FullScreenTransitionTracker.defaultSpaceExitTimeout`（既定 1.2 秒）以上を
+        /// 保つこと——Space 退出保留を待っている間にこちらが先に切り上げてしまうと、退出アニメーション
+        /// 中に `toggleFullScreen` してビープの再発を招く。1.5 秒は 1.2 秒より十分長いのでそのままでよい。
         var transitionWaitTimeout: TimeInterval = 1.5
     }
 
@@ -299,6 +371,11 @@ final class FullScreenEntryDriver {
 
     private(set) var attemptsUsed = 0
     private var isRunning = false
+    /// G54-S3e beep fix: `entryFailed()`（controller の `windowDidFailToEnterFullScreen` 経由）が
+    /// 立てる。次の `proceed()` では、最初の試行と同じく「他窓の遷移完了（Space 退出保留を含む）」を
+    /// 待ってから次を試す——盲目に `retryInterval` 間隔で連打すると、Space 退出アニメーション中は
+    /// 何度でも失敗し、失敗のたびに AppKit がビープを鳴らす（root cause は `beep-diag-m4.log` で確認済み）。
+    private var pendingEntryFailure = false
 
     init(config: Config = Config(),
          isFullScreen: @escaping () -> Bool,
@@ -361,6 +438,15 @@ final class FullScreenEntryDriver {
         isRunning = false
     }
 
+    /// G54-S3e beep fix: controller の `windowDidFailToEnterFullScreen`（AppKit が `toggleFullScreen`
+    /// を拒否した経路。対応する通知が無いため、controller のデリゲートフックからここへ橋渡しする）から
+    /// 呼ばれる。次の `proceed()` を「最初の試行」と同じ待ち合わせ扱いにする。
+    func entryFailed() {
+        guard isRunning else { return }
+        pendingEntryFailure = true
+        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) entryFailed")
+    }
+
     private func proceed() {
         guard isRunning else { return }
         if isFullScreen() {
@@ -372,10 +458,16 @@ final class FullScreenEntryDriver {
             Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) giveUp attempts=\(self.attemptsUsed, privacy: .public)")
             return
         }
-        if attemptsUsed == 0 && isOtherTransitionInProgress() {
+        // G54-S3e beep fix: `pendingEntryFailure` が立っていれば、2 回目以降の試行でも
+        // 「他窓の遷移完了（Space 退出保留を含む）」を待ってから次を試す（盲目の retryInterval 連打で
+        // 同じ失敗を繰り返しビープしないため）。待つ必要が無ければ（already false から）
+        // 通常どおり即座に attemptToggle する。
+        if (attemptsUsed == 0 || pendingEntryFailure) && isOtherTransitionInProgress() {
+            pendingEntryFailure = false
             waitForOtherTransitionThenToggle()
             return
         }
+        pendingEntryFailure = false
         attemptToggle()
     }
 

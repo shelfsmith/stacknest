@@ -263,6 +263,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// 記録する。対応する通知が無いため、ログだけ残して他は何もしない（リトライは足さない）。
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
         Self.diagLogger.notice("fs.fail enter kind=epub")
+        // G54-S3e beep fix: 次の retryInterval で盲目に再試行させず、Space 退出保留の解消を待たせる。
+        fullScreenEntryDriver?.entryFailed()
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {
