@@ -14,7 +14,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// `nonisolated`: G18 C2 の off-main `loadImage`（nonisolated static func）から参照するため。
     /// `Logger` は値型・スレッドセーフに設計されており MainActor 隔離は不要。
     private nonisolated static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Viewer")
-    /// G54-S3e beep 診断: `.notice`（`log show` で追える）。タグは呼び出し箇所ごとに異なる
+    /// G54-S3e beep 診断: `.debug`（再発時は `log stream --level debug`）。タグは呼び出し箇所ごとに異なる
     /// （"fs.fail"・"present"）。件数・真偽値・クラス名だけで、パス・題名は出さない。
     private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
 
@@ -408,7 +408,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         showWindow(nil)
         // G54-S3e beep 診断: showWindow 直後の状態を記録する（firstResponder はクラス名だけ）。
         let firstResponderClass = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        Self.diagLogger.notice("present kind=image openFullScreen=\(ViewerSettings.shared.openFullScreenByDefault, privacy: .public) firstResponder=\(firstResponderClass, privacy: .public)")
+        Self.diagLogger.debug("present kind=image openFullScreen=\(ViewerSettings.shared.openFullScreenByDefault, privacy: .public) firstResponder=\(firstResponderClass, privacy: .public)")
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         startCacheCoverageUpdatesIfRemote()
@@ -1477,13 +1477,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// G54-S3e beep 診断: AppKit が全画面遷移を失敗させた経路（`will*` は来たが `did*` が来ない）を
     /// 記録する。対応する通知が無いため、ログだけ残して他は何もしない（リトライは足さない）。
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
-        Self.diagLogger.notice("fs.fail enter kind=image")
+        Self.diagLogger.debug("fs.fail enter kind=image")
         // G54-S3e beep fix: 次の retryInterval で盲目に再試行させず、Space 退出保留の解消を待たせる。
         fullScreenEntryDriver?.entryFailed()
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {
-        Self.diagLogger.notice("fs.fail exit kind=image")
+        Self.diagLogger.debug("fs.fail exit kind=image")
     }
 
     func windowDidResize(_ notification: Notification) {

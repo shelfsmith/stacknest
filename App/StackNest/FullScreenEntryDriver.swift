@@ -49,7 +49,7 @@ final class FullScreenTransitionTracker {
     /// 終わるまで 0.6〜0.75 秒かかっていた。これより十分長い値にしてある。
     static let defaultSpaceExitTimeout: TimeInterval = 1.2
 
-    /// G54-S3e beep 診断: `log show` で追えるよう `.notice`（`.debug` は永続化されない）。
+    /// G54-S3e beep 診断: 原因特定（M4 のログ・2026-09-25）の後は `.debug`。再発時は `log stream --level debug` で見る。
     /// タグ "fs.tracker" で grep できる。件数・真偽値・通知種別だけ（窓のタイトル・パスは出さない）。
     private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
 
@@ -212,12 +212,12 @@ final class FullScreenTransitionTracker {
     private func begin(_ window: NSWindow, source: String = "test") {
         // 同じ窓への 2 回目以降の will*（辞書キーの上書き）は beganAt も更新する＝リフレッシュされる。
         transitioningWindows[ObjectIdentifier(window)] = WeakWindow(window: window, beganAt: now())
-        Self.diagLogger.notice("fs.tracker begin notification=\(source, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        Self.diagLogger.debug("fs.tracker begin notification=\(source, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
     }
 
     private func end(_ id: ObjectIdentifier, source: String = "test") {
         transitioningWindows.removeValue(forKey: id)
-        Self.diagLogger.notice("fs.tracker end notification=\(source, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        Self.diagLogger.debug("fs.tracker end notification=\(source, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
         fireReadyCompletions()
     }
 
@@ -231,9 +231,9 @@ final class FullScreenTransitionTracker {
         transitioningWindows.removeValue(forKey: id)
         if wasFullScreen {
             spaceExitPendingAt = now()
-            Self.diagLogger.notice("fs.space exitPending set")
+            Self.diagLogger.debug("fs.space exitPending set")
         }
-        Self.diagLogger.notice("fs.tracker close wasFullScreen=\(wasFullScreen, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
+        Self.diagLogger.debug("fs.tracker close wasFullScreen=\(wasFullScreen, privacy: .public) transitioning=\(self.transitioningWindows.count, privacy: .public)")
         fireReadyCompletions()
     }
 
@@ -241,10 +241,10 @@ final class FullScreenTransitionTracker {
     /// `MainActor.assumeIsolated` 越しに呼ばれる）。Space 退出保留を解除する（保留が無ければ何もしない）。
     private func spaceDidChange() {
         let wasPending = spaceExitPendingAt != nil
-        Self.diagLogger.notice("fs.space didChange pending=\(wasPending, privacy: .public)")
+        Self.diagLogger.debug("fs.space didChange pending=\(wasPending, privacy: .public)")
         guard wasPending else { return }
         spaceExitPendingAt = nil
-        Self.diagLogger.notice("fs.space exitPending cleared(reason: space)")
+        Self.diagLogger.debug("fs.space exitPending cleared(reason: space)")
         fireReadyCompletions()
     }
 
@@ -279,13 +279,13 @@ final class FullScreenTransitionTracker {
             return true
         }
         if releasedCount > 0 || staleCount > 0 {
-            Self.diagLogger.notice("fs.tracker prune released=\(releasedCount, privacy: .public) stale=\(staleCount, privacy: .public)")
+            Self.diagLogger.debug("fs.tracker prune released=\(releasedCount, privacy: .public) stale=\(staleCount, privacy: .public)")
         }
         // G54-S3e beep fix: `NSWorkspace.activeSpaceDidChangeNotification` が来ない経路（保険）。
         // 壊れた遷移のプルーニングと同じ「クエリのたびに自己修復する」設計に合わせる。
         if let pendingAt = spaceExitPendingAt, nowValue - pendingAt > spaceExitTimeout {
             spaceExitPendingAt = nil
-            Self.diagLogger.notice("fs.space exitPending cleared(reason: timeout)")
+            Self.diagLogger.debug("fs.space exitPending cleared(reason: timeout)")
         }
         if transitioningWindows.count != before || (hadSpaceExitPending && spaceExitPendingAt == nil) {
             fireReadyCompletions()
@@ -340,7 +340,7 @@ final class FullScreenTransitionTracker {
 ///    （`maxAttempts` 回まで）。
 @MainActor
 final class FullScreenEntryDriver {
-    /// G54-S3e beep 診断: `.notice`（`log show` で追える）・タグ "fs.driver"。
+    /// G54-S3e beep 診断: `.debug`（再発時は `log stream --level debug`）・タグ "fs.driver"。
     private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
     /// 1 回の窓オープンにつき 1 個作られる `FullScreenEntryDriver` を、ログの上でグループ化するための
     /// 短い連番。値そのものに意味は無い（本の ID・窓のタイトルではない）。
@@ -429,7 +429,7 @@ final class FullScreenEntryDriver {
         // （isOtherTransitionInProgress はトラッカーの自己修復クエリで冪等）。
         let alreadyFullScreen = isFullScreen()
         let otherInProgress = isOtherTransitionInProgress()
-        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) start alreadyFullScreen=\(alreadyFullScreen, privacy: .public) otherTransitionInProgress=\(otherInProgress, privacy: .public)")
+        Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) start alreadyFullScreen=\(alreadyFullScreen, privacy: .public) otherTransitionInProgress=\(otherInProgress, privacy: .public)")
         proceed()
     }
 
@@ -444,7 +444,7 @@ final class FullScreenEntryDriver {
     func entryFailed() {
         guard isRunning else { return }
         pendingEntryFailure = true
-        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) entryFailed")
+        Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) entryFailed")
     }
 
     private func proceed() {
@@ -455,7 +455,7 @@ final class FullScreenEntryDriver {
         }
         if attemptsUsed >= config.maxAttempts {
             isRunning = false
-            Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) giveUp attempts=\(self.attemptsUsed, privacy: .public)")
+            Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) giveUp attempts=\(self.attemptsUsed, privacy: .public)")
             return
         }
         // G54-S3e beep fix: `pendingEntryFailure` が立っていれば、2 回目以降の試行でも
@@ -476,13 +476,13 @@ final class FullScreenEntryDriver {
     /// 通知を待たずに `attemptToggle()` へ進むので、待ちが無期限になることはない。
     /// 両方が来ても二重に進まないよう `hasProceeded` フラグで 1 回だけに絞る。
     private func waitForOtherTransitionThenToggle() {
-        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) wait begin")
+        Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) wait begin")
         var hasProceeded = false
         let proceedOnce: (String) -> Void = { [weak self] source in
             guard !hasProceeded else { return }
             hasProceeded = true
             if let self {
-                Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) wait end source=\(source, privacy: .public)")
+                Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) wait end source=\(source, privacy: .public)")
             }
             self?.attemptToggle()
         }
@@ -499,7 +499,7 @@ final class FullScreenEntryDriver {
             return
         }
         attemptsUsed += 1
-        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) attemptToggle attempt=\(self.attemptsUsed, privacy: .public)")
+        Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) attemptToggle attempt=\(self.attemptsUsed, privacy: .public)")
         toggle()
         schedule(config.retryInterval) { [weak self] in self?.verify() }
     }
@@ -507,7 +507,7 @@ final class FullScreenEntryDriver {
     private func verify() {
         guard isRunning else { return }
         let isFS = isFullScreen()
-        Self.diagLogger.notice("fs.driver id=\(self.driverID, privacy: .public) verify isFullScreen=\(isFS, privacy: .public)")
+        Self.diagLogger.debug("fs.driver id=\(self.driverID, privacy: .public) verify isFullScreen=\(isFS, privacy: .public)")
         if isFS {
             isRunning = false
             return
@@ -537,7 +537,7 @@ final class DiagnosticViewerWindow: NSWindow {
         if eventSelector == #selector(NSResponder.keyDown(with:)),
            let event = NSApp.currentEvent, event.type == .keyDown {
             let responderClass = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-            Self.diagLogger.notice("key.noResponder keyCode=\(event.keyCode, privacy: .public) isARepeat=\(event.isARepeat, privacy: .public) kind=\(self.diagnosticKind, privacy: .public) firstResponder=\(responderClass, privacy: .public) isKeyWindow=\(self.isKeyWindow, privacy: .public)")
+            Self.diagLogger.debug("key.noResponder keyCode=\(event.keyCode, privacy: .public) isARepeat=\(event.isARepeat, privacy: .public) kind=\(self.diagnosticKind, privacy: .public) firstResponder=\(responderClass, privacy: .public) isKeyWindow=\(self.isKeyWindow, privacy: .public)")
         }
         super.noResponder(for: eventSelector)
     }

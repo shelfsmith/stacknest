@@ -11,7 +11,7 @@ import OSLog
 /// （画像ビューアの `ViewerWindowController.handleKey` / `perform` と同じ作法）。
 @MainActor
 final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, ViewerWindowControlling {
-    /// G54-S3e beep 診断: `.notice`（`log show` で追える）。タグは呼び出し箇所ごとに異なる
+    /// G54-S3e beep 診断: `.debug`（再発時は `log stream --level debug`）。タグは呼び出し箇所ごとに異なる
     /// （"fs.fail"・"present"）。件数・真偽値・クラス名だけで、パス・題名は出さない。
     private static let diagLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Diag")
     // レビュー申し送り #1: 返ってきた `any EPUBReaderViewing` は窓が強参照で保持する。
@@ -238,7 +238,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         showWindow(nil)
         // G54-S3e beep 診断: showWindow 直後の状態を記録する（firstResponder はクラス名だけ）。
         let firstResponderClass = window?.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
-        Self.diagLogger.notice("present kind=epub openFullScreen=\(self.settings.openEPUBFullScreenByDefault, privacy: .public) firstResponder=\(firstResponderClass, privacy: .public)")
+        Self.diagLogger.debug("present kind=epub openFullScreen=\(self.settings.openEPUBFullScreenByDefault, privacy: .public) firstResponder=\(firstResponderClass, privacy: .public)")
         guard settings.openEPUBFullScreenByDefault, let w = window, !w.styleMask.contains(.fullScreen) else {
             showResumeDialogIfNeeded()
             return
@@ -262,13 +262,13 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// G54-S3e beep 診断: AppKit が全画面遷移を失敗させた経路（`will*` は来たが `did*` が来ない）を
     /// 記録する。対応する通知が無いため、ログだけ残して他は何もしない（リトライは足さない）。
     func windowDidFailToEnterFullScreen(_ window: NSWindow) {
-        Self.diagLogger.notice("fs.fail enter kind=epub")
+        Self.diagLogger.debug("fs.fail enter kind=epub")
         // G54-S3e beep fix: 次の retryInterval で盲目に再試行させず、Space 退出保留の解消を待たせる。
         fullScreenEntryDriver?.entryFailed()
     }
 
     func windowDidFailToExitFullScreen(_ window: NSWindow) {
-        Self.diagLogger.notice("fs.fail exit kind=epub")
+        Self.diagLogger.debug("fs.fail exit kind=epub")
     }
 
     /// G48-2 最終レビュー D: dedup で既存窓を前面化するとき、アプリが非アクティブだと窓だけ前に出て
