@@ -552,19 +552,21 @@ public struct RemoteLibraryClient: Sendable {
     // MARK: - 4.2c-6b: リモート表紙/クロップ編集
 
     /// GET cover-candidates — ページ名一覧＋現 coverImageName。
+    /// G54-S3e: サーバが書庫を全走査するので、既定（10s）ではなく重い処理と同じ 60s を渡す。
     public func fetchCoverCandidates(libraryUUID: String, bookID: Int, libraryToken: String?) async throws -> (entries: [String], current: String?) {
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/cover-candidates")
-        let data = try await send(request(url, method: "GET", libraryToken: libraryToken))
+        let data = try await send(request(url, method: "GET", libraryToken: libraryToken, timeout: 60))
         let dto = try decode(CoverCandidatesDTO.self, data)
         return (dto.entries, dto.current)
     }
 
     /// GET entry-image — 選択ページ画像（クロップ編集プレビュー）。
+    /// G54-S3e: 書庫から 1 項目を取り出して縮めるので、表紙候補と同じ 60s。
     public func fetchEntryImage(libraryUUID: String, bookID: Int, name: String, maxw: Int?, libraryToken: String?) async throws -> Data {
         var q = [URLQueryItem(name: "name", value: name)]
         if let maxw { q.append(URLQueryItem(name: "maxw", value: String(maxw))) }
         let url = makeURL("libraries/\(libraryUUID)/books/\(bookID)/entry-image", query: q)
-        return try await send(request(url, method: "GET", libraryToken: libraryToken))
+        return try await send(request(url, method: "GET", libraryToken: libraryToken, timeout: 60))
     }
 
     /// PUT cover — coverImageName/coverCropRect 更新（更新後 BookDetailDTO）。

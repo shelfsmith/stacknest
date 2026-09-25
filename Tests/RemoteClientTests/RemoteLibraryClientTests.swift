@@ -251,6 +251,22 @@ struct StubBackedRemoteClientTests {
             #expect((StubURLProtocol.lastRequest?.timeoutInterval ?? 0) > 15)
         }
 
+        /// G54-S3e（spec §2.5）: 表紙候補と項目画像はサーバが書庫を全走査するので、既定の 10 秒では足りない。
+        @Test func coverCandidatesWaitsLongerThanTheDefault() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:],
+                body: try enc().encode(CoverCandidatesDTO(entries: ["a.jpg"], current: nil)))
+            let got = try await makeClient().fetchCoverCandidates(libraryUUID: "U", bookID: 7, libraryToken: nil)
+            #expect(got.entries == ["a.jpg"])
+            #expect(StubURLProtocol.lastRequest?.timeoutInterval == 60)
+        }
+
+        @Test func entryImageWaitsLongerThanTheDefault() async throws {
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data([1, 2, 3]))
+            let data = try await makeClient().fetchEntryImage(libraryUUID: "U", bookID: 7, name: "p1.jpg", maxw: 800, libraryToken: nil)
+            #expect(data == Data([1, 2, 3]))
+            #expect(StubURLProtocol.lastRequest?.timeoutInterval == 60)
+        }
+
         @Test func fetchCountsDecodes() async throws {
             StubURLProtocol.stub = .init(status: 200, headers: [:],
                 body: try enc().encode(LibraryCountsDTO(libraryTotal: 42, recentCount: 7, recentDays: 30)))

@@ -129,6 +129,50 @@ struct CoverEditEndpointsTests {
         }
     }
 
+    /// G54-S3e（spec §2.5）: 本のファイルが消えていても、候補は空の 200・項目画像は 404 のまま（振る舞いは変えない。
+    /// 失敗は warning に出るようになった＝このテストはその分岐を通す）。
+    @Test func missingBookFileKeepsTheResponses() async throws {
+        let fixture = try TestLibraryFixture(name: "Cover9", bookCount: 0)
+        defer { fixture.cleanup() }
+        let bookID = try fixture.addRealBook(zipFixtureNamed: "three_pages")
+        let path = try #require(try fixture.db.fetchBook(id: bookID)?.path)
+        try FileManager.default.removeItem(atPath: path)
+        let lib = fixture.servedLibrary()
+        let app = makeApp(lib)
+        try await app.test(.router) { client in
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/cover-candidates",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { response in
+                #expect(response.status == .ok)
+                let dto = try JSONDecoder().decode(CoverCandidatesDTO.self, from: Data(buffer: response.body))
+                #expect(dto.entries.isEmpty)
+            }
+            try await client.execute(
+                uri: "/api/v1/libraries/\(lib.uuid)/books/\(bookID)/entry-image?name=p2.png",
+                method: .get, headers: [.authorization: "Bearer R"]
+            ) { response in
+                #expect(response.status == .notFound)
+            }
+        }
+    }
+
+    /// Review Focus 5: ログに出すエラーの要約には、関連値や userInfo に入ったパス・題名を出さない。
+    @Test func summaryLeavesOutPathsAndTitles() {
+        enum ExtractError: Error { case unreadable(String) }
+        let secret = "/Users/someone/書庫/秘密の題名.zip"
+        let a = LibraryServerCore.diagnosticSummary(of: ExtractError.unreadable(secret))
+        let b = LibraryServerCore.diagnosticSummary(of: NSError(
+            domain: NSCocoaErrorDomain, code: NSFileReadNoSuchFileError, userInfo: [NSFilePathErrorKey: secret]))
+        for s in [a, b] {
+            #expect(!s.contains("秘密の題名"))
+            #expect(!s.contains("/Users/"))
+        }
+        #expect(a.contains("ExtractError"))
+        #expect(b.contains(NSCocoaErrorDomain))
+        #expect(b.contains("\(NSFileReadNoSuchFileError)"))
+    }
+
     /// PUT cover の coverImageName 更新（W）は DB に反映され、Thumbnails/<id>/thumbnail.jpg を再生成する。
     @Test func putCoverWithImageNameRegeneratesThumbnail() async throws {
         let fixture = try TestLibraryFixture(name: "Cover7", bookCount: 0)

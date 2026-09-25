@@ -25,6 +25,19 @@ final class RemoteLibraryState {
     private static let reloadLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteReload")
     /// G48-3: リモート・テキスト EPUB のダウンロード/オープン失敗用ログ（bookID のみ・タイトル/パスは出さない）。
     private static let epubLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteEPUB")
+    /// G54-S3e（spec §2.5）: リモートの表紙候補・項目画像の失敗を記録する（以前は try? で握り潰していた）。
+    private static let coverLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "RemoteCover")
+
+    /// G54-S3e: ログに出してよいエラーの要約。`RemoteClientError` は種類だけ（`badRequest` はサーバの文言を出さない）、
+    /// それ以外は型・ドメイン・コードだけ（パス・題名を含みうる文字列化はしない）。
+    private static func logSummary(_ error: any Error) -> String {
+        if let e = error as? RemoteClientError {
+            if case .badRequest = e { return "badRequest" }
+            return String(describing: e)
+        }
+        let ns = error as NSError
+        return "\(type(of: error)) \(ns.domain)#\(ns.code)"
+    }
 
     let client: RemoteLibraryClient
     let serverID: UUID
@@ -1597,14 +1610,28 @@ final class RemoteLibraryState {
 
     /// 表紙候補（アーカイブのページ名一覧）。
     func coverCandidates(bookID: Int) async -> [String] {
-        (try? await client.fetchCoverCandidates(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken))?.entries ?? []
+        do {
+            return try await client.fetchCoverCandidates(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken).entries
+        } catch {
+            Self.coverLog.warning("coverCandidates failed bookID=\(bookID, privacy: .public) error=\(Self.logSummary(error), privacy: .public)")
+            return []
+        }
     }
 
     /// 選択ページのプレビュー画像（クロップ編集用・maxw=800）。
     func entryImage(bookID: Int, name: String) async -> NSImage? {
-        guard let data = try? await client.fetchEntryImage(
-            libraryUUID: libraryUUID, bookID: bookID, name: name, maxw: 800, libraryToken: libraryToken) else { return nil }
-        return NSImage(data: data)
+        do {
+            let data = try await client.fetchEntryImage(
+                libraryUUID: libraryUUID, bookID: bookID, name: name, maxw: 800, libraryToken: libraryToken)
+            guard let image = NSImage(data: data) else {
+                Self.coverLog.warning("entryImage undecodable bookID=\(bookID, privacy: .public) bytes=\(data.count, privacy: .public)")
+                return nil
+            }
+            return image
+        } catch {
+            Self.coverLog.warning("entryImage failed bookID=\(bookID, privacy: .public) error=\(Self.logSummary(error), privacy: .public)")
+            return nil
+        }
     }
 
     /// 表紙更新（coverImageName/coverCropRect）。成功後は表紙キャッシュ無効化＋再読込で反映。

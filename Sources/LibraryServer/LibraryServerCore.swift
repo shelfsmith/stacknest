@@ -242,6 +242,12 @@ public struct LibraryServerCore: Sendable {
     private static let backupLogger = Logger(subsystem: "app.shelfsmith.stacknest", category: "Backup")
     /// G23 (m4): サーバ構成の警告用（grant の読み書き経路の競合など）。
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "LibraryServerCore")
+    /// G54-S3e: ログに出してよいエラーの要約（型・ドメイン・コードだけ）。
+    /// `String(describing: error)` は関連値や userInfo のファイルパス（＝書庫の題名）を含みうるので使わない。
+    static func diagnosticSummary(of error: any Error) -> String {
+        let ns = error as NSError
+        return "\(type(of: error)) \(ns.domain)#\(ns.code)"
+    }
     public let config: LibraryServerConfig
     let dataSource: any LibraryServerDataSource
     /// ロック庫の短命トークン（メモリのみ・再起動で失効）。
@@ -1152,23 +1158,49 @@ public struct LibraryServerCore: Sendable {
             return RestoreResultDTO(restored: restoredCount, requested: dtos.count, restoredIDs: restoredIDs)
         }
         // 4.2c-6b: 表紙候補（アーカイブのページ名一覧）。
+        // G54-S3e（spec §2.5）: 以前は失敗を try? で握り潰し、候補が空になる原因を追えなかった。段ごとに warning を出す
+        // （本の ID とエラーの要約は public、パスは private）。応答は変えない（空の 200）。
         api.get("libraries/:lib/books/:id/cover-candidates") { request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
             var entries: [String] = []
-            if let path = row.path, let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) {
-                entries = (try? await ex.listImageEntries(in: URL(fileURLWithPath: path)))?.names ?? []
+            if let path = row.path {
+                let url = URL(fileURLWithPath: path)
+                if let ex = ArchiveAdapter.coverExtractor(for: url) {
+                    do {
+                        entries = try await ex.listImageEntries(in: url).names
+                    } catch {
+                        Self.logger.warning("cover-candidates: listing failed bookID=\(row.id, privacy: .public) path=\(path, privacy: .private) error=\(Self.diagnosticSummary(of: error), privacy: .public)")
+                    }
+                } else {
+                    Self.logger.warning("cover-candidates: unsupported format bookID=\(row.id, privacy: .public) path=\(path, privacy: .private)")
+                }
+            } else {
+                Self.logger.warning("cover-candidates: no path bookID=\(row.id, privacy: .public)")
             }
             return CoverCandidatesDTO(entries: entries, current: row.coverImageName)
         }
         // 4.2c-6b: 選択ページ画像（クロップ編集プレビュー）。?name=<entry>&maxw=<px>。
+        // G54-S3e（spec §2.5）: 失敗した guard ごとに warning（本の ID・エラーの要約は public、パスと項目名は private）。
         api.get("libraries/:lib/books/:id/entry-image") { [config] request, context in
             let (_, row) = try await resolver.resolveBook(request, context)
-            guard let name = request.uri.queryParameters.get("name"),
-                  let path = row.path,
-                  let ex = ArchiveAdapter.coverExtractor(for: URL(fileURLWithPath: path)) else {
+            guard let name = request.uri.queryParameters.get("name") else {
+                Self.logger.warning("entry-image: no name bookID=\(row.id, privacy: .public)")
                 throw HTTPError(.notFound)
             }
-            guard var data = try? await ex.extractCoverImage(from: URL(fileURLWithPath: path), preferredName: name) else {
+            guard let path = row.path else {
+                Self.logger.warning("entry-image: no path bookID=\(row.id, privacy: .public)")
+                throw HTTPError(.notFound)
+            }
+            let url = URL(fileURLWithPath: path)
+            guard let ex = ArchiveAdapter.coverExtractor(for: url) else {
+                Self.logger.warning("entry-image: unsupported format bookID=\(row.id, privacy: .public) path=\(path, privacy: .private)")
+                throw HTTPError(.notFound)
+            }
+            var data: Data
+            do {
+                data = try await ex.extractCoverImage(from: url, preferredName: name)
+            } catch {
+                Self.logger.warning("entry-image: extraction failed bookID=\(row.id, privacy: .public) entry=\(name, privacy: .private) path=\(path, privacy: .private) error=\(Self.diagnosticSummary(of: error), privacy: .public)")
                 throw HTTPError(.notFound)
             }
             let maxw = request.uri.queryParameters.get("maxw", as: Int.self)
