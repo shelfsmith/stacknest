@@ -21,7 +21,7 @@ struct EPUBReaderWindowResumeTests {
         let reader = FakeEPUBReader()
         let box = Box()
         let c = EPUBReaderWindowController(
-            book: .g51Fixture(id: 1, title: "t"), reader: reader,
+            book: .g51Fixture(id: EPUBTestWindowID.fresh(), title: "t"), reader: reader,
             settings: freshSettings(), resumeLocator: resume,
             suppressResumeDialog: suppressed,
             persist: { box.persisted.append($0) })
@@ -33,24 +33,29 @@ struct EPUBReaderWindowResumeTests {
 
     @Test func asksWhenTheSavedPositionIsNotTheBeginning() {
         let (c, _, _) = make(resume: EPUBLocatorValue(spine: 2, progress: 0, cfi: nil, engine: nil))
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.shouldAskResume == true)
     }
 
     @Test func doesNotAskAtTheBeginningOrWithoutAPosition() {
         let (a, _, _) = make(resume: EPUBLocatorValue(spine: 0, progress: 0, cfi: nil, engine: nil))
+        defer { EPUBTestWindowID.clearFrame(a.book.id) }
         #expect(a.shouldAskResume == false)
         let (b, _, _) = make(resume: nil)
+        defer { EPUBTestWindowID.clearFrame(b.book.id) }
         #expect(b.shouldAskResume == false)
     }
 
     @Test func doesNotAskWhenSuppressed() {
         let (c, _, _) = make(resume: EPUBLocatorValue(spine: 3, progress: 0.5, cfi: nil, engine: nil),
                              suppressed: true)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.shouldAskResume == false)
     }
 
     @Test func restartingGoesToTheBookStartAndSavesIt() {
         let (c, r, box) = make(resume: EPUBLocatorValue(spine: 3, progress: 0.5, cfi: nil, engine: nil))
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         c.restartFromBeginning()
         #expect(r.calls == ["goToBookStart"])
         #expect(box.persisted.count == 1)
@@ -61,6 +66,7 @@ struct EPUBReaderWindowResumeTests {
     /// 一度出したら、同じ窓では二度と訊かない。
     @Test func onlyAsksOnce() {
         let (c, _, _) = make(resume: EPUBLocatorValue(spine: 1, progress: 0, cfi: nil, engine: nil))
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         c.markResumeDialogShown()
         #expect(c.shouldAskResume == false)
     }
@@ -73,6 +79,7 @@ struct EPUBReaderWindowResumeTests {
     /// 件数固定ではなく **全件が先頭であること** を検証する。
     @Test func restartingDropsAPendingDebouncedWrite() {
         let (c, r, box) = make(resume: EPUBLocatorValue(spine: 3, progress: 0.5, cfi: nil, engine: nil))
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         // 章の途中まで読んだ位置がデバウンス待ちで pending に積まれている状態を再現する。
         r.onLocatorChange?(EPUBLocatorValue(spine: 5, progress: 0.7, cfi: nil, engine: nil))
         c.restartFromBeginning()
@@ -89,6 +96,7 @@ struct EPUBReaderWindowResumeTests {
     /// 直前に保存した先頭位置を上書きしてしまう ―― それを防げていることを確認する。
     @Test func restartingBeforeNavigationLandsDoesNotFallBackToTheOldPosition() {
         let (c, r, box) = make(resume: EPUBLocatorValue(spine: 3, progress: 0.5, cfi: nil, engine: nil))
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         // 移動がまだ反映されていない状態を模擬: reader.locator は本の途中のまま。
         r.locator = EPUBLocatorValue(spine: 3, progress: 0.5, cfi: nil, engine: nil)
         c.restartFromBeginning()

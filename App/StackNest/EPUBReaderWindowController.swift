@@ -647,7 +647,10 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// G54-S3e（spec §2.3 ①）: 保存タイマーの発火。タイマーが Task を積んだ後に差し替えが走ると、その Task は
     /// 新しい本に対して早すぎる保存をする。世代が変わっていたら何もしない（テストから直接呼ぶので internal）。
     func persistTimerFired(generation: Int) {
-        guard generation == bookGeneration else { return }
+        // G54-S3e fix round 1: 窓が既に閉じていれば何もしない。windowWillClose が close() の中で
+        // 必ず 1 回 flush しているので、閉じた後に届いたタイマーの Task がもう一度 flush すると
+        // 同じ位置を 2 回 POST してしまう。
+        guard generation == bookGeneration, !isClosed else { return }
         flushPersist()
     }
 

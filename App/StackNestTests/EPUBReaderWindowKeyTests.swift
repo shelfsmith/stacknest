@@ -20,7 +20,7 @@ struct EPUBReaderWindowKeyTests {
     }
     private func make() -> (EPUBReaderWindowController, FakeEPUBReader) {
         let reader = FakeEPUBReader()
-        let book = BookRow.g51Fixture(id: 1, title: "t")
+        let book = BookRow.g51Fixture(id: EPUBTestWindowID.fresh(), title: "t")
         let c = EPUBReaderWindowController(book: book, reader: reader, persist: { _ in })
         c.bindings = .defaults   // UserDefaults に依存しない
         return (c, reader)
@@ -28,6 +28,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func spaceAndArrowsUseTheSharedTable() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.handleKey(key(49, chars: " ")) == true)                 // Space → nextPage
         #expect(c.handleKey(key(49, chars: " ", shift: true)) == true)    // ⇧Space → previousPage
         #expect(c.handleKey(key(124)) == true)                            // → pageRightward
@@ -37,6 +38,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func homeEndGoToBookEdges() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.handleKey(key(115)) == true)
         #expect(c.handleKey(key(119)) == true)
         #expect(r.calls == ["goToBookStart", "goToBookEnd"])
@@ -44,6 +46,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func zoomKeysChangeFontScale() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         _ = c.handleKey(key(24, chars: "+"))
         _ = c.handleKey(key(27, chars: "-"))
         _ = c.handleKey(key(24, chars: "="))
@@ -52,6 +55,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func spreadToggles() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         _ = c.handleKey(key(2, chars: "d"))
         #expect(r.columnMode == .double)
         _ = c.handleKey(key(2, chars: "d"))
@@ -61,6 +65,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func percentJumpUsesCensusThenSpineFallback() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         r.globalPageCount = 200
         _ = c.handleKey(key(23, chars: "5"))
         #expect(r.calls.last == "go(toGlobalPage:100)")
@@ -72,6 +77,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func unsupportedActionsAreNotConsumed() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.handleKey(key(37, chars: "l")) == false)   // toggleLoupe: EPUB では無視 → 上へ
         #expect(c.handleKey(key(48)) == false)               // Tab（skipForward）: 無視
         #expect(r.calls.isEmpty)
@@ -79,6 +85,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func unboundKeyIsNotConsumed() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.handleKey(key(6, chars: "z")) == false)
         #expect(r.calls.isEmpty)
     }
@@ -88,6 +95,7 @@ struct EPUBReaderWindowKeyTests {
     /// toggleSpread になる、等）。⌘W のようなチョード登録済みのものは従来どおり効く。
     @Test func commandModifiedKeysAreLeftToMenus() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.handleKey(key(18, chars: "1", command: true)) == false)   // ⌘1 = rating, not a percent jump
         #expect(c.handleKey(key(2, chars: "d", command: true)) == false)    // ⌘D = menu, not toggleSpread
         #expect(c.handleKey(key(13, command: true)) == true)                // ⌘W stays (chord-mapped close)
@@ -97,6 +105,7 @@ struct EPUBReaderWindowKeyTests {
 
     @Test func rebindingIsHonored() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         var b = ViewerKeyBindings.defaults
         b.remove(.chord(KeyChord(keyCode: 49)), from: .nextPage)   // Space を外す
         _ = b.assign(.character("z"), to: .nextPage)

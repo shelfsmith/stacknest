@@ -12,7 +12,7 @@ import LibraryStore
 struct EPUBReaderWindowVolumeTests {
     private func make() -> (EPUBReaderWindowController, FakeEPUBReader) {
         let reader = FakeEPUBReader()
-        let book = BookRow.g51Fixture(id: 1, title: "t")
+        let book = BookRow.g51Fixture(id: EPUBTestWindowID.fresh(), title: "t")
         let c = EPUBReaderWindowController(book: book, reader: reader, persist: { _ in })
         c.bindings = .defaults
         return (c, reader)
@@ -20,10 +20,12 @@ struct EPUBReaderWindowVolumeTests {
 
     @Test func nextVolumeOpensSiblingThroughInjectedPath() async throws {
         let (c, _) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        let firstID = c.book.id
         let sibling = BookRow.g51Fixture(id: 2, title: "t2")
         var opened: [Int] = []
         c.resolveSibling = { cur, dir in
-            #expect(cur.id == 1); #expect(dir == .next)
+            #expect(cur.id == firstID); #expect(dir == .next)
             return .reopen(sibling)
         }
         c.openSibling = { opened.append($0.id) }
@@ -34,6 +36,7 @@ struct EPUBReaderWindowVolumeTests {
 
     @Test func missingSiblingShowsNote() async throws {
         let (c, _) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         c.resolveSibling = { _, _ in .noSibling }
         c.openSibling = { _ in Issue.record("開いてはいけない") }
         c.perform(.prevVolume)
@@ -43,12 +46,14 @@ struct EPUBReaderWindowVolumeTests {
 
     @Test func withoutInjectionShowsNote() {
         let (c, _) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         c.perform(.nextVolume)
         #expect(c.lastHUDNote == "次の巻なし")
     }
 
     @Test func autoAdvanceStopsOnManualAction() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         c.perform(.toggleAutoAdvance)
         #expect(c.lastHUDNote?.hasPrefix("スライドショー ▶") == true)
         c.perform(.nextPage)                         // 手動操作で解除
@@ -61,6 +66,7 @@ struct EPUBReaderWindowVolumeTests {
 
     @Test func bookEndDuringAutoAdvanceFollowsSetting() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         let ud = ViewerSettings.shared.endOfBookBehavior
         defer { ViewerSettings.shared.endOfBookBehavior = ud }
         ViewerSettings.shared.endOfBookBehavior = .loop
@@ -78,6 +84,7 @@ struct EPUBReaderWindowVolumeTests {
     /// （画像ビューアと同じパリティ。以前は自動送り中でなければ無視していた）。
     @Test func manualTurnAtBookEndFollowsSettingWithoutAutoAdvance() {
         let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         let ud = ViewerSettings.shared.endOfBookBehavior
         defer { ViewerSettings.shared.endOfBookBehavior = ud }
         ViewerSettings.shared.endOfBookBehavior = .loop

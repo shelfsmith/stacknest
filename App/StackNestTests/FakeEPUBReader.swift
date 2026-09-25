@@ -54,3 +54,20 @@ extension BookRow {
                 pageDirection: nil, contentHash: nil, fileSize: nil, fileMtime: nil)
     }
 }
+
+/// G54-S3e fix round 1: App のテストホストは実アプリと同じ bundle id（`app.shelfsmith.stacknest`）を
+/// 共有するため、`EPUBReaderWindowController` が付ける `NSWindow` の frame autosave キー
+/// （`EPUBReaderWindow-<id>`）は**実ユーザーの環境設定**に書き込まれる。`EPUBReaderWindowController` を
+/// 作るテストは必ずこの帯の id を使い、使い終わったら `clearFrame` でキーを消すこと
+/// （でないと実在の本 1・2・5 等の窓位置を上書き・復元してしまう）。
+enum EPUBTestWindowID {
+    @MainActor private static var next = 1_000_000
+    @MainActor static func fresh() -> Int {
+        next += 1
+        return next
+    }
+    /// 窓を閉じたかどうかに関わらず安全に呼べる（キーが無ければ何もしない）。
+    @MainActor static func clearFrame(_ id: Int) {
+        NSWindow.removeFrame(usingName: "EPUBReaderWindow-\(id)")
+    }
+}

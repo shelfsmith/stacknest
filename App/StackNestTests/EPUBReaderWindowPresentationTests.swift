@@ -18,14 +18,15 @@ struct EPUBReaderWindowPresentationTests {
 
     private func make(settings: ViewerSettings) -> (EPUBReaderWindowController, FakeEPUBReader) {
         let reader = FakeEPUBReader()
-        let c = EPUBReaderWindowController(book: .g51Fixture(id: 1, title: "t"), reader: reader,
+        let c = EPUBReaderWindowController(book: .g51Fixture(id: EPUBTestWindowID.fresh(), title: "t"), reader: reader,
                                            settings: settings, persist: { _ in })
         c.bindings = .defaults
         return (c, reader)
     }
 
     @Test func initAppliesSettingsToReader() {
-        let (_, r) = make(settings: freshSettings())   // 既定 off / false。偽物の初期値は slide / true
+        let (c, r) = make(settings: freshSettings())   // 既定 off / false。偽物の初期値は slide / true
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(r.pageTurnStyle == .off)
         #expect(r.showsFolio == false)
     }
@@ -37,6 +38,7 @@ struct EPUBReaderWindowPresentationTests {
         s.epubFontScale = 1.4
         s.epubTheme = .dark
         let (c, r) = make(settings: s)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(r.fontScale == 1.4)
         #expect(r.themes == [.dark])
         r.onFontScaleChange?(1.7)
@@ -47,6 +49,7 @@ struct EPUBReaderWindowPresentationTests {
     @Test func settingsChangeReachesOpenWindow() {
         let s = freshSettings()
         let (c, r) = make(settings: s)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         s.pageTurnStyle = .fade
         #expect(r.pageTurnStyle == .fade)
         s.showsEPUBFolio = true
@@ -56,6 +59,7 @@ struct EPUBReaderWindowPresentationTests {
 
     @Test func progressShowsMeasuringUntilCensusThenPages() {
         let (c, r) = make(settings: freshSettings())
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         r.spineItemCount = 4
         let loc = EPUBLocatorValue(spine: 1, progress: 0.5, cfi: nil, engine: nil)
         r.locator = loc
@@ -70,6 +74,7 @@ struct EPUBReaderWindowPresentationTests {
 
     @Test func percentJumpWithoutCensusShowsNote() {
         let (c, r) = make(settings: freshSettings())
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         r.spineItemCount = 10
         c.perform(.jumpToPercent50)
         #expect(r.calls == ["go(spine:5,progress:0.0)"])
@@ -78,6 +83,7 @@ struct EPUBReaderWindowPresentationTests {
 
     @Test func percentJumpWithCensusHasNoNote() {
         let (c, r) = make(settings: freshSettings())
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
         r.globalPageCount = 100
         c.perform(.jumpToPercent50)
         #expect(r.calls == ["go(toGlobalPage:50)"])
