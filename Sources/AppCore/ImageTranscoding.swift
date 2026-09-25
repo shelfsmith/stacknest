@@ -30,8 +30,8 @@ public struct ImageIOTranscoder: ImageTranscoding {
         guard maxWidth > 0,
               let src = CGImageSourceCreateWithData(data as CFData, nil) else { return data }
         let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
-        // G54-S3e（spec §2.6）: 回転の印（EXIF orientation）が 1 以外なら元のバイト列を返さない。
-        // 受け手（NSImage・Web・他の縮小経路）ごとに印の扱いが揃っている保証が無いので、再エンコードで回転を焼き込む。
+        // G54-S3e（spec §2.6）: EXIF の向きの情報（Orientation）が 1 以外なら元のバイト列を返さない。
+        // 受け手（NSImage・Web・他の縮小経路）ごとに向きの情報の扱いが揃っている保証が無いので、再エンコードで回転を焼き込む。
         let orientation = (props?[kCGImagePropertyOrientation] as? Int) ?? 1
         var maxPixelSize = maxWidth
         // G54-S3e 最終レビュー: orientation 5–8 は 90°回転を伴うので、表示上の幅は元の「高さ」

@@ -4,9 +4,9 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 
-/// G54-S3e: EXIF の回転の印（orientation）を埋め込んだ JPEG を合成し、読み取る（AppCoreTests で共有）。
+/// G54-S3e: EXIF の向きの情報（Orientation）を埋め込んだ JPEG を合成し、読み取る（AppCoreTests で共有）。
 enum OrientedJPEGFixture {
-    /// `width`×`height` の画素を持ち、指定の回転の印を付けた JPEG。
+    /// `width`×`height` の画素を持ち、指定の EXIF の向きの情報を付けた JPEG。
     static func make(width: Int, height: Int, orientation: UInt32) -> Data {
         let cs = CGColorSpaceCreateDeviceRGB()
         let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
@@ -23,7 +23,7 @@ enum OrientedJPEGFixture {
         return out as Data
     }
 
-    /// 画素の幅・高さと回転の印（無ければ 1）。
+    /// 画素の幅・高さと EXIF の向きの情報（無ければ 1）。
     static func info(_ data: Data) -> (width: Int, height: Int, orientation: Int)? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let p = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
@@ -32,7 +32,7 @@ enum OrientedJPEGFixture {
         return (w, h, (p[kCGImagePropertyOrientation] as? Int) ?? 1)
     }
 
-    /// 回転の印を当てた後の見た目の幅と高さ（印 5〜8 は縦横が入れ替わる）。
+    /// EXIF の向きの情報を当てた後の見た目の幅と高さ（値 5〜8 は縦横が入れ替わる）。
     static func displayedSize(_ data: Data) -> (width: Int, height: Int)? {
         guard let i = info(data) else { return nil }
         return (5...8).contains(i.orientation) ? (i.height, i.width) : (i.width, i.height)

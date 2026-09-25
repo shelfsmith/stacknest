@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 @testable import StackNest
 
 /// G54-S3e（spec §2.6）: 切り取りの編集画面（`CoverCropPicker`）は `NSImage` の `size` から正規化座標を作る。
-/// 回転の印付きの画像で `size` が回転前のままだと、切り取りが狙った範囲からずれる。
+/// EXIF の向きの情報を持つ画像で `size` が回転前のままだと、切り取りが狙った範囲からずれる。
 @MainActor
 @Suite("G54-S3e: 切り取りの編集画面の画像の向き")
 struct CoverPreviewOrientationTests {

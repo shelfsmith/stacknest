@@ -64,7 +64,7 @@ struct ThumbnailLoaderTests {
         #expect(img == nil)
     }
 
-    /// G54-S3e（spec §2.6）: 回転の印付きの thumbnail.jpg は回転後の向きで返る（表紙の縮小が印を残しても正しく見える）。
+    /// G54-S3e（spec §2.6）: EXIF の向きの情報を持つ thumbnail.jpg は回転後の向きで返る（表紙の縮小が向きの情報を残しても正しく見える）。
     @Test("Applies the EXIF orientation of thumbnail.jpg")
     func appliesEXIFOrientation() async throws {
         let tmpBundle = FileManager.default.temporaryDirectory.appendingPathComponent("loader-\(UUID().uuidString)")
