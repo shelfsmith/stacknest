@@ -7,56 +7,42 @@ import Foundation
 ///
 /// ★ **「info は消える／warning は消えない」がこのフェーズの中心**で、
 /// 呼び出し側にコピーするとずれる規則。だから枠に閉じ、ここで固定する。
-/// 待ち時間は `autoDismissAfter` で縮める（固定 6 秒待ちのテストにしない）。
+///
+/// **実時間では待たない**（2026-09-26）。以前は「締め切り 3 秒まで 10ms おきに見る」作りだったが、
+/// CI の遅い機械でメインアクターが数秒ふさがると、見張りのループが再開した時点で締め切りを過ぎ、
+/// 後ろに並んだ消去のタスクがまだ走っていないだけで落ちた（v0.15.0 の push で 2 回続けて起きた）。
+/// 今は `ManualSleeper` を差し込み、**タイマーが待ちに入ったのを数で確かめてから手で時間を進める**。
+/// 判定は発火の順序だけで決まり、機械の速さに左右されない。
 @Suite("お知らせ 1 枠の寿命（G41）")
 struct NoticeSlotTests {
 
     @Test("info は時間で消える")
     @MainActor
     func infoDisappears() async throws {
-        let slot = NoticeSlot()
-        slot.present(Notice(kind: .info, text: "追加しました", detail: nil),
-                     autoDismissAfter: .milliseconds(30))
+        let clock = ManualSleeper()
+        let slot = NoticeSlot(sleep: clock.sleeper)
+        slot.present(Notice(kind: .info, text: "追加しました", detail: nil))
         #expect(slot.notice != nil, "出した直後は見えていること")
 
-        // ★ 固定時間で判定しない。**消えるまで待つ**（混んでいて遅れただけ、で落とさないため）。
-        // 締切を過ぎても消えなければ本物の失敗。
-        let deadline = Date().addingTimeInterval(3)
-        while slot.notice != nil && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
+        try await clock.waitUntilPending(1)
+        clock.fireAll()
+        await settle { slot.notice == nil }
         #expect(slot.notice == nil, "info が消えていない")
     }
 
     /// ★ 本命。索引無効・取り込み失敗は**見逃したら二度と分からない**。
-    ///
-    /// **固定時間で待たない。**「対象のタイマーがこの環境で発火し終わったか」を
-    /// **別の枠で実際に観測**してから判定する。負荷が高くて発火が遅れただけの状況で
-    /// 「まだ在る＝合格」と誤判定するのを防ぐ（変異注入 5 回中 1 回すり抜けた実測がある）。
-    ///
-    /// **対象（warned・仮に guard が壊れて動いた場合の締切）は 30ms、見張りは 60ms**
-    /// と締切を分けてある。同じ 30ms 同士だと「見張りが消えた」が「対象のタイマーも
-    /// 発火し終えた」を**厳密には含意しない**（同一 MainActor 上の 2 つの Task が
-    /// 同じ長さのスリープから同じ順序で目覚める保証はない）。見張りを対象より長くすれば、
-    /// 見張りの 60ms が経過した時点で対象の 30ms は壁時計上必ず経過済みなので、
-    /// 論理的に含意する形になる。
+    /// 警告にはタイマーを張らないこと（待ちが 1 つも登録されない）と、時間を進めても残ることの両方を見る。
     @Test("warning は時間で消えない")
     @MainActor
     func warningStays() async throws {
-        let warned = NoticeSlot()
-        let canary = NoticeSlot()
-        warned.present(Notice(kind: .warning, text: "2 件失敗", detail: "…"),
-                       autoDismissAfter: .milliseconds(30))
-        canary.present(Notice(kind: .info, text: "見張り", detail: nil),
-                       autoDismissAfter: .milliseconds(60))
+        let clock = ManualSleeper()
+        let warned = NoticeSlot(sleep: clock.sleeper)
+        warned.present(Notice(kind: .warning, text: "2 件失敗", detail: "…"))
 
-        // 見張りが消えた ＝ 見張りより短い対象のタイマーは、壁時計上すでに発火し終えている。
-        let deadline = Date().addingTimeInterval(3)
-        while canary.notice != nil && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(canary.notice == nil, "前提: 60ms のタイマーが発火し終えていること")
-
+        await settle { false }   // 仮に誤ってタイマーを張っていれば、ここで待ちに入る
+        #expect(clock.pending == 0, "警告に自動消去のタイマーを張っている")
+        clock.fireAll()
+        await settle { false }
         #expect(warned.notice != nil, "警告が勝手に消えた")
     }
 
@@ -71,32 +57,58 @@ struct NoticeSlotTests {
 
     /// 新しいお知らせを出したら、前のタイマーは止まっていること。
     /// 止まっていないと、**後から出した警告を前の info のタイマーが消してしまう**。
-    ///
-    /// **canary 事象同期にしてある**（`warningStays` と同じ方式）。以前は固定 3 秒の
-    /// ポーリング上限を否定的な主張（「消えないこと」）に使っていたため、**正しい実装のときは
-    /// 必ず 3 秒を実消費**していた（172 本中このテストだけ突出して遅い）。対象（前の info の
-    /// 30ms タイマー、もし解除し損ねていれば発火する）より**長い 60ms の見張りタイマー**を
-    /// 別の枠に張り、見張りが消えるのを待ってから判定する。見張りの 60ms が経過した時点で
-    /// 対象の 30ms は壁時計上必ず発火し終えているので、「見張りが消えた」は「対象のタイマーが
-    /// あれば既に発火している」を論理的に含意する（`warningStays` と揃えて締切を分ける理由も同じ）。
+    /// 前の info の待ちは登録されたまま残るので、それを発火させても消えないことを見る。
     @Test("新しいお知らせは前のタイマーを止める")
     @MainActor
     func presentingAgainCancelsThePreviousTimer() async throws {
-        let slot = NoticeSlot()
-        let canary = NoticeSlot()
-        slot.present(Notice(kind: .info, text: "先", detail: nil),
-                     autoDismissAfter: .milliseconds(30))
-        slot.present(Notice(kind: .warning, text: "後", detail: nil),
-                     autoDismissAfter: .milliseconds(30))
-        canary.present(Notice(kind: .info, text: "見張り", detail: nil),
-                       autoDismissAfter: .milliseconds(60))
+        let clock = ManualSleeper()
+        let slot = NoticeSlot(sleep: clock.sleeper)
+        slot.present(Notice(kind: .info, text: "先", detail: nil))
+        try await clock.waitUntilPending(1)
+        slot.present(Notice(kind: .warning, text: "後", detail: nil))
 
-        let deadline = Date().addingTimeInterval(3)
-        while canary.notice != nil && Date() < deadline {
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(canary.notice == nil, "前提: 60ms のタイマーが発火し終えていること")
-
+        clock.fireAll()          // 前の info のタイマーを発火させる
+        await settle { false }
         #expect(slot.notice?.text == "後", "前の info のタイマーが後の警告を消した")
+    }
+}
+
+/// 手で進める待ち方。`sleeper` を `NoticeSlot` に渡すと、自動消去のタスクはここで止まり、
+/// `fireAll()` を呼ぶまで進まない。
+@MainActor
+final class ManualSleeper {
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    /// 待ちに入っているタイマーの数。
+    var pending: Int { waiters.count }
+
+    nonisolated var sleeper: NoticeSlot.Sleeper {
+        { [weak self] _ in await self?.suspend() }
+    }
+
+    private func suspend() async {
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    /// 待ちに入っているタイマーをすべて発火させる。
+    func fireAll() {
+        let fired = waiters
+        waiters.removeAll()
+        for w in fired { w.resume() }
+    }
+
+    /// タイマーが待ちに入るまで譲る。回数で打ち切る（実時間は使わない）。
+    func waitUntilPending(_ n: Int) async throws {
+        for _ in 0..<1_000 where pending < n { await Task.yield() }
+        try #require(pending >= n, "自動消去のタイマーが待ちに入らなかった")
+    }
+}
+
+/// メインアクター上の他のタスク（消去のタスク）が走り切るまで譲る。回数で打ち切る（実時間は使わない）。
+@MainActor
+private func settle(until done: () -> Bool) async {
+    for _ in 0..<200 {
+        if done() { return }
+        await Task.yield()
     }
 }

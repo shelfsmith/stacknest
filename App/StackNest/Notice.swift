@@ -24,21 +24,32 @@ struct Notice: Equatable {
 @MainActor
 @Observable
 final class NoticeSlot {
+    /// 自動消去までの待ち方。既定は実時間（`Task.sleep`）。
+    /// **差し込めるのはテストのため**: CI の遅い機械でメインアクターが数秒ふさがると、
+    /// 実時間の締め切りで判定するテストは「タイマーがまだ走っていない」だけで落ちる
+    /// （2026-09-26 に v0.15.0 の push で 2 回続けて起きた）。テストは手で進める待ち方を渡す。
+    typealias Sleeper = @Sendable (Duration) async throws -> Void
+
     private(set) var notice: Notice?
     @ObservationIgnored private var clearTask: Task<Void, Never>?
+    @ObservationIgnored private let sleep: Sleeper
+
+    init(sleep: @escaping Sleeper = { try await Task.sleep(for: $0) }) {
+        self.sleep = sleep
+    }
 
     /// お知らせを出す。**警告は自動で消さない** —— 索引無効・取り込み失敗の類は
     /// 見逃したら二度と分からない。
     ///
-    /// - Parameter autoDismissAfter: info を消すまでの時間。**引数にしてあるのはテストのため**
-    ///   （固定 6 秒待ちのテストを書かないで済むように）。
+    /// - Parameter autoDismissAfter: info を消すまでの時間（既定 6 秒）。
     func present(_ notice: Notice, autoDismissAfter: Duration = .seconds(6)) {
         clearTask?.cancel()
         clearTask = nil
         self.notice = notice
         guard notice.kind == .info else { return }
+        let sleep = self.sleep
         clearTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: autoDismissAfter)
+            try? await sleep(autoDismissAfter)
             guard !Task.isCancelled else { return }
             self?.notice = nil
         }
