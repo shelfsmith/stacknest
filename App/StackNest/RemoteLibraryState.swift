@@ -44,6 +44,17 @@ final class RemoteLibraryState {
     /// `openViewer` はそれが同じ本のものなら取り直さずに使う。
     @ObservationIgnored private var manifestHandoff = OneShotHandoff<ManifestDTO>()
 
+    /// テスト専用フック（`LocalControlController.testOpenWindowHook` と同じ趣旨）: `manifestHandoff` は
+    /// `private` なので、実 `NSWindow`・実ネットワークを経由せずに「`openViewer` が早期 return でも
+    /// 預かりを片付けること」を検証するためだけの唯一の注入点。本体では使わない
+    /// （`App/StackNestTests/RemoteManifestHandoffTests.swift`）。
+    func testPutManifestHandoff(bookID: Int, value: ManifestDTO) {
+        manifestHandoff.put(id: bookID, value: value)
+    }
+    func testTakeManifestHandoff(bookID: Int) -> ManifestDTO? {
+        manifestHandoff.take(id: bookID)
+    }
+
     /// オフライン DL/削除のたびに &+=1 する観測カウンタ。
     /// OfflineStore はディスクから読むため SwiftUI が直接観測できない。
     /// ビュー body で参照させ、ダウンロード済みバッジを再評価させるためのトリガ。
@@ -1779,6 +1790,12 @@ final class RemoteLibraryState {
 
     /// リモート本を内蔵ビューアで開く。BookContent は RemoteBookContent。
     func openViewer(book: BookListItemDTO, resumeDirect: Bool = false) {
+        // G54-S3e fix round 1（レビュー Important）: 関数の先頭・どの早期 return よりも前に、この本の
+        // 預かりを消費して片付ける。`beginOpen` が false（前面化／開き中を無視）を返しても、この
+        // openViewer 呼び出しは「この本を 1 回引き受けた」ことに変わりないので、後から来る無関係な
+        // open が maxAge 内の古い manifest を拾わないようにする（以前は Task の中・分岐の奥でしか
+        // take しておらず、早期 return の経路では預かりが残ったまま次の呼び出しへ持ち越されていた）。
+        let handedManifest = manifestHandoff.take(id: book.id)
         // 直前の失敗バナー（「本を開けませんでした」等）をクリアする。これが無いと、紐付けの
         // 切れた本で失敗した後に別の本を正常に開いても警告が残り続ける（smoke 4.2b-4 指摘）。
         errorText = nil
@@ -1862,7 +1879,7 @@ final class RemoteLibraryState {
                let reader = EPUBAdapter.reader {
                 let localURL = self.offlineStore.fileURL(for: dl)
                 if (try? await reader.openImageBook(url: localURL)) == nil {
-                    let m = await self.manifestForOpening(bookID: book.id)
+                    let m = await self.manifestForOpening(bookID: book.id, handed: handedManifest)
                     // G54-S3e: manifest が取れなければ先頭から開くが、利用者が動くまでサーバへ保存しない。
                     await self.openRemoteEPUBReader(book: book, identity: identity, initial: m?.epubLocator, version: m?.etag,
                                                     localFile: localURL, resumeDirect: resumeDirect,
@@ -1883,7 +1900,7 @@ final class RemoteLibraryState {
                 // 取れなかったときは**開かない** — 「破損していないことにして開く」は
                 // まさに守ろうとしている読書位置を壊す側の失敗なので、fail safe に倒す。
                 // G54-S3e: 巻送りの判定で取ったばかりの manifest があればそれを使う（2 回目だけ落ちて窓を失わない）。
-                guard let m = await self.manifestForOpening(bookID: book.id) else {
+                guard let m = await self.manifestForOpening(bookID: book.id, handed: handedManifest) else {
                     self.errorText = "本を開けませんでした"
                     ViewerWindowRegistry.shared.cancelOpen(identity)
                     return
@@ -2325,10 +2342,14 @@ final class RemoteLibraryState {
         }
     }
 
-    /// G54-S3e（spec §2.1-6）: 本を開くときの manifest。巻送りの判定で取ったばかりのもの（同じ本・1 回限り）が
-    /// あればそれを使い、無ければ取る。2 回取ると 2 回目だけ失敗して、窓を閉じた後に開けなくなる。
-    private func manifestForOpening(bookID: Int) async -> ManifestDTO? {
-        if let handed = manifestHandoff.take(id: bookID) { return handed }
+    /// G54-S3e（spec §2.1-6）: 本を開くときの manifest。`handed` は `openViewer` の先頭で（どの早期 return
+    /// よりも前に）取り出しておいた、同じ本の預かり（1 回限り）。非 nil ならそれを使い、無ければ取る。
+    /// 2 回取ると 2 回目だけ失敗して、窓を閉じた後に開けなくなる。
+    /// G54-S3e fix round 1: `take` はここではなく `openViewer` の先頭で行う——`beginOpen` の早期 return
+    /// を含む「この関数が実際に manifest を使うかどうか」より前に消費しないと、早期 return した呼び出しの
+    /// 預かりが残ったまま、後の無関係な open が `maxAge` 内に拾ってしまう。
+    private func manifestForOpening(bookID: Int, handed: ManifestDTO?) async -> ManifestDTO? {
+        if let handed { return handed }
         return try? await client.manifest(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken)
     }
 
