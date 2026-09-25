@@ -40,11 +40,15 @@ extension RemoteClientError {
     public enum SiblingFetchOutcome: Equatable, Sendable {
         /// 錠の失効。呼び出し側が `presentRemoteError` で処理する（今までどおり）。
         case locked
-        /// 「次（前）の巻なし」と同じ扱い。`.cancelled` は上位の Task 打ち切り（追い越されただけ）、
-        /// `.notFound` はサーバが該当なしと答えた。
+        /// 「次（前）の巻なし」と同じ扱い。`.cancelled` は上位の Task 打ち切り（追い越されただけ）。
         case noSibling
-        /// それ以外（オフライン・タイムアウト・サーバ障害・デコード失敗 等）。本当の失敗であり
+        /// それ以外（オフライン・タイムアウト・サーバ障害・デコード失敗・`.notFound` 等）。本当の失敗であり
         /// 「次の巻なし」と黙って区別なく扱わない——「開けません」で留まる。
+        /// G54-S3e smoke fix: `.notFound` は「該当なし」ではない——サーバは隣接巻なしを常に
+        /// `200 { book: null }` で答える（`resolver.resolveBook` が book:null を返さず 404 を
+        /// 投げるのは、書庫が閉じられた/共有が止まった、または本自体が無くなったときだけ）。
+        /// これを `.noSibling` に丸めると、利用者が「サーバ側を閉じた」ことが「次の巻なし」に
+        /// 誤読され、巻送りが静かに終端扱いになってしまう。
         case unavailable
     }
 
@@ -52,7 +56,7 @@ extension RemoteClientError {
     public var siblingFetchOutcome: SiblingFetchOutcome {
         switch self {
         case .libraryLocked: return .locked
-        case .cancelled, .notFound: return .noSibling
+        case .cancelled: return .noSibling
         default: return .unavailable
         }
     }

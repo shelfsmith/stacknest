@@ -2247,8 +2247,10 @@ final class RemoteLibraryState {
                 libraryUUID: libraryUUID, bookID: bookID,
                 direction: direction == .next ? "next" : "prev", libraryToken: libraryToken)
         } catch let e as RemoteClientError {
-            // G54-S3e 最終レビュー: `.cancelled`/`.notFound` だけ「次（前）の巻なし」。それ以外の本当の失敗
-            // （オフライン・タイムアウト・サーバ障害 等）を黙って「なし」にしない——窓は今の本のまま「開けません」。
+            // G54-S3e 最終レビュー: `.cancelled` だけ「次（前）の巻なし」。それ以外の本当の失敗
+            // （オフライン・タイムアウト・サーバ障害・404 等）を黙って「なし」にしない——窓は今の本のまま「開けません」。
+            // G54-S3e smoke fix: 404 は「該当なし」ではなくサーバ側が書庫を閉じた/本が無くなったことを
+            // 意味する（`siblingFetchOutcome` 参照）。
             switch e.siblingFetchOutcome {
             case .locked:
                 presentRemoteError(e)
@@ -2405,8 +2407,10 @@ final class RemoteLibraryState {
     /// G54-S3e: 錠の失効は書庫側へ送って留まる（`.unavailable`、文言は EPUB の窓と揃える）。manifest が
     /// 取れない未 DL の巻は「開けません」で留まる（以前は nil ＝「次の巻なし」）。テキスト EPUB へ渡すときは
     /// manifest を引き継ぐ。
-    /// G54-S3e 最終レビュー: `adjacentVolume` が投げた本当の失敗（オフライン・タイムアウト・サーバ障害 等）も
-    /// 「次の巻なし」ではなく「開けません」——`.cancelled`/`.notFound` だけ「なし」として扱う。
+    /// G54-S3e 最終レビュー: `adjacentVolume` が投げた本当の失敗（オフライン・タイムアウト・サーバ障害・404 等）も
+    /// 「次の巻なし」ではなく「開けません」——`.cancelled` だけ「なし」として扱う。
+    /// G54-S3e smoke fix: 404（サーバが書庫を閉じた/本が無くなった）は「該当なし」ではない
+    /// （`siblingFetchOutcome` 参照）。
     private func resolveRemoteVolume(after bookID: Int, direction: String) async -> VolumeLoad? {
         let forward = direction == "next"
         let dto: BookListItemDTO?

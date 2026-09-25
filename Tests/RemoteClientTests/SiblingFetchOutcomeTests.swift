@@ -12,8 +12,8 @@ struct SiblingFetchOutcomeTests {
     @Test func cancelledIsNoSibling() {
         #expect(RemoteClientError.cancelled.siblingFetchOutcome == .noSibling)
     }
-    @Test func notFoundIsNoSibling() {
-        #expect(RemoteClientError.notFound.siblingFetchOutcome == .noSibling)
+    @Test func notFoundIsUnavailable() {
+        #expect(RemoteClientError.notFound.siblingFetchOutcome == .unavailable)
     }
     @Test func offlineIsUnavailable() {
         #expect(RemoteClientError.offline.siblingFetchOutcome == .unavailable)
