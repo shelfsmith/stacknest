@@ -377,10 +377,15 @@ struct OfflineLibraryView: View {
     /// G54-S3cd 最終レビュー Minor: EPUB の窓の `openSibling` と画像ビューアの `onOpenInEPUBReader` は
     /// どちらも「DL 済みの一覧から一致する本を探して openOffline で開き直す」だけの同じ中身なので、ここへ集約する。
     private func reopenDownloadedSibling(_ row: BookRow, serverID: UUID, libraryUUID: String) {
-        if let downloaded = store.all().first(where: {
-            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) {
-            openOffline(downloaded)
+        guard let downloaded = store.all().first(where: {
+            $0.serverID == serverID && $0.libraryUUID == libraryUUID && $0.bookID == row.id }) else {
+            // G54-S3e: 窓は既に閉じているので HUD は出せない。解決（`resolveOfflineVolume` /
+            // `resolveOfflineEPUBSibling`）が先にファイルの有無を確かめるので、ここへ来るのは解決の後で
+            // 保存が消された場合だけ。黙らずに記録は残す。
+            Self.logger.warning("reopenDownloadedSibling: not in the offline store bookID=\(row.id, privacy: .public)")
+            return
         }
+        openOffline(downloaded)
     }
 
     /// G54-S3c: オフラインの EPUB の窓の次（前）の巻（DL 済みの隣の巻だけ）。テキスト EPUB なら reader まで用意する。
@@ -392,6 +397,12 @@ struct OfflineLibraryView: View {
                                                  series: series, volume: volume, direction: direction)
         else { return .noSibling }
         let url = store.fileURL(for: sib)
+        // G54-S3e: ファイルが無ければ今の本のまま。ここで止めないと、隣が zip のとき `.reopen` → 窓を閉じる
+        // → `openOffline` → 外部ビューアへ落ちる（ローカルの EPUB の窓と同じ穴）。
+        if FileReadProbe.check(url) == .notFound {
+            logger.warning("resolveOfflineEPUBSibling: sibling file missing bookID=\(sib.bookID, privacy: .public)")
+            return .failed
+        }
         let row = offlineBookRow(sib, fileURL: url)
         let kind = await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader).kind
         guard kind == .textEPUB, EPUBAdapter.renderer != nil else { return .reopen(row) }
@@ -556,6 +567,11 @@ struct OfflineLibraryView: View {
             serverID: serverID, libraryUUID: libraryUUID,
             series: series, volume: volume, direction: direction) else { return nil }
         let url = store.fileURL(for: sib)
+        // G54-S3e（spec §2.1-3）: ファイルが無ければ窓を閉じずに留まる（ローカルと同じ）。
+        if case .unavailable(let note) = VolumeHandover.imageViewerPrecheck(
+            FileReadProbe.check(url), forward: direction == .next) {
+            return .unavailable(note: note)
+        }
         let row = offlineBookRow(sib, fileURL: url)
         let probe = await SiblingVolumeKind.probeLocal(path: url.path, reader: EPUBAdapter.reader)
         if probe.kind == .textEPUB { return .openInEPUBReader(row) }

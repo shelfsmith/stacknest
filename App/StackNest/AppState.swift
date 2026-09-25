@@ -1178,8 +1178,18 @@ final class AppState {
         case .prev: sibling = try? db.prevVolumeInSeries(before: cur)
         }
         guard let sibling else { return .noSibling }
-        guard let path = sibling.path, Self.probeReadable(URL(fileURLWithPath: path)) == .readable,
-              EPUBAdapter.renderer != nil else { return .reopen(sibling) }
+        guard let path = sibling.path else { return .reopen(sibling) }
+        // G54-S3e（spec §2.1-4）: ファイルが無いときだけ今の本のまま。読めない（TCC 等）は開き直して許可の導線へ。
+        switch VolumeHandover.epubWindowPrecheck(Self.probeReadable(URL(fileURLWithPath: path))) {
+        case .stay:
+            Self.logger.warning("resolveEPUBSibling: sibling file missing bookID=\(sibling.id, privacy: .public)")
+            return .failed
+        case .reopen:
+            return .reopen(sibling)
+        case .probeKind:
+            break
+        }
+        guard EPUBAdapter.renderer != nil else { return .reopen(sibling) }
         let kind = await SiblingVolumeKind.probeLocal(path: path, reader: EPUBAdapter.reader).kind
         guard kind == .textEPUB else { return .reopen(sibling) }
         do {
@@ -1244,6 +1254,13 @@ final class AppState {
         case .prev: sibling = try? db.prevVolumeInSeries(before: cur)
         }
         guard let next = sibling else { return nil }
+        // G54-S3e（spec §2.1-2）: ファイルが無ければ窓を閉じずに留まる（開けなかった .epub はテキスト扱いになり、
+        // 窓を閉じてから「見つかりません」になっていた）。読めない（TCC 等）は今のまま許可の導線へ引き渡す。
+        if let path = next.path,
+           case .unavailable(let note) = VolumeHandover.imageViewerPrecheck(
+               Self.probeReadable(URL(fileURLWithPath: path)), forward: direction == .next) {
+            return .unavailable(note: note)
+        }
         let probe = await SiblingVolumeKind.probeLocal(path: next.path, reader: EPUBAdapter.reader)
         if probe.kind == .textEPUB { return .openInEPUBReader(next) }
         let content: BookContent
@@ -1294,44 +1311,11 @@ final class AppState {
         )
     }
 
-    /// ファイルアクセスの3状態判定結果。
-    /// - readable: 実アクセスできる（TCC 含む）
-    /// - notFound: 不在（移動/削除・ENOENT）
-    /// - noPermission: 存在するが読めない（TCC/権限拒否・EPERM/EACCES 等）
-    enum ReadProbe: Equatable { case readable, notFound, noPermission }
+    /// ファイルアクセスの3状態判定結果（G54-S3e: 実体は AppCore の `FileReadProbe`）。
+    typealias ReadProbe = FileReadProbe
 
-    /// ファイルの実アクセスを試み、可読/不在/権限不足を判別する。1 バイト読んで close。
-    /// 不在(ENOENT)と権限拒否(EPERM/EACCES)を errno で区別し、移動・削除された
-    /// ファイルに対して誤って「フォルダ許可」導線を出さないためのもの（V5 修正）。
-    static func probeReadable(_ url: URL) -> ReadProbe {
-        var isDir: ObjCBool = false
-        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
-            // フォルダ型の本は path がディレクトリ。read() は EISDIR で失敗するので、
-            // ディレクトリは「列挙できるか」で可読判定する（TCC で塞がれたディレクトリは
-            // contentsOfDirectory が throw→権限不足として許可導線に乗る）。
-            do { _ = try FileManager.default.contentsOfDirectory(atPath: url.path); return .readable }
-            catch { return Self.isNoSuchFileError(error) ? .notFound : .noPermission }
-        }
-        do {
-            let fh = try FileHandle(forReadingFrom: url)
-            defer { try? fh.close() }
-            _ = try fh.read(upToCount: 1)
-            return .readable
-        } catch {
-            return Self.isNoSuchFileError(error) ? .notFound : .noPermission
-        }
-    }
-
-    /// error が「ファイル不在(ENOENT / NSFileReadNoSuchFileError)」を表すか。
-    /// TCC/権限拒否は EPERM/EACCES→NSFileReadNoPermissionError となり、ここでは false。
-    private static func isNoSuchFileError(_ error: Error) -> Bool {
-        let ns = error as NSError
-        if ns.domain == NSCocoaErrorDomain, ns.code == NSFileReadNoSuchFileError { return true }
-        if ns.domain == NSPOSIXErrorDomain, ns.code == Int(ENOENT) { return true }
-        if let u = ns.userInfo[NSUnderlyingErrorKey] as? NSError,
-           u.domain == NSPOSIXErrorDomain, u.code == Int(ENOENT) { return true }
-        return false
-    }
+    /// ファイルの実アクセスを試み、可読/不在/権限不足を判別する（G54-S3e: 実体は `FileReadProbe.check`）。
+    static func probeReadable(_ url: URL) -> ReadProbe { FileReadProbe.check(url) }
 
     /// ファイルが読めるか（TCC 含む実アクセスで判定）。既存呼び出し互換のラッパ。
     static func fileIsReadable(_ url: URL) -> Bool { probeReadable(url) == .readable }
