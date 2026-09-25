@@ -19,22 +19,44 @@ import os
 /// transitionWaitTimeout`）。窓ごとの `Set<ObjectIdentifier>` にすることで、同じ窓への重複した `will*` は
 /// 冪等（集合への再挿入）になり、`NSWindow.willCloseNotification` でも取り除くことで「did* が永遠に来ない」
 /// 経路を塞ぐ。
+///
+/// G54-S3e ハードニング（レビュー Minor）: 「窓ごとの集合」だけでは、なお AppKit の通知の到着順序
+/// （`will*`→`did*` が必ず対になって来る／`willClose` が必ず来る）に依存していた。加えて
+/// `ObjectIdentifier` はアドレスの同一性でしかないので、窓が解放された後に別のオブジェクトが同じ
+/// アドレスへ再利用されると、無関係な新しい窓が「まだ遷移中」と誤認されうる。そこで集合の要素を
+/// 弱参照の窓そのものに変え、`isTransitioning` 系のクエリのたびに「弱参照が生きていて、かつ
+/// `isVisible`（順序から外されていない）」窓だけへ絞り込む（`prune()`）。これにより、通知が一切来ない
+/// 経路（`orderOut` は `willClose` を発火しない）や、窓が解放されて `willClose` を送れない経路でも、
+/// 次にクエリされた時点で自己修復する。
 @MainActor
 final class FullScreenTransitionTracker {
     static let shared = FullScreenTransitionTracker()
 
     private static let logger = Logger(subsystem: "app.shelfsmith.stacknest", category: "FullScreen")
 
-    private(set) var transitioningWindows: Set<ObjectIdentifier> = []
-    private var completionHandlers: [() -> Void] = []
+    /// 遷移中と見なしている窓への弱参照。トラッカーは AppKit 通知に応じてだけ生きる補助オブジェクトなので、
+    /// 窓を強参照して生存期間を延ばしてはいけない。
+    private struct WeakWindow {
+        weak var window: NSWindow?
+    }
+
+    /// `note.object` を `NSWindow` そのものとして取り出すための薄い箱。中身は `@unchecked Sendable` だが
+    /// 実際に別スレッドへ送るわけではない——`MainActor.assumeIsolated` の隔離クロージャへ渡すために
+    /// コンパイラの静的な「sending」チェックを通すだけの入れ物（同期に同じメインスレッド上で開ける）。
+    private struct UncheckedWindowBox: @unchecked Sendable {
+        let window: NSWindow
+    }
+
+    private var transitioningWindows: [ObjectIdentifier: WeakWindow] = [:]
+    private var pendingCompletions: [(excludedID: ObjectIdentifier?, handler: () -> Void)] = []
     private var observers: [NSObjectProtocol] = []
 
-    var isTransitioning: Bool { !transitioningWindows.isEmpty }
+    /// クエリのたびに `prune()` してから答える——`will*`/`did*` の到着順序にも `ObjectIdentifier` の
+    /// アドレス再利用にも頼らない（`prune()` のドキュメント参照）。
+    var isTransitioning: Bool { isTransitioningIgnoring(nil) }
 
     /// `excluding` の窓自身は「他の窓」に数えない——自窓の遷移で自窓のドライバが待つのを防ぐ。
-    func isTransitioning(excluding id: ObjectIdentifier) -> Bool {
-        transitioningWindows.contains { $0 != id }
-    }
+    func isTransitioning(excluding id: ObjectIdentifier) -> Bool { isTransitioningIgnoring(id) }
 
     init() {
         let nc = NotificationCenter.default
@@ -44,15 +66,17 @@ final class FullScreenTransitionTracker {
         // 「実際にはメインスレッドで呼ばれる」という事実を型に伝える。
         // レビュー Minor（G54-S3e smoke fix）: `Notification`/`NSWindow` は非 Sendable なので、
         // `MainActor.assumeIsolated` の隔離クロージャへそのまま渡すと「sending risks causing data
-        // races」で弾かれる。`ObjectIdentifier`（Sendable な値型）だけを隔離前に取り出して渡す。
+        // races」で弾かれる。`will*` は弱参照として保存するため窓そのものが要る——`UncheckedWindowBox`
+        // に包んで渡す。`did*`/`willClose` は id だけで足りるので、そちらは従来どおり
+        // `ObjectIdentifier`（Sendable な値型）だけを隔離前に取り出して渡す。
         observers = [
             nc.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: nil, queue: .main) { [weak self] note in
-                guard let id = Self.windowID(note) else { return }
-                MainActor.assumeIsolated { self?.begin(id) }
+                guard let box = Self.windowBox(note) else { return }
+                MainActor.assumeIsolated { self?.begin(box.window) }
             },
             nc.addObserver(forName: NSWindow.willExitFullScreenNotification, object: nil, queue: .main) { [weak self] note in
-                guard let id = Self.windowID(note) else { return }
-                MainActor.assumeIsolated { self?.begin(id) }
+                guard let box = Self.windowBox(note) else { return }
+                MainActor.assumeIsolated { self?.begin(box.window) }
             },
             nc.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: nil, queue: .main) { [weak self] note in
                 guard let id = Self.windowID(note) else { return }
@@ -76,6 +100,11 @@ final class FullScreenTransitionTracker {
         (note.object as? NSWindow).map(ObjectIdentifier.init)
     }
 
+    /// `note.object` を `NSWindow` そのものとして取り出す（弱参照の保存用）。
+    private nonisolated static func windowBox(_ note: Notification) -> UncheckedWindowBox? {
+        (note.object as? NSWindow).map(UncheckedWindowBox.init)
+    }
+
     @MainActor
     deinit {
         let nc = NotificationCenter.default
@@ -85,41 +114,81 @@ final class FullScreenTransitionTracker {
     /// 現在進行中の遷移が 1 つも無くなった時点で一度だけ呼ばれる。
     /// 呼び出し時点で既に進行中の遷移が無ければ、次の tick で即座に呼ぶ
     /// （`schedule` 越しに呼ぶのは呼び出し側の責務。ここでは同期に呼んでよい）。
-    func onNextTransitionEnd(_ handler: @escaping () -> Void) {
-        if !isTransitioning {
+    /// G54-S3e ハードニング: `excluding` を渡すと、その窓自身の遷移は「まだ遷移中」に数えない
+    /// （`isTransitioning(excluding:)` と対称——ドライバは自分自身の遷移完了を待って
+    /// 自分自身を待つことがあってはならない）。
+    func onNextTransitionEnd(excluding id: ObjectIdentifier? = nil, _ handler: @escaping () -> Void) {
+        if !isTransitioningIgnoring(id) {
             handler()
             return
         }
-        completionHandlers.append(handler)
+        pendingCompletions.append((excludedID: id, handler: handler))
     }
 
-    private func begin(_ id: ObjectIdentifier) {
-        transitioningWindows.insert(id)
+    private func isTransitioningIgnoring(_ excludedID: ObjectIdentifier?) -> Bool {
+        prune()
+        return stillTransitioning(excluding: excludedID)
+    }
+
+    private func stillTransitioning(excluding excludedID: ObjectIdentifier?) -> Bool {
+        guard let excludedID else { return !transitioningWindows.isEmpty }
+        return transitioningWindows.keys.contains { $0 != excludedID }
+    }
+
+    private func begin(_ window: NSWindow) {
+        transitioningWindows[ObjectIdentifier(window)] = WeakWindow(window: window)
         Self.logger.debug("begin: transitioning=\(self.transitioningWindows.count, privacy: .public)")
     }
 
     private func end(_ id: ObjectIdentifier) {
-        transitioningWindows.remove(id)
+        transitioningWindows.removeValue(forKey: id)
         Self.logger.debug("end: transitioning=\(self.transitioningWindows.count, privacy: .public)")
-        fireCompletionHandlersIfIdle()
+        fireReadyCompletions()
     }
 
     private func closeWindow(_ id: ObjectIdentifier) {
-        transitioningWindows.remove(id)
+        transitioningWindows.removeValue(forKey: id)
         Self.logger.debug("close: transitioning=\(self.transitioningWindows.count, privacy: .public)")
-        fireCompletionHandlersIfIdle()
+        fireReadyCompletions()
     }
 
-    private func fireCompletionHandlersIfIdle() {
-        guard transitioningWindows.isEmpty, !completionHandlers.isEmpty else { return }
-        let handlers = completionHandlers
-        completionHandlers.removeAll()
-        for h in handlers { h() }
+    /// G54-S3e ハードニング: `will*`/`did*` の対応や `willCloseNotification` の到着に頼らず、
+    /// 集合をクエリするたび（`isTransitioning` 系・`onNextTransitionEnd`）に「本当にまだ生きていて
+    /// 遷移中と扱ってよい窓」だけへ絞り込む。取り除く条件は次のどちらか:
+    /// - 弱参照が `nil`（解放済み）——`ObjectIdentifier` は解放されたアドレスが再利用されうるので、
+    ///   弱参照そのものを保持して生死を確かめる（アドレスの同一性だけでは判定しない）。
+    /// - `isVisible == false`（順序から外された＝隠された）——`orderOut` は `willCloseNotification`
+    ///   を発火しないので、通知だけに頼るとこの経路を取りこぼす。
+    /// 取り除いた結果として集合が変化したら、保留中の完了ハンドラを再評価する
+    /// （プルーニングだけで空になった＝`did*`/`willClose` どちらも来なかった経路の取りこぼし対策）。
+    private func prune() {
+        let before = transitioningWindows.count
+        transitioningWindows = transitioningWindows.filter { _, entry in
+            guard let window = entry.window else { return false }
+            return window.isVisible
+        }
+        if transitioningWindows.count != before {
+            fireReadyCompletions()
+        }
     }
 
-    /// テスト用: 集合を直接動かす（実ウィンドウ無しで「遷移中」を作るため）。
-    /// `id` の元は何でもよい（`ObjectIdentifier(NSObject())` 等）——同一性だけを使う。
-    func testBeginTransition(id: ObjectIdentifier) { begin(id) }
+    private func fireReadyCompletions() {
+        guard !pendingCompletions.isEmpty else { return }
+        var remaining: [(excludedID: ObjectIdentifier?, handler: () -> Void)] = []
+        for entry in pendingCompletions {
+            if stillTransitioning(excluding: entry.excludedID) {
+                remaining.append(entry)
+            } else {
+                entry.handler()
+            }
+        }
+        pendingCompletions = remaining
+    }
+
+    /// テスト用: 実ウィンドウを渡して集合を直接動かす。弱参照＋`isVisible` プルーニングを検証するには
+    /// 実際に `weak` で保持できる `NSWindow` が要る——`ObjectIdentifier` だけでは弱参照を作れないため、
+    /// 以前の `testBeginTransition(id:)`（任意の `NSObject` の識別子で足りた）から変更している。
+    func testBeginTransition(window: NSWindow) { begin(window) }
     func testEndTransition(id: ObjectIdentifier) { end(id) }
     func testCloseWindow(id: ObjectIdentifier) { closeWindow(id) }
 }
@@ -140,9 +209,11 @@ final class FullScreenEntryDriver {
         var maxAttempts: Int = 3
         var retryInterval: TimeInterval = 0.3
         /// レビュー Important（Fix round 1）: 他窓の全画面遷移完了を待つ上限。
-        /// `FullScreenTransitionTracker` は対応の取れていない単純なカウンタなので、
-        /// `will*` に対応する `did*` が来ない場面（遷移中に窓が破棄される等）では
-        /// カウントが戻らず、通知待ちが無期限になりうる。期限が来たら通知を待たずに進む。
+        /// `FullScreenTransitionTracker`（G54-S3e ハードニングで窓ごとの弱参照集合＋クエリ時
+        /// プルーニングへ強化済み）は通知の到着順序にもアドレス再利用にも頼らず自己修復するが、
+        /// それでも「窓は生きていて可視だが AppKit が何らかの理由で `did*` を送ってこない」という
+        /// 未知の経路がゼロとは言い切れない。期限が来たら通知を待たずに進むことで、そうした場合でも
+        /// 通知待ちが無期限になることはない（プルーニングとは独立した二重の安全網）。
         var transitionWaitTimeout: TimeInterval = 1.5
     }
 
@@ -189,7 +260,11 @@ final class FullScreenEntryDriver {
                     MainActor.assumeIsolated { block() }
                 }
             },
-            observeTransitionEnd: { completion in tracker.onNextTransitionEnd(completion) }
+            // G54-S3e ハードニング: `onNextTransitionEnd` にも自窓の `windowID` を渡し、
+            // `isOtherTransitionInProgress` と対称にする——自分自身の遷移完了を待って
+            // 自分自身を待つことがないようにする（対称性が崩れていると、自窓に何らかの理由で
+            // 古い遷移中エントリが残っていた場合、待ちが永遠に終わらなくなりうる）。
+            observeTransitionEnd: { completion in tracker.onNextTransitionEnd(excluding: windowID, completion) }
         )
     }
 
