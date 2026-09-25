@@ -82,11 +82,12 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 ### Fixed
 
 - **The EPUB window did not remember its position and size** (it always opened centred at the default size).
-- **When the next volume cannot be opened, the window now stays** and shows "次の巻を開けません" (with
-  "（ファイルが見つかりません）" when the file is missing), so the current book remains readable. When folder access
-  permission is needed, the volume is still reopened so the permission prompt can appear.
-  - Remotely, when the next volume could not be fetched (sharing stopped, library closed, and so on), the viewer
-    said there was no next volume. It now says the volume cannot be opened.
+- **The viewer said there was no next volume when the next volume merely could not be opened.** When the next
+  volume's file is missing it now shows "次の巻を開けません（ファイルが見つかりません）" (cannot open the next volume —
+  file not found), and when a remote volume cannot be fetched (sharing stopped, library closed, and so on) it shows
+  "次の巻を開けません". The current book remains readable.
+  - **The EPUB window** used to close first and then report the missing file. It now stays open. When folder access
+    permission is needed, the volume is still reopened so the permission prompt can appear.
 - **Opening a downloaded remote EPUB while the server was unreachable could overwrite the server's reading position
   with the start of the book.** The position is no longer saved until you move.
 - Remote "Edit cover" now waits up to 60 seconds for the candidates (the server reads the whole archive, which takes
