@@ -373,10 +373,12 @@ struct LibraryBrowserView: View {
             if !result.alreadyPresent.isEmpty {
                 let alert = NSAlert()
                 if addedToShelf {
-                    let dest = targetIsFavorites ? "お気に入り" : "シェルフ"
-                    alert.messageText = "\(result.alreadyPresent.count) 件は登録済みのため、\(dest)への追加だけ行いました"
+                    // 英語の語順が変わりうるため、シェルフ／お気に入りは補間せず別キーにする。
+                    alert.messageText = targetIsFavorites
+                        ? String(localized: "\(result.alreadyPresent.count) 件は登録済みのため、お気に入りへの追加だけ行いました")
+                        : String(localized: "\(result.alreadyPresent.count) 件は登録済みのため、シェルフへの追加だけ行いました")
                 } else {
-                    alert.messageText = "\(result.alreadyPresent.count) 件は既に登録済みです"
+                    alert.messageText = String(localized: "\(result.alreadyPresent.count) 件は既に登録済みです")
                 }
                 alert.runModal()
             }

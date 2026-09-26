@@ -117,7 +117,7 @@ struct VolumeEditorField: View {
             // Show as integer when the value is a whole number (e.g. 1.0 → "1")
             return v == v.rounded() ? String(Int(v)) : String(v)
         case .mixed:
-            return "<複数値>"
+            return String(localized: "<複数値>")
         }
     }
 

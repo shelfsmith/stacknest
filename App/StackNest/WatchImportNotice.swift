@@ -90,7 +90,7 @@ enum WatchImportNotice {
 
     /// 行頭に `・` を付けて並べ、`detailLimit` を超えたら `…` で打ち切る。
     private static func list(_ lines: [String]) -> String {
-        lines.prefix(detailLimit).map { "  ・\($0)" }.joined(separator: "\n")
+        lines.prefix(detailLimit).map { String(localized: "  ・\($0)") }.joined(separator: "\n")
             + (lines.count > detailLimit ? "\n  …" : "")
     }
 }

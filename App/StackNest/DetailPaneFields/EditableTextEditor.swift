@@ -122,7 +122,7 @@ struct EditableTextEditor: View {
     private var displayText: String {
         switch state {
         case .unanimous(let v): return v.isEmpty ? "—" : v
-        case .mixed:            return "<複数値>"
+        case .mixed:            return String(localized: "<複数値>")
         }
     }
 

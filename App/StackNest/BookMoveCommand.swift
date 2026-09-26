@@ -27,9 +27,9 @@ public enum BookMoveCommand {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.allowsMultipleSelection = false
-        panel.title = "ファイルの移動先"
-        panel.message = "選択した本のファイルを移動するフォルダを選択してください。"
-        panel.prompt = "移動"
+        panel.title = String(localized: "ファイルの移動先")
+        panel.message = String(localized: "選択した本のファイルを移動するフォルダを選択してください。")
+        panel.prompt = String(localized: "移動")
         panel.directoryURL = books.first?.sourceURL.deletingLastPathComponent()
         guard panel.runModal() == .OK, let destFolder = panel.url else { return }
 
@@ -68,13 +68,13 @@ public enum BookMoveCommand {
 
     private static func showResultAlert(_ result: MoveResult, total: Int) {
         let alert = NSAlert()
-        alert.messageText = "\(total) 件中 \(result.moved.count) 件を移動しました"
+        alert.messageText = String(localized: "\(total) 件中 \(result.moved.count) 件を移動しました")
         var lines: [String] = []
         if !result.skippedConflict.isEmpty {
-            lines.append("・\(result.skippedConflict.count) 件は移動先に同名ファイルが存在したためスキップ")
+            lines.append(String(localized: "・\(result.skippedConflict.count) 件は移動先に同名ファイルが存在したためスキップ"))
         }
         if !result.failed.isEmpty {
-            lines.append("・\(result.failed.count) 件はエラーで失敗")
+            lines.append(String(localized: "・\(result.failed.count) 件はエラーで失敗"))
         }
         if !lines.isEmpty {
             alert.informativeText = lines.joined(separator: "\n")

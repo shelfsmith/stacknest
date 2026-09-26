@@ -9,7 +9,7 @@ import LibraryStore
 /// - 日本語 (postposition): [N] 日 [以内/以前]
 /// - 英語等 (preposition):  [within/older than] [N] days
 struct DateFilterRow: View {
-    let label: String
+    let label: LocalizedStringKey
     @Binding var range: FilterState.DateRangeCondition?
     @State private var localDays: Int = 7
     @State private var localDirection: FilterState.DateRangeCondition.Direction = .within

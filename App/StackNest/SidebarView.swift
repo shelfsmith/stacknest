@@ -195,8 +195,8 @@ struct SidebarView: View {
     }
 
     private func createNewShelf() {
-        if let id = appState.createShelf(name: "新規シェルフ") {
-            renameDraft = "新規シェルフ"
+        if let id = appState.createShelf(name: String(localized: "新規シェルフ")) {
+            renameDraft = String(localized: "新規シェルフ")
             renamingShelfID = id
             // Focus textfield after a tick so SwiftUI has rendered it
             DispatchQueue.main.async {

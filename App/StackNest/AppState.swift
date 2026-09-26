@@ -796,8 +796,8 @@ final class AppState {
     /// removableShelf の表示名（ダイアログ第1ボタン文言用）。
     /// お気に入り→「お気に入りから外す」、手動シェルフ→「シェルフから外す」。
     var removableShelfRemoveButtonTitle: String {
-        if case .favorites = selectedSidebarItem { return "お気に入りから外す" }
-        return "シェルフから外す"
+        if case .favorites = selectedSidebarItem { return String(localized: "お気に入りから外す") }
+        return String(localized: "シェルフから外す")
     }
 
     /// "最近の項目" の対象日数を更新する（FX2 A9-UI）。
@@ -1352,23 +1352,23 @@ final class AppState {
     static func requestFolderAccessAndRecheck(for fileURL: URL, logger: Logger) -> Bool {
         logger.warning("openInBuiltInViewer: not readable, prompting for folder access: \(fileURL.path, privacy: .public)")
         let alert = NSAlert()
-        alert.messageText = "本を開けませんでした"
-        alert.informativeText = "このフォルダへのアクセス許可が必要です。「アクセスを許可…」を押して、この本があるフォルダを選択してください。"
-        alert.addButton(withTitle: "アクセスを許可…")
-        alert.addButton(withTitle: "キャンセル")
+        alert.messageText = String(localized: "本を開けませんでした")
+        alert.informativeText = String(localized: "このフォルダへのアクセス許可が必要です。「アクセスを許可…」を押して、この本があるフォルダを選択してください。")
+        alert.addButton(withTitle: String(localized: "アクセスを許可…"))
+        alert.addButton(withTitle: String(localized: "キャンセル"))
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.directoryURL = fileURL.deletingLastPathComponent()
-        panel.message = "この本があるフォルダを選んでアクセスを許可してください。"
-        panel.prompt = "許可"
+        panel.message = String(localized: "この本があるフォルダを選んでアクセスを許可してください。")
+        panel.prompt = String(localized: "許可")
         guard panel.runModal() == .OK else { return false }
         if fileIsReadable(fileURL) { return true }
         let e2 = NSAlert()
-        e2.messageText = "本を開けませんでした"
-        e2.informativeText = "選択したフォルダではこのファイルにアクセスできませんでした。ファイルのある親フォルダを選び直してください。"
+        e2.messageText = String(localized: "本を開けませんでした")
+        e2.informativeText = String(localized: "選択したフォルダではこのファイルにアクセスできませんでした。ファイルのある親フォルダを選び直してください。")
         e2.runModal()
         return false
     }
@@ -1378,8 +1378,8 @@ final class AppState {
     static func presentFileNotFound(_ fileURL: URL, logger: Logger) {
         logger.warning("openInBuiltInViewer: file not found (moved/deleted): \(fileURL.path, privacy: .public)")
         let alert = NSAlert()
-        alert.messageText = "ファイルが見つかりません"
-        alert.informativeText = "この本のファイルが移動または削除された可能性があります。ファイルを元の場所に戻すか、「再リンク」してください。"
+        alert.messageText = String(localized: "ファイルが見つかりません")
+        alert.informativeText = String(localized: "この本のファイルが移動または削除された可能性があります。ファイルを元の場所に戻すか、「再リンク」してください。")
         alert.runModal()
     }
 
@@ -1913,7 +1913,7 @@ final class AppState {
     /// 「表紙の確定に失敗したらクロップを書かない/消さない」ゲートを効かせるには、ここが必ず
     /// 投げる必要がある（黙って return すると catch を素通りしてクロップ書き込みへ進んでしまう）。
     struct VideoSceneCoverTargetUnavailable: Error, LocalizedError {
-        var errorDescription: String? { "対象の本が見つからないか、ファイルパスが不明です" }
+        var errorDescription: String? { String(localized: "対象の本が見つからないか、ファイルパスが不明です") }
     }
 
     /// G50: 動画で選んだ場面を表紙にする。`setExternalCover` と同じ順序（ファイル書き込み →

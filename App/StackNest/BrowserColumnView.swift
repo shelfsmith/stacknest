@@ -125,9 +125,24 @@ struct BrowserColumnView: View {
         }
     }
 
+    /// 動的な値（本のメタデータ）専用。`Text(String)` は verbatim なので翻訳表に触れない。
+    /// `@_disfavoredOverload`: 文字列リテラルは常に下の `LocalizedStringKey` 版に解決させる
+    /// （`Text(_:)` と同じ優先順位。無いと呼び出しが曖昧になる）。
+    @_disfavoredOverload
     @ViewBuilder
     private func row(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Text(label)
+        row(text: Text(label), isSelected: isSelected, action: action)
+    }
+
+    /// 固定文言（「すべて (N 種類)」等）専用。`LocalizedStringKey` で翻訳表を引く。
+    @ViewBuilder
+    private func row(label: LocalizedStringKey, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        row(text: Text(label), isSelected: isSelected, action: action)
+    }
+
+    @ViewBuilder
+    private func row(text: Text, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        text
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 1)
             .listRowSeparator(.hidden)

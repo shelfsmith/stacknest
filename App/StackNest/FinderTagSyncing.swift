@@ -271,18 +271,18 @@ enum FinderTagSyncNotice {
             lines.append(String(localized: "Finder タグを同期できませんでした: \(failure)"))
         }
         if !outcome.indexingDisabledVolumes.isEmpty {
-            let names = outcome.indexingDisabledVolumes.joined(separator: "・")
+            let names = outcome.indexingDisabledVolumes.joined(separator: String(localized: "・"))
             lines.append(String(localized: "「\(names)」は Spotlight 索引が無効です。Finder で付けたタグは取り込めません（\(fieldLabel) → Finder の書き戻しのみ動作）。"))
         }
         if !outcome.skippedTags.isEmpty {
             lines.append(String(localized: "「, 」を含むタグ \(outcome.skippedTags.count) 件は同期していません。"))
             details.append(String(localized: "同期できなかったタグ:") + "\n"
-                           + outcome.skippedTags.map { "  ・\($0)" }.joined(separator: "\n"))
+                           + outcome.skippedTags.map { String(localized: "  ・\($0)") }.joined(separator: "\n"))
         }
         if !outcome.skippedBooks.isEmpty {
             lines.append(String(localized: "\(outcome.skippedBooks.count) 冊はタグを読めませんでした。"))
             details.append(String(localized: "タグを読めなかった本:") + "\n"
-                           + outcome.skippedBooks.prefix(50).map { "  ・\($0)" }.joined(separator: "\n")
+                           + outcome.skippedBooks.prefix(50).map { String(localized: "  ・\($0)") }.joined(separator: "\n")
                            + (outcome.skippedBooks.count > 50 ? "\n  …" : ""))
         }
 

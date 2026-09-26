@@ -23,7 +23,7 @@ enum LibraryActions {
                     UserDefaultsKeys.setDefaultLibraryParentURL(finalURL.deletingLastPathComponent())
                     onOpen(finalURL)
                 } catch {
-                    onError(error, "ライブラリを作成できませんでした")
+                    onError(error, String(localized: "ライブラリを作成できませんでした"))
                 }
             }
         }
@@ -40,7 +40,7 @@ enum LibraryActions {
                     try bundle.validate()
                     onOpen(bundleURL)
                 } catch {
-                    onError(error, "ライブラリを開けませんでした")
+                    onError(error, String(localized: "ライブラリを開けませんでした"))
                 }
             }
         }
@@ -50,6 +50,12 @@ enum LibraryActions {
         onOpen: @escaping (URL) -> Void,
         onError: @escaping (Error?, String) -> Void
     ) {
+        // Hoisted out of the nested Task/do-catch below: some Xcode toolchain versions fail to
+        // extract a `String(localized:)` call into the String Catalog when it sits in the outer
+        // `catch` of a do-block that also contains a nested Task with its own `String(localized:)`
+        // call (a doubly-nested-closure extraction quirk, confirmed via `Scripts/l10n-lint.py`).
+        // Evaluating it unconditionally here (cheap: a table lookup) sidesteps that.
+        let xmlSelectionFailedMessage = String(localized: "XML ファイルを選択できませんでした")
         Self.runXMLOpenPanelStandalone { xmlURL in
             Task {
                 do {
@@ -65,12 +71,12 @@ enum LibraryActions {
                                     finalURL.deletingLastPathComponent())
                                 onOpen(finalURL)
                             } catch {
-                                onError(error, "ライブラリを取り込めませんでした")
+                                onError(error, String(localized: "ライブラリを取り込めませんでした"))
                             }
                         }
                     }
                 } catch {
-                    onError(error, "XML ファイルを選択できませんでした")
+                    onError(error, xmlSelectionFailedMessage)
                 }
             }
         }
@@ -81,8 +87,8 @@ enum LibraryActions {
     /// Static helper to run NSSavePanel standalone (for FileCommands).
     static func runSavePanelStandalone(defaultName: String = "Untitled.stacknest", completion: @escaping (URL) -> Void) {
         let panel = NSSavePanel()
-        panel.title = "新しいライブラリを作成"
-        panel.message = "新しい StackNest ライブラリの保存先を選んでください"
+        panel.title = String(localized: "新しいライブラリを作成")
+        panel.message = String(localized: "新しい StackNest ライブラリの保存先を選んでください")
         panel.allowedContentTypes = [.stackNestLibrary]
         panel.nameFieldStringValue = defaultName
         panel.canCreateDirectories = true
@@ -99,8 +105,8 @@ enum LibraryActions {
     /// Static helper to run NSOpenPanel for existing library (for FileCommands).
     static func runOpenPanelStandalone(completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
-        panel.title = "ライブラリを開く"
-        panel.message = "StackNest ライブラリを選択してください"
+        panel.title = String(localized: "ライブラリを開く")
+        panel.message = String(localized: "StackNest ライブラリを選択してください")
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.stackNestLibrary]
@@ -116,8 +122,8 @@ enum LibraryActions {
     /// Static helper to run NSOpenPanel for Stackroom XML (for FileCommands).
     static func runXMLOpenPanelStandalone(completion: @escaping (URL) -> Void) {
         let panel = NSOpenPanel()
-        panel.title = "Stackroom XML から取り込む"
-        panel.message = "Stackroom の library.xml ファイルを選択してください"
+        panel.title = String(localized: "Stackroom XML から取り込む")
+        panel.message = String(localized: "Stackroom の library.xml ファイルを選択してください")
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowedContentTypes = [.xml]
@@ -132,8 +138,8 @@ enum LibraryActions {
             } else {
                 NSAlert.presentError(
                     nil,
-                    title: "Stackroom ライブラリファイルが不正です",
-                    message: "Stackroom ライブラリ内の 'library.xml' という名前のファイルを選択してください"
+                    title: String(localized: "Stackroom ライブラリファイルが不正です"),
+                    message: String(localized: "Stackroom ライブラリ内の 'library.xml' という名前のファイルを選択してください")
                 )
             }
         }

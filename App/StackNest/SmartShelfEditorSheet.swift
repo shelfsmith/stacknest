@@ -180,26 +180,26 @@ private struct SmartShelfRuleRow: View {
 
     private func label(for f: SmartShelfRule.Field) -> String {
         switch f {
-        case .title: return "タイトル"; case .author: return "作者"
+        case .title: return String(localized: "タイトル"); case .author: return String(localized: "作者")
         case .genre: return settings.label(for: .genre)
-        case .series: return "シリーズ"
+        case .series: return String(localized: "シリーズ")
         case .neta: return settings.label(for: .neta)
         case .keywordA: return settings.label(for: .keywordA)
         case .keywordB: return settings.label(for: .keywordB)
         case .keywordC: return settings.stampLabel(for: .keywordC)
-        case .memo: return "メモ"
-        case .bookType: return "種類"; case .rating: return "評価"; case .unseen: return "未読"
-        case .pages: return "ページ数"; case .dateAdded: return "追加日"; case .playDate: return "最終閲覧日"
+        case .memo: return String(localized: "メモ")
+        case .bookType: return String(localized: "種類"); case .rating: return String(localized: "評価"); case .unseen: return String(localized: "未読")
+        case .pages: return String(localized: "ページ数"); case .dateAdded: return String(localized: "追加日"); case .playDate: return String(localized: "最終閲覧日")
         }
     }
     // 注: .equals(テキスト等価) と .eq(数値等価) は異なるフィールド型で使われ同時に現れないため、同じ日本語ラベルでよい。
     private func label(for op: SmartShelfRule.Operator) -> String {
         switch op {
-        case .equals: return "が次と等しい"; case .contains: return "を含む"
-        case .startsWith: return "で始まる"; case .endsWith: return "で終わる"
-        case .eq: return "が次と等しい"; case .gte: return "以上"; case .lte: return "以下"
-        case .within: return "以内"; case .olderThan: return "より前"
-        case .isUnread: return "である"; case .isRead: return "ではない"
+        case .equals: return String(localized: "が次と等しい"); case .contains: return String(localized: "を含む")
+        case .startsWith: return String(localized: "で始まる"); case .endsWith: return String(localized: "で終わる")
+        case .eq: return String(localized: "が次と等しい"); case .gte: return String(localized: "以上"); case .lte: return String(localized: "以下")
+        case .within: return String(localized: "以内"); case .olderThan: return String(localized: "より前")
+        case .isUnread: return String(localized: "である"); case .isRead: return String(localized: "ではない")
         }
     }
 }

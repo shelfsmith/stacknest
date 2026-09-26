@@ -1,0 +1,569 @@
+{
+  "  ・%@": {
+    "en": "  • %@"
+  },
+  "%@ → Finder %lld 件": {
+    "plural": {
+      "one": "%@ → Finder: %lld item",
+      "other": "%@ → Finder: %lld items"
+    }
+  },
+  "%@ をゴミ箱に移動できませんでした": {
+    "en": "Couldn't move %@ to the Trash"
+  },
+  "%lld ページ": {
+    "plural": {
+      "one": "%lld page",
+      "other": "%lld pages"
+    }
+  },
+  "%lld 件は既に登録済みです": {
+    "plural": {
+      "one": "%lld item is already registered",
+      "other": "%lld items are already registered"
+    }
+  },
+  "%lld 件は登録済みのため、お気に入りへの追加だけ行いました": {
+    "plural": {
+      "one": "%lld item was already registered, so it was only added to Favorites",
+      "other": "%lld items were already registered, so they were only added to Favorites"
+    }
+  },
+  "%lld 件は登録済みのため、シェルフへの追加だけ行いました": {
+    "plural": {
+      "one": "%lld item was already registered, so it was only added to the shelf",
+      "other": "%lld items were already registered, so they were only added to the shelf"
+    }
+  },
+  "%lld 件を自動追加": {
+    "plural": {
+      "one": "Automatically added %lld item",
+      "other": "Automatically added %lld items"
+    }
+  },
+  "%lld 件中 %lld 件を移動しました": {
+    "en": "Moved %2$lld of %1$lld items"
+  },
+  "%lld 件失敗": {
+    "plural": {
+      "one": "%lld item failed",
+      "other": "%lld items failed"
+    }
+  },
+  "%lld 冊はタグを読めませんでした。": {
+    "plural": {
+      "one": "%lld book's tags couldn't be read.",
+      "other": "%lld books' tags couldn't be read."
+    }
+  },
+  ".recover で修復を試す": {
+    "en": "Try to Repair with .recover"
+  },
+  "Finder → %@ %lld 件": {
+    "plural": {
+      "one": "Finder → %@: %lld item",
+      "other": "Finder → %@: %lld items"
+    }
+  },
+  "Finder タグ: 変更はありませんでした": {
+    "en": "Finder Tags: No Changes"
+  },
+  "Finder タグと「%@」を照合し直す": {
+    "en": "Re-sync Finder tags with “%@”"
+  },
+  "Finder タグと同期する項目が選ばれていません（ライブラリの設定で選べます）。": {
+    "en": "No field is selected to sync with Finder tags. (You can choose one in the library settings.)"
+  },
+  "Finder タグを再照合": {
+    "en": "Re-sync Finder Tags"
+  },
+  "Finder タグを同期しました（%@）": {
+    "en": "Finder tags synced (%@)"
+  },
+  "Finder タグを同期できませんでした: %@": {
+    "en": "Couldn't sync Finder tags: %@"
+  },
+  "StackNest ライブラリを選択してください": {
+    "en": "Choose a StackNest library"
+  },
+  "Stackroom XML から取り込む": {
+    "en": "Import from Stackroom XML"
+  },
+  "Stackroom の library.xml ファイルを選択してください": {
+    "en": "Choose the Stackroom library.xml file"
+  },
+  "Stackroom ライブラリファイルが不正です": {
+    "en": "Invalid Stackroom Library File"
+  },
+  "Stackroom ライブラリ内の 'library.xml' という名前のファイルを選択してください": {
+    "en": "Choose the file named 'library.xml' inside the Stackroom library"
+  },
+  "XML ファイルを選択できませんでした": {
+    "en": "Couldn't Select the XML File"
+  },
+  "`.recover` でも有効なデータベースを救出できませんでした。復旧手順書（recovery-guide）を参照してください。元のファイルは変更していません。": {
+    "en": "Even `.recover` couldn't rescue a valid database. See the recovery guide (recovery-guide). The original files haven't been changed."
+  },
+  "「%@」 にリンクするファイルを選択してください。": {
+    "en": "Choose the file to link to “%@”."
+  },
+  "「%@」は Finder タグと同期できない項目です。": {
+    "en": "“%@” can't be synced with Finder tags."
+  },
+  "「%@」は Spotlight 索引が無効です。Finder で付けたタグは取り込めません（%@ → Finder の書き戻しのみ動作）。": {
+    "en": "“%@” has Spotlight indexing disabled. Tags added in Finder can't be imported (only %@ → Finder write-back works)."
+  },
+  "「%@」はこのシェルフから外すだけで、ライブラリには残ります。「ゴミ箱に移動」はファイルをゴミ箱へ移し、ライブラリの記録も削除します。": {
+    "en": "“%@” only removes them from this shelf — they stay in the library. “Move to Trash” moves the files to the Trash and also deletes the library records."
+  },
+  "「%@」はこのシェルフから外すだけで、ライブラリには残ります。「ライブラリから削除」はライブラリの記録を削除します（ファイル本体は保持されます）。": {
+    "en": "“%@” only removes them from this shelf — they stay in the library. “Remove from Library” deletes the library records (the files themselves are kept)."
+  },
+  "「, 」を含むタグ %lld 件は同期していません。": {
+    "plural": {
+      "one": "%lld tag containing “, ” wasn't synced.",
+      "other": "%lld tags containing “, ” weren't synced."
+    }
+  },
+  "いずれか": {
+    "en": "Any"
+  },
+  "お気に入りから外す": {
+    "en": "Remove from Favorites"
+  },
+  "が次と等しい": {
+    "en": "Equals"
+  },
+  "このシェルフ・絞り込み条件に一致する書籍はありません。": {
+    "en": "No books match this shelf and filter."
+  },
+  "このフォルダへのアクセス許可が必要です。「アクセスを許可…」を押して、この本があるフォルダを選択してください。": {
+    "en": "This folder needs access permission. Click “Grant Access…” and choose the folder that contains this book."
+  },
+  "このライブラリの設定": {
+    "en": "Settings for this library"
+  },
+  "この値（定義）を削除": {
+    "en": "Delete this value"
+  },
+  "この本があるフォルダを選んでアクセスを許可してください。": {
+    "en": "Choose the folder that contains this book to grant access."
+  },
+  "この本のファイルが移動または削除された可能性があります。ファイルを元の場所に戻すか、「再リンク」してください。": {
+    "en": "This book's file may have been moved or deleted. Put the file back in its original location, or use “Relink…”."
+  },
+  "この通知を閉じる": {
+    "en": "Dismiss this notice"
+  },
+  "すべて": {
+    "en": "All"
+  },
+  "すべて (%lld 種類)": {
+    "plural": {
+      "one": "All (%lld value)",
+      "other": "All (%lld values)"
+    }
+  },
+  "そのまま開く": {
+    "en": "Open Anyway"
+  },
+  "である": {
+    "en": "Is"
+  },
+  "ではない": {
+    "en": "Is Not"
+  },
+  "で始まる": {
+    "en": "Starts With"
+  },
+  "で終わる": {
+    "en": "Ends With"
+  },
+  "やめる": {
+    "en": "Cancel"
+  },
+  "より前": {
+    "en": "Before"
+  },
+  "を含む": {
+    "en": "Contains"
+  },
+  "アクセスを許可…": {
+    "en": "Grant Access…"
+  },
+  "ゴミ箱から復元できますが、ライブラリの記録も削除されます。": {
+    "en": "You can restore them from the Trash, but the library records will also be removed."
+  },
+  "ゴミ箱に移動": {
+    "en": "Move to Trash"
+  },
+  "シェルフから外す": {
+    "en": "Remove from Shelf"
+  },
+  "シェルフに追加": {
+    "en": "Add to Shelf"
+  },
+  "シリーズ": {
+    "en": "Series"
+  },
+  "シーンから表紙を選択…": {
+    "en": "Choose Cover from Scene…"
+  },
+  "スマートシェルフ": {
+    "en": "Smart Shelf"
+  },
+  "タグを読めなかった本:": {
+    "en": "Books whose tags couldn't be read:"
+  },
+  "デフォルトに戻す": {
+    "en": "Reset to Default"
+  },
+  "データベースに問題が見つかりました": {
+    "en": "A problem was found in the database"
+  },
+  "バックアップから復元できませんでした": {
+    "en": "Couldn't restore from backup"
+  },
+  "バックアップフォルダを表示": {
+    "en": "Show Backup Folder"
+  },
+  "ファイルが見つかりません": {
+    "en": "File Not Found"
+  },
+  "ファイルの移動先": {
+    "en": "Move Destination"
+  },
+  "ファイルまたはフォルダを追加": {
+    "en": "Add files or folders"
+  },
+  "ファイルをゴミ箱に移動…": {
+    "en": "Move File to Trash…"
+  },
+  "ファイルを再指定…": {
+    "en": "Relink File…"
+  },
+  "ファイルを移動…": {
+    "en": "Move File…"
+  },
+  "ファイル名": {
+    "en": "Filename"
+  },
+  "ファイル名をコピー": {
+    "en": "Copy Filename"
+  },
+  "ファイル名を変更…": {
+    "en": "Rename File…"
+  },
+  "ファイル本体は保持されます。": {
+    "en": "The files themselves are kept."
+  },
+  "フィルタ": {
+    "en": "Filter"
+  },
+  "フィルタ (%lld 個 active)": {
+    "plural": {
+      "one": "Filter (%lld active)",
+      "other": "Filter (%lld active)"
+    }
+  },
+  "ページ数": {
+    "en": "Page Count"
+  },
+  "ページ方向": {
+    "en": "Page Direction"
+  },
+  "ボリューム「%@」が見つかりません（未マウント？）。": {
+    "en": "Volume “%@” can't be found (not mounted?)."
+  },
+  "メタデータ": {
+    "en": "Metadata"
+  },
+  "ライブラリから削除": {
+    "en": "Remove from Library"
+  },
+  "ライブラリを作成できませんでした": {
+    "en": "Couldn't Create the Library"
+  },
+  "ライブラリを取り込めませんでした": {
+    "en": "Couldn't Import the Library"
+  },
+  "ライブラリを開く": {
+    "en": "Open Library"
+  },
+  "ライブラリを開けませんでした": {
+    "en": "Couldn't Open the Library"
+  },
+  "ライブラリ設定": {
+    "en": "Library Settings"
+  },
+  "ラベルのカスタマイズ": {
+    "en": "Customize Labels"
+  },
+  "リセット (全体)": {
+    "en": "Reset (Full Image)"
+  },
+  "・": {
+    "en": ", "
+  },
+  "・%lld 件はエラーで失敗": {
+    "plural": {
+      "one": "• %lld item failed due to an error",
+      "other": "• %lld items failed due to an error"
+    }
+  },
+  "・%lld 件は移動先に同名ファイルが存在したためスキップ": {
+    "plural": {
+      "one": "• Skipped %lld item: a file with the same name already exists at the destination",
+      "other": "• Skipped %lld items: a file with the same name already exists at the destination"
+    }
+  },
+  "今後この確認を表示しない": {
+    "en": "Don't Ask Me Again"
+  },
+  "以上": {
+    "en": "At Least"
+  },
+  "以下": {
+    "en": "At Most"
+  },
+  "以内": {
+    "en": "within"
+  },
+  "以前": {
+    "en": "older than"
+  },
+  "保存": {
+    "en": "Save"
+  },
+  "修復が完了しました": {
+    "en": "Repair Complete"
+  },
+  "修復できませんでした": {
+    "en": "Couldn't Repair"
+  },
+  "値": {
+    "en": "Value"
+  },
+  "全てクリア": {
+    "en": "Clear All"
+  },
+  "全件": {
+    "en": "All"
+  },
+  "再リンクに失敗しました": {
+    "en": "Relink Failed"
+  },
+  "利用可能なバックアップが無いか、復元後も問題が残っています。`.recover` で可能な範囲のデータ救出を試せます（完全性は保証されません）。": {
+    "en": "No backup is available, or the problem remains after restoring. You can try `.recover` to rescue as much data as possible (integrity isn't guaranteed)."
+  },
+  "取り込みを中断しました": {
+    "en": "Import was interrupted"
+  },
+  "取り込みを中断しました（%@）": {
+    "en": "Import was interrupted (%@)"
+  },
+  "取り込めなかったファイル:": {
+    "en": "Files that couldn't be imported:"
+  },
+  "右→左": {
+    "en": "Right to Left"
+  },
+  "同期する項目が変わったため中断しました（もう一度「再照合」してください）。": {
+    "en": "Sync was stopped because the target field changed. (Run “Re-sync” again.)"
+  },
+  "同期できなかったタグ:": {
+    "en": "Tags that couldn't be synced:"
+  },
+  "名前": {
+    "en": "Name"
+  },
+  "名前:": {
+    "en": "Name:"
+  },
+  "外部画像を表紙に設定": {
+    "en": "Set External Image as Cover"
+  },
+  "外部画像を表紙に設定…": {
+    "en": "Set External Image as Cover…"
+  },
+  "対象の本が見つからないか、ファイルパスが不明です": {
+    "en": "The target book couldn't be found, or its file path is unknown"
+  },
+  "左→右": {
+    "en": "Left to Right"
+  },
+  "巻数": {
+    "en": "Volume"
+  },
+  "幅": {
+    "en": "Width"
+  },
+  "復元する": {
+    "en": "Restore"
+  },
+  "救出を試みましたが、本のデータは 0 件でした（破損箇所に本の情報が含まれていた可能性があります）。空のライブラリで置き換えますか？ 元の破損ファイルは library.prerecover-* / library.corrupt-* に残ります。": {
+    "en": "The rescue attempt found 0 books (the damaged section may have contained book data). Replace it with an empty library? The original damaged files remain as library.prerecover-* / library.corrupt-*."
+  },
+  "新しい %@ を追加": {
+    "en": "Add New %@"
+  },
+  "新しい StackNest ライブラリの保存先を選んでください": {
+    "en": "Choose where to save the new StackNest library"
+  },
+  "新しいライブラリを作成": {
+    "en": "Create a New Library"
+  },
+  "新規スマートシェルフ…": {
+    "en": "New Smart Shelf…"
+  },
+  "新規追加": {
+    "en": "Add New"
+  },
+  "既読のみ": {
+    "en": "Read Only"
+  },
+  "既読状態": {
+    "en": "Read Status"
+  },
+  "日": {
+    "en": "days"
+  },
+  "日以内に追加した書籍を表示": {
+    "en": "days"
+  },
+  "日数": {
+    "en": "Days"
+  },
+  "日数を編集…": {
+    "en": "Edit Days…"
+  },
+  "最新の正常なバックアップから復元しますか？": {
+    "en": "Restore from the most recent healthy backup?"
+  },
+  "最終閲覧日": {
+    "en": "Last Read Date"
+  },
+  "未読のみ": {
+    "en": "Unread Only"
+  },
+  "本 %lld 件を復元しました。復元できなかったデータがある場合があります。元のファイルは library.prerecover-* に残っています。": {
+    "plural": {
+      "one": "Restored %lld book. Some data may not have been recoverable. The original file remains as library.prerecover-*.",
+      "other": "Restored %lld books. Some data may not have been recoverable. The original file remains as library.prerecover-*."
+    }
+  },
+  "本のデータを復元できませんでした": {
+    "en": "Couldn't Recover Book Data"
+  },
+  "本を開けませんでした": {
+    "en": "Couldn't Open the Book"
+  },
+  "条件を編集…": {
+    "en": "Edit Conditions…"
+  },
+  "次の条件を": {
+    "en": "Match"
+  },
+  "消去": {
+    "en": "Clear"
+  },
+  "満たす": {
+    "en": "of the following conditions"
+  },
+  "無効": {
+    "en": "Off"
+  },
+  "移動": {
+    "en": "Move"
+  },
+  "種類（bookType）": {
+    "en": "Type (bookType)"
+  },
+  "空で置き換える": {
+    "en": "Replace with Empty Library"
+  },
+  "空欄にすると既定のラベルに戻ります。": {
+    "en": "Leave blank to use the default label."
+  },
+  "自動に戻す": {
+    "en": "Revert to Automatic"
+  },
+  "表示する範囲を指定します（幅・高さで切り抜き量を調整。元のアーカイブは変更されません）": {
+    "en": "Choose the area to display. (Adjust the crop amount with width and height; the original archive isn't changed.)"
+  },
+  "表紙なし %lld 件": {
+    "plural": {
+      "one": "%lld item without a cover",
+      "other": "%lld items without a cover"
+    }
+  },
+  "表紙を作れなかったファイル:": {
+    "en": "Files whose cover couldn't be created:"
+  },
+  "表紙を再生成": {
+    "en": "Regenerate Cover"
+  },
+  "表紙を編集": {
+    "en": "Edit Cover"
+  },
+  "設定": {
+    "en": "Set"
+  },
+  "許可": {
+    "en": "Grant"
+  },
+  "評価": {
+    "en": "Rating"
+  },
+  "該当する書籍がありません": {
+    "en": "No Matching Books"
+  },
+  "詳細": {
+    "en": "Details"
+  },
+  "詳細ペインの表紙": {
+    "en": "Detail Pane Cover"
+  },
+  "詳細ペインの表紙表示を切り替え": {
+    "en": "Toggle the cover shown in the detail pane"
+  },
+  "追加": {
+    "en": "Add"
+  },
+  "追加日": {
+    "en": "Date Added"
+  },
+  "過去": {
+    "en": "Show books added in the past"
+  },
+  "選択した %lld 件の本のファイルをゴミ箱に移動しますか?": {
+    "plural": {
+      "one": "Move the selected %lld book's file to the Trash?",
+      "other": "Move the selected %lld books' files to the Trash?"
+    }
+  },
+  "選択した %lld 件をどうしますか?": {
+    "plural": {
+      "one": "What do you want to do with the selected %lld book?",
+      "other": "What do you want to do with the selected %lld books?"
+    }
+  },
+  "選択した %lld 件をライブラリから削除しますか?": {
+    "plural": {
+      "one": "Remove the selected %lld book from the library?",
+      "other": "Remove the selected %lld books from the library?"
+    }
+  },
+  "選択したフォルダではこのファイルにアクセスできませんでした。ファイルのある親フォルダを選び直してください。": {
+    "en": "This file couldn't be accessed in the folder you chose. Choose the parent folder that contains the file again."
+  },
+  "選択した本のファイルを移動するフォルダを選択してください。": {
+    "en": "Choose the folder to move the selected books' files to."
+  },
+  "閉じる": {
+    "en": "Close"
+  },
+  "高さ": {
+    "en": "Height"
+  }
+}

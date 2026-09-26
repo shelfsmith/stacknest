@@ -36,13 +36,13 @@ public enum BookDeleteCommand {
         // confirm=false: 呼び出し側で既に件数提示つき確認済み（重複検出シート等）。二重確認を避ける。
         if confirm && AppPreferences.confirmDeleteFromLibrary {
             let alert = NSAlert()
-            alert.messageText = "選択した \(bookIDs.count) 件をライブラリから削除しますか?"
-            alert.informativeText = "ファイル本体は保持されます。"
-            let delBtn = alert.addButton(withTitle: "削除")
+            alert.messageText = String(localized: "選択した \(bookIDs.count) 件をライブラリから削除しますか?")
+            alert.informativeText = String(localized: "ファイル本体は保持されます。")
+            let delBtn = alert.addButton(withTitle: String(localized: "削除"))
             delBtn.hasDestructiveAction = true
-            alert.addButton(withTitle: "キャンセル")
+            alert.addButton(withTitle: String(localized: "キャンセル"))
 
-            let checkbox = NSButton(checkboxWithTitle: "今後この確認を表示しない", target: nil, action: nil)
+            let checkbox = NSButton(checkboxWithTitle: String(localized: "今後この確認を表示しない"), target: nil, action: nil)
             checkbox.state = .off
             alert.accessoryView = checkbox
 
@@ -127,10 +127,10 @@ public enum BookDeleteCommand {
         bundleURL: URL
     ) -> [Int] {
         let alert = NSAlert()
-        alert.messageText = "選択した \(books.count) 件の本のファイルをゴミ箱に移動しますか?"
-        alert.informativeText = "ゴミ箱から復元できますが、ライブラリの記録も削除されます。"
-        alert.addButton(withTitle: "ゴミ箱に移動").hasDestructiveAction = true
-        alert.addButton(withTitle: "キャンセル")
+        alert.messageText = String(localized: "選択した \(books.count) 件の本のファイルをゴミ箱に移動しますか?")
+        alert.informativeText = String(localized: "ゴミ箱から復元できますが、ライブラリの記録も削除されます。")
+        alert.addButton(withTitle: String(localized: "ゴミ箱に移動")).hasDestructiveAction = true
+        alert.addButton(withTitle: String(localized: "キャンセル"))
         if alert.runModal() != .alertFirstButtonReturn {
             return []
         }
@@ -157,7 +157,7 @@ public enum BookDeleteCommand {
                 succeeded.append(id)
             } catch {
                 let errAlert = NSAlert()
-                errAlert.messageText = "\(url.lastPathComponent) をゴミ箱に移動できませんでした"
+                errAlert.messageText = String(localized: "\(url.lastPathComponent) をゴミ箱に移動できませんでした")
                 errAlert.informativeText = error.localizedDescription
                 errAlert.runModal()
             }
@@ -207,21 +207,21 @@ public enum BookDeleteCommand {
         // お気に入り / 手動シェルフ → 3択ダイアログ。
         let count = bookIDs.count
         let alert = NSAlert()
-        alert.messageText = "選択した \(count) 件をどうしますか?"
+        alert.messageText = String(localized: "選択した \(count) 件をどうしますか?")
         switch mode {
         case .library:
-            alert.informativeText = "「\(appState.removableShelfRemoveButtonTitle)」はこのシェルフから外すだけで、ライブラリには残ります。「ライブラリから削除」はライブラリの記録を削除します（ファイル本体は保持されます）。"
+            alert.informativeText = String(localized: "「\(appState.removableShelfRemoveButtonTitle)」はこのシェルフから外すだけで、ライブラリには残ります。「ライブラリから削除」はライブラリの記録を削除します（ファイル本体は保持されます）。")
         case .trash:
-            alert.informativeText = "「\(appState.removableShelfRemoveButtonTitle)」はこのシェルフから外すだけで、ライブラリには残ります。「ゴミ箱に移動」はファイルをゴミ箱へ移し、ライブラリの記録も削除します。"
+            alert.informativeText = String(localized: "「\(appState.removableShelfRemoveButtonTitle)」はこのシェルフから外すだけで、ライブラリには残ります。「ゴミ箱に移動」はファイルをゴミ箱へ移し、ライブラリの記録も削除します。")
         }
 
         // 1st = 非破壊（デフォルト = Return）
         alert.addButton(withTitle: appState.removableShelfRemoveButtonTitle)
         // 2nd = 破壊的
-        let destructive = alert.addButton(withTitle: mode == .library ? "ライブラリから削除" : "ゴミ箱に移動")
+        let destructive = alert.addButton(withTitle: mode == .library ? String(localized: "ライブラリから削除") : String(localized: "ゴミ箱に移動"))
         destructive.hasDestructiveAction = true
         // 3rd = キャンセル（Esc）
-        let cancel = alert.addButton(withTitle: "キャンセル")
+        let cancel = alert.addButton(withTitle: String(localized: "キャンセル"))
         cancel.keyEquivalent = "\u{1b}"  // Esc
 
         switch alert.runModal() {

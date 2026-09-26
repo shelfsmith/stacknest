@@ -88,3 +88,22 @@
 - CLI の `--help`／`abstract` は名詞句・小文字始まりの短いフレーズ（例 "Access token"）。エラー文・確認文は文（例 "Error: Not found (HTTP 404)."）。
 - 複数形は `L10nEntry(one:other:)` で分岐。`%d 冊` → one "%d book" / other "%d books" のように単位語も英訳する。
 - MCP（`mcp-stacknest/`）はテーブルを持たず、docstring と例外メッセージを直接英語で書く（言語切り替えなし・spec §1）。
+## 実装中に追加した語（U1・2026-09-27）
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| メタデータ | Metadata | Finder タグ同期の対象フィールド未設定時の既定表示 |
+| フィルタ | Filter | ツールバーボタン／ポップオーバー見出し兼用（単数形） |
+| 詳細ペイン | Detail Pane | 右側パネルの呼称 |
+| Finder タグ | Finder Tag(s) | 複数形は文脈依存（%lld との組み合わせ時は数値側で表現） |
+| 同期／再照合 | Sync／Re-sync | 「今すぐ再照合」= "Re-sync Now" 相当 |
+| ゴミ箱 | Trash | macOS 標準語彙 |
+| ページ数 | Page Count | スマートシェルフの条件フィールド名 |
+| 追加日 | Date Added | スマートシェルフの条件フィールド名 |
+| 最終閲覧日 | Last Read Date | スマートシェルフの条件フィールド名（本文中の「続きから読む」とは別語） |
+| 既読状態 | Read Status | フィルタポップオーバーの見出し |
+| 消去 | Clear | スタンプ／テキストフィールドの値クリア chip・ボタン |
+| スマートシェルフの演算子（が次と等しい／を含む／で始まる／で終わる／以上／以下／より前／である／ではない） | Equals／Contains／Starts With／Ends With／At Least／At Most／Before／Is／Is Not | Picker 項目、Title Case で統一 |
+| 以内（日付フィルタ・スマートシェルフ共用） | within | 開発者コメント指定の訳（`DateFilterRow.swift`）。小文字のまま流用 |
+| 以前 | older than | 同上 |
+| ・（箇条書きの行頭記号として使う場合） | • (U+2022) または `, `（列挙の区切り） | 日本語のナカグロは英語では箇条書き記号／区切りとして意味を持たないため、英訳では US プレフィックス記号に置き換える（表示文字列そのものの変更で JA 側は不変） |
