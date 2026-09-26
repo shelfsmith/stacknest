@@ -5,6 +5,7 @@ import EPUBAdapter
 import ObjectiveC
 import os
 import RemoteClient
+import StackNestL10n
 import SwiftUI
 import UniformTypeIdentifiers
 import WashiEPUBAdapter
@@ -75,11 +76,29 @@ struct StackNestApp: App {
     @NSApplicationDelegateAdaptor(StackNestAppDelegate.self) var appDelegate
 
     init() {
+        // G55: AppCore など Sources 側の文言（L10n）を、App の表示言語に揃える。
+        // EPUBAdapter 登録より前に行う（起動直後の文言参照から一致させるため）。
+        Self.bootstrapLanguage(preferredLocalizations: Bundle.main.preferredLocalizations)
         // G48: EPUB の読み手を登録する。リポジトリでここだけが WashiEPUBAdapter を知る。
         // 差し替えはこの 1 行と実装ターゲットの入れ替えで閉じる。
         EPUBAdapter.reader = WashiEPUBReader()
         // G48-2: EPUB 読書ビューの実装（窓に載せる contentView）も同じ合成点で登録する。
         EPUBAdapter.renderer = WashiEPUBRenderer()
+    }
+
+    /// G55: `Bundle.main.preferredLocalizations` から言語を決める純関数。
+    /// アプリごとの言語設定（macOS は英語・StackNest だけ日本語など）にも従うため、
+    /// `Locale.preferredLanguages` ではなく Bundle の `preferredLocalizations` を使う。
+    /// テストは `L10nLang.processDefault` を書き換えずにこちらを直接検証する
+    /// （テストは並列に 1 プロセス内で走るため、グローバル既定を書き換えるのは禁止）。
+    static func resolveLanguage(preferredLocalizations: [String]) -> L10nLang {
+        L10nLang.resolve(preferredLocalizations: preferredLocalizations)
+    }
+
+    /// G55: `L10nLang.processDefault` を Bundle の `preferredLocalizations` に合わせて確定する。
+    /// App 起動時（`init()` の先頭）にのみ呼ぶ。
+    static func bootstrapLanguage(preferredLocalizations: [String]) {
+        L10nLang.bootstrap(preferredLocalizations: preferredLocalizations)
     }
 
     var body: some Scene {

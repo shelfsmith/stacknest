@@ -1,0 +1,34 @@
+{
+  "sourceLanguage" : "ja",
+  "strings" : {
+    "NSDesktopFolderUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Used to read your books' image archives." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "本の画像アーカイブを読み込むために使用します。" } }
+      }
+    },
+    "NSDocumentsFolderUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Used to read your books' image archives." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "本の画像アーカイブを読み込むために使用します。" } }
+      }
+    },
+    "NSDownloadsFolderUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Used to read your books' image archives." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "本の画像アーカイブを読み込むために使用します。" } }
+      }
+    },
+    "NSFaceIDUsageDescription" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Used to unlock a locked library." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "ライブラリのロックを解除するために使用されます。" } }
+      }
+    }
+  },
+  "version" : "1.0"
+}
