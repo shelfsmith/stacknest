@@ -411,6 +411,8 @@ public struct LibraryServerCore: Sendable {
             TempSweeper.sweepRuntimeTemp()
         }
         let router = Router(context: LibraryRequestContext.self)
+        // G55: エラー文などの言語をリクエストの Accept-Language で決める（認証より前に置く）。
+        router.add(middleware: LanguageMiddleware())
         // /server/info は認証不要（ペアリング前の到達性確認用）。
         let transcodes = config.transcoder.supportsScaling
         router.get("/api/v1/server/info") { _, _ in

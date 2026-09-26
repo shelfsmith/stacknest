@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryServerAPI
+import StackNestL10n
 
 // MARK: - Error
 
@@ -50,11 +51,14 @@ struct APIClient {
 
     // MARK: - Sync request helpers
 
-    private func request(_ url: URL, method: String = "GET",
-                         body: Data? = nil, timeout: TimeInterval? = nil) throws -> Data {
+    /// リクエストを組み立てる（副作用なし・テスト可能）。実送信は `request(_:...)` が行う。
+    func makeRequest(_ url: URL, method: String = "GET",
+                      body: Data? = nil, timeout: TimeInterval? = nil) -> URLRequest {
         var req = URLRequest(url: url)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        // G55: サーバのエラー文言語をこちらの言語に合わせる。
+        req.setValue(L10nLang.current.rawValue, forHTTPHeaderField: "Accept-Language")
         if !endpoint.libraryToken.isEmpty {
             req.setValue(endpoint.libraryToken, forHTTPHeaderField: "X-Library-Token")
         }
@@ -65,6 +69,18 @@ struct APIClient {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        return req
+    }
+
+    /// テスト専用の薄い入口。`makeRequest` の結果をそのまま返す。
+    func makeRequestForTesting(path: String, method: String = "GET",
+                                body: Data? = nil, timeout: TimeInterval? = nil) -> URLRequest {
+        makeRequest(makeURL(path), method: method, body: body, timeout: timeout)
+    }
+
+    private func request(_ url: URL, method: String = "GET",
+                         body: Data? = nil, timeout: TimeInterval? = nil) throws -> Data {
+        let req = makeRequest(url, method: method, body: body, timeout: timeout)
 
         var result: Result<Data, Error>?
         let sema = DispatchSemaphore(value: 0)
