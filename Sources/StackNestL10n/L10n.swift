@@ -7,12 +7,12 @@ public enum L10n {
         text(ja, lang, table: L10nTable.all)
     }
 
-    public static func format(_ ja: String, _ lang: L10nLang = .current, _ args: any CVarArg...) -> String {
-        format(ja, lang, table: L10nTable.all, args)
+    public static func format(_ ja: String, _ args: any CVarArg..., lang: L10nLang = .current) -> String {
+        format(ja, args, lang: lang, table: L10nTable.all)
     }
 
-    public static func plural(_ ja: String, count: Int, _ lang: L10nLang = .current, _ args: any CVarArg...) -> String {
-        plural(ja, count: count, lang, table: L10nTable.all, args)
+    public static func plural(_ ja: String, count: Int, _ args: any CVarArg..., lang: L10nLang = .current) -> String {
+        plural(ja, count: count, args, lang: lang, table: L10nTable.all)
     }
 
     // MARK: - Table-injectable (tests)
@@ -22,19 +22,19 @@ public enum L10n {
         return e.en
     }
 
-    static func format(_ ja: String, _ lang: L10nLang, table: [String: L10nEntry], _ args: any CVarArg...) -> String {
-        format(ja, lang, table: table, args)
+    static func format(_ ja: String, _ args: any CVarArg..., lang: L10nLang, table: [String: L10nEntry]) -> String {
+        format(ja, args, lang: lang, table: table)
     }
 
-    static func format(_ ja: String, _ lang: L10nLang, table: [String: L10nEntry], _ args: [any CVarArg]) -> String {
+    static func format(_ ja: String, _ args: [any CVarArg], lang: L10nLang, table: [String: L10nEntry]) -> String {
         String(format: text(ja, lang, table: table), locale: locale(lang), arguments: args)
     }
 
-    static func plural(_ ja: String, count: Int, _ lang: L10nLang, table: [String: L10nEntry], _ args: any CVarArg...) -> String {
-        plural(ja, count: count, lang, table: table, args)
+    static func plural(_ ja: String, count: Int, _ args: any CVarArg..., lang: L10nLang, table: [String: L10nEntry]) -> String {
+        plural(ja, count: count, args, lang: lang, table: table)
     }
 
-    static func plural(_ ja: String, count: Int, _ lang: L10nLang, table: [String: L10nEntry], _ args: [any CVarArg]) -> String {
+    static func plural(_ ja: String, count: Int, _ args: [any CVarArg], lang: L10nLang, table: [String: L10nEntry]) -> String {
         var pattern = ja
         if lang == .en, let e = table[ja] { pattern = e.enPlural.map { count == 1 ? $0.one : $0.other } ?? e.en }
         return String(format: pattern, locale: locale(lang), arguments: args)
@@ -43,14 +43,42 @@ public enum L10n {
     private static func locale(_ lang: L10nLang) -> Locale { Locale(identifier: lang == .ja ? "ja_JP" : "en_US") }
 
     /// 書式指定子の多重集合（ソート済み）。位置指定 `%1$@` は `%@` として数える。`%%` は数えない。
+    /// 引数の並び順までは検査できない（`formatSpecifierSequence(in:)` を使うこと）。後方互換のために残す。
     public static func formatSpecifiers(in s: String) -> [String] {
-        let pattern = #"%(?:\d+\$)?([-+ 0#]*\d*(?:\.\d+)?(?:hh|h|ll|l|q|z|t|j)?[@dDiuUxXoOfeEgGcCsSpaA])|%%"#
-        let re = try! NSRegularExpression(pattern: pattern)
+        formatMatches(in: s).map(\.spec).sorted()
+    }
+
+    /// 書式指定子を **引数として消費される順** に並べて返す。位置指定 `%N$` があれば N の昇順、
+    /// 無ければ出現順（左から右）。位置は取り除いて返す（`%1$@` → `%@`）。`%%` は数えない。
+    public static func formatSpecifierSequence(in s: String) -> [String] {
+        let matches = formatMatches(in: s)
+        guard matches.contains(where: { $0.position != nil }) else {
+            return matches.map(\.spec)
+        }
+        return matches
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lp = lhs.element.position ?? Int.max
+                let rp = rhs.element.position ?? Int.max
+                if lp != rp { return lp < rp }
+                return lhs.offset < rhs.offset
+            }
+            .map { $0.element.spec }
+    }
+
+    private static let formatSpecifierPattern =
+        #"%(?:(\d+)\$)?([-+ 0#]*\d*(?:\.\d+)?(?:hh|h|ll|l|q|z|t|j)?[@dDiuUxXoOfeEgGcCsSpaA])|%%"#
+
+    private static func formatMatches(in s: String) -> [(position: Int?, spec: String)] {
+        let re = try! NSRegularExpression(pattern: formatSpecifierPattern)
         let ns = s as NSString
         return re.matches(in: s, range: NSRange(location: 0, length: ns.length)).compactMap { m in
             let whole = ns.substring(with: m.range)
             if whole == "%%" { return nil }
-            return "%" + ns.substring(with: m.range(at: 1))
-        }.sorted()
+            let spec = "%" + ns.substring(with: m.range(at: 2))
+            let posRange = m.range(at: 1)
+            let position = posRange.location == NSNotFound ? nil : Int(ns.substring(with: posRange))
+            return (position, spec)
+        }
     }
 }

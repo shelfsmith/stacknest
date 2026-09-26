@@ -29,7 +29,12 @@ public enum L10nLang: String, Sendable, CaseIterable {
 
     /// App 起動時に呼ぶ。`Bundle.main.preferredLocalizations` を渡すと、アプリごとの言語設定にも従う。
     public static func bootstrap(preferredLocalizations: [String]) {
-        processDefault = preferredLocalizations.first.map(from(languageTag:)) ?? .en
+        processDefault = resolve(preferredLocalizations: preferredLocalizations)
+    }
+
+    /// `preferredLocalizations`（先頭が最優先）から言語を決める純関数。グローバル状態は読み書きしない。
+    public static func resolve(preferredLocalizations: [String]) -> L10nLang {
+        preferredLocalizations.first.map(from(languageTag:)) ?? .en
     }
 
     public static func from(languageTag: String) -> L10nLang {

@@ -38,26 +38,28 @@ struct L10nLangTests {
     }
 
     /// Review Focus 4: アプリごとの言語設定。App は Bundle.main.preferredLocalizations を渡す。
-    @Test("bootstrap は preferredLocalizations の先頭で processDefault を決める")
-    func bootstrap() {
-        let saved = L10nLang.processDefault
-        defer { L10nLang.processDefault = saved }
-        L10nLang.bootstrap(preferredLocalizations: ["ja"])
-        #expect(L10nLang.processDefault == .ja)
-        L10nLang.bootstrap(preferredLocalizations: ["en"])
-        #expect(L10nLang.processDefault == .en)
-        L10nLang.bootstrap(preferredLocalizations: [])
-        #expect(L10nLang.processDefault == .en)
+    /// `resolve` は純関数（グローバル状態を読み書きしない）なので、並列実行しても安全に検証できる。
+    /// `bootstrap` 自体はプロセス全体の `processDefault` を書き換えるため、テストからは直接呼ばない
+    /// （Fix round 1: Swift Testing は並列実行するため、共有可変状態への書き込みはテスト間で競合する）。
+    @Test("resolve は preferredLocalizations の先頭で言語を決める", arguments: [
+        (["ja"], L10nLang.ja), (["en"], .en), (["ja", "en"], .ja), (["fr"], .en), ([], .en),
+    ])
+    func resolve(preferredLocalizations: [String], expected: L10nLang) {
+        #expect(L10nLang.resolve(preferredLocalizations: preferredLocalizations) == expected)
     }
 
+    /// requestOverride は current に勝ち、`withValue` のスコープの外には漏れない。
+    /// `processDefault` へは書き込まない（Fix round 1: 他スイートと並列実行されるため）。
     @Test("requestOverride は current に勝ち、スコープの外には漏れない")
-    func taskLocalOverride() async {
-        let saved = L10nLang.processDefault
-        defer { L10nLang.processDefault = saved }
-        L10nLang.processDefault = .ja
-        await L10nLang.$requestOverride.withValue(.en) {
+    func taskLocalOverride() {
+        let outside = L10nLang.processDefault
+        L10nLang.$requestOverride.withValue(.en) {
             #expect(L10nLang.current == .en)
         }
-        #expect(L10nLang.current == .ja)
+        L10nLang.$requestOverride.withValue(.ja) {
+            #expect(L10nLang.current == .ja)
+        }
+        #expect(L10nLang.current == outside)
+        #expect(L10nLang.current == L10nLang.processDefault)
     }
 }
