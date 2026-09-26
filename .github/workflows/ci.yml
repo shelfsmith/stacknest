@@ -41,8 +41,24 @@ jobs:
       - name: Build
         run: swift build -c debug
 
+      # G55: CI runners are en_US, but the existing tests assert the Japanese UI text.
+      # Pin the process language so they keep testing the source language.
       - name: Test
+        env:
+          STACKNEST_LANG: ja
         run: swift test --parallel
+
+      # G55: report mode (exit 0). No App build in this job, so the stringsdata checks are skipped;
+      # the build-app job runs them against the extracted strings. Task 17 adds --strict.
+      - name: Localization lint (report)
+        run: |
+          python3 -m unittest Scripts/tests/test_l10n_lint.py
+          python3 Scripts/l10n-lint.py --stringsdata-root /nonexistent
+
+      # A bare directory argument (`node --test web-tests/`) fails on Node 22+ ("Cannot find module");
+      # let the shell expand the files so it works on every Node version.
+      - name: Web tests
+        run: node --test web-tests/*.mjs
 
   build-app:
     runs-on: macos-26
@@ -75,9 +91,19 @@ jobs:
             -scheme StackNest \
             -configuration Debug \
             -destination 'platform=macOS' \
+            -testLanguage ja \
+            -testRegion JP \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             test
+
+      # G55: the build above ran with SWIFT_EMIT_LOC_STRINGS=YES, so the App checks can run here.
+      # This job uses the default DerivedData (no -derivedDataPath), so ask xcodebuild for OBJROOT
+      # (= <DerivedData>/Build/Intermediates.noindex) instead of assuming App/build.
+      - name: Localization lint with extracted strings (report)
+        run: |
+          OBJROOT="$(xcodebuild -project App/StackNest.xcodeproj -scheme StackNest -configuration Debug -showBuildSettings 2>/dev/null | awk -F' = ' '/^ *OBJROOT = /{print $2; exit}')"
+          python3 Scripts/l10n-lint.py --stringsdata-root "$OBJROOT"
 
       - name: Build macOS App (Universal)
         run: |

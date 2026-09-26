@@ -129,6 +129,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.shelfsmith.stacknest
         GENERATE_INFOPLIST_FILE: NO
+        # G55: emit .stringsdata so Scripts/l10n-lint.py can tell which literals Xcode extracts.
+        SWIFT_EMIT_LOC_STRINGS: YES
 
   StackNestTests:
     type: bundle.unit-test
