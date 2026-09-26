@@ -19,6 +19,7 @@ let package = Package(
         .executable(name: "stacknest-cli", targets: ["StackNestCLI"]),
         .library(name: "EPUBAdapter", targets: ["EPUBAdapter"]),
         .library(name: "WashiEPUBAdapter", targets: ["WashiEPUBAdapter"]),
+        .library(name: "StackNestL10n", targets: ["StackNestL10n"]),
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
@@ -35,6 +36,7 @@ let package = Package(
             name: "LibraryStore",
             dependencies: [
                 "StackroomFormat",
+                "StackNestL10n",
                 .product(name: "GRDB", package: "GRDB.swift"),
             ],
             path: "Sources/LibraryStore",
@@ -53,14 +55,14 @@ let package = Package(
         ),
         .target(
             name: "ArchiveAdapter",
-            dependencies: ["Carchive"],
+            dependencies: ["Carchive", "StackNestL10n"],
             path: "Sources/ArchiveAdapter",
             exclude: ["Carchive"],
             linkerSettings: [.linkedLibrary("archive")]
         ),
         .target(
             name: "AppCore",
-            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI", "StackroomFormat", "EPUBAdapter"],
+            dependencies: ["LibraryStore", "ArchiveAdapter", "Carchive", "LibraryServerAPI", "StackroomFormat", "EPUBAdapter", "StackNestL10n"],
             path: "Sources/AppCore"
         ),
         .target(name: "LibraryServerAPI", dependencies: ["StackroomFormat"], path: "Sources/LibraryServerAPI"),
@@ -74,6 +76,7 @@ let package = Package(
                 "LibraryStore",
                 "AppCore",
                 "ArchiveAdapter",
+                "StackNestL10n",
                 .product(name: "Hummingbird", package: "hummingbird"),
             ],
             path: "Sources/LibraryServer",
@@ -94,6 +97,7 @@ let package = Package(
             dependencies: [
                 "LibraryServerAPI",
                 "StackroomFormat",
+                "StackNestL10n",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
             ],
             path: "Sources/StackNestCLI"
@@ -150,17 +154,19 @@ let package = Package(
             path: "Tests/StackroomImportCLITests",
             resources: [.copy("../Fixtures")]
         ),
-        .target(name: "EPUBAdapter", path: "Sources/EPUBAdapter"),
+        .target(name: "EPUBAdapter", dependencies: ["StackNestL10n"], path: "Sources/EPUBAdapter"),
         .testTarget(name: "EPUBAdapterTests", dependencies: ["EPUBAdapter", "EPUBAdapterTestSupport"], path: "Tests/EPUBAdapterTests"),
         .target(name: "EPUBAdapterTestSupport", dependencies: ["EPUBAdapter"], path: "Sources/EPUBAdapterTestSupport"),
         .target(
             name: "WashiEPUBAdapter",
-            dependencies: ["EPUBAdapter", .product(name: "WashiCore", package: "Washi"), .product(name: "Washi", package: "Washi")],
+            dependencies: ["EPUBAdapter", "StackNestL10n", .product(name: "WashiCore", package: "Washi"), .product(name: "Washi", package: "Washi")],
             path: "Sources/WashiEPUBAdapter"
         ),
         .testTarget(name: "WashiEPUBAdapterTests",
                     dependencies: ["WashiEPUBAdapter", "EPUBAdapter", "EPUBAdapterTestSupport"],
                     path: "Tests/WashiEPUBAdapterTests"),
+        .target(name: "StackNestL10n", path: "Sources/StackNestL10n"),
+        .testTarget(name: "StackNestL10nTests", dependencies: ["StackNestL10n"], path: "Tests/StackNestL10nTests"),
     ],
     swiftLanguageModes: [.v6]
 )
