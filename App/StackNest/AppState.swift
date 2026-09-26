@@ -708,7 +708,8 @@ final class AppState {
     /// 変わっても、選び直した先に入れない）。nil（ライブラリ・スマートシェルフ・最近の項目）や、
     /// 取り込みの間にそのシェルフが削除されていた場合は何もしない。
     ///
-    /// - Returns: シェルフへの追加を行ったか（アラートの文言を切り替えるのに使う）。
+    /// - Returns: シェルフへの追加が成功したか（アラートの文言とライブイベントの配信を切り替えるのに使う）。
+    ///   書き込みに失敗したら `error` を立てて false を返す。
     @discardableResult
     func addImportedBooks(_ result: BookImporter.ImportResult, toShelf shelfID: Int64?) -> Bool {
         guard let shelfID, let db = database else { return false }
@@ -719,7 +720,9 @@ final class AppState {
             let existing = try db.bookIDs(forPaths: result.alreadyPresent.map(\.path))
             let ids = result.addedIDs + existing.filter { !result.addedIDs.contains($0) }
             guard !ids.isEmpty else { return false }
-            addBooksToShelf(shelfID, books: ids)
+            // Not addBooksToShelf: it swallows the error, and the caller's notice claims success.
+            try db.appendBooksToShelf(playlistID: shelfID, bookIDs: ids)
+            try applyShelfMutationSideEffects(shelfID: shelfID, db: db)
             return true
         } catch {
             self.error = .unexpected(error)

@@ -82,8 +82,9 @@ struct LibraryBrowserView: View {
                     )
                 }
             }
-            .onDrop(of: [.fileURL], delegate: BookDropDelegate { urls in
-                handleAdd(urls: urls)
+            .onDrop(of: [.fileURL], delegate: BookDropDelegate {
+                let targetShelfID = appState.removableShelfID
+                return { urls in handleAdd(urls: urls, targetShelfID: targetShelfID) }
             })
             .onReceive(NotificationCenter.default.publisher(for: .moveSelectedBooks)) { _ in
                 moveSelectedBooks()
@@ -341,16 +342,17 @@ struct LibraryBrowserView: View {
             .plainText,
             UTType("org.idpf.epub-container") ?? .data
         ]
+        let targetShelfID = appState.removableShelfID
         if panel.runModal() == .OK {
-            handleAdd(urls: panel.urls)
+            handleAdd(urls: panel.urls, targetShelfID: targetShelfID)
         }
     }
 
-    private func handleAdd(urls: [URL]) {
+    /// - Parameter targetShelfID: the shelf shown when the drop was accepted (or the panel opened).
+    ///   Callers pin it up front: the URLs load asynchronously and a large import can take a while,
+    ///   so the sidebar selection may change before the books arrive (PR #4).
+    private func handleAdd(urls: [URL], targetShelfID: Int64?) {
         guard let db = appState.database else { return }
-        // Pin the target shelf at drop time: a large import can take a while, and the sidebar
-        // selection may change before it finishes (PR #4).
-        let targetShelfID = appState.removableShelfID
         let targetIsFavorites = targetShelfID != nil && targetShelfID == appState.favoritesShelfID
         Task {
             let format = (try? FilenameFormat(raw: appState.librarySettings?.filenameFormat ?? "@title"))
@@ -364,7 +366,8 @@ struct LibraryBrowserView: View {
             let addedToShelf = appState.addImportedBooks(result, toShelf: targetShelfID)
             do { try appState.refreshDisplayedBooks() }
             catch { appState.error = .unexpected(error) }
-            if !result.addedIDs.isEmpty, let uuid = appState.librarySettings?.libraryUUID {
+            // A drop of only already-registered books still changes shelf membership.
+            if !result.addedIDs.isEmpty || addedToShelf, let uuid = appState.librarySettings?.libraryUUID {
                 ServerController.shared.publishLiveEvent(.structureChanged(library: uuid))
             }
             if !result.alreadyPresent.isEmpty {

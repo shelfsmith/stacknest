@@ -4,11 +4,15 @@ import UniformTypeIdentifiers
 import AppCore  // BookCategory.supportedExtensions
 
 struct BookDropDelegate: DropDelegate {
-    let onDrop: ([URL]) -> Void
+    /// Called synchronously when the drop is accepted; returns the handler for the loaded URLs.
+    /// Anything the handler depends on (e.g. the target shelf) must be captured here, because
+    /// the URLs load asynchronously and the UI may change before they arrive (PR #4 review).
+    let makeHandler: () -> ([URL]) -> Void
 
     func performDrop(info: DropInfo) -> Bool {
         let providers = info.itemProviders(for: [UTType.fileURL])
         guard !providers.isEmpty else { return false }
+        let onDrop = makeHandler()
         var urls: [URL] = []
         let group = DispatchGroup()
         for provider in providers {

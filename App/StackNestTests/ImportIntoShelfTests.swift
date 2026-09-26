@@ -99,6 +99,25 @@ struct ImportIntoShelfTests {
         #expect(orphans.isEmpty)
     }
 
+    /// ★ Codex レビュー（2026-09-26）: `addBooksToShelf` は失敗を内部で握るので、以前は書き込みに
+    /// 失敗しても true を返し、「シェルフへの追加だけ行いました」と成功を告げていた。
+    @Test("シェルフへの書き込みに失敗したら false を返し、エラーを出す")
+    func shelfWriteFailureReturnsFalse() throws {
+        let (state, db, shelfID) = try makeState()
+        try db.write { conn in
+            try conn.execute(sql: """
+                CREATE TRIGGER block_shelf_insert BEFORE INSERT ON playlist_item
+                BEGIN SELECT RAISE(ABORT, 'blocked'); END;
+                """)
+        }
+        var result = BookImporter.ImportResult()
+        result.alreadyPresent = [URL(fileURLWithPath: "/lib/1.zip")]
+
+        #expect(!state.addImportedBooks(result, toShelf: shelfID))
+        #expect(state.error != nil)
+        #expect(try shelfBookIDs(db, shelfID).isEmpty)
+    }
+
     @Test("入れる本が 1 冊も無ければ何もしない")
     func emptyResultIsNoOp() throws {
         let (state, db, shelfID) = try makeState()
