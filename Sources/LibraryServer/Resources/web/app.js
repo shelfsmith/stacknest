@@ -10,6 +10,7 @@ import { renderBooks, buildBooksSkeleton } from "./books.js";
 import { renderReader, resolveBackHash } from "./reader.js";
 import { stopLiveSync } from "./livesync.js";
 import { spring } from "./anim.js";
+import { applyI18n } from "./i18n.js";
 
 const appEl = () => document.getElementById("app");
 const backBtn = () => document.getElementById("back-btn");
@@ -499,6 +500,9 @@ function applyScrollbarWidth() {
 }
 
 function init() {
+    // G55: 静的シェル（index.html 側の data-i18n 属性）の言語適用。今回は辞書が空のため
+    // 見た目は変わらない（後続タスクで i18n-en.js を埋める）。
+    applyI18n();
     applyScrollbarWidth();
     let sbwRAF = 0;
     // G21 #1 追補（レビュー指摘）: init() 時点はまだ #app が空の静的シェルで、
