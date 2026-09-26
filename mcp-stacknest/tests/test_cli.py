@@ -575,7 +575,7 @@ def test_stale_token_without_password_raises(monkeypatch):
     with pytest.raises(cli.StacknestError) as e:
         cli.list_books("Secret", library_token="EXTERNAL")
     assert e.value.exit_code == 3
-    assert "再解錠" in e.value.stderr
+    assert "stacknest_unlock" in e.value.stderr
 
 
 def test_stamp_definitions_set_wraps_into_dto_and_unwraps_reply(monkeypatch):

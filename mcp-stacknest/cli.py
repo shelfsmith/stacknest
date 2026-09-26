@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-"""stacknest CLI を subprocess で呼ぶ薄いラッパ（接続検出/認証/操作は CLI に委譲）。"""
+"""Thin wrapper that calls the stacknest CLI via subprocess (connection detection/auth/operations are delegated to the CLI)."""
 from __future__ import annotations
 
 import json
@@ -13,7 +13,7 @@ _SET_FIELDS = ("title", "author", "series", "volume", "genre",
 
 
 class StacknestError(Exception):
-    """CLI 非0終了 / バイナリ不在 / タイムアウト。"""
+    """The CLI exited non-zero / the binary is missing / it timed out."""
     def __init__(self, exit_code: int, stderr: str):
         self.exit_code = exit_code
         self.stderr = stderr
@@ -21,7 +21,7 @@ class StacknestError(Exception):
 
 
 def _read_default_cli_path() -> str | None:
-    """アプリが記録した同梱 CLI パスを macOS defaults から読む（未記録/失敗は None）。"""
+    """Read the bundled CLI path the app recorded, from macOS defaults (None if unset or it fails)."""
     try:
         proc = subprocess.run(
             ["defaults", "read", "app.shelfsmith.stacknest", "cli_path"],
@@ -113,8 +113,8 @@ def build_argv(subcommand: str, *, library: str | None = None, query: str | None
 
 def _exec(argv: list[str], *, timeout: int = 60, input: str | None = None,
           library_token: str | None = None) -> subprocess.CompletedProcess:
-    """subprocess 実行（バイナリ不在/タイムアウトは StacknestError へ）。非0でも raise しない。
-    library_token が指定されたら STACKNEST_LIBRARY_TOKEN として env に注入する（argv に出さない＝履歴非露出）。"""
+    """Run the subprocess (a missing binary or a timeout becomes a StacknestError). Does not raise on a non-zero exit.
+    When library_token is given, it's injected into the env as STACKNEST_LIBRARY_TOKEN (never in argv, so it stays out of shell history)."""
     cli = cli_path()
     env = None
     if library_token:
@@ -124,9 +124,9 @@ def _exec(argv: list[str], *, timeout: int = 60, input: str | None = None,
         return subprocess.run(
             [cli, *argv], capture_output=True, text=True, timeout=timeout, input=input, env=env)
     except FileNotFoundError:
-        raise StacknestError(127, f"stacknest CLI が見つかりません: {cli}（環境変数 STACKNEST_CLI を確認）")
+        raise StacknestError(127, f"stacknest CLI not found: {cli} (check the STACKNEST_CLI environment variable)")
     except subprocess.TimeoutExpired:
-        raise StacknestError(124, f"stacknest CLI がタイムアウトしました（{timeout}s）")
+        raise StacknestError(124, f"stacknest CLI timed out ({timeout}s)")
 
 
 def run(argv: list[str], *, timeout: int = 60, input: str | None = None,
@@ -147,12 +147,12 @@ _LOCKED_EXIT_CODE = 3                      # CLI が 403(locked/stale) を返す
 
 
 def _with_library(library: str | None, explicit_token: str | None, call):
-    """library 対象操作の実行ラッパ。
-    - explicit_token があればそれを使う。無ければキャッシュ token を使う（どちらも無ければ None）。
-    - exit 3(locked/stale) で失敗し、当該 library の password をキャッシュ済みなら、
-      自動で再 unlock → 新 token をキャッシュ＆書き戻し（STACKNEST_LIBRARY_TOKEN）→ 1 回だけリトライ。
-    - password 未キャッシュ（外部取得 token を直接渡した等）なら自動更新せず明示エラー。
-    call は (token: str | None) -> str（run() の stdout）を返す callable。"""
+    """Wrapper for operations that target a library.
+    - Uses explicit_token if given; otherwise the cached token (None if neither is set).
+    - On a failure with exit 3 (locked/stale), if that library's password is cached,
+      automatically re-unlocks -> caches the new token and writes it back (STACKNEST_LIBRARY_TOKEN) -> retries once.
+    - If no password is cached (e.g. an externally obtained token was passed directly), does not auto-refresh and raises instead.
+    call is a callable (token: str | None) -> str (run()'s stdout)."""
     token = explicit_token or (_library_tokens.get(library) if library else None)
     try:
         return call(token)
@@ -163,9 +163,9 @@ def _with_library(library: str | None, explicit_token: str | None, call):
         if not password:
             raise StacknestError(
                 e.exit_code,
-                (e.stderr or "") + "\n（ロック庫なら stacknest_unlock で再解錠が必要です。または権限不足(tier)の可能性があります）")
-        unlock(library, password)                 # 再 unlock（キャッシュ＆ STACKNEST_LIBRARY_TOKEN を更新）
-        return call(_library_tokens[library])     # 新トークンで 1 回だけリトライ
+                (e.stderr or "") + "\n(If this is a locked library, unlock it again with stacknest_unlock. It could also be insufficient permissions (tier).)")
+        unlock(library, password)                 # re-unlock (caches and writes back STACKNEST_LIBRARY_TOKEN)
+        return call(_library_tokens[library])     # retry once with the new token
 
 
 # --- 高レベル操作（CLI 1:1） ---
@@ -252,8 +252,8 @@ def me() -> Any:
 
 
 def unlock(library: str, password: str) -> Any:
-    """ロック庫を解錠し {"libraryToken": ...} を返す（パスワードは stdin 経由・argv 非露出）。
-    成功時に token/password をセッションキャッシュし、STACKNEST_LIBRARY_TOKEN を書き戻す（spec §2.1）。"""
+    """Unlock a locked library and return {"libraryToken": ...} (the password is passed via stdin, never in argv).
+    On success, caches the token/password for the session and writes back STACKNEST_LIBRARY_TOKEN (spec §2.1)."""
     out = run(build_argv("unlock", library=library, flags={"password-stdin": True}),
               input=password)
     reply = json.loads(out)
@@ -265,12 +265,12 @@ def unlock(library: str, password: str) -> Any:
     return reply
 
 
-# --- 棚（shelf）CRUD ---
+# --- Shelf CRUD ---
 
 def shelf_create(library: str, title: str, *,
                  smart: bool = False, conditions: dict | None = None,
                  library_token: str | None = None) -> Any:
-    """棚を作成する。smart=True でスマート棚、conditions で条件 JSON を渡す。"""
+    """Create a shelf. smart=True makes a smart shelf; pass its condition JSON via conditions."""
     flags: dict[str, Any] = {"title": title}
     if conditions is not None:
         flags["conditions-json"] = json.dumps(conditions)
@@ -280,21 +280,21 @@ def shelf_create(library: str, title: str, *,
 
 
 def shelf_delete(library: str, shelf_id: int, *, library_token: str | None = None) -> None:
-    """棚を削除する。"""
+    """Delete a shelf."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("shelf", sub="rm", library=library,
                                    book_id=shelf_id, json_output=False), library_token=tok))
 
 
 def shelf_rename(library: str, shelf_id: int, title: str, *, library_token: str | None = None) -> None:
-    """棚をリネームする。"""
+    """Rename a shelf."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("shelf", sub="rename", library=library, book_id=shelf_id,
                                    flags={"title": title}, json_output=False), library_token=tok))
 
 
 def shelf_conditions_get(library: str, shelf_id: int, *, library_token: str | None = None) -> Any:
-    """スマート棚の条件 JSON を取得する。"""
+    """Get a smart shelf's condition JSON."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("shelf", sub="conditions-get", library=library, book_id=shelf_id),
                         library_token=tok)))
@@ -302,7 +302,7 @@ def shelf_conditions_get(library: str, shelf_id: int, *, library_token: str | No
 
 def shelf_conditions_set(library: str, shelf_id: int, conditions: dict, *,
                          library_token: str | None = None) -> None:
-    """スマート棚の条件 JSON を更新する。"""
+    """Update a smart shelf's condition JSON."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("shelf", sub="conditions-set", library=library, book_id=shelf_id,
                                    flags={"conditions-json": json.dumps(conditions)}, json_output=False),
@@ -311,7 +311,7 @@ def shelf_conditions_set(library: str, shelf_id: int, conditions: dict, *,
 
 def shelf_add_books(library: str, shelf_id: int, ids: list[int], *,
                     library_token: str | None = None) -> None:
-    """手動棚に本を追加する。"""
+    """Add books to a manual shelf."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("shelf", sub="add-books", library=library,
                                    book_id=shelf_id, ids=ids, json_output=False), library_token=tok))
@@ -319,36 +319,36 @@ def shelf_add_books(library: str, shelf_id: int, ids: list[int], *,
 
 def shelf_remove_books(library: str, shelf_id: int, ids: list[int], *,
                        library_token: str | None = None) -> None:
-    """手動棚から本を除く。"""
+    """Remove books from a manual shelf."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("shelf", sub="remove-books", library=library,
                                    book_id=shelf_id, ids=ids, json_output=False), library_token=tok))
 
 
-# --- フォルダ監視（watch）---
+# --- Watched folders ---
 
 def watch_get(library: str, *, library_token: str | None = None) -> Any:
-    """ライブラリの watch 設定を取得する。"""
+    """Get the library's watch settings."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("watch", sub="get", library=library), library_token=tok)))
 
 
 def watch_set(library: str, config: dict, *, library_token: str | None = None) -> None:
-    """ライブラリの watch 設定を更新する。"""
+    """Update the library's watch settings."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("watch", sub="set", library=library,
                                    flags={"config-json": json.dumps(config)}, json_output=False),
                         library_token=tok))
 
 
-# --- ロック（lock）---
+# --- Lock ---
 
 def lock_set(library: str, password: str, *, current_password: str | None = None,
             library_token: str | None = None) -> None:
-    """ライブラリにパスワードロックを設定・変更する（パスワードは stdin 経由で渡す・argv 非露出）。
-    G27a Task6: 既存ロックの変更には current_password が必須（サーバが既存ハッシュの有無で判定）。
-    新規設定時は current_password 不要。両方を stdin 経由で渡す場合は
-    「現在のパスワード\\n新しいパスワード」の2行として CLI へ渡す（1回の stdin で両方運ぶ規約）。"""
+    """Set or change a library's password lock (the password is passed via stdin, never in argv).
+    G27a Task6: changing an existing lock requires current_password (the server checks whether a hash already exists).
+    current_password is not needed when setting a new lock. When passing both via stdin, send them to
+    the CLI as two lines, "current password\\nnew password" (the convention for carrying both in one stdin payload)."""
     flags: dict[str, Any] = {"password-stdin": True}
     if current_password is not None:
         flags["current-password-stdin"] = True
@@ -362,8 +362,8 @@ def lock_set(library: str, password: str, *, current_password: str | None = None
 
 def lock_clear(library: str, *, current_password: str | None = None,
               library_token: str | None = None) -> None:
-    """ライブラリのパスワードロックを解除する。
-    G27a Task6: 既存ロックがある場合は current_password が必須（stdin 経由・argv 非露出）。"""
+    """Remove a library's password lock.
+    G27a Task6: current_password is required if the library has a lock (passed via stdin, never in argv)."""
     flags: dict[str, Any] = {}
     stdin_payload = None
     if current_password is not None:
@@ -374,10 +374,10 @@ def lock_clear(library: str, *, current_password: str | None = None,
                         input=stdin_payload, library_token=tok))
 
 
-# --- インポート設定（import-config）---
+# --- Import settings ---
 
 def import_config_get(library: str, *, library_token: str | None = None) -> Any:
-    """ライブラリのインポート設定を取得する。"""
+    """Get the library's import settings."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("import-config", sub="get", library=library), library_token=tok)))
 
@@ -387,8 +387,8 @@ def import_config_set(library: str, *,
                       thick: int | None = None,
                       prefer_epub_title: bool | None = None,
                       library_token: str | None = None) -> None:
-    """ライブラリのインポート設定 override を更新する（指定分のみ）。
-    auto_classify・prefer_epub_title は bool（文字列 "true"/"false" として CLI へ）、thick は整数。"""
+    """Update the library's import setting overrides (only the fields given).
+    auto_classify and prefer_epub_title are bool (sent to the CLI as the strings "true"/"false"); thick is an integer."""
     flags: dict[str, Any] = {}
     if auto_classify is not None:
         flags["auto-classify"] = "true" if auto_classify else "false"
@@ -403,12 +403,12 @@ def import_config_set(library: str, *,
 
 
 def import_config_global_get() -> Any:
-    """グローバルインポート設定を取得する。"""
+    """Get the global import settings."""
     return json.loads(run(build_argv("import-config-global", sub="get")))
 
 
 def import_config_global_set(auto_classify: bool, thick: int, prefer_epub_title: bool) -> None:
-    """グローバルインポート設定を更新する（全値必須・CLI が必須オプション）。"""
+    """Update the global import settings (all values required; the CLI treats them as mandatory options)."""
     flags: dict[str, Any] = {
         "auto-classify": "true" if auto_classify else "false",
         "thick": thick,
@@ -417,31 +417,32 @@ def import_config_global_set(auto_classify: bool, thick: int, prefer_epub_title:
     run(build_argv("import-config-global", sub="set", flags=flags, json_output=False))
 
 
-# --- リンク修復（relink）---
+# --- Relink ---
 
 def relink(library: str, book_id: int, new_path: str, *, library_token: str | None = None) -> None:
-    """本のファイルパスを新しいパスに更新する（ファイル移動後のリンク修復）。"""
+    """Update a book's file path to a new location (repairs the link after a file was moved)."""
     _with_library(library, library_token,
         lambda tok: run(build_argv("relink", library=library, book_id=book_id,
                                    flags={"new-path": new_path}, json_output=False), library_token=tok))
 
 
-# --- 重複検出（dedup）---
+# --- Duplicate detection ---
 
 def dedup_scan(library: str, *, library_token: str | None = None) -> Any:
-    """ライブラリ内の重複候補を検出して結果を返す。"""
+    """Scan the library for duplicate candidates and return the results."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("dedup", library=library), library_token=tok)))
 
 
-# --- 整合性検査（integrity・G27a）---
+# --- Integrity check (G27a) ---
 
 def integrity_scan(library: str, *, library_token: str | None = None) -> Any:
-    """pages 未取得の本を開いて分類する簡易チェックを実行し、件数の内訳を返す。
+    """Run the quick check: open books with no page count yet and classify them, then return the counts.
 
-    実測 65 候補 ≈ 4 分（1 冊 ≈ 3.46s）かかるため、既定の 60s タイムアウトでは確実に
-    間に合わない。この呼び出しだけ長めのタイムアウトを与える（他の呼び出しの既定は変えない）。
-    同期 1 リクエストで待つ形自体は既知の制約 — 非同期ジョブ化＋ポーリングは Phase G27b で検討する。
+    Measured at about 65 candidates in ~4 minutes (~3.46s/book), which would reliably miss the default
+    60s timeout, so this call alone is given a longer one (other calls' defaults are unchanged).
+    Waiting on a single synchronous request is a known limitation -- an async job with polling is
+    being considered for Phase G27b.
     """
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("integrity", library=library, sub="scan"),
@@ -449,52 +450,52 @@ def integrity_scan(library: str, *, library_token: str | None = None) -> Any:
 
 
 def integrity_status(library: str, *, library_token: str | None = None) -> Any:
-    """整合性検査の集計を返す（checked / unchecked / damaged / degraded）。"""
+    """Return integrity check totals (checked / unchecked / damaged / degraded)."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("integrity", library=library, sub="status"), library_token=tok)))
 
 
 def integrity_list(library: str, *, status: str = "damaged",
                    library_token: str | None = None) -> Any:
-    """指定した状態の本を一覧する（ok / damaged / empty / missing / unsupported）。"""
+    """List books in the given state (ok / damaged / empty / missing / unsupported)."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("integrity", library=library, sub="list",
                                    flags={"status": status}), library_token=tok)))
 
 
-# --- フル CRC スキャン（非同期ジョブ・G27b Task5）---
+# --- Full CRC scan (background job, G27b Task5) ---
 #
-# 実測 4.464 秒/冊・22,880 冊規模で約 31 時間かかる。integrity_scan（簡易チェック）と違い
-# サーバ側は非同期ジョブとして開始するだけなので、ここでは長いタイムアウトを与えない
-# （既定 60s のままでよい — CLI 自体が起動確認したらすぐ返る設計のため）。
+# Measured at 4.464 sec/book, about 31 hours at a scale of 22,880 books. Unlike integrity_scan
+# (the quick check), the server side here only starts an async job, so no long timeout is needed here
+# (the default 60s is fine -- by design the CLI itself returns as soon as it confirms the job started).
 
 def integrity_full_scan(library: str, *, mode: str = "unchecked",
                         library_token: str | None = None) -> str:
-    """全冊 CRC 検証をバックグラウンドジョブとして開始する。CLI の案内メッセージ
-    （起動できた／既に実行中だった、のいずれか）をそのまま stdout 文字列として返す
-    （JSON ではない ―― サーバ応答は 202/409 のみでボディを持たないため）。"""
+    """Start a full CRC verification as a background job. Returns the CLI's guidance message
+    (either that it started, or that one was already running) verbatim as a stdout string
+    (not JSON -- the server response is a bare 202/409 with no body)."""
     return _with_library(library, library_token,
         lambda tok: run(build_argv("integrity", library=library, sub="full-scan",
                                    flags={"mode": mode}), library_token=tok))
 
 
 def integrity_job_status(library: str, *, library_token: str | None = None) -> Any:
-    """実行中のメンテナンスジョブ（full-scan・complete-metadata・compress-covers 等、
-    すべて同じジョブレジストリを共有）の進捗を返す。running/job/done/total/startedAt。"""
+    """Return the progress of the running maintenance job (full-scan, complete-metadata, compress-covers, etc. --
+    they all share the same job registry). running/job/done/total/startedAt."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("integrity", library=library, sub="job-status"),
                         library_token=tok)))
 
 
 def integrity_cancel(library: str, *, library_token: str | None = None) -> str:
-    """実行中のメンテナンスジョブ（full-scan 含む）を中断する。実行中ジョブが無ければ no-op。
-    full-scan 専用の中断コマンドは無い（既存の maintenance/cancel を共用する）。"""
+    """Cancel the running maintenance job (including full-scan); a no-op if none is running.
+    There's no cancel command specific to full-scan (it shares the existing maintenance/cancel)."""
     return _with_library(library, library_token,
         lambda tok: run(build_argv("integrity", library=library, sub="cancel"),
                         library_token=tok))
 
 
-# --- グラント CRUD（admin）---
+# --- Grant CRUD (admin) ---
 
 def grant_list() -> Any:
     return json.loads(run(build_argv("grant", sub="list")))
@@ -523,7 +524,7 @@ def grant_delete(grant_id: str) -> None:
     run(build_argv("grant", sub="rm", json_output=False) + [grant_id])
 
 
-# --- stamp / label（per-library）---
+# --- Stamp / label (per-library) ---
 
 def stamp_apply(library: str, field: str, book_ids: list[int], *,
                 value: str | None = None, clear: bool = False,
@@ -538,8 +539,8 @@ def stamp_apply(library: str, field: str, book_ids: list[int], *,
 
 
 def stamp_definitions_get(library: str, *, library_token: str | None = None) -> Any:
-    # サーバ/CLI は StampDefinitionsDTO {"definitions": {col:[...]}} で授受するが、
-    # MCP ツールは内側マップ {col:[...]} を扱う（set と対称・label と同様に「中身」を直接扱う）。
+    # The server/CLI exchange StampDefinitionsDTO {"definitions": {col:[...]}}, but the MCP tool
+    # deals with the inner map {col:[...]} directly (symmetric with set, same as label).
     raw = json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("stamp-definitions", sub="get", library=library), library_token=tok)))
     return raw.get("definitions", raw) if isinstance(raw, dict) else raw
@@ -547,8 +548,8 @@ def stamp_definitions_get(library: str, *, library_token: str | None = None) -> 
 
 def stamp_definitions_set(library: str, definitions: dict, *,
                           library_token: str | None = None) -> Any:
-    # 内側マップ {col:[...]} を StampDefinitionsDTO {"definitions": {...}} にラップして渡す
-    # （CLI/サーバは DTO 形を要求するため。素の内側マップだと keyNotFound("definitions") になる）。
+    # Wrap the inner map {col:[...]} into StampDefinitionsDTO {"definitions": {...}} before sending
+    # (the CLI/server require the DTO shape; the bare inner map alone yields keyNotFound("definitions")).
     payload = json.dumps({"definitions": definitions})
     raw = json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("stamp-definitions", sub="set", library=library,
@@ -567,35 +568,36 @@ def label_set(library: str, settings: dict, *, library_token: str | None = None)
                                    flags={"settings-json": json.dumps(settings)}), library_token=tok)))
 
 
-# --- ライブラリ開閉（ローカル制御専用・G27b Task7）---
+# --- Open/close a library (local control only, G27b Task7) ---
 #
-# サーバ側は /local/libraries/open,close を 127.0.0.1 のローカル制御にのみ持つ（共有サーバに
-# --url で繋いだ CLI では 404 になる）。ここは _with_library（ロック庫の自動再解錠）を使わない
-# ―― これから開く/閉じる庫は library_token 前提の対象ではない（open は対象がまだ無い、
-# close は uuid 指定でありそもそもロック解錠の話ではない）。
+# The server only has /local/libraries/open,close under local control on 127.0.0.1 (a CLI connected
+# to a shared server via --url gets a 404). This doesn't use _with_library (the locked-library
+# auto-reunlock) -- the library being opened/closed isn't a library_token-style target (open has no
+# target yet; close takes a uuid and isn't about unlocking at all).
 
 def library_open(path: str) -> Any:
-    """パスを指定してライブラリウィンドウを開く（既に開いていれば新規ウィンドウを開かず既存 uuid を返す）。"""
+    """Open a library window at the given path (if it's already open, no new window opens and the existing uuid is returned)."""
     return json.loads(run(build_argv("library", sub="open", paths=[path])))
 
 
 def library_close(uuid: str) -> None:
-    """uuid を指定してライブラリウィンドウを閉じる。"""
+    """Close a library window by uuid."""
     run(build_argv("library", sub="close", text=uuid, json_output=False))
 
 
 def finder_tags_status(library: str, *, library_token: str | None = None) -> Any:
-    """Finder タグ同期の状態（同期対象の項目・走行中か・施錠中か）を返す。"""
+    """Return the Finder tag sync status (the synced field, whether it's running, whether it's locked)."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("finder-tags", sub="status", library=library),
                         library_token=tok)))
 
 
 def finder_tags_set(library: str, field: str | None, *, library_token: str | None = None) -> Any:
-    """同期する項目を変える（None / "none" で同期しない）。
+    """Change which field syncs (None / "none" disables syncing).
 
-    ★ 項目を変えると前回同期値が全消しされる（別項目の値を「前回のタグ」と誤認しないため）。
-    知らない列名は CLI/サーバが 400 で弾く（黙って「同期しない」に落とさない）。"""
+    Note: changing the field clears all previously synced values (so a different field's values are
+    never mistaken for "the previous tags"). An unknown column name is rejected by the CLI/server
+    with a 400 (it never silently falls back to "don't sync")."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("finder-tags", sub="set", library=library,
                                    text=(field or "none")),
@@ -603,10 +605,11 @@ def finder_tags_set(library: str, field: str | None, *, library_token: str | Non
 
 
 def finder_tags_resync(library: str, *, library_token: str | None = None) -> Any:
-    """今すぐ再照合し、終わるまで待って結果を返す。
+    """Reconcile now and wait for it to finish before returning the result.
 
-    アプリのメニュー「Finder タグを再照合」と同じ経路を通るので、施錠中は走らない。
-    12,000 冊で実測 0.4 秒だが mdfind 次第で伸びるため、CLI 側で長めの待ちを取っている。"""
+    Follows the same path as the app's "Reconcile Finder Tags" menu item, so it doesn't run while locked.
+    Measured at 0.4 seconds for 12,000 books, but it can run longer depending on mdfind, so the CLI side
+    uses a generous wait."""
     return json.loads(_with_library(library, library_token,
         lambda tok: run(build_argv("finder-tags", sub="resync", library=library),
                         library_token=tok, timeout=660)))
@@ -617,7 +620,7 @@ def rename_files(library: str, ids: list[int], *,
                  fmt: str | None = None,
                  apply: bool = False,
                  library_token: str | None = None) -> Any:
-    """メタデータでファイル名を変える。apply=False なら計画のみ（ファイルは動かない）。"""
+    """Rename files from metadata. With apply=False, only a plan is produced (no file is moved)."""
     argv = ["rename-files"] + [str(i) for i in ids]
     argv += _opt("--library", library)
     argv += _opt("--preset", preset)
