@@ -10,6 +10,11 @@
   specifier      キーと英訳の書式指定子が引数の順序どおりに一致しない（Web は {name} の集合）
   web-literal    web/*.js の日本語リテラルが t( の第 1 引数でない／index.html の日本語テキストに data-i18n が無い
   web-missing    t('…')・data-i18n="…" のキーが i18n-en.js に無い
+  stale-build    App のソースが最後の .stringsdata より新しい（または .stringsdata が無い）＝抽出が古い
+英訳が空、または日本語を含むものは「訳なし」として *-missing に数える。
+
+終了コード: 0 = 報告モード／違反なし、1 = --strict で違反あり（App の抽出が無い場合も。--no-app-checks で除外）、
+2 = 使い方の誤り（存在しない --paths、どの検査対象にも当たらない --paths）。
 
 既定は報告モード（終了コード 0）。--strict で 1 件でもあれば終了コード 1。
 除外: コメント、ロガー呼び出し（logger. / os_log( / Logger( / console.）、`l10n:ignore` の付いた行
@@ -41,7 +46,7 @@ WEB_PARAM_RE = re.compile(r"\{(\w+)\}")
 
 KINDS = [
     "swift-literal", "swift-missing", "app-literal", "app-missing",
-    "compare", "specifier", "web-literal", "web-missing",
+    "compare", "specifier", "web-literal", "web-missing", "stale-build",
 ]
 
 PH = "\ufffc"  # stands for an interpolation inside a normalised literal
@@ -109,16 +114,23 @@ class Literal:
 # ---------------------------------------------------------------------------
 
 def specifier_sequence(s: str) -> list[str]:
-    """Specifiers in argument order (`%N$` ordered by N, otherwise left to right), positions stripped, `%%` ignored."""
+    """Specifiers in argument order, positions stripped, `%%` ignored.
+
+    Same ordering as Swift's `L10n.formatSpecifierSequence(in:)`: positional `%N$` ones by N first,
+    non-positional ones after them (as if their position were Int.max), ties by source offset.
+    """
     items = []
-    ordinal = 0
     for m in FORMAT_SPEC_RE.finditer(s):
         if m.group(0) == "%%":
             continue
-        ordinal += 1
-        pos = int(m.group(1)) if m.group(1) else ordinal
-        items.append((pos, len(items), "%" + m.group(2)))
+        pos = int(m.group(1)) if m.group(1) else sys.maxsize
+        items.append((pos, m.start(), "%" + m.group(2)))
     return [spec for _, _, spec in sorted(items)]
+
+
+def is_translated(forms) -> bool:
+    """An English entry counts only if every form is non-empty and free of Japanese."""
+    return bool(forms) and all(isinstance(f, str) and f.strip() and not has_ja(f) for f in forms)
 
 
 def web_params(s: str) -> set[str]:
@@ -574,21 +586,32 @@ class Allowlist:
         return any(r.match(rel) or fnmatch.fnmatch(rel, p) for r, p in zip(self._res, self.patterns))
 
 
+class UsageError(Exception):
+    """A command-line mistake that must not pass silently (exit code 2)."""
+
+
 class Selection:
-    """Restricts findings to --paths (files or directories, relative to root or absolute)."""
+    """Restricts findings to --paths (files or directories under root).
+
+    Relative entries are relative to root here; `main()` first resolves them against the CWD.
+    An entry that does not exist or lies outside root raises UsageError.
+    """
 
     def __init__(self, root: Path, paths):
         self.prefixes = None
         if paths:
             self.prefixes = []
+            root_res = root.resolve()
             for p in paths:
                 pp = Path(p)
-                if pp.is_absolute():
-                    try:
-                        pp = pp.resolve().relative_to(root.resolve())
-                    except ValueError:
-                        continue
-                self.prefixes.append(pp.as_posix().rstrip("/"))
+                full = pp if pp.is_absolute() else root / pp
+                if not full.exists():
+                    raise UsageError(f"--paths entry does not exist: {p}")
+                try:
+                    rel = full.resolve().relative_to(root_res)
+                except ValueError:
+                    raise UsageError(f"--paths entry is outside the checked tree {root_res}: {p}")
+                self.prefixes.append(rel.as_posix().rstrip("/"))
 
     def includes(self, rel: str) -> bool:
         if self.prefixes is None:
@@ -703,7 +726,10 @@ def load_web_dict(root: Path) -> tuple[dict[str, tuple[int, list[str]]], bool]:
 
 
 def load_stringsdata(sd_root: Path, root: Path):
-    """([(table, key, source, line)], app_emitted) from every *.stringsdata under sd_root.
+    """([(table, key, source, line)], app_emitted, {source rel: mtime}) from *.stringsdata under sd_root.
+
+    Only the newest file (by mtime) per `source` is used, so a stale Debug/Release/per-arch copy
+    cannot hide a leak that the latest build no longer extracts.
 
     `app_emitted` is False when no file came from the App target (e.g. a DerivedData built without
     SWIFT_EMIT_LOC_STRINGS, where only the packages' empty files exist); the App checks are then skipped.
@@ -713,20 +739,29 @@ def load_stringsdata(sd_root: Path, root: Path):
     """
     out = []
     app_emitted = False
+    root_res = root.resolve()
+    newest: dict = {}  # source -> (mtime, parsed)
     for f in sorted(sd_root.rglob("*.stringsdata")):
         try:
             d = json.loads(_read(f))
+            mtime = f.stat().st_mtime
         except (json.JSONDecodeError, OSError):
             continue
-        src = d.get("source", "")
-        if d.get("tables") or _source_rel(root.resolve(), src).startswith(APP_DIR + "/"):
+        src = d.get("source", "") or f.as_posix()
+        if src not in newest or mtime > newest[src][0]:
+            newest[src] = (mtime, d)
+    mtimes: dict[str, float] = {}
+    for src, (mtime, d) in newest.items():
+        srel = _source_rel(root_res, src)
+        mtimes[srel] = max(mtime, mtimes.get(srel, 0.0))
+        if d.get("tables") or srel.startswith(APP_DIR + "/"):
             app_emitted = True
         for tname, entries in (d.get("tables") or {}).items():
             for e in entries or []:
                 if isinstance(e, dict) and "key" in e:
                     line = (e.get("location") or {}).get("startingLine", 0)
                     out.append((tname, e["key"], src, int(line or 0)))
-    return out, app_emitted
+    return out, app_emitted, mtimes
 
 
 # ---------------------------------------------------------------------------
@@ -759,6 +794,7 @@ def _is_compare(lit: Literal, before_re, after_re) -> bool:
 
 
 def check_swift_sources(root, files, allow, sel, table_keys) -> list[Finding]:
+    """`table_keys`: keys whose English entry is translated (see `is_translated`)."""
     out = []
     for f in files:
         rel = _rel(root, f)
@@ -825,7 +861,7 @@ def check_app(root, files, allow, sel, sd_entries, catalog, fragments) -> list[F
         if (key, srel) in seen:
             continue
         seen.add((key, srel))
-        if catalog.get(key) or any(forms for _, forms in fragments.get(key, [])):
+        if is_translated(catalog.get(key)) or any(is_translated(forms) for _, forms in fragments.get(key, [])):
             continue
         out.append(Finding("app-missing", srel or XCSTRINGS, line, _short(key)))
     return out
@@ -849,29 +885,30 @@ def check_specifiers(root, sel, swift_table, catalog, fragments, web_dict) -> li
     for key, defs in swift_table.items():
         want = specifier_sequence(key)
         for rel, line, forms in defs:
-            if sel.includes(rel) and any(specifier_sequence(v) != want for v in forms):
+            if sel.includes(rel) and is_translated(forms) and any(specifier_sequence(v) != want for v in forms):
                 out.append(Finding("specifier", rel, line, _short(f"{key} -> {' | '.join(forms)}")))
     if sel.includes(XCSTRINGS):
         for key, forms in catalog.items():
             want = specifier_sequence(key)
-            if any(specifier_sequence(v) != want for v in forms):
+            if is_translated(forms) and any(specifier_sequence(v) != want for v in forms):
                 out.append(Finding("specifier", XCSTRINGS, 0, _short(f"{key} -> {' | '.join(forms)}")))
     for key, defs in fragments.items():
         want = specifier_sequence(key)
         for f, forms in defs:
             rel = _rel(root, f) if f.resolve().is_relative_to(root.resolve()) else f.as_posix()
-            if sel.includes(rel) and any(specifier_sequence(v) != want for v in forms):
+            if sel.includes(rel) and is_translated(forms) and any(specifier_sequence(v) != want for v in forms):
                 out.append(Finding("specifier", rel, 0, _short(f"{key} -> {' | '.join(forms)}")))
     if sel.includes(WEB_DICT):
         for key, (line, forms) in web_dict.items():
             want = web_params(key)
-            if any(web_params(v) != want for v in forms):
+            if is_translated(forms) and any(web_params(v) != want for v in forms):
                 out.append(Finding("specifier", WEB_DICT, line, _short(f"{key} -> {' | '.join(forms)}")))
     return out
 
 
 def check_web(root, allow, sel, web_dict) -> list[Finding]:
     out = []
+    web_dict = {k: v for k, v in web_dict.items() if is_translated(v[1])}
     d = root / WEB_DIR
     if not d.is_dir():
         return out
@@ -917,10 +954,21 @@ def _swift_files(d: Path) -> list[Path]:
     return sorted(p for p in d.rglob("*.swift") if p.is_file()) if d.is_dir() else []
 
 
-def run(root: Path, paths=None, fragments=None, stringsdata_root=None, warn=None) -> list[Finding]:
+class Result:
+    def __init__(self):
+        self.findings: list[Finding] = []
+        self.app_extraction_missing = False  # App files selected, App checks wanted, no App .stringsdata
+
+
+def run(root: Path, paths=None, fragments=None, stringsdata_root=None, warn=None, app_checks=True) -> list[Finding]:
     """Run every check under `root` and return the findings (sorted by kind, path, line)."""
+    return run_full(root, paths, fragments, stringsdata_root, warn, app_checks).findings
+
+
+def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn=None, app_checks=True) -> Result:
     root = Path(root)
     warn = warn or (lambda msg: None)
+    res = Result()
     allow = Allowlist.load(root)
     sel = Selection(root, paths)
 
@@ -929,52 +977,105 @@ def run(root: Path, paths=None, fragments=None, stringsdata_root=None, warn=None
     frags = load_fragments(fragments)
     web_dict, has_web_dict = load_web_dict(root)
 
-    findings: list[Finding] = []
-    findings += check_swift_sources(root, _swift_files(root / "Sources"), allow, sel, swift_table)
-
+    source_files = _swift_files(root / "Sources")
     app_files = _swift_files(root / APP_DIR)
+    web_dir = root / WEB_DIR
+    scanned = [_rel(root, f) for f in source_files + app_files]
+    scanned += [_rel(root, f) for f in sorted(web_dir.glob("*.js"))] if web_dir.is_dir() else []
+    scanned += [r for r in (WEB_HTML, XCSTRINGS) if (root / r).is_file()]
+    root_res = root.resolve()
+    for defs in frags.values():
+        for f, _ in defs:
+            if f.resolve().is_relative_to(root_res):
+                scanned.append(f.resolve().relative_to(root_res).as_posix())
+    if sel.prefixes is not None and not any(sel.includes(r) for r in scanned):
+        raise UsageError("--paths matches no file the lint checks: " + " ".join(sel.prefixes))
+
+    translated_swift = {k for k, defs in swift_table.items() if any(is_translated(fm) for _, _, fm in defs)}
+    findings: list[Finding] = []
+    findings += check_swift_sources(root, source_files, allow, sel, translated_swift)
+
     if app_files:
-        sd_root = Path(stringsdata_root) if stringsdata_root else root / DEFAULT_STRINGSDATA
-        if not sd_root.is_absolute() and stringsdata_root:
-            sd_root = Path.cwd() / sd_root
-        sd_entries, has_sd = load_stringsdata(sd_root, root) if sd_root.is_dir() else ([], False)
-        if not has_sd:
-            warn(f"warning: no App .stringsdata under {sd_root}; app-literal / app-missing were skipped "
-                 f"(build the App with SWIFT_EMIT_LOC_STRINGS=YES first)")
-            sd_entries = None
+        sd_entries = None
+        selected_app = [f for f in app_files if sel.includes(_rel(root, f)) and not allow.allows(_rel(root, f))]
+        if app_checks:
+            sd_root = Path(stringsdata_root) if stringsdata_root else root / DEFAULT_STRINGSDATA
+            if not sd_root.is_absolute() and stringsdata_root:
+                sd_root = Path.cwd() / sd_root
+            sd_entries, has_sd, sd_mtimes = (load_stringsdata(sd_root, root) if sd_root.is_dir()
+                                             else ([], False, {}))
+            if not has_sd:
+                warn(f"warning: no App .stringsdata under {sd_root}; app-literal / app-missing were skipped "
+                     f"(build the App with SWIFT_EMIT_LOC_STRINGS=YES first)")
+                sd_entries = None
+                res.app_extraction_missing = bool(selected_app)
+            else:
+                findings += check_stale(root, selected_app, sd_mtimes, warn)
         findings += check_app(root, app_files, allow, sel, sd_entries, catalog, frags)
 
     findings += check_specifiers(root, sel, swift_table, catalog, frags, web_dict)
-    if (root / WEB_DIR).is_dir() and not has_web_dict:
+    if web_dir.is_dir() and not has_web_dict:
         warn(f"warning: {WEB_DICT} not found; every t()/data-i18n key counts as web-missing")
     findings += check_web(root, allow, sel, web_dict)
-    return sorted(set(findings), key=lambda f: (KINDS.index(f.kind), f.path, f.line, f.text))
+    res.findings = sorted(set(findings), key=lambda f: (KINDS.index(f.kind), f.path, f.line, f.text))
+    return res
+
+
+def check_stale(root, files, sd_mtimes, warn) -> list[Finding]:
+    """stale-build: a selected App source edited after its newest .stringsdata, or never extracted."""
+    out = []
+    # "Never extracted" only means something when the build did extract other App sources
+    # (every compiled App source gets its own .stringsdata, even with no strings).
+    any_app = any(r.startswith(APP_DIR + "/") for r in sd_mtimes)
+    for f in files:
+        rel = _rel(root, f)
+        if rel not in sd_mtimes:
+            if not any_app:
+                continue
+            out.append(Finding("stale-build", rel, 0, "no .stringsdata for this file; rebuild the App"))
+        elif f.stat().st_mtime > sd_mtimes[rel]:
+            out.append(Finding("stale-build", rel, 0, "edited after the last App build; rebuild the App"))
+    if out:
+        warn(f"warning: {len(out)} App source(s) are newer than their extracted strings; "
+             f"app-literal / app-missing may be out of date until the App is rebuilt")
+    return out
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="StackNest localization leak lint (G55).")
-    ap.add_argument("--strict", action="store_true", help="exit 1 if there is any finding")
+    ap.add_argument("--strict", action="store_true",
+                    help="exit 1 if there is any finding, or if App files are checked without App .stringsdata")
     ap.add_argument("--paths", nargs="+", metavar="P",
-                    help="only report findings in these files/directories (include your fragment file "
-                         "and dictionary file to check their specifiers)")
+                    help="only report findings in these files/directories, relative to the current directory "
+                         "(include your fragment file and dictionary file to check their specifiers)")
     ap.add_argument("--fragments", metavar="DIR",
                     help="treat keys in DIR/*.json (tools/l10n/fragments) as translated")
     ap.add_argument("--stringsdata-root", metavar="DIR", default=None,
                     help=f"where the App build put *.stringsdata (default: {DEFAULT_STRINGSDATA})")
+    ap.add_argument("--no-app-checks", action="store_true",
+                    help="skip app-literal / app-missing / stale-build (for jobs that do not build the App)")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--root", default=str(Path(__file__).resolve().parents[1]), help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
 
     root = Path(args.root)
-    findings = run(root, paths=args.paths, fragments=args.fragments,
-                   stringsdata_root=args.stringsdata_root,
-                   warn=lambda m: print(m, file=sys.stderr))
+    paths = [str(Path(p) if Path(p).is_absolute() else Path.cwd() / p) for p in args.paths] if args.paths else None
+    try:
+        res = run_full(root, paths=paths, fragments=args.fragments,
+                       stringsdata_root=args.stringsdata_root,
+                       warn=lambda m: print(m, file=sys.stderr),
+                       app_checks=not args.no_app_checks)
+    except UsageError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    findings = res.findings
     counts = {k: 0 for k in KINDS}
     for f in findings:
         counts[f.kind] += 1
 
     if args.json:
         print(json.dumps({"counts": counts, "total": len(findings),
+                          "app_extraction_missing": res.app_extraction_missing,
                           "findings": [asdict(f) for f in findings]}, ensure_ascii=False, indent=2))
     else:
         for f in findings[:200]:
@@ -982,6 +1083,11 @@ def main(argv=None) -> int:
         if len(findings) > 200:
             print(f"... {len(findings) - 200} more (use --json for all)")
         print("counts: " + ", ".join(f"{k}={v}" for k, v in counts.items()) + f", total={len(findings)}")
+    if args.strict and res.app_extraction_missing:
+        print("error: --strict: App files are selected but no App .stringsdata was found, so app-literal / "
+              "app-missing could not be checked. Build the App (SWIFT_EMIT_LOC_STRINGS=YES), point "
+              "--stringsdata-root at its Intermediates.noindex, or pass --no-app-checks.", file=sys.stderr)
+        return 1
     return 1 if args.strict and findings else 0
 
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """l10n-lint のテスト（標準ライブラリのみ）。"""
-import importlib.util, json, pathlib, tempfile, textwrap, unittest
+import contextlib, importlib.util, io, json, os, pathlib, tempfile, textwrap, time, unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("lint", ROOT / "Scripts" / "l10n-lint.py")
@@ -168,6 +168,133 @@ class Web(unittest.TestCase):
             ("compare", "一覧"), ("specifier", "「{title}」を開く -> Open “{name}”"),
             ("web-literal", "${…} 冊 ${…}"), ("web-literal", 'aria-label="戻る"'), ("web-missing", "検索"),
         ]))
+
+
+# ---------------------------------------------------------------------------
+# Fix round 1 (review of Task 4): the gate must not pass without checking anything.
+# ---------------------------------------------------------------------------
+
+def cli(root, *args, cwd=None):
+    """Run main() quietly; returns (exit code, stdout)."""
+    out, err = io.StringIO(), io.StringIO()
+    old = os.getcwd()
+    try:
+        if cwd:
+            os.chdir(cwd)
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = lint.main(["--root", str(root), *args])
+    finally:
+        os.chdir(old)
+    return rc, out.getvalue() + err.getvalue()
+
+
+def write_sd(root, name, source_rel, keys, mtime):
+    """A .stringsdata in Xcode's real shape (absolute source, locations) with a chosen mtime."""
+    f = root / "App/build/Build/Intermediates.noindex" / name
+    f.parent.mkdir(parents=True, exist_ok=True)
+    entries = [{"comment": "", "key": k, "location": {"startingColumn": 1, "startingLine": line}} for k, line in keys]
+    f.write_text(json.dumps({"source": str((root / source_rel).resolve()), "tables": {"Localizable": entries} if entries else {},
+                             "version": 1}, ensure_ascii=False), encoding="utf-8")
+    os.utime(f, (mtime, mtime))
+    return f
+
+
+class Paths(unittest.TestCase):
+    def setUp(self):
+        self.r = tree({"Sources/AppCore/B.swift": 'let s = "削除"\n', "Sources/StackNestL10n/Tables/L10n+X.swift": "",
+                       "docs/notes.md": "x\n"})
+
+    def test_nonexistent_path_is_usage_error(self):
+        self.assertEqual(cli(self.r, "--paths", str(self.r / "Sources/AppCore/Typo.swift"))[0], 2)
+
+    def test_path_outside_root_is_usage_error(self):
+        other = tree({"Sources/AppCore/B.swift": 'let s = "削除"\n'})
+        self.assertEqual(cli(self.r, "--paths", str(other / "Sources/AppCore/B.swift"))[0], 2)
+
+    def test_relative_paths_resolve_against_cwd(self):
+        self.assertEqual(cli(self.r, "--strict", "--paths", "AppCore/B.swift", cwd=self.r / "Sources")[0], 1)
+        # The same text relative to the repo root does not exist from this cwd.
+        self.assertEqual(cli(self.r, "--strict", "--paths", "Sources/AppCore/B.swift", cwd=self.r / "Sources")[0], 2)
+
+    def test_selection_matching_no_scanned_file_is_usage_error(self):
+        self.assertEqual(cli(self.r, "--paths", str(self.r / "docs"))[0], 2)
+
+
+class Extraction(unittest.TestCase):
+    def _tree(self, src):
+        r = tree({"App/StackNest/V.swift": src, "Sources/StackNestL10n/Tables/L10n+X.swift": "",
+                  "App/StackNest/Localizable.xcstrings": json.dumps({"sourceLanguage": "ja", "strings": {}, "version": "1.0"})})
+        old = time.time() - 1000
+        os.utime(r / "App/StackNest/V.swift", (old, old))
+        return r
+
+    def test_stale_copy_does_not_hide_a_leak(self):
+        r = self._tree('para("日本語の段落")\n')
+        now = time.time()
+        write_sd(r, "Debug/x86_64/V.stringsdata", "App/StackNest/V.swift", [("日本語の段落", 1)], now - 500)  # old build
+        write_sd(r, "Debug/arm64/V.stringsdata", "App/StackNest/V.swift", [], now)                           # latest build
+        self.assertEqual(kinds(r), ["app-literal"])
+
+    def test_source_newer_than_extraction_is_stale_build(self):
+        r = self._tree('Text("削除")\n')
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [("削除", 1)], time.time() - 2000)
+        self.assertIn("stale-build", kinds(r))
+        rc, out = cli(r, "--strict")
+        self.assertEqual(rc, 1)
+        self.assertIn("stale-build", out)
+
+    def test_never_extracted_source_is_stale_build(self):
+        r = self._tree('Text("x")\n')
+        (r / "App/StackNest/New.swift").write_text('let a = 1\n', encoding="utf-8")
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
+        self.assertEqual([(f.kind, f.path) for f in lint.run(r)], [("stale-build", "App/StackNest/New.swift")])
+
+    def test_strict_without_extraction_fails_unless_no_app_checks(self):
+        r = self._tree('let a = 1\n')
+        self.assertEqual(cli(r)[0], 0)                               # report mode: warn and skip
+        rc, out = cli(r, "--strict")
+        self.assertEqual(rc, 1)
+        self.assertIn("no App .stringsdata", out)
+        self.assertEqual(cli(r, "--strict", "--no-app-checks")[0], 0)
+        # Selecting only non-App files does not need the App build.
+        (r / "Sources/AppCore").mkdir(parents=True)
+        (r / "Sources/AppCore/A.swift").write_text("let a = 1\n", encoding="utf-8")
+        self.assertEqual(cli(r, "--strict", "--paths", str(r / "Sources/AppCore"))[0], 0)
+
+
+class EmptyTranslations(unittest.TestCase):
+    def _app(self, en):
+        cat = {"削除": {"localizations": {"en": {"stringUnit": en}}}}
+        r = tree({"App/StackNest/V.swift": 'Text("削除")\n', "Sources/StackNestL10n/Tables/L10n+X.swift": "",
+                  "App/StackNest/Localizable.xcstrings": json.dumps({"sourceLanguage": "ja", "strings": cat, "version": "1.0"}, ensure_ascii=False)})
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [("削除", 1)], time.time() + 10)
+        return r
+
+    def test_empty_xcstrings_value_is_app_missing(self):
+        self.assertEqual(kinds(self._app({"state": "new", "value": ""})), ["app-missing"])
+
+    def test_japanese_xcstrings_value_is_app_missing(self):
+        self.assertEqual(kinds(self._app({"state": "translated", "value": "保存"})), ["app-missing"])
+
+    def test_empty_table_entry_is_swift_missing(self):
+        r = tree({"Sources/AppCore/A.swift": 'let s = L10n.text("削除")\n',
+                  "Sources/StackNestL10n/Tables/L10n+X.swift": 'extension L10nTable { static let x: [String: L10nEntry] = ["削除": L10nEntry("")] }\n'})
+        self.assertEqual(kinds(r), ["swift-missing"])
+
+    def test_empty_web_value_is_web_missing(self):
+        r = tree({"Sources/LibraryServer/Resources/web/app.js": "b.textContent = t('閉じる');\n",
+                  "Sources/LibraryServer/Resources/web/i18n-en.js": "export const EN = { '閉じる': '' };\n",
+                  "Sources/StackNestL10n/Tables/L10n+X.swift": "",
+                  "Scripts/l10n-allowlist.txt": "Sources/LibraryServer/Resources/web/i18n-en.js  # dict\n"})
+        self.assertEqual(kinds(r), ["web-missing"])
+
+
+class SpecifierOrder(unittest.TestCase):
+    def test_mixed_positional_and_plain(self):
+        # Same as Swift's L10n.formatSpecifierSequence: positional first by N, plain ones after.
+        self.assertEqual(lint.specifier_sequence("%lld %1$@"), ["%@", "%lld"])
+        self.assertEqual(lint.specifier_sequence("%2$@ %lld %1$d %%"), ["%d", "%@", "%lld"])
+        self.assertEqual(lint.specifier_sequence("%@ の %lld"), ["%@", "%lld"])
 
 
 class MergeFragments(unittest.TestCase):
