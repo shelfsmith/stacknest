@@ -111,7 +111,7 @@ struct GrantManagementSection: View {
 
     @ViewBuilder
     private func tierBadge(_ tier: AccessTier) -> some View {
-        let info: (String, String) = {
+        let info: (LocalizedStringKey, String) = {
             switch tier {
             case .admin: return ("管理者", "key.fill")
             case .edit:  return ("編集可", "pencil")
@@ -127,11 +127,11 @@ struct GrantManagementSection: View {
     private func scopeHelp(_ scope: GrantScope) -> String {
         switch scope {
         case .all:
-            return "全ライブラリ"
+            return String(localized: "全ライブラリ")
         case .libraries(let ids):
             let openByUUID = GrantEditorSheet.openLibraries()
                 .reduce(into: [String: String]()) { $0[$1.uuid] = $1.name }
-            let names = ids.map { openByUUID[$0] ?? "(未オープン: \($0.prefix(8)))" }
+            let names = ids.map { openByUUID[$0] ?? String(localized: "(未オープン: \($0.prefix(8)))") }
             return names.joined(separator: ", ")
         }
     }

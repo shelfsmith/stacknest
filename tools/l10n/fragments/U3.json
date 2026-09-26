@@ -1,0 +1,740 @@
+{
+  " のコピー": {
+    "en": " Copy"
+  },
+  "7 日": {
+    "en": "7 Days"
+  },
+  "30 日": {
+    "en": "30 Days"
+  },
+  "90 日": {
+    "en": "90 Days"
+  },
+  "%lld 件の未登録ファイルが見つかりました。今すぐ取り込みますか?": {
+    "plural": {
+      "one": "Found %lld unregistered file. Import it now?",
+      "other": "Found %lld unregistered files. Import them now?"
+    }
+  },
+  "%lld 件を再生成しました（約 %@ MB 削減）": {
+    "plural": {
+      "one": "Regenerated %lld item (about %@ MB saved)",
+      "other": "Regenerated %lld items (about %@ MB saved)"
+    }
+  },
+  "%lld 件を更新しました": {
+    "plural": {
+      "one": "Updated %lld item",
+      "other": "Updated %lld items"
+    }
+  },
+  "(エラー)": {
+    "en": "(Error)"
+  },
+  "(デフォルトを使用)": {
+    "en": "(Using the Default)"
+  },
+  "(未オープン: %@)": {
+    "en": "(Not Open: %@)"
+  },
+  "Apple Watch で解錠": {
+    "en": "Unlock with Apple Watch"
+  },
+  "Apple Watch で解錠できます": {
+    "en": "You can unlock with Apple Watch"
+  },
+  "EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。": {
+    "en": "If the EPUB has a title, it is used. By default, a title made from the filename is used instead. This only affects new imports."
+  },
+  "EPUB の題名を使う": {
+    "en": "Use the EPUB Title"
+  },
+  "Finder で付けたタグの取り込みには Spotlight 索引が必要です。索引が無効なボリュームでは、書き戻し（StackNest → Finder）だけが動きます。": {
+    "en": "Picking up tags set in Finder requires a Spotlight index. On volumes where indexing is disabled, only the write-back (StackNest → Finder) works."
+  },
+  "Finder タグ": {
+    "en": "Finder Tags"
+  },
+  "OFF にすると、フォルダは画像セット、それ以外は厚い本として登録されます。": {
+    "en": "When off, folders are registered as image sets and everything else as thick books."
+  },
+  "OK": {
+    "en": "OK"
+  },
+  "QR 生成失敗": {
+    "en": "QR Generation Failed"
+  },
+  "StackNest のリモート共有は個人利用向けの機能です。あなたに著作権のないコンテンツ（市販の漫画・書籍など）を不特定多数がアクセスできる形で公開すると、著作権法上の公衆送信可能化権の侵害となるおそれがあります。共有は信頼できる範囲（家庭内・自分のデバイス間）に限定し、ポートを直接インターネットに公開せず VPN 経由でご利用ください。": {
+    "en": "StackNest’s remote sharing is intended for personal use. Publishing content you don’t hold the copyright to (such as commercial manga or books) in a way that anyone can access may infringe the right of public transmission under copyright law. Limit sharing to a trusted scope (your home, your own devices), and use it over a VPN rather than exposing the port directly to the internet."
+  },
+  "Touch ID / Apple Watch で解錠": {
+    "en": "Unlock with Touch ID / Apple Watch"
+  },
+  "Touch ID / Apple Watch で解錠できます": {
+    "en": "You can unlock with Touch ID / Apple Watch"
+  },
+  "iPhone のカメラで読み取ると Safari が開き自動でペアリングされます。": {
+    "en": "Scanning with an iPhone camera opens Safari and pairs automatically."
+  },
+  "⚠ コロン (:) は ： に自動変換されます": {
+    "en": "⚠ A colon (:) is automatically converted to ："
+  },
+  "⚠ 有効にすると、次回以降のアプリ起動時に自動でネットワーク共有を開始します。ライブラリを外部に見せる意味を理解した上で有効にしてください。": {
+    "en": "⚠ When enabled, network sharing starts automatically the next time the app launches. Enable this only once you understand what it means to expose your library externally."
+  },
+  "⚠ 管理者トークンは設定変更・ファイル削除・共有トークン管理まで全操作を許可します。信頼できる自分の端末にのみ渡してください。": {
+    "en": "⚠ An admin token allows every operation, including changing settings, deleting files, and managing sharing tokens. Only give it to your own trusted devices."
+  },
+  "「%@」 のロックを解除": {
+    "en": "Remove the Lock on “%@”"
+  },
+  "「%@」 の設定": {
+    "en": "Settings for “%@”"
+  },
+  "「%@」 を開く": {
+    "en": "Open “%@”"
+  },
+  "「%@」の既存ファイルも取り込みますか?": {
+    "en": "Also import existing files in “%@”?"
+  },
+  "「%@」を監視フォルダに追加": {
+    "en": "Add “%@” as a Watched Folder"
+  },
+  "「既定に従う」を選ぶと、StackNest 設定の値を使います。": {
+    "en": "Choosing “Follow the Default” uses the value from StackNest Settings."
+  },
+  "この Mac では生体認証 / Apple Watch が利用できません。パスワードのみで解錠されます。": {
+    "en": "Biometric authentication / Apple Watch isn’t available on this Mac. Unlocking uses the password only."
+  },
+  "この Mac で生体認証を有効にするため、パスワードの入力が必要です": {
+    "en": "A password is needed to enable biometric authentication on this Mac"
+  },
+  "このフォルダの既存ファイル（監視開始時にスキップされた分）も取り込みます。": {
+    "en": "Also imports this folder’s existing files (those skipped when watching began)."
+  },
+  "このフォルダ内の既存ファイル（監視開始時にスキップされた分）を取り込みます。取込済みは重複しません。": {
+    "en": "Imports this folder’s existing files (those skipped when watching began). Already-imported files aren’t duplicated."
+  },
+  "このライブラリで有効": {
+    "en": "Enabled for This Library"
+  },
+  "このライブラリで無効": {
+    "en": "Disabled for This Library"
+  },
+  "このライブラリにパスワードロックを設定する": {
+    "en": "Set a Password Lock on This Library"
+  },
+  "この共有トークンの QR を表示": {
+    "en": "Show This Sharing Token’s QR Code"
+  },
+  "この共有トークンの既存接続は再ペアリングが必要になります。": {
+    "en": "Existing connections using this sharing token will need to be re-paired."
+  },
+  "この共有トークンを削除すると、その接続は直ちにできなくなります（取り消し不可）。": {
+    "en": "Deleting this sharing token disconnects it immediately (this can’t be undone)."
+  },
+  "エラー: %@": {
+    "en": "Error: %@"
+  },
+  "オフラインブラウザ…": {
+    "en": "Offline Browser…"
+  },
+  "キャンセル": {
+    "en": "Cancel"
+  },
+  "キー割り当て": {
+    "en": "Key Bindings"
+  },
+  "コピー": {
+    "en": "Copy"
+  },
+  "サブフォルダ": {
+    "en": "Subfolders"
+  },
+  "サブフォルダの中も個別に取り込む": {
+    "en": "Import Subfolder Contents Individually"
+  },
+  "サブフォルダの扱い: 取り込まない / 直下フォルダを1冊としてまとめる / 中のファイルを個別に取り込む": {
+    "en": "How subfolders are handled: don’t import / bundle the folder as one book / import its files individually"
+  },
+  "サブフォルダを1冊として取り込む": {
+    "en": "Import Subfolder as One Book"
+  },
+  "サブフォルダを取り込まない": {
+    "en": "Don’t Import Subfolders"
+  },
+  "サーバ": {
+    "en": "Server"
+  },
+  "サーバ稼働中のみ": {
+    "en": "Only While the Server Is Running"
+  },
+  "サーバ設定…": {
+    "en": "Server Settings…"
+  },
+  "タイトル画面を表示": {
+    "en": "Show the Title Screen"
+  },
+  "デフォルト": {
+    "en": "Default"
+  },
+  "データベースに問題が見つかりました": {
+    "en": "Problems were found in the database"
+  },
+  "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n%@": {
+    "en": "Couldn’t write to the database. Please try again later.\n\n%@"
+  },
+  "データベースを検査": {
+    "en": "Check the Database"
+  },
+  "トークン": {
+    "en": "Token"
+  },
+  "トークンを再生成しますか？": {
+    "en": "Regenerate the Token?"
+  },
+  "トークンを挿入": {
+    "en": "Insert Token"
+  },
+  "トークンコピー": {
+    "en": "Copy Token"
+  },
+  "トークン再生成…": {
+    "en": "Regenerate Token…"
+  },
+  "ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale の接続を確認してください。": {
+    "en": "No network address was found. Check your Wi-Fi / wired / Tailscale connection."
+  },
+  "ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale を確認してください。": {
+    "en": "No network address was found. Check Wi-Fi / wired / Tailscale."
+  },
+  "バックアップ": {
+    "en": "Backup"
+  },
+  "バックアップフォルダを表示": {
+    "en": "Show the Backup Folder"
+  },
+  "パスワード": {
+    "en": "Password"
+  },
+  "パスワード (確認)": {
+    "en": "Password (Confirm)"
+  },
+  "パスワードが違います": {
+    "en": "The password is incorrect"
+  },
+  "パスワードが違います (%lld 回失敗)": {
+    "plural": {
+      "one": "The password is incorrect (%lld failed attempt)",
+      "other": "The password is incorrect (%lld failed attempts)"
+    }
+  },
+  "パスワードを入力してください": {
+    "en": "Enter your password"
+  },
+  "パスワードを変更するには現在のパスワードを入力してください": {
+    "en": "Enter the current password to change the password"
+  },
+  "ビューア": {
+    "en": "Viewer"
+  },
+  "ファイル名からシリーズ・巻数を補完": {
+    "en": "Fill In Series and Volume from Filenames"
+  },
+  "ファイル名フォーマット（プリセット）": {
+    "en": "Filename Format (Presets)"
+  },
+  "フォルダが見つかりません（アクセス不可/未マウント）。スキャンはスキップされます。": {
+    "en": "The folder can’t be found (inaccessible or not mounted). Scanning is skipped."
+  },
+  "フォルダを追加…": {
+    "en": "Add Folder…"
+  },
+  "フォーマット": {
+    "en": "Format"
+  },
+  "ブラウザのタイトルやリモート配信名に使われます。空欄でファイル名「%@」。": {
+    "en": "Used for the browser title and the remote sharing name. Leave blank to use the filename “%@”."
+  },
+  "プリセット": {
+    "en": "Preset"
+  },
+  "プリセット名": {
+    "en": "Preset Name"
+  },
+  "プレビュー:": {
+    "en": "Preview:"
+  },
+  "ペアリング QR コード": {
+    "en": "Pairing QR Code"
+  },
+  "ポート": {
+    "en": "Port"
+  },
+  "ポート %@ で配信中": {
+    "en": "Serving on Port %@"
+  },
+  "ポートは停止中に変更できます。": {
+    "en": "The port can be changed while stopped."
+  },
+  "ポートを使用できません": {
+    "en": "The Port Can’t Be Used"
+  },
+  "メタデータ": {
+    "en": "Metadata"
+  },
+  "ライブラリから削除前に確認ダイアログを表示": {
+    "en": "Show a Confirmation Dialog Before Removing from the Library"
+  },
+  "ライブラリが開いていません": {
+    "en": "The library is not open"
+  },
+  "ライブラリを選択してください": {
+    "en": "Choose a library."
+  },
+  "ライブラリを開くとここに表示されます。": {
+    "en": "Libraries appear here once opened."
+  },
+  "ライブラリ名": {
+    "en": "Library Name"
+  },
+  "ライブラリ既定": {
+    "en": "Library Default"
+  },
+  "ラベル": {
+    "en": "Label"
+  },
+  "ランダム": {
+    "en": "Random"
+  },
+  "リセット": {
+    "en": "Reset"
+  },
+  "リモートキャッシュ": {
+    "en": "Remote Cache"
+  },
+  "リモートブラウザ…": {
+    "en": "Remote Browser…"
+  },
+  "リモート共有の前にご確認ください": {
+    "en": "Please Confirm Before Sharing Remotely"
+  },
+  "リモート共有サーバを稼働": {
+    "en": "Run the Remote Sharing Server"
+  },
+  "リモート閲覧の高速化用に、ページ・表紙をディスクへ自動キャッシュします。": {
+    "en": "Pages and covers are cached to disk automatically to speed up remote viewing."
+  },
+  "リモート閲覧は、外部ビューア設定に関わらず常に内蔵ビューアで表示されます。": {
+    "en": "Remote viewing always uses the built-in viewer, regardless of the external viewer setting."
+  },
+  "ロック": {
+    "en": "Lock"
+  },
+  "ロックを解除するには現在のパスワードを入力してください": {
+    "en": "Enter the current password to remove the lock"
+  },
+  "ロックを解除できませんでした": {
+    "en": "Couldn’t Remove the Lock"
+  },
+  "ロック庫": {
+    "en": "Locked Library"
+  },
+  "ロック解除": {
+    "en": "Remove Lock"
+  },
+  "ロック設定": {
+    "en": "Lock Settings"
+  },
+  "ロック設定を保存できませんでした": {
+    "en": "Couldn’t Save the Lock Settings"
+  },
+  "ローカルコントロールを許可（127.0.0.1）": {
+    "en": "Allow Local Control (127.0.0.1)"
+  },
+  "ローカルコントロール（CLI / MCP）": {
+    "en": "Local Control (CLI / MCP)"
+  },
+  "一般": {
+    "en": "General"
+  },
+  "上限": {
+    "en": "Limit"
+  },
+  "中断": {
+    "en": "Stop"
+  },
+  "今すぐスキャン": {
+    "en": "Scan Now"
+  },
+  "今すぐバックアップ": {
+    "en": "Back Up Now"
+  },
+  "今すぐ再照合": {
+    "en": "Reconcile Now"
+  },
+  "今すぐ空にする": {
+    "en": "Clear Now"
+  },
+  "今後表示しない": {
+    "en": "Don’t Show This Again"
+  },
+  "他のタブの変更は既に保存済みです。ここではロックの変更のみ行います。": {
+    "en": "Changes on other tabs are already saved. Only the lock change happens here."
+  },
+  "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。": {
+    "en": "The lock settings were changed by another operation, so the write was cancelled. Reopen the settings and try again."
+  },
+  "使われにくいポート番号をランダムに設定": {
+    "en": "Randomly pick a port number that's unlikely to be in use"
+  },
+  "使用量": {
+    "en": "Usage"
+  },
+  "保存": {
+    "en": "Save"
+  },
+  "保持する世代数: %lld": {
+    "plural": {
+      "one": "Keep %lld generation",
+      "other": "Keep %lld generations"
+    }
+  },
+  "保持期間": {
+    "en": "Retention Period"
+  },
+  "停止中": {
+    "en": "Stopped"
+  },
+  "全ての表紙を元ファイルから作り直します（1200 px を超えるものは縮小されます）。手動で選んだ表紙・アップロードした表紙は変更されません。続行しますか?": {
+    "en": "This rebuilds every cover from its original file (covers over 1200 px are shrunk). Manually chosen or uploaded covers are not changed. Continue?"
+  },
+  "全ての表紙を元ファイルから作り直します（手動・アップロードした表紙は対象外）。": {
+    "en": "Rebuilds every cover from its original file (manually chosen or uploaded covers are excluded)."
+  },
+  "全ての表紙を再生成します": {
+    "en": "Regenerate All Covers"
+  },
+  "全ライブラリ": {
+    "en": "All Libraries"
+  },
+  "公開する": {
+    "en": "Share"
+  },
+  "共有": {
+    "en": "Sharing"
+  },
+  "共有トークン": {
+    "en": "Sharing Tokens"
+  },
+  "共有トークンの QR: %@": {
+    "en": "Sharing Token QR: %@"
+  },
+  "共有トークンを削除しますか？": {
+    "en": "Delete This Sharing Token?"
+  },
+  "共有トークンを編集": {
+    "en": "Edit Sharing Token"
+  },
+  "共有トークンを追加": {
+    "en": "Add Sharing Token"
+  },
+  "共有トークンを追加すると、相手ごとに見せるライブラリと権限を分けられます。": {
+    "en": "Adding a sharing token lets you show different libraries and permissions to each recipient."
+  },
+  "内蔵": {
+    "en": "Built-In"
+  },
+  "内蔵ビューア": {
+    "en": "Built-In Viewer"
+  },
+  "再生成": {
+    "en": "Regenerate"
+  },
+  "再生成 (%lld 件)": {
+    "plural": {
+      "one": "Regenerate (%lld item)",
+      "other": "Regenerate (%lld items)"
+    }
+  },
+  "再生成完了": {
+    "en": "Regeneration Complete"
+  },
+  "初回ウィザード": {
+    "en": "First-Run Wizard"
+  },
+  "初回ウィザードを表示": {
+    "en": "Show the First-Run Wizard"
+  },
+  "別のポートにして再起動": {
+    "en": "Restart with a Different Port"
+  },
+  "削除": {
+    "en": "Delete"
+  },
+  "削除…": {
+    "en": "Delete…"
+  },
+  "前回開いていたライブラリを開く": {
+    "en": "Open the Last-Opened Library"
+  },
+  "動画とテキスト（txt・md・rtf）は内蔵ビューアで開けないため、常に外部ビューアで開きます。": {
+    "en": "Movies and text (txt, md, rtf) cannot be opened in the built-in viewer, so they always open in the external viewer."
+  },
+  "厚い本の閾値を既定に従う（現在: %lld ページ）": {
+    "plural": {
+      "one": "Follow the Default Thick-Book Threshold (Currently: %lld Page)",
+      "other": "Follow the Default Thick-Book Threshold (Currently: %lld Pages)"
+    }
+  },
+  "厚い本判定閾値 (ページ数)": {
+    "en": "Thick-Book Threshold (Pages)"
+  },
+  "厚い本判定閾値（ページ数）": {
+    "en": "Thick-Book Threshold (Pages)"
+  },
+  "取り込み": {
+    "en": "Import"
+  },
+  "取り込む": {
+    "en": "Import"
+  },
+  "各種類別ビューアが未設定の book はこの設定で開かれます。": {
+    "en": "Books with no per-category viewer set are opened with this setting."
+  },
+  "同じ Mac の CLI `stacknest-cli` は自動接続します。ネットワークには公開されません。": {
+    "en": "The `stacknest-cli` CLI on this same Mac connects automatically. This is not exposed to the network."
+  },
+  "同期しない": {
+    "en": "Don’t Sync"
+  },
+  "同期する項目": {
+    "en": "Sync With"
+  },
+  "名前": {
+    "en": "Name"
+  },
+  "問題は見つかりませんでした": {
+    "en": "No problems were found"
+  },
+  "変更": {
+    "en": "Change"
+  },
+  "変更…": {
+    "en": "Change…"
+  },
+  "外部": {
+    "en": "External"
+  },
+  "外部ビューア": {
+    "en": "External Viewer"
+  },
+  "括弧のネストはサポートされません": {
+    "en": "Nested brackets are not supported"
+  },
+  "指定ライブラリ": {
+    "en": "Specific Library"
+  },
+  "指定ライブラリを毎回開く": {
+    "en": "Always Open a Specific Library"
+  },
+  "接続": {
+    "en": "Connection"
+  },
+  "接続先": {
+    "en": "Connect To"
+  },
+  "接続先: %@ — %@": {
+    "en": "Connect to: %@ — %@"
+  },
+  "操作": {
+    "en": "Actions"
+  },
+  "新規プリセット": {
+    "en": "New Preset"
+  },
+  "既存のシリーズ・巻数が空欄の本のみ、タイトル／ファイル名から自動推測して補完します。": {
+    "en": "Only books with an empty series or volume are filled in, guessed automatically from the title or filename."
+  },
+  "既存はスキップ": {
+    "en": "Skip Existing"
+  },
+  "既存も取り込む": {
+    "en": "Import Existing Too"
+  },
+  "既定 ✓": {
+    "en": "Default ✓"
+  },
+  "既定に従う（現在: %@）": {
+    "en": "Follow the Default (Currently: %@)"
+  },
+  "既定に設定": {
+    "en": "Set as Default"
+  },
+  "更新対象がありませんでした": {
+    "en": "There was nothing to update"
+  },
+  "書籍追加時の挙動": {
+    "en": "Behavior When Adding Books"
+  },
+  "有効": {
+    "en": "Enabled"
+  },
+  "有効にすると、ウィンドウを閉じる際に変更があればバックアップを保存し、世代数を超えた古いものを削除します。": {
+    "en": "When enabled, a backup is saved on any change when the window closes, and older backups beyond the kept generations are deleted."
+  },
+  "未指定の場合「%@」": {
+    "en": "“%@” if not set"
+  },
+  "未知のトークン: %@": {
+    "en": "Unknown token: %@"
+  },
+  "本の種類を自動分類": {
+    "en": "Auto-Classify Book Types"
+  },
+  "本の種類を自動分類する": {
+    "en": "Automatically Classify Book Types"
+  },
+  "本（アーカイブ/PDF/画像/フォルダ）を移動せずその場所を参照して追加します（追加のみ）。サブフォルダの扱いは各フォルダごとに「取り込まない/1冊として取り込む/中も個別に取り込む」から選べます。NAS など共有ボリュームでは最大 60 秒で反映されます。": {
+    "en": "Books (archives/PDF/images/folders) are added by reference without moving them (add only). How subfolders are handled can be chosen per folder: don’t import / import as one book / import contents individually. On shared volumes such as a NAS, this takes effect within 60 seconds."
+  },
+  "構文エラー": {
+    "en": "Syntax error"
+  },
+  "権限": {
+    "en": "Permission"
+  },
+  "無制限": {
+    "en": "Unlimited"
+  },
+  "無効": {
+    "en": "Disabled"
+  },
+  "現在、未登録の取り込み候補はありません。以降に追加されたファイルを自動取込します。": {
+    "en": "There are currently no unregistered import candidates. Files added from now on will be imported automatically."
+  },
+  "現在のパスワード": {
+    "en": "Current Password"
+  },
+  "生体認証 / Apple Watch でも解錠を許可": {
+    "en": "Also Allow Unlocking with Biometrics / Apple Watch"
+  },
+  "生体認証で解錠": {
+    "en": "Unlock with Biometrics"
+  },
+  "生体認証で解錠できます": {
+    "en": "You can unlock with biometric authentication"
+  },
+  "生体認証を有効にするには現在のパスワードを再入力してください": {
+    "en": "Re-enter the current password to enable biometric authentication"
+  },
+  "画像（アーカイブ・フォルダ・PDF・画像ファイル）": {
+    "en": "Images (Archives, Folders, PDF, Image Files)"
+  },
+  "監視フォルダが未設定です。「フォルダを追加…」で指定してください。": {
+    "en": "No watched folder is set. Choose one with “Add Folder…”."
+  },
+  "監視フォルダ直下に入った本を自動でライブラリに追加します。": {
+    "en": "Books placed directly in a watched folder are added to the library automatically."
+  },
+  "確認パスワードが一致しません": {
+    "en": "The confirmation password doesn’t match"
+  },
+  "稼働中（127.0.0.1）": {
+    "en": "Running (127.0.0.1)"
+  },
+  "管理者": {
+    "en": "Admin"
+  },
+  "編集": {
+    "en": "Edit"
+  },
+  "編集…": {
+    "en": "Edit…"
+  },
+  "編集可": {
+    "en": "Can Edit"
+  },
+  "編集後にバックアップを保存": {
+    "en": "Save a Backup After Editing"
+  },
+  "自動分類": {
+    "en": "Auto-Classify"
+  },
+  "自動追加": {
+    "en": "Auto-Add"
+  },
+  "自動追加を有効にする": {
+    "en": "Enable Auto-Add"
+  },
+  "表示": {
+    "en": "Display"
+  },
+  "表紙を再生成": {
+    "en": "Regenerate Covers"
+  },
+  "表紙を再生成中…": {
+    "en": "Regenerating Covers…"
+  },
+  "補完完了": {
+    "en": "Fill-In Complete"
+  },
+  "複製": {
+    "en": "Duplicate"
+  },
+  "見せるライブラリ": {
+    "en": "Libraries to Show"
+  },
+  "詳細ペイン": {
+    "en": "Detail Pane"
+  },
+  "詳細ペインに book ID を表示": {
+    "en": "Show the Book ID in the Detail Pane"
+  },
+  "起動時": {
+    "en": "At Startup"
+  },
+  "起動時に共有を自動で開始する": {
+    "en": "Automatically Start Sharing at Launch"
+  },
+  "追加": {
+    "en": "Add"
+  },
+  "選んだライブラリだけ": {
+    "en": "Only the Chosen Libraries"
+  },
+  "選んだ項目と macOS の Finder タグを双方向に同期します（庫を開いたときと、この「今すぐ再照合」のときだけ）。どちらかで消したタグはもう一方からも消えます。タグの色はそのまま保たれますが、名前に「, 」を含むタグは（区切り文字と衝突するため）同期対象から外れます。": {
+    "en": "Syncs the chosen field with macOS Finder tags in both directions (only when the library is opened, and with this “Reconcile Now”). Removing a tag on either side removes it on the other. Tag colors are preserved, but tags whose name contains “, ” are excluded from syncing (it collides with the separator)."
+  },
+  "配信ライブラリ": {
+    "en": "Libraries Being Served"
+  },
+  "閉じていない括弧: %@": {
+    "en": "Unclosed bracket: %@"
+  },
+  "閉じる": {
+    "en": "Close"
+  },
+  "開いた本を全ページ先読みする（帯域・容量を使用）": {
+    "en": "Prefetch All Pages of an Opened Book (Uses Bandwidth and Storage)"
+  },
+  "開く": {
+    "en": "Open"
+  },
+  "閲覧": {
+    "en": "View"
+  },
+  "閲覧のみ": {
+    "en": "View Only"
+  },
+  "電子書籍": {
+    "en": "E-Book"
+  },
+  "電子書籍（EPUB）": {
+    "en": "E-Books (EPUB)"
+  },
+  "＋ 共有トークンを追加": {
+    "en": "+ Add a Sharing Token"
+  }
+}

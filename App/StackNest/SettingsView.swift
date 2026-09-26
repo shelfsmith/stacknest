@@ -227,8 +227,8 @@ struct SettingsView: View {
 
                 Section("外部ビューア") {
                     viewerSettingsRow(
-                        label: "デフォルト",
-                        caption: "各種類別ビューアが未設定の book はこの設定で開かれます。",
+                        label: Text("デフォルト"),
+                        caption: Text("各種類別ビューアが未設定の book はこの設定で開かれます。"),
                         path: settings.externalViewerAppPath,
                         onChoose: { chooseDefaultViewer() },
                         onReset: settings.externalViewerAppPath != nil
@@ -237,8 +237,8 @@ struct SettingsView: View {
                     )
                     ForEach(BookCategory.allCases, id: \.self) { category in
                         viewerSettingsRow(
-                            label: category.displayName,
-                            caption: category.extensionsHint,
+                            label: Text(category.displayName),
+                            caption: Text(category.extensionsHint),
                             path: settings.categoryViewerPaths[category],
                             onChoose: { chooseCategoryViewer(category) },
                             onReset: settings.categoryViewerPaths[category] != nil
@@ -251,8 +251,8 @@ struct SettingsView: View {
                     // smoke のコメント: フォールバック先は既定のみ（`.text` は経由しない）ため、
                     // 説明は他の行と同じく拡張子の表示に揃える。
                     viewerSettingsRow(
-                        label: "電子書籍",
-                        caption: ".epub",
+                        label: Text("電子書籍"),
+                        caption: Text(".epub"),
                         path: settings.epubViewerAppPath,
                         onChoose: { chooseEPUBViewer() },
                         onReset: settings.epubViewerAppPath != nil
@@ -346,15 +346,15 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func viewerSettingsRow(
-        label: String,
-        caption: String,
+        label: Text,
+        caption: Text,
         path: String?,
         onChoose: @escaping () -> Void,
         onReset: (() -> Void)?
     ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(label)
+                label
                     .frame(width: labelColumnWidth, alignment: .leading)
                 if let path {
                     Image(nsImage: NSWorkspace.shared.icon(forFile: path))
@@ -376,7 +376,7 @@ struct SettingsView: View {
                 Button("変更…") { onChoose() }
                     .controlSize(.small)
             }
-            Text(caption)
+            caption
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .padding(.leading, labelColumnWidth + 8)
@@ -385,19 +385,25 @@ struct SettingsView: View {
 
     @ViewBuilder
     private func pathSettingsRow(
-        label: String,
+        label: LocalizedStringKey,
         pathString: String,
-        placeholder: String,
+        placeholder: LocalizedStringKey,
         onChoose: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 8) {
             Text(label)
                 .frame(width: labelColumnWidth, alignment: .leading)
-            Text(pathString.isEmpty ? placeholder : pathString)
-                .foregroundStyle(pathString.isEmpty ? .secondary : .primary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .help(pathString.isEmpty ? "" : pathString)
+            Group {
+                if pathString.isEmpty {
+                    Text(placeholder)
+                } else {
+                    Text(pathString)
+                }
+            }
+            .foregroundStyle(pathString.isEmpty ? .secondary : .primary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(pathString.isEmpty ? "" : pathString)
             Spacer(minLength: 8)
             Button("変更…") { onChoose() }
                 .controlSize(.small)

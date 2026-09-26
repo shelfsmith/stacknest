@@ -13,7 +13,7 @@ private let settingsLogger = Logger(subsystem: "app.shelfsmith.stacknest", categ
 /// 表示用エラー。DB エラーとは区別したメッセージを出すためだけの薄いラッパ。
 private struct LockConflictError: LocalizedError {
     var errorDescription: String? {
-        "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。"
+        String(localized: "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。")
     }
 }
 
@@ -174,8 +174,8 @@ struct LibrarySettingsSheet: View {
         .alert("再生成完了", isPresented: $showRegenerationResult) {
             Button("OK") { regenerationTask = nil }
         } message: {
-            Text(String(format: "%d 件を再生成しました（約 %.1f MB 削減）",
-                        regenerationProgress.0, regenerationSavedMB))
+            let mbText = String(format: "%.1f", regenerationSavedMB)
+            Text(String(localized: "\(regenerationProgress.0) 件を再生成しました（約 \(mbText) MB 削減）"))
         }
     }
 
@@ -291,16 +291,18 @@ struct LibrarySettingsSheet: View {
             VStack(alignment: .leading, spacing: 8) {
                 Button("ファイル名からシリーズ・巻数を補完") {
                     guard let state = appState else {
-                        recomputeResultMessage = "ライブラリが開いていません"
+                        recomputeResultMessage = String(localized: "ライブラリが開いていません")
                         showRecomputeResult = true
                         return
                     }
                     do {
                         let count = try state.recomputeMetadataFromFilenames(undoManager: undoManager)
-                        recomputeResultMessage = count == 0 ? "更新対象がありませんでした" : "\(count) 件を更新しました"
+                        recomputeResultMessage = count == 0
+                            ? String(localized: "更新対象がありませんでした")
+                            : String(localized: "\(count) 件を更新しました")
                         showRecomputeResult = true
                     } catch {
-                        recomputeResultMessage = "エラー: \(error.localizedDescription)"
+                        recomputeResultMessage = String(localized: "エラー: \(error.localizedDescription)")
                         showRecomputeResult = true
                     }
                 }
@@ -373,7 +375,7 @@ struct LibrarySettingsSheet: View {
 
     private func performIntegrityCheck() {
         guard let db = appState?.database else { return }
-        let rows = (try? db.integrityCheck()) ?? ["(エラー)"]
+        let rows = (try? db.integrityCheck()) ?? [String(localized: "(エラー)")]
         let healthy = rows == ["ok"]
         let alert = NSAlert()
         // fix round 4 (Minor, whole-branch review): 「整合性」は本フェーズで蔵書ファイルの
@@ -382,8 +384,8 @@ struct LibrarySettingsSheet: View {
         // リモート版の同機能（`RemoteLibrarySettingsSheet.swift` の alert title「データベース検査結果」）
         // と揃えた。
         alert.messageText = healthy
-            ? "問題は見つかりませんでした"
-            : "データベースに問題が見つかりました"
+            ? String(localized: "問題は見つかりませんでした")
+            : String(localized: "データベースに問題が見つかりました")
         // 正常時は SQLite の "ok" 行をそのまま見せない（メッセージで十分）。
         alert.informativeText = healthy ? "" : rows.prefix(20).joined(separator: "\n")
         alert.runModal()
@@ -418,7 +420,7 @@ struct LibrarySettingsSheet: View {
                         settings.importAutoClassify = (sel == 0) ? nil : (sel == 1)
                     }
                 )) {
-                    Text("既定に従う（現在: \(ImportDefaults.globalAutoClassify() ? "有効" : "無効")）").tag(0)
+                    Text("既定に従う（現在: \(ImportDefaults.globalAutoClassify() ? String(localized: "有効") : String(localized: "無効"))）").tag(0)
                     Text("このライブラリで有効").tag(1)
                     Text("このライブラリで無効").tag(2)
                 }
@@ -496,7 +498,7 @@ struct LibrarySettingsSheet: View {
                         settings.importPreferEPUBTitle = (sel == 0) ? nil : (sel == 1)
                     }
                 )) {
-                    Text("既定に従う（現在: \(ImportDefaults.globalPreferEPUBTitle() ? "有効" : "無効")）").tag(0)
+                    Text("既定に従う（現在: \(ImportDefaults.globalPreferEPUBTitle() ? String(localized: "有効") : String(localized: "無効"))）").tag(0)
                     Text("このライブラリで有効").tag(1)
                     Text("このライブラリで無効").tag(2)
                 }
@@ -535,14 +537,14 @@ struct LibrarySettingsSheet: View {
         stagedPresets[i].format = format
     }
     private func addPreset() {
-        let p = FilenameFormatPreset(id: UUID().uuidString, name: "新規プリセット", format: "@title")
+        let p = FilenameFormatPreset(id: UUID().uuidString, name: String(localized: "新規プリセット"), format: "@title")
         stagedPresets.append(p)
         selectedPresetID = p.id
         loadSelectedPreset()
     }
     private func duplicatePreset() {
         guard let src = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
-        let p = FilenameFormatPreset(id: UUID().uuidString, name: src.name + " のコピー", format: src.format)
+        let p = FilenameFormatPreset(id: UUID().uuidString, name: src.name + String(localized: " のコピー"), format: src.format)
         stagedPresets.append(p)
         selectedPresetID = p.id
         loadSelectedPreset()
@@ -579,16 +581,16 @@ struct LibrarySettingsSheet: View {
             formatError = Self.describe(error)
             samplePreview = []
         } catch {
-            formatError = "構文エラー"
+            formatError = String(localized: "構文エラー")
             samplePreview = []
         }
     }
 
     static func describe(_ e: FilenameFormat.ParseError) -> String {
         switch e {
-        case .unknownToken(let raw): return "未知のトークン: \(raw)"
-        case .unclosedBracket(let c): return "閉じていない括弧: \(c)"
-        case .nestedBracket: return "括弧のネストはサポートされません"
+        case .unknownToken(let raw): return String(localized: "未知のトークン: \(raw)")
+        case .unclosedBracket(let c): return String(localized: "閉じていない括弧: \(String(c))")
+        case .nestedBracket: return String(localized: "括弧のネストはサポートされません")
         }
     }
 
@@ -666,7 +668,7 @@ struct LibrarySettingsSheet: View {
                 if useBiometricInput {
                     // ON にするにはパスワード再入力必要（アームにはハッシュ照合のため平文が要る）
                     let alert = NSAlert()
-                    alert.messageText = "生体認証を有効にするには現在のパスワードを再入力してください"
+                    alert.messageText = String(localized: "生体認証を有効にするには現在のパスワードを再入力してください")
                     alert.runModal()
                     useBiometricInput = false
                     return
@@ -759,8 +761,8 @@ struct LibrarySettingsSheet: View {
     /// G25c: ロックの書き込みに失敗したことを伝える。シートは閉じない（利用者が再試行できるように）。
     private func presentLockWriteFailure(_ error: Error) {
         let alert = NSAlert()
-        alert.messageText = "ロック設定を保存できませんでした"
-        alert.informativeText = "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n\(error.localizedDescription)"
+        alert.messageText = String(localized: "ロック設定を保存できませんでした")
+        alert.informativeText = String(localized: "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n\(error.localizedDescription)")
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }
@@ -773,26 +775,26 @@ struct LibrarySettingsSheet: View {
     static let sampleRecords: [BookRecord] = [
         BookRecord(
             id: 0,
-            title: "ブラックジャックによろしく 第01巻",
-            author: "佐藤秀峰",
-            genre: "一般コミック",
+            title: "ブラックジャックによろしく 第01巻",  // l10n:ignore sample book data for the filename-format preview
+            author: "佐藤秀峰",  // l10n:ignore sample book data for the filename-format preview
+            genre: "一般コミック",  // l10n:ignore sample book data for the filename-format preview
             dateAdded: Date(),
-            keywordA: "医療",
-            keywordB: "名作"
+            keywordA: "医療",  // l10n:ignore sample book data for the filename-format preview
+            keywordB: "名作"  // l10n:ignore sample book data for the filename-format preview
         ),
         // keywordB は nil → [@keywordB] ブロックが省略される
         BookRecord(
             id: 0,
-            title: "ブラックジャックによろしく 第02巻",
-            author: "佐藤秀峰",
-            genre: "一般コミック",
+            title: "ブラックジャックによろしく 第02巻",  // l10n:ignore sample book data for the filename-format preview
+            author: "佐藤秀峰",  // l10n:ignore sample book data for the filename-format preview
+            genre: "一般コミック",  // l10n:ignore sample book data for the filename-format preview
             dateAdded: Date(),
-            keywordA: "医療"
+            keywordA: "医療"  // l10n:ignore sample book data for the filename-format preview
         ),
         // author / genre / keyword すべて nil → ブラケットブロックがすべて省略される
         BookRecord(
             id: 0,
-            title: "ブラックジャックによろしく 第03巻",
+            title: "ブラックジャックによろしく 第03巻",  // l10n:ignore sample book data for the filename-format preview
             dateAdded: Date()
         )
     ]

@@ -118,3 +118,10 @@
 | 続きから／最初から | Continue／Start Over | 再開ダイアログの二択 |
 | ページ方向 | Page Direction | 右→左 (Right to Left) ／左→右 (Left to Right) |
 | キー操作 | Key Bindings | ビューア内キー割当ヘルプの見出し |
+## 追加語（Task 11 / U3・設定タブ全般）
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| 自動追加 | Auto-Add | 監視フォルダの自動取り込み機能名（LibrarySettingsSheet の GroupBox 見出し） |
+| 自動分類 | Auto-Classify | 本の種類の自動判定機能名 |
+| 既定に従う（現在: …） | Follow the Default (Currently: …) | 3-way ピッカー（既定に従う/このライブラリで有効/無効）の共通句 |

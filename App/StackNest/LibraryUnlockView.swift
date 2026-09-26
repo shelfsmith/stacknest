@@ -69,7 +69,7 @@ struct LibraryUnlockView: View {
                 HStack {
                     Spacer()
                     Button(action: tryBiometric) {
-                        let label: String = {
+                        let label: LocalizedStringKey = {
                             switch biometricInfo.kind {
                             case .touchID: return "Touch ID / Apple Watch で解錠"
                             case .appleWatch: return "Apple Watch で解錠"
@@ -128,7 +128,7 @@ struct LibraryUnlockView: View {
     private func tryBiometric() {
         logger.info("tryBiometric: start bundleURL=\(bundleURL.absoluteString, privacy: .public)")
         isAttemptingBiometric = true
-        LibraryLock.evaluateBiometric(reason: "「\(bundleName)」 のロックを解除") { success, evalError in
+        LibraryLock.evaluateBiometric(reason: String(localized: "「\(bundleName)」 のロックを解除")) { success, evalError in
             isAttemptingBiometric = false
             logger.info("evaluateBiometric callback: success=\(success) error=\(evalError?.localizedDescription ?? "nil")")
             guard success else {

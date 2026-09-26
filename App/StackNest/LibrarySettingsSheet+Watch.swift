@@ -127,18 +127,18 @@ extension LibrarySettingsSheet {
             let candidates = WatchFolderScanner.importable(
                 topLevel: top, existingLibraryPaths: existing, baseline: [])
             let alert = NSAlert()
-            alert.messageText = "「\(dir.lastPathComponent)」を監視フォルダに追加"
+            alert.messageText = String(localized: "「\(dir.lastPathComponent)」を監視フォルダに追加")
             if candidates.isEmpty {
-                alert.informativeText = "現在、未登録の取り込み候補はありません。以降に追加されたファイルを自動取込します。"
-                alert.addButton(withTitle: "追加")
-                alert.addButton(withTitle: "キャンセル")
+                alert.informativeText = String(localized: "現在、未登録の取り込み候補はありません。以降に追加されたファイルを自動取込します。")
+                alert.addButton(withTitle: String(localized: "追加"))
+                alert.addButton(withTitle: String(localized: "キャンセル"))
                 guard alert.runModal() == .alertFirstButtonReturn else { continue }
                 settings.watchedFolders.append(WatchedFolder(id: UUID().uuidString, path: dir.path))
             } else {
-                alert.informativeText = "\(candidates.count) 件の未登録ファイルが見つかりました。今すぐ取り込みますか?"
-                alert.addButton(withTitle: "取り込む")
-                alert.addButton(withTitle: "既存はスキップ")
-                alert.addButton(withTitle: "キャンセル")
+                alert.informativeText = String(localized: "\(candidates.count) 件の未登録ファイルが見つかりました。今すぐ取り込みますか?")
+                alert.addButton(withTitle: String(localized: "取り込む"))
+                alert.addButton(withTitle: String(localized: "既存はスキップ"))
+                alert.addButton(withTitle: String(localized: "キャンセル"))
                 let resp = alert.runModal()
                 if resp == .alertThirdButtonReturn { continue }
                 if resp == .alertSecondButtonReturn {

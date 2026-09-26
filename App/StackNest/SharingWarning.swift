@@ -20,19 +20,15 @@ import AppCore
         }
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "リモート共有の前にご確認ください"
+        alert.messageText = String(localized: "リモート共有の前にご確認ください")
         // informativeText は中央寄せ・改行が散らばるため、左詰め＋両端割り付けの
         // accessoryView（NSTextField）で本文を出す（smoke 4.2c-10/11 v2 R4）。
-        let bodyText = "StackNest のリモート共有は個人利用向けの機能です。"
-            + "あなたに著作権のないコンテンツ（市販の漫画・書籍など）を不特定多数がアクセスできる形で"
-            + "公開すると、著作権法上の公衆送信可能化権の侵害となるおそれがあります。"
-            + "共有は信頼できる範囲（家庭内・自分のデバイス間）に限定し、"
-            + "ポートを直接インターネットに公開せず VPN 経由でご利用ください。"
+        let bodyText = String(localized: "StackNest のリモート共有は個人利用向けの機能です。あなたに著作権のないコンテンツ（市販の漫画・書籍など）を不特定多数がアクセスできる形で公開すると、著作権法上の公衆送信可能化権の侵害となるおそれがあります。共有は信頼できる範囲（家庭内・自分のデバイス間）に限定し、ポートを直接インターネットに公開せず VPN 経由でご利用ください。")
         alert.accessoryView = Self.justifiedBody(bodyText, width: 260)
-        alert.addButton(withTitle: "公開する")    // .alertFirstButtonReturn
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: String(localized: "公開する"))    // .alertFirstButtonReturn
+        alert.addButton(withTitle: String(localized: "キャンセル"))
         alert.showsSuppressionButton = true
-        alert.suppressionButton?.title = "今後表示しない"
+        alert.suppressionButton?.title = String(localized: "今後表示しない")
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }   // キャンセル → 何もしない
         if alert.suppressionButton?.state == .on {

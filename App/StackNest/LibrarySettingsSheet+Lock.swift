@@ -130,12 +130,12 @@ extension LibrarySettingsSheet {
 
     func biometricStatusLabel(canEval: Bool, kind: BiometryKind) -> String {
         guard canEval else {
-            return "この Mac では生体認証 / Apple Watch が利用できません。パスワードのみで解錠されます。"
+            return String(localized: "この Mac では生体認証 / Apple Watch が利用できません。パスワードのみで解錠されます。")
         }
         switch kind {
-        case .touchID: return "Touch ID / Apple Watch で解錠できます"
-        case .appleWatch: return "Apple Watch で解錠できます"
-        default: return "生体認証で解錠できます"
+        case .touchID: return String(localized: "Touch ID / Apple Watch で解錠できます")
+        case .appleWatch: return String(localized: "Apple Watch で解錠できます")
+        default: return String(localized: "生体認証で解錠できます")
         }
     }
 
@@ -156,16 +156,16 @@ extension LibrarySettingsSheet {
             do {
                 guard try settings.clearLock(expectedHash: hash) else {
                     let alert = NSAlert()
-                    alert.messageText = "ロックを解除できませんでした"
-                    alert.informativeText = "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。"
+                    alert.messageText = String(localized: "ロックを解除できませんでした")
+                    alert.informativeText = String(localized: "他の操作でロック設定が変更されたため、書き込みを中止しました。設定を開き直してもう一度お試しください。")
                     alert.addButton(withTitle: "OK")
                     alert.runModal()
                     return
                 }
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "ロックを解除できませんでした"
-                alert.informativeText = "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n\(error.localizedDescription)"
+                alert.messageText = String(localized: "ロックを解除できませんでした")
+                alert.informativeText = String(localized: "データベースに書き込めませんでした。時間をおいて再度お試しください。\n\n\(error.localizedDescription)")
                 alert.addButton(withTitle: "OK")
                 alert.runModal()
                 return
@@ -183,7 +183,7 @@ extension LibrarySettingsSheet {
         } else {
             // 間違い: 入力欄クリア + error 表示
             disableLockPassword = ""
-            disableLockError = "パスワードが違います"
+            disableLockError = String(localized: "パスワードが違います")
         }
     }
 
@@ -203,7 +203,7 @@ extension LibrarySettingsSheet {
                                           currentPasswordInput: changeLockPasswordInput) else {
             // 間違い: 入力欄クリア + error 表示（シートは開いたまま再試行できる）
             changeLockPasswordInput = ""
-            changeLockError = "パスワードが違います"
+            changeLockError = String(localized: "パスワードが違います")
             return
         }
         changeLockPasswordInput = ""
