@@ -21,7 +21,7 @@ struct HelpSection: Equatable {
 /// ヘルプ本文のデータ（日英）。描画は `HelpView` が担い、ここは静的データのみを持つ。
 enum HelpContent {
     /// U5 で英語の本文が入るまでは `false`。`true` になるまで `sections(for: .en)` は `ja` を返す。
-    static let hasEnglish = false
+    static let hasEnglish = true
 
     static func sections(for lang: L10nLang) -> [HelpSection] {
         switch lang {

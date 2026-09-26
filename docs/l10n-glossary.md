@@ -37,3 +37,16 @@
 
 **文体**: メニューとボタンは Apple HIG の Title Case（例 "Reveal in Finder"）。説明文とエラー文は文頭だけ大文字の文。省略記号は `…`（U+2026）。
 実装中に出た語は `docs/l10n-glossary.md` に追記する（そちらが正本。この表は起点）。
+
+## 追加語彙（U5・ヘルプ英訳で新規に訳出した語）
+
+| 日本語 | 英訳 |
+|---|---|
+| 命名プリセット | Naming Preset |
+| 簡易チェック | Quick Check |
+| 詳細（CRC）チェック | Detailed (CRC) Check |
+| ページ送りの演出 | Page Turn Effect |
+| ノンブル（章ごとのページ番号） | Page Number |
+| 全画面で開く | Open in Full Screen |
+| 配信インジケータ | Broadcast Indicator |
+| 共有トークン | Sharing Token |
