@@ -3,6 +3,7 @@ import Foundation
 import ArgumentParser
 import LibraryServerAPI
 import StackroomFormat
+import StackNestL10n
 
 // MARK: - Entry Point
 
@@ -10,7 +11,7 @@ import StackroomFormat
 struct Stacknest: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "stacknest-cli",
-        abstract: "StackNest ライブラリ操作 CLI",
+        abstract: L10n.text("StackNest ライブラリ操作 CLI"),
         subcommands: [Libraries.self, FinderTagsCmd.self, List.self, Add.self, Rm.self, Set.self,
                       Detail.self, Facets.self, Shelves.self, Me.self,
                       Shelf.self, Watch.self, Lock.self, ImportConfigCmd.self,
@@ -23,16 +24,16 @@ struct Stacknest: ParsableCommand {
 // MARK: - 共通オプション
 
 struct CommonOptions: ParsableArguments {
-    @Option(name: .long, help: "StackNest サーバの URL（例: http://127.0.0.1:8765）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("StackNest サーバの URL（例: http://127.0.0.1:8765）")))
     var url: String?
 
-    @Option(name: .long, help: "アクセストークン")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("アクセストークン")))
     var token: String?
 
-    @Option(name: [.customShort("L"), .long], help: "ライブラリ名または UUID")
+    @Option(name: [.customShort("L"), .long], help: ArgumentHelp(L10n.text("ライブラリ名または UUID")))
     var library: String?
 
-    @Flag(name: .long, help: "JSON 形式で出力する")
+    @Flag(name: .long, help: ArgumentHelp(L10n.text("JSON 形式で出力する")))
     var json: Bool = false
 }
 
@@ -48,22 +49,22 @@ extension ParsableCommand {
             let code: Int32
             switch e {
             case .http(let s) where s == 403:
-                fputs("エラー: アクセスが拒否されました（HTTP 403）。ロック庫の場合はライブラリトークン（env STACKNEST_LIBRARY_TOKEN）が失効している可能性があります。unlock で再取得してください。\n", stderr)
+                fputs(L10n.text("エラー: アクセスが拒否されました（HTTP 403）。ロック庫の場合はライブラリトークン（env STACKNEST_LIBRARY_TOKEN）が失効している可能性があります。unlock で再取得してください。\n"), stderr)
                 code = 3
             case .http(let s) where s == 401:
-                fputs("エラー: 認証に失敗しました（HTTP 401）。トークンを確認してください（設定 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n", stderr)
+                fputs(L10n.text("エラー: 認証に失敗しました（HTTP 401）。トークンを確認してください（設定 ▸ ローカルアクセス ▸ 再生成、または --token で指定）。\n"), stderr)
                 code = 2
             case .notFound:
-                fputs("エラー: 対象が見つかりません（HTTP 404）。\n", stderr)
+                fputs(L10n.text("エラー: 対象が見つかりません（HTTP 404）。\n"), stderr)
                 code = 2
             case .http(let s):
-                fputs("エラー: サーバが HTTP \(s) を返しました。\n", stderr)
+                fputs(L10n.format("エラー: サーバが HTTP %d を返しました。\n", s), stderr)
                 code = 2
             case .network:
-                fputs("エラー: サーバに接続できません。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください（または --url / --token）。\n", stderr)
+                fputs(L10n.text("エラー: サーバに接続できません。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください（または --url / --token）。\n"), stderr)
                 code = 2
             case .decode:
-                fputs("エラー: サーバ応答を解釈できませんでした。\n", stderr)
+                fputs(L10n.text("エラー: サーバ応答を解釈できませんでした。\n"), stderr)
                 code = 2
             }
             throw ExitCode(code)
@@ -84,7 +85,7 @@ extension ParsableCommand {
             defaultsPort: AppDefaults.localPort(),
             defaultsToken: AppDefaults.localToken()
         ) else {
-            fputs("エラー: 接続先を解決できませんでした。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください。\n--url / --token で明示指定することもできます。\n", stderr)
+            fputs(L10n.text("エラー: 接続先を解決できませんでした。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください。\n--url / --token で明示指定することもできます。\n"), stderr)
             throw ExitCode(2)
         }
         return ep
@@ -101,23 +102,23 @@ extension ParsableCommand {
         decoder.dateDecodingStrategy = .iso8601
         let libs = try decoder.decode([LibraryDTO].self, from: data)
         if libs.isEmpty {
-            fputs("エラー: 開いているライブラリがありません。StackNest でライブラリを開いてください。\n", stderr)
+            fputs(L10n.text("エラー: 開いているライブラリがありません。StackNest でライブラリを開いてください。\n"), stderr)
             throw ExitCode(2)
         }
         guard let arg = libArg else {
             if libs.count == 1 { return libs[0] }
-            fputs("エラー: ライブラリが複数あります。--library で指定してください:\n", stderr)
+            fputs(L10n.text("エラー: ライブラリが複数あります。--library で指定してください:\n"), stderr)
             for lib in libs { fputs("  \(lib.id)  \(lib.name)\n", stderr) }
             throw ExitCode(2)
         }
         let matches = libs.filter { $0.id == arg || $0.name == arg }
         if matches.count == 1 { return matches[0] }
         if matches.count > 1 {
-            fputs("エラー: 名前「\(arg)」が複数のライブラリに一致します。UUID で指定してください:\n", stderr)
+            fputs(L10n.format("エラー: 名前「%@」が複数のライブラリに一致します。UUID で指定してください:\n", arg), stderr)
             for lib in matches { fputs("  \(lib.id)  \(lib.name)\n", stderr) }
             throw ExitCode(2)
         }
-        fputs("エラー: ライブラリ「\(arg)」が見つかりません。\n", stderr)
+        fputs(L10n.format("エラー: ライブラリ「%@」が見つかりません。\n", arg), stderr)
         throw ExitCode(2)
     }
 }
@@ -127,7 +128,7 @@ extension ParsableCommand {
 struct Libraries: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "libraries",
-        abstract: "開いているライブラリ一覧を表示する"
+        abstract: L10n.text("開いているライブラリ一覧を表示する")
     )
     @OptionGroup var common: CommonOptions
 
@@ -144,7 +145,9 @@ struct Libraries: ParsableCommand {
             decoder.dateDecodingStrategy = .iso8601
             let libs = try decoder.decode([LibraryDTO].self, from: data)
             for lib in libs {
-                print("\(lib.id)  \(lib.name)  (\(lib.bookCount) 冊)\(lib.locked ? " [ロック]" : "")")
+                let count = L10n.plural("%d 冊", count: lib.bookCount, lib.bookCount)
+                let lockSuffix = lib.locked ? L10n.text(" [ロック]") : ""
+                print("\(lib.id)  \(lib.name)  (\(count))\(lockSuffix)")
             }
         }
     }
@@ -155,28 +158,28 @@ struct Libraries: ParsableCommand {
 struct List: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "ライブラリの書籍一覧を表示する（検索/フィルタ/ブラウズ/ソート対応）"
+        abstract: L10n.text("ライブラリの書籍一覧を表示する（検索/フィルタ/ブラウズ/ソート対応）")
     )
     @OptionGroup var common: CommonOptions
-    @Option(name: .shortAndLong, help: "検索キーワード")
+    @Option(name: .shortAndLong, help: ArgumentHelp(L10n.text("検索キーワード")))
     var query: String?
-    @Option(name: .shortAndLong, help: "取得件数（既定 100・最大 500）")
+    @Option(name: .shortAndLong, help: ArgumentHelp(L10n.text("取得件数（既定 100・最大 500）")))
     var limit: Int?
-    @Option(name: .long, help: "ソートキー（例: title, dateAdded）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("ソートキー（例: title, dateAdded）")))
     var sort: String?
-    @Option(name: .long, help: "並び順 (asc/desc)")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("並び順 (asc/desc)")))
     var order: String?
-    @Option(name: .long, help: "サイドバースコープ（例: all, recent, shelf）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("サイドバースコープ（例: all, recent, shelf）")))
     var scope: String?
-    @Option(name: [.customLong("scope-id")], help: "スコープ対象 ID（棚 ID 等）")
+    @Option(name: [.customLong("scope-id")], help: ArgumentHelp(L10n.text("スコープ対象 ID（棚 ID 等）")))
     var scopeId: Int64?
-    @Option(name: [.customLong("recent-days")], help: "scope=recent の日数")
+    @Option(name: [.customLong("recent-days")], help: ArgumentHelp(L10n.text("scope=recent の日数")))
     var recentDays: Int?
-    @Option(name: .long, help: "追加フィールドをカンマ区切りで要求（genre,neta,keywordA,...）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("追加フィールドをカンマ区切りで要求（genre,neta,keywordA,...）")))
     var fields: String?
-    @Option(name: [.customLong("filter-json")], help: "FilterState の JSON")
+    @Option(name: [.customLong("filter-json")], help: ArgumentHelp(L10n.text("FilterState の JSON")))
     var filterJSON: String?
-    @Option(name: [.customLong("browse-json")], help: "ブラウズ条件 JSON（[{\"column\":...,\"value\":...}]）")
+    @Option(name: [.customLong("browse-json")], help: ArgumentHelp(L10n.text("ブラウズ条件 JSON（[{\"column\":...,\"value\":...}]）")))
     var browseJSON: String?
 
     func run() throws {
@@ -199,7 +202,7 @@ struct List: ParsableCommand {
             for book in page.items {
                 print("\(book.id)\t\(book.title)\t\(book.author ?? "")")
             }
-            print("--- 表示 \(page.items.count) / 計 \(page.total) 冊 ---")
+            print(L10n.format("--- 表示 %d / 計 %d 冊 ---", page.items.count, page.total))
         }
     }
 }
@@ -209,12 +212,12 @@ struct List: ParsableCommand {
 struct Add: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "add",
-        abstract: "書籍ファイルをライブラリに追加する"
+        abstract: L10n.text("書籍ファイルをライブラリに追加する")
     )
     @OptionGroup var common: CommonOptions
-    @Argument(help: "追加するファイルまたはフォルダのパス（複数可）")
+    @Argument(help: ArgumentHelp(L10n.text("追加するファイルまたはフォルダのパス（複数可）")))
     var paths: [String]
-    @Option(name: .long, help: "取り込みプリセット ID")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("取り込みプリセット ID")))
     var preset: String?
 
     func run() throws {
@@ -233,12 +236,13 @@ struct Add: ParsableCommand {
                 let data = try encoder.encode(reply)
                 print(String(data: data, encoding: .utf8) ?? "")
             } else {
-                print("追加: \(reply.addedIDs.count) 冊 (IDs: \(reply.addedIDs.map(String.init).joined(separator: ",")))")
+                let ids = reply.addedIDs.map(String.init).joined(separator: ",")
+                print(L10n.plural("追加: %d 冊 (IDs: %@)", count: reply.addedIDs.count, reply.addedIDs.count, ids))
                 if !reply.alreadyPresent.isEmpty {
-                    print("既存: \(reply.alreadyPresent.joined(separator: ", "))")
+                    print(L10n.format("既存: %@", reply.alreadyPresent.joined(separator: ", ")))
                 }
                 if !reply.failed.isEmpty {
-                    fputs("失敗: \(reply.failed.joined(separator: ", "))\n", stderr)
+                    fputs(L10n.format("失敗: %@\n", reply.failed.joined(separator: ", ")), stderr)
                 }
             }
             if !reply.failed.isEmpty { throw ExitCode(1) }
@@ -251,13 +255,13 @@ struct Add: ParsableCommand {
 struct Rm: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rm",
-        abstract: "書籍をライブラリから削除する"
+        abstract: L10n.text("書籍をライブラリから削除する")
     )
     @OptionGroup var common: CommonOptions
     // I-2: 複数 ID 対応
-    @Argument(help: "削除する書籍の ID（複数可）")
+    @Argument(help: ArgumentHelp(L10n.text("削除する書籍の ID（複数可）")))
     var ids: [Int]
-    @Flag(name: .long, help: "ゴミ箱に移動する（既定: DB から削除のみ）")
+    @Flag(name: .long, help: ArgumentHelp(L10n.text("ゴミ箱に移動する（既定: DB から削除のみ）")))
     var trash: Bool = false
 
     func run() throws {
@@ -271,10 +275,10 @@ struct Rm: ParsableCommand {
                 do {
                     try client.remove(uuid: lib.id, id: id, trash: trash)
                     if !common.json {
-                        print("削除しました (id=\(id))")
+                        print(L10n.format("削除しました (id=%d)", id))
                     }
                 } catch {
-                    fputs("エラー (id=\(id)): \(error)\n", stderr)
+                    fputs(L10n.format("エラー (id=%d): %@\n", id, "\(error)"), stderr)
                     failedIDs.append(id)
                 }
             }
@@ -290,37 +294,37 @@ struct Rm: ParsableCommand {
 struct Set: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set",
-        abstract: "書籍のメタデータを更新する"
+        abstract: L10n.text("書籍のメタデータを更新する")
     )
     @OptionGroup var common: CommonOptions
-    @Argument(help: "対象書籍の ID")
+    @Argument(help: ArgumentHelp(L10n.text("対象書籍の ID")))
     var id: Int
     // I-3: spec §3.4 の全メタ文字列/数値フィールドを追加（unseen は除外）
-    @Option(name: .long, help: "タイトル")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("タイトル")))
     var title: String?
-    @Option(name: .long, help: "著者")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("著者")))
     var author: String?
-    @Option(name: .long, help: "シリーズ名")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("シリーズ名")))
     var series: String?
-    @Option(name: .long, help: "巻番号")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("巻番号")))
     var volume: Int?
-    @Option(name: .long, help: "ジャンル")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("ジャンル")))
     var genre: String?
-    @Option(name: [.customLong("keyword-a")], help: "キーワード A")
+    @Option(name: [.customLong("keyword-a")], help: ArgumentHelp(L10n.text("キーワード A")))
     var keywordA: String?
-    @Option(name: [.customLong("keyword-b")], help: "キーワード B")
+    @Option(name: [.customLong("keyword-b")], help: ArgumentHelp(L10n.text("キーワード B")))
     var keywordB: String?
-    @Option(name: .long, help: "メモ")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("メモ")))
     var memo: String?
-    @Option(name: .long, help: "ネタ")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("ネタ")))
     var neta: String?
-    @Option(name: .long, help: "レーティング (0-5)")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("レーティング (0-5)")))
     var rating: Int?
-    @Option(name: .long, help: "未読フラグ (true/false)")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("未読フラグ (true/false)")))
     var unseen: Bool?
-    @Option(name: [.customLong("book-type")], help: "本の種類 (整数)")
+    @Option(name: [.customLong("book-type")], help: ArgumentHelp(L10n.text("本の種類 (整数)")))
     var bookType: Int?
-    @Option(name: .long, help: "読み方向 (ltr/rtl/clear)")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("読み方向 (ltr/rtl/clear)")))
     var direction: String?
 
     func run() throws {
@@ -346,13 +350,13 @@ struct Set: ParsableCommand {
             if let bookType { patch.bookType = bookType }
             if let direction {
                 guard ["ltr", "rtl", "clear"].contains(direction) else {
-                    throw ValidationError("--direction は ltr / rtl / clear のいずれかを指定してください")
+                    throw ValidationError(L10n.text("--direction は ltr / rtl / clear のいずれかを指定してください"))
                 }
                 if direction == "clear" { patch.clearPageDirection = true } else { patch.pageDirection = direction }
             }
             try client.patch(uuid: lib.id, id: id, body: patch)
             if !common.json {
-                print("更新しました (id=\(id))")
+                print(L10n.format("更新しました (id=%d)", id))
             }
         }
     }
@@ -363,10 +367,10 @@ struct Set: ParsableCommand {
 struct Detail: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "detail",
-        abstract: "書籍の詳細情報を表示する"
+        abstract: L10n.text("書籍の詳細情報を表示する")
     )
     @OptionGroup var common: CommonOptions
-    @Argument(help: "書籍 ID")
+    @Argument(help: ArgumentHelp(L10n.text("書籍 ID")))
     var id: Int
 
     func run() throws {
@@ -407,10 +411,10 @@ struct Detail: ParsableCommand {
 struct Facets: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "facets",
-        abstract: "指定フィールドの distinct 値一覧を表示する"
+        abstract: L10n.text("指定フィールドの distinct 値一覧を表示する")
     )
     @OptionGroup var common: CommonOptions
-    @Argument(help: "フィールド名（例: author, genre, series）")
+    @Argument(help: ArgumentHelp(L10n.text("フィールド名（例: author, genre, series）")))
     var field: String
 
     func run() throws {
@@ -426,7 +430,7 @@ struct Facets: ParsableCommand {
             let decoder = JSONDecoder()
             if let values = try? decoder.decode([String].self, from: data) {
                 for v in values { print(v) }
-                print("--- \(values.count) 件 ---")
+                print(L10n.plural("--- %d 件 ---", count: values.count, values.count))
             } else {
                 // デコード失敗時は生データを表示
                 print(String(data: data, encoding: .utf8) ?? "")
@@ -440,7 +444,7 @@ struct Facets: ParsableCommand {
 struct Shelves: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "shelves",
-        abstract: "ライブラリの棚一覧を表示する"
+        abstract: L10n.text("ライブラリの棚一覧を表示する")
     )
     @OptionGroup var common: CommonOptions
 
@@ -469,7 +473,7 @@ struct Shelves: ParsableCommand {
 struct Me: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "me",
-        abstract: "現在のトークンの権限情報を表示する"
+        abstract: L10n.text("現在のトークンの権限情報を表示する")
     )
     @OptionGroup var common: CommonOptions
 
@@ -482,8 +486,8 @@ struct Me: ParsableCommand {
             let me = try JSONDecoder().decode(MeReply.self, from: data)
             let scopeStr: String
             switch me.scope {
-            case .all: scopeStr = "all（全ライブラリ）"
-            case .libraries(let ids): scopeStr = "\(ids.count) ライブラリ: \(ids.joined(separator: ", "))"
+            case .all: scopeStr = L10n.text("all（全ライブラリ）")
+            case .libraries(let ids): scopeStr = L10n.plural("%d ライブラリ: %@", count: ids.count, ids.count, ids.joined(separator: ", "))
             }
             print("role: \(me.role.rawValue)\ntier: \(me.tier.rawValue)\nscope: \(scopeStr)")
         }
@@ -494,17 +498,17 @@ struct Me: ParsableCommand {
 
 struct Shelf: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "shelf", abstract: "棚（スマート/手動）を管理する",
+        commandName: "shelf", abstract: L10n.text("棚（スマート/手動）を管理する"),
         subcommands: [ShelfCreate.self, ShelfRm.self, ShelfRename.self,
                       ShelfConditionsGet.self, ShelfConditionsSet.self,
                       ShelfAddBooks.self, ShelfRemoveBooks.self])
 }
 struct ShelfCreate: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "create", abstract: "棚を作成する")
+    static let configuration = CommandConfiguration(commandName: "create", abstract: L10n.text("棚を作成する"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "棚名") var title: String
-    @Flag(name: .long, help: "スマート棚にする") var smart: Bool = false
-    @Option(name: [.customLong("conditions-json")], help: "スマート棚条件 JSON (SmartShelfConditions)") var conditionsJSON: String?
+    @Option(name: .long, help: ArgumentHelp(L10n.text("棚名"))) var title: String
+    @Flag(name: .long, help: ArgumentHelp(L10n.text("スマート棚にする"))) var smart: Bool = false
+    @Option(name: [.customLong("conditions-json")], help: ArgumentHelp(L10n.text("スマート棚条件 JSON (SmartShelfConditions)"))) var conditionsJSON: String?
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -513,7 +517,7 @@ struct ShelfCreate: ParsableCommand {
             if let conditionsJSON {
                 conditions = try JSONDecoder().decode(SmartShelfConditions.self, from: Data(conditionsJSON.utf8))
             }
-            if smart && conditions == nil { throw ValidationError("--smart 時は --conditions-json が必要です") }
+            if smart && conditions == nil { throw ValidationError(L10n.text("--smart 時は --conditions-json が必要です")) }
             let body = ShelfCreateRequest(title: title, isSmart: smart, conditions: conditions)
             let data = try client.shelfCreate(uuid: lib.id, body: body)
             print(String(data: data, encoding: .utf8) ?? "")
@@ -521,23 +525,23 @@ struct ShelfCreate: ParsableCommand {
     }
 }
 struct ShelfRm: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "rm", abstract: "棚を削除する")
+    static let configuration = CommandConfiguration(commandName: "rm", abstract: L10n.text("棚を削除する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "棚 ID") var id: Int64
+    @Argument(help: ArgumentHelp(L10n.text("棚 ID"))) var id: Int64
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
             try client.shelfDelete(uuid: lib.id, id: id)
-            print("削除しました (shelf=\(id))")
+            print(L10n.format("削除しました (shelf=%lld)", id))
         }
     }
 }
 struct ShelfRename: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "rename", abstract: "棚を改名する")
+    static let configuration = CommandConfiguration(commandName: "rename", abstract: L10n.text("棚を改名する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "棚 ID") var id: Int64
-    @Option(name: .long, help: "新しい棚名") var title: String
+    @Argument(help: ArgumentHelp(L10n.text("棚 ID"))) var id: Int64
+    @Option(name: .long, help: ArgumentHelp(L10n.text("新しい棚名"))) var title: String
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -548,9 +552,9 @@ struct ShelfRename: ParsableCommand {
     }
 }
 struct ShelfConditionsGet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "conditions-get", abstract: "スマート棚の条件を表示する")
+    static let configuration = CommandConfiguration(commandName: "conditions-get", abstract: L10n.text("スマート棚の条件を表示する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "棚 ID") var id: Int64
+    @Argument(help: ArgumentHelp(L10n.text("棚 ID"))) var id: Int64
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -560,10 +564,10 @@ struct ShelfConditionsGet: ParsableCommand {
     }
 }
 struct ShelfConditionsSet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "conditions-set", abstract: "スマート棚の条件を更新する")
+    static let configuration = CommandConfiguration(commandName: "conditions-set", abstract: L10n.text("スマート棚の条件を更新する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "棚 ID") var id: Int64
-    @Option(name: [.customLong("conditions-json")], help: "条件 JSON (SmartShelfConditions)") var conditionsJSON: String
+    @Argument(help: ArgumentHelp(L10n.text("棚 ID"))) var id: Int64
+    @Option(name: [.customLong("conditions-json")], help: ArgumentHelp(L10n.text("条件 JSON (SmartShelfConditions)"))) var conditionsJSON: String
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -576,30 +580,30 @@ struct ShelfConditionsSet: ParsableCommand {
     }
 }
 struct ShelfAddBooks: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "add-books", abstract: "手動棚に本を追加する")
+    static let configuration = CommandConfiguration(commandName: "add-books", abstract: L10n.text("手動棚に本を追加する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "棚 ID") var id: Int64
-    @Argument(help: "追加する書籍 ID（複数可）") var bookIDs: [Int]
+    @Argument(help: ArgumentHelp(L10n.text("棚 ID"))) var id: Int64
+    @Argument(help: ArgumentHelp(L10n.text("追加する書籍 ID（複数可）"))) var bookIDs: [Int]
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
             try client.shelfBooksAdd(uuid: lib.id, id: id, bookIDs: bookIDs)
-            print("追加しました (shelf=\(id), books=\(bookIDs.count))")
+            print(L10n.plural("追加しました (shelf=%lld, books=%d)", count: bookIDs.count, id, bookIDs.count))
         }
     }
 }
 struct ShelfRemoveBooks: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "remove-books", abstract: "手動棚から本を除去する")
+    static let configuration = CommandConfiguration(commandName: "remove-books", abstract: L10n.text("手動棚から本を除去する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "棚 ID") var id: Int64
-    @Argument(help: "除去する書籍 ID（複数可）") var bookIDs: [Int]
+    @Argument(help: ArgumentHelp(L10n.text("棚 ID"))) var id: Int64
+    @Argument(help: ArgumentHelp(L10n.text("除去する書籍 ID（複数可）"))) var bookIDs: [Int]
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
             try client.shelfBooksRemove(uuid: lib.id, id: id, bookIDs: bookIDs)
-            print("除去しました (shelf=\(id), books=\(bookIDs.count))")
+            print(L10n.plural("除去しました (shelf=%lld, books=%d)", count: bookIDs.count, id, bookIDs.count))
         }
     }
 }
@@ -607,7 +611,7 @@ struct ShelfRemoveBooks: ParsableCommand {
 // MARK: - watch グループ
 
 struct Watch: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "watch", abstract: "監視フォルダ設定", subcommands: [WatchGet.self, WatchSet.self])
+    static let configuration = CommandConfiguration(commandName: "watch", abstract: L10n.text("監視フォルダ設定"), subcommands: [WatchGet.self, WatchSet.self])
 }
 struct WatchGet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "get")
@@ -619,9 +623,9 @@ struct WatchGet: ParsableCommand {
     } }
 }
 struct WatchSet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "set", abstract: "監視設定を全置換する")
+    static let configuration = CommandConfiguration(commandName: "set", abstract: L10n.text("監視設定を全置換する"))
     @OptionGroup var common: CommonOptions
-    @Option(name: [.customLong("config-json")], help: "WatchConfigDTO の JSON") var configJSON: String
+    @Option(name: [.customLong("config-json")], help: ArgumentHelp(L10n.text("WatchConfigDTO の JSON"))) var configJSON: String
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
@@ -634,19 +638,19 @@ struct WatchSet: ParsableCommand {
 // MARK: - lock グループ
 
 struct Lock: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "lock", abstract: "庫ロック (admin)", subcommands: [LockSet.self, LockClear.self])
+    static let configuration = CommandConfiguration(commandName: "lock", abstract: L10n.text("庫ロック (admin)"), subcommands: [LockSet.self, LockClear.self])
 }
 struct LockSet: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set",
-        abstract: "パスワードロックを設定・変更する（既存ロックの変更には現在のパスワードが必須）")
+        abstract: L10n.text("パスワードロックを設定・変更する（既存ロックの変更には現在のパスワードが必須）"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "新しいパスワード（argv に残るため自動化では --password-stdin 推奨）") var password: String?
-    @Flag(name: [.customLong("password-stdin")], help: "新しいパスワードを標準入力から読む（argv 非露出）") var passwordStdin: Bool = false
-    @Option(name: .long, help: "現在のパスワード（既存ロックの変更時のみ必須。新規設定時は不要。argv に残るため自動化では --current-password-stdin 推奨）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("新しいパスワード（argv に残るため自動化では --password-stdin 推奨）"))) var password: String?
+    @Flag(name: [.customLong("password-stdin")], help: ArgumentHelp(L10n.text("新しいパスワードを標準入力から読む（argv 非露出）"))) var passwordStdin: Bool = false
+    @Option(name: .long, help: ArgumentHelp(L10n.text("現在のパスワード（既存ロックの変更時のみ必須。新規設定時は不要。argv に残るため自動化では --current-password-stdin 推奨）")))
     var currentPassword: String?
     @Flag(name: [.customLong("current-password-stdin")],
-          help: "現在のパスワードを標準入力から読む（argv 非露出。--password-stdin と併用時は「現在のパスワード\\n新しいパスワード」の2行として読む）")
+          help: ArgumentHelp(L10n.text("現在のパスワードを標準入力から読む（argv 非露出。--password-stdin と併用時は「現在のパスワード\\n新しいパスワード」の2行として読む）")))
     var currentPasswordStdin: Bool = false
     func run() throws { try mappingAPIErrors {
         var cur = currentPassword
@@ -658,7 +662,7 @@ struct LockSet: ParsableCommand {
             let text = String(data: data, encoding: .utf8) ?? ""
             let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
             guard parts.count == 2 else {
-                throw ValidationError("--current-password-stdin と --password-stdin を併用する場合、標準入力に「現在のパスワード\\n新しいパスワード」の2行を渡してください")
+                throw ValidationError(L10n.text("--current-password-stdin と --password-stdin を併用する場合、標準入力に「現在のパスワード\\n新しいパスワード」の2行を渡してください"))
             }
             cur = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
             pw = String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -673,23 +677,23 @@ struct LockSet: ParsableCommand {
             } else if let password {
                 pw = password
             } else {
-                throw ValidationError("--password または --password-stdin を指定してください")
+                throw ValidationError(L10n.text("--password または --password-stdin を指定してください"))
             }
         }
-        guard !pw.isEmpty else { throw ValidationError("パスワードが空です") }
+        guard !pw.isEmpty else { throw ValidationError(L10n.text("パスワードが空です")) }
         if let c = cur, c.isEmpty { cur = nil }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.lockSet(uuid: lib.id, password: pw, currentPassword: cur); print("ロックを設定しました")
+        try client.lockSet(uuid: lib.id, password: pw, currentPassword: cur); print(L10n.text("ロックを設定しました"))
     } }
 }
 struct LockClear: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "clear", abstract: "ロックを解除する（既存ロックがある場合は現在のパスワードが必須）")
+        commandName: "clear", abstract: L10n.text("ロックを解除する（既存ロックがある場合は現在のパスワードが必須）"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "現在のパスワード（既存ロックがある場合は必須。argv に残るため自動化では --current-password-stdin 推奨）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("現在のパスワード（既存ロックがある場合は必須。argv に残るため自動化では --current-password-stdin 推奨）")))
     var currentPassword: String?
-    @Flag(name: [.customLong("current-password-stdin")], help: "現在のパスワードを標準入力から読む（argv 非露出）")
+    @Flag(name: [.customLong("current-password-stdin")], help: ArgumentHelp(L10n.text("現在のパスワードを標準入力から読む（argv 非露出）")))
     var currentPasswordStdin: Bool = false
     func run() throws { try mappingAPIErrors {
         var cur = currentPassword
@@ -700,14 +704,14 @@ struct LockClear: ParsableCommand {
         if let c = cur, c.isEmpty { cur = nil }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.lockClear(uuid: lib.id, currentPassword: cur); print("ロックを解除しました")
+        try client.lockClear(uuid: lib.id, currentPassword: cur); print(L10n.text("ロックを解除しました"))
     } }
 }
 
 // MARK: - import-config グループ（per-library）
 
 struct ImportConfigCmd: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "import-config", abstract: "取り込み設定 (per-library override)", subcommands: [ImportGet.self, ImportSet.self])
+    static let configuration = CommandConfiguration(commandName: "import-config", abstract: L10n.text("取り込み設定 (per-library override)"), subcommands: [ImportGet.self, ImportSet.self])
 }
 struct ImportGet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "get")
@@ -719,12 +723,12 @@ struct ImportGet: ParsableCommand {
     } }
 }
 struct ImportSet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "set", abstract: "override を設定する（指定分のみ）")
+    static let configuration = CommandConfiguration(commandName: "set", abstract: L10n.text("override を設定する（指定分のみ）"))
     @OptionGroup var common: CommonOptions
-    @Option(name: [.customLong("auto-classify")], help: "自動分類 (true/false)") var autoClassify: Bool?
-    @Option(name: .long, help: "厚い本判定閾値") var thick: Int?
+    @Option(name: [.customLong("auto-classify")], help: ArgumentHelp(L10n.text("自動分類 (true/false)"))) var autoClassify: Bool?
+    @Option(name: .long, help: ArgumentHelp(L10n.text("厚い本判定閾値"))) var thick: Int?
     // G54-S4 Task 7: 未指定 (nil) は override 削除（= グローバル既定に委譲）。autoClassify と同じ形。
-    @Option(name: [.customLong("prefer-epub-title")], help: "EPUB の題名を使う (true/false)") var preferEPUBTitle: Bool?
+    @Option(name: [.customLong("prefer-epub-title")], help: ArgumentHelp(L10n.text("EPUB の題名を使う (true/false)"))) var preferEPUBTitle: Bool?
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
@@ -736,7 +740,7 @@ struct ImportSet: ParsableCommand {
 // MARK: - import-config-global グループ（admin）
 
 struct ImportConfigGlobal: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "import-config-global", abstract: "取り込みグローバル既定 (admin)", subcommands: [ImportGlobalGet.self, ImportGlobalSet.self])
+    static let configuration = CommandConfiguration(commandName: "import-config-global", abstract: L10n.text("取り込みグローバル既定 (admin)"), subcommands: [ImportGlobalGet.self, ImportGlobalSet.self])
 }
 struct ImportGlobalGet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "get")
@@ -749,10 +753,10 @@ struct ImportGlobalGet: ParsableCommand {
 struct ImportGlobalSet: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "set")
     @OptionGroup var common: CommonOptions
-    @Option(name: [.customLong("auto-classify")], help: "自動分類 (true/false)") var autoClassify: Bool
-    @Option(name: .long, help: "厚い本判定閾値") var thick: Int
+    @Option(name: [.customLong("auto-classify")], help: ArgumentHelp(L10n.text("自動分類 (true/false)"))) var autoClassify: Bool
+    @Option(name: .long, help: ArgumentHelp(L10n.text("厚い本判定閾値"))) var thick: Int
     // G54-S4 Task 7: グローバルは常に全項目を指定する（サーバ canonical・autoClassify と同じ形）。
-    @Option(name: [.customLong("prefer-epub-title")], help: "EPUB の題名を使う (true/false)") var preferEPUBTitle: Bool
+    @Option(name: [.customLong("prefer-epub-title")], help: ArgumentHelp(L10n.text("EPUB の題名を使う (true/false)"))) var preferEPUBTitle: Bool
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let body = GlobalImportConfigDTO(autoClassifyEnabled: autoClassify, thickBookThreshold: thick, preferEPUBTitle: preferEPUBTitle)
@@ -765,10 +769,10 @@ struct ImportGlobalSet: ParsableCommand {
 struct Unlock: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "unlock",
-        abstract: "ロック庫を解錠し短命ライブラリトークンを取得する（以後 env STACKNEST_LIBRARY_TOKEN に設定して使う）")
+        abstract: L10n.text("ロック庫を解錠し短命ライブラリトークンを取得する（以後 env STACKNEST_LIBRARY_TOKEN に設定して使う）"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "パスワード（argv に残るため自動化では --password-stdin 推奨）") var password: String?
-    @Flag(name: [.customLong("password-stdin")], help: "パスワードを標準入力から読む（argv 非露出）") var passwordStdin: Bool = false
+    @Option(name: .long, help: ArgumentHelp(L10n.text("パスワード（argv に残るため自動化では --password-stdin 推奨）"))) var password: String?
+    @Flag(name: [.customLong("password-stdin")], help: ArgumentHelp(L10n.text("パスワードを標準入力から読む（argv 非露出）"))) var passwordStdin: Bool = false
     func run() throws { try mappingAPIErrors {
         let pw: String
         if passwordStdin {
@@ -777,9 +781,9 @@ struct Unlock: ParsableCommand {
         } else if let password {
             pw = password
         } else {
-            throw ValidationError("--password または --password-stdin を指定してください")
+            throw ValidationError(L10n.text("--password または --password-stdin を指定してください"))
         }
-        guard !pw.isEmpty else { throw ValidationError("パスワードが空です") }
+        guard !pw.isEmpty else { throw ValidationError(L10n.text("パスワードが空です")) }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         let data = try client.unlock(uuid: lib.id, password: pw)
@@ -793,18 +797,18 @@ struct Unlock: ParsableCommand {
 // MARK: - relink / dedup
 
 struct Relink: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "relink", abstract: "本のパスを再リンクする")
+    static let configuration = CommandConfiguration(commandName: "relink", abstract: L10n.text("本のパスを再リンクする"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "書籍 ID") var id: Int
-    @Option(name: [.customLong("new-path")], help: "新しいパス") var newPath: String
+    @Argument(help: ArgumentHelp(L10n.text("書籍 ID"))) var id: Int
+    @Option(name: [.customLong("new-path")], help: ArgumentHelp(L10n.text("新しいパス"))) var newPath: String
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.relink(uuid: lib.id, id: id, newPath: newPath); print("再リンクしました (id=\(id))")
+        try client.relink(uuid: lib.id, id: id, newPath: newPath); print(L10n.format("再リンクしました (id=%d)", id))
     } }
 }
 struct Dedup: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "dedup", abstract: "重複スキャンを実行する")
+    static let configuration = CommandConfiguration(commandName: "dedup", abstract: L10n.text("重複スキャンを実行する"))
     @OptionGroup var common: CommonOptions
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -820,14 +824,14 @@ struct Integrity: ParsableCommand {
     // 「蔵書ファイルの破損チェック」に改名済み（2026-08-08 smoke フィードバックでさらに
     // 「ファイルの破損チェック」へ短縮）。CLI の abstract だけ旧語彙「整合性」が残っていた。
     static let configuration = CommandConfiguration(
-        commandName: "integrity", abstract: "ファイルの破損を検査する",
+        commandName: "integrity", abstract: L10n.text("ファイルの破損を検査する"),
         subcommands: [IntegrityScanCmd.self, IntegrityStatusCmd.self, IntegrityListCmd.self,
                       IntegrityFullScanCmd.self, IntegrityJobStatusCmd.self, IntegrityCancelCmd.self])
 }
 
 struct IntegrityScanCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "scan", abstract: "pages 未取得の本を開いて分類する（簡易チェック）")
+        commandName: "scan", abstract: L10n.text("pages 未取得の本を開いて分類する（簡易チェック）"))
     @OptionGroup var common: CommonOptions
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -838,7 +842,7 @@ struct IntegrityScanCmd: ParsableCommand {
 
 struct IntegrityStatusCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "status", abstract: "検査済/未検査/破損/劣化の件数を表示する")
+        commandName: "status", abstract: L10n.text("検査済/未検査/破損/劣化の件数を表示する"))
     @OptionGroup var common: CommonOptions
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -849,9 +853,9 @@ struct IntegrityStatusCmd: ParsableCommand {
 
 struct IntegrityListCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "list", abstract: "指定した状態の本を一覧する")
+        commandName: "list", abstract: L10n.text("指定した状態の本を一覧する"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "ok / damaged / empty / missing / unsupported（既定: damaged）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("ok / damaged / empty / missing / unsupported（既定: damaged）")))
     var status: String = "damaged"
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -872,14 +876,14 @@ private let fullScanValidModes = ["unchecked", "all", "damaged"]
 struct IntegrityFullScanCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "full-scan",
-        abstract: "全冊 CRC 検証を非同期ジョブとして開始する（数千冊規模で数十時間かかりうる・完走は待たない）")
+        abstract: L10n.text("全冊 CRC 検証を非同期ジョブとして開始する（数千冊規模で数十時間かかりうる・完走は待たない）"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "unchecked（既定・未検査のみ）/ all（全件再検査）/ damaged（前回破損のみ再検査）")
+    @Option(name: .long, help: ArgumentHelp(L10n.text("unchecked（既定・未検査のみ）/ all（全件再検査）/ damaged（前回破損のみ再検査）")))
     var mode: String = "unchecked"
 
     func run() throws {
         guard fullScanValidModes.contains(mode) else {
-            fputs("エラー: --mode は unchecked/all/damaged のいずれかです（指定値: \(mode)）\n", stderr)
+            fputs(L10n.format("エラー: --mode は unchecked/all/damaged のいずれかです（指定値: %@）\n", mode), stderr)
             throw ExitCode(2)
         }
         try mappingAPIErrors {
@@ -888,16 +892,10 @@ struct IntegrityFullScanCmd: ParsableCommand {
             do {
                 _ = try client.startFullScan(uuid: lib.id, mode: mode)
             } catch APIError.http(409) {
-                print("既に実行中のメンテナンスジョブがあります。`stacknest-cli integrity job-status` で状況を確認してください。")
+                print(L10n.text("既に実行中のメンテナンスジョブがあります。`stacknest-cli integrity job-status` で状況を確認してください。"))
                 return
             }
-            print("""
-            フルスキャン（mode=\(mode)）を開始しました。バックグラウンドジョブとして動作します。
-            実測値: 約 4.5 秒/冊 ―― 蔵書規模によっては数十時間（例: 22,880 冊で約 31 時間）かかります。
-            このコマンドは完走を待たずに終了しました。進捗・中断は以下で行ってください:
-              進捗確認: stacknest-cli integrity job-status
-              中断:     stacknest-cli integrity cancel
-            """)
+            print(L10n.format("フルスキャン（mode=%@）を開始しました。バックグラウンドジョブとして動作します。\n実測値: 約 4.5 秒/冊 ―― 蔵書規模によっては数十時間（例: 22,880 冊で約 31 時間）かかります。\nこのコマンドは完走を待たずに終了しました。進捗・中断は以下で行ってください:\n  進捗確認: stacknest-cli integrity job-status\n  中断:     stacknest-cli integrity cancel", mode))
         }
     }
 }
@@ -905,7 +903,7 @@ struct IntegrityFullScanCmd: ParsableCommand {
 struct IntegrityJobStatusCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "job-status",
-        abstract: "実行中のメンテナンスジョブ（full-scan 含む）の進捗を表示する")
+        abstract: L10n.text("実行中のメンテナンスジョブ（full-scan 含む）の進捗を表示する"))
     @OptionGroup var common: CommonOptions
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -917,13 +915,13 @@ struct IntegrityJobStatusCmd: ParsableCommand {
 struct IntegrityCancelCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "cancel",
-        abstract: "実行中のメンテナンスジョブ（full-scan 含む）を中断する（実行中ジョブが無ければ no-op）")
+        abstract: L10n.text("実行中のメンテナンスジョブ（full-scan 含む）を中断する（実行中ジョブが無ければ no-op）"))
     @OptionGroup var common: CommonOptions
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         try client.maintenanceCancel(uuid: lib.id)
-        print("中断リクエストを送信しました。")
+        print(L10n.text("中断リクエストを送信しました。"))
     } }
 }
 
@@ -934,15 +932,15 @@ struct IntegrityCancelCmd: ParsableCommand {
 
 struct Library: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "library", abstract: "ライブラリを開閉する（ローカル制御専用・共有サーバでは使えない）",
+        commandName: "library", abstract: L10n.text("ライブラリを開閉する（ローカル制御専用・共有サーバでは使えない）"),
         subcommands: [LibraryOpen.self, LibraryClose.self])
 }
 struct LibraryOpen: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "open",
-        abstract: "パスを指定してライブラリウィンドウを開く（既に開いていれば既存の UUID を返す）")
+        abstract: L10n.text("パスを指定してライブラリウィンドウを開く（既に開いていれば既存の UUID を返す）"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "開くライブラリバンドルの絶対パス") var path: String
+    @Argument(help: ArgumentHelp(L10n.text("開くライブラリバンドルの絶対パス"))) var path: String
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common)
@@ -964,16 +962,16 @@ struct LibraryOpen: ParsableCommand {
 struct LibraryClose: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "close",
-        abstract: "UUID を指定してライブラリウィンドウを閉じる")
+        abstract: L10n.text("UUID を指定してライブラリウィンドウを閉じる"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "閉じるライブラリの UUID（stacknest-cli libraries で確認）") var uuid: String
+    @Argument(help: ArgumentHelp(L10n.text("閉じるライブラリの UUID（stacknest-cli libraries で確認）"))) var uuid: String
     func run() throws {
         try mappingAPIErrors {
             let ep = try resolveEndpoint(common: common)
             let client = APIClient(endpoint: ep)
             try client.closeLibrary(uuid: uuid)
             if !common.json {
-                print("閉じました (uuid=\(uuid))")
+                print(L10n.format("閉じました (uuid=%@)", uuid))
             }
         }
     }
@@ -987,7 +985,7 @@ enum GrantScopeArg {
     static func resolve(scope: String?, scopeLibraries: String?, scopeJSON: String?) throws -> GrantScope? {
         let specified = [scope, scopeLibraries, scopeJSON].compactMap { $0 }
         if specified.count > 1 {
-            throw ValidationError("--scope / --scope-libraries / --scope-json は同時指定できません")
+            throw ValidationError(L10n.text("--scope / --scope-libraries / --scope-json は同時指定できません"))
         }
         if let scopeJSON {
             return try JSONDecoder().decode(GrantScope.self, from: Data(scopeJSON.utf8))
@@ -997,7 +995,7 @@ enum GrantScopeArg {
             return .libraries(ids)
         }
         if let scope {
-            guard scope == "all" else { throw ValidationError("--scope は all のみ指定可能（個別指定は --scope-libraries）") }
+            guard scope == "all" else { throw ValidationError(L10n.text("--scope は all のみ指定可能（個別指定は --scope-libraries）")) }
             return .all
         }
         return nil
@@ -1006,11 +1004,11 @@ enum GrantScopeArg {
 
 struct Grant: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "grant", abstract: "アクセスグラントを管理する (admin)",
+        commandName: "grant", abstract: L10n.text("アクセスグラントを管理する (admin)"),
         subcommands: [GrantList.self, GrantCreate.self, GrantUpdate.self, GrantRm.self])
 }
 struct GrantList: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "list", abstract: "グラント一覧を表示する")
+    static let configuration = CommandConfiguration(commandName: "list", abstract: L10n.text("グラント一覧を表示する"))
     @OptionGroup var common: CommonOptions
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -1028,15 +1026,15 @@ struct GrantList: ParsableCommand {
     } }
 }
 struct GrantCreate: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "create", abstract: "グラントを作成する（token を返す）")
+    static let configuration = CommandConfiguration(commandName: "create", abstract: L10n.text("グラントを作成する（token を返す）"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "ラベル") var label: String
-    @Option(name: .long, help: "権限階層 (read/edit/admin)") var tier: String
-    @Option(name: .long, help: "スコープ all（全ライブラリ）") var scope: String?
-    @Option(name: [.customLong("scope-libraries")], help: "対象ライブラリ UUID をカンマ区切りで指定") var scopeLibraries: String?
-    @Option(name: [.customLong("scope-json")], help: "GrantScope の JSON を直接指定") var scopeJSON: String?
+    @Option(name: .long, help: ArgumentHelp(L10n.text("ラベル"))) var label: String
+    @Option(name: .long, help: ArgumentHelp(L10n.text("権限階層 (read/edit/admin)"))) var tier: String
+    @Option(name: .long, help: ArgumentHelp(L10n.text("スコープ all（全ライブラリ）"))) var scope: String?
+    @Option(name: [.customLong("scope-libraries")], help: ArgumentHelp(L10n.text("対象ライブラリ UUID をカンマ区切りで指定"))) var scopeLibraries: String?
+    @Option(name: [.customLong("scope-json")], help: ArgumentHelp(L10n.text("GrantScope の JSON を直接指定"))) var scopeJSON: String?
     func run() throws { try mappingAPIErrors {
-        guard let t = AccessTier(rawValue: tier) else { throw ValidationError("--tier は read / edit / admin のいずれか") }
+        guard let t = AccessTier(rawValue: tier) else { throw ValidationError(L10n.text("--tier は read / edit / admin のいずれか")) }
         let resolved = try GrantScopeArg.resolve(scope: scope, scopeLibraries: scopeLibraries, scopeJSON: scopeJSON)
         let body = GrantCreateRequest(label: label, tier: t, scope: resolved ?? .all)
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
@@ -1044,18 +1042,18 @@ struct GrantCreate: ParsableCommand {
     } }
 }
 struct GrantUpdate: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "update", abstract: "グラントを更新する（指定分のみ）")
+    static let configuration = CommandConfiguration(commandName: "update", abstract: L10n.text("グラントを更新する（指定分のみ）"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "グラント ID") var id: String
-    @Option(name: .long, help: "ラベル") var label: String?
-    @Option(name: .long, help: "権限階層 (read/edit/admin)") var tier: String?
-    @Option(name: .long, help: "スコープ all") var scope: String?
-    @Option(name: [.customLong("scope-libraries")], help: "対象ライブラリ UUID をカンマ区切り") var scopeLibraries: String?
-    @Option(name: [.customLong("scope-json")], help: "GrantScope の JSON") var scopeJSON: String?
+    @Argument(help: ArgumentHelp(L10n.text("グラント ID"))) var id: String
+    @Option(name: .long, help: ArgumentHelp(L10n.text("ラベル"))) var label: String?
+    @Option(name: .long, help: ArgumentHelp(L10n.text("権限階層 (read/edit/admin)"))) var tier: String?
+    @Option(name: .long, help: ArgumentHelp(L10n.text("スコープ all"))) var scope: String?
+    @Option(name: [.customLong("scope-libraries")], help: ArgumentHelp(L10n.text("対象ライブラリ UUID をカンマ区切り"))) var scopeLibraries: String?
+    @Option(name: [.customLong("scope-json")], help: ArgumentHelp(L10n.text("GrantScope の JSON"))) var scopeJSON: String?
     func run() throws { try mappingAPIErrors {
         var t: AccessTier?
         if let tier {
-            guard let parsed = AccessTier(rawValue: tier) else { throw ValidationError("--tier は read / edit / admin のいずれか") }
+            guard let parsed = AccessTier(rawValue: tier) else { throw ValidationError(L10n.text("--tier は read / edit / admin のいずれか")) }
             t = parsed
         }
         let resolved = try GrantScopeArg.resolve(scope: scope, scopeLibraries: scopeLibraries, scopeJSON: scopeJSON)
@@ -1065,12 +1063,12 @@ struct GrantUpdate: ParsableCommand {
     } }
 }
 struct GrantRm: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "rm", abstract: "グラントを削除する")
+    static let configuration = CommandConfiguration(commandName: "rm", abstract: L10n.text("グラントを削除する"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "グラント ID") var id: String
+    @Argument(help: ArgumentHelp(L10n.text("グラント ID"))) var id: String
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
-        try client.grantDelete(id: id); print("削除しました (grant=\(id))")
+        try client.grantDelete(id: id); print(L10n.format("削除しました (grant=%@)", id))
     } }
 }
 
@@ -1078,24 +1076,24 @@ struct GrantRm: ParsableCommand {
 
 struct Stamp: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "stamp", abstract: "複数の本に値を一括スタンプ（追記）/クリアする")
+        commandName: "stamp", abstract: L10n.text("複数の本に値を一括スタンプ（追記）/クリアする"))
     @OptionGroup var common: CommonOptions
-    @Option(name: .long, help: "対象フィールド（例: genre, keyword_a）") var field: String
-    @Option(name: .long, help: "追記する値（--clear と排他）") var value: String?
-    @Flag(name: .long, help: "値をクリアする（--value と排他）") var clear: Bool = false
-    @Argument(help: "対象書籍 ID（複数可）") var bookIDs: [Int]
+    @Option(name: .long, help: ArgumentHelp(L10n.text("対象フィールド（例: genre, keyword_a）"))) var field: String
+    @Option(name: .long, help: ArgumentHelp(L10n.text("追記する値（--clear と排他）"))) var value: String?
+    @Flag(name: .long, help: ArgumentHelp(L10n.text("値をクリアする（--value と排他）"))) var clear: Bool = false
+    @Argument(help: ArgumentHelp(L10n.text("対象書籍 ID（複数可）"))) var bookIDs: [Int]
     func run() throws { try mappingAPIErrors {
         if (value == nil) == (clear == false) {
-            throw ValidationError("--value または --clear のいずれか一方を指定してください")
+            throw ValidationError(L10n.text("--value または --clear のいずれか一方を指定してください"))
         }
-        guard !bookIDs.isEmpty else { throw ValidationError("対象書籍 ID を 1 件以上指定してください") }
+        guard !bookIDs.isEmpty else { throw ValidationError(L10n.text("対象書籍 ID を 1 件以上指定してください")) }
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
         let body = StampApplyRequest(field: field, value: value, clear: clear ? true : nil, bookIDs: bookIDs)
         let data = try client.stampApply(uuid: lib.id, body: body)
         if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
         let reply = try JSONDecoder().decode(StampApplyReply.self, from: data)
-        print("更新: \(reply.updated) 冊")
+        print(L10n.plural("更新: %d 冊", count: reply.updated, reply.updated))
     } }
 }
 
@@ -1103,7 +1101,7 @@ struct Stamp: ParsableCommand {
 
 struct StampDefinitions: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "stamp-definitions", abstract: "スタンプ定義を取得/更新する",
+        commandName: "stamp-definitions", abstract: L10n.text("スタンプ定義を取得/更新する"),
         subcommands: [StampDefinitionsGet.self, StampDefinitionsSet.self])
 }
 struct StampDefinitionsGet: ParsableCommand {
@@ -1116,9 +1114,9 @@ struct StampDefinitionsGet: ParsableCommand {
     } }
 }
 struct StampDefinitionsSet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "set", abstract: "スタンプ定義を全置換する")
+    static let configuration = CommandConfiguration(commandName: "set", abstract: L10n.text("スタンプ定義を全置換する"))
     @OptionGroup var common: CommonOptions
-    @Option(name: [.customLong("definitions-json")], help: "StampDefinitionsDTO の JSON") var definitionsJSON: String
+    @Option(name: [.customLong("definitions-json")], help: ArgumentHelp(L10n.text("StampDefinitionsDTO の JSON"))) var definitionsJSON: String
     func run() throws { try mappingAPIErrors {
         // 妥当性のためデコードしてから再エンコード（不正 JSON は早期に弾く）
         let dto = try JSONDecoder().decode(StampDefinitionsDTO.self, from: Data(definitionsJSON.utf8))
@@ -1133,7 +1131,7 @@ struct StampDefinitionsSet: ParsableCommand {
 
 struct Label: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "label", abstract: "ラベルカスタマイズを取得/更新する",
+        commandName: "label", abstract: L10n.text("ラベルカスタマイズを取得/更新する"),
         subcommands: [LabelGet.self, LabelSet.self])
 }
 struct LabelGet: ParsableCommand {
@@ -1146,9 +1144,9 @@ struct LabelGet: ParsableCommand {
     } }
 }
 struct LabelSet: ParsableCommand {
-    static let configuration = CommandConfiguration(commandName: "set", abstract: "ラベルカスタマイズを更新する")
+    static let configuration = CommandConfiguration(commandName: "set", abstract: L10n.text("ラベルカスタマイズを更新する"))
     @OptionGroup var common: CommonOptions
-    @Option(name: [.customLong("settings-json")], help: "LabelSettingsDTO の JSON ({customFieldLabels,customBookTypeLabels})") var settingsJSON: String
+    @Option(name: [.customLong("settings-json")], help: ArgumentHelp(L10n.text("LabelSettingsDTO の JSON ({customFieldLabels,customBookTypeLabels})"))) var settingsJSON: String
     func run() throws { try mappingAPIErrors {
         let dto = try JSONDecoder().decode(LabelSettingsDTO.self, from: Data(settingsJSON.utf8))
         let body = try JSONEncoder().encode(dto)
@@ -1171,13 +1169,13 @@ struct LabelSet: ParsableCommand {
 struct FinderTagsCmd: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "finder-tags",
-        abstract: "Finder タグ同期の状態確認と手動再照合（ローカル制御専用・共有サーバでは使えない）",
+        abstract: L10n.text("Finder タグ同期の状態確認と手動再照合（ローカル制御専用・共有サーバでは使えない）"),
         subcommands: [FinderTagsStatus.self, FinderTagsSet.self, FinderTagsResync.self])
 }
 
 struct FinderTagsStatus: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "status", abstract: "同期対象の項目・走行中か・施錠中かを表示する")
+        commandName: "status", abstract: L10n.text("同期対象の項目・走行中か・施錠中かを表示する"))
     @OptionGroup var common: CommonOptions
     func run() throws {
         try mappingAPIErrors {
@@ -1190,9 +1188,9 @@ struct FinderTagsStatus: ParsableCommand {
                 return
             }
             let reply = try JSONDecoder().decode(FinderTagSyncStatusReply.self, from: data)
-            print("項目: \(reply.field ?? "（同期しない）")")
-            print("走行中: \(reply.running ? "はい" : "いいえ")")
-            print("施錠中: \(reply.locked ? "はい" : "いいえ")")
+            print(L10n.format("項目: %@", reply.field ?? L10n.text("（同期しない）")))
+            print(L10n.format("走行中: %@", reply.running ? L10n.text("はい") : L10n.text("いいえ")))
+            print(L10n.format("施錠中: %@", reply.locked ? L10n.text("はい") : L10n.text("いいえ")))
         }
     }
 }
@@ -1200,7 +1198,7 @@ struct FinderTagsStatus: ParsableCommand {
 struct FinderTagsResync: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "resync",
-        abstract: "今すぐ再照合する（メニューの「Finder タグを再照合」と同じ経路・終わるまで待つ）")
+        abstract: L10n.text("今すぐ再照合する（メニューの「Finder タグを再照合」と同じ経路・終わるまで待つ）"))
     @OptionGroup var common: CommonOptions
     func run() throws {
         try mappingAPIErrors {
@@ -1215,29 +1213,29 @@ struct FinderTagsResync: ParsableCommand {
             let reply = try JSONDecoder().decode(FinderTagResyncReply.self, from: data)
             switch reply.status {
             case "started":
-                print("再照合しました（Finder → 庫 \(reply.updatedInLibrary) 件 / 庫 → Finder \(reply.updatedInFinder) 件）")
+                print(L10n.format("再照合しました（Finder → 庫 %d 件 / 庫 → Finder %d 件）", reply.updatedInLibrary, reply.updatedInFinder))
             case "noField":
-                print("同期する項目が選ばれていません（何もしていません）")
+                print(L10n.text("同期する項目が選ばれていません（何もしていません）"))
             case "locked":
-                print("施錠されています（解錠するまで再照合しません）")
+                print(L10n.text("施錠されています（解錠するまで再照合しません）"))
             case "alreadyRunning":
-                print("すでに再照合が走っています")
+                print(L10n.text("すでに再照合が走っています"))
             case "noLibrary":
-                print("庫が開いていません")
+                print(L10n.text("庫が開いていません"))
             default:
                 print(reply.status)
             }
             if !reply.skippedTags.isEmpty {
-                print("同期できなかったタグ: " + reply.skippedTags.joined(separator: " / "))
+                print(L10n.format("同期できなかったタグ: %@", reply.skippedTags.joined(separator: " / ")))
             }
             if !reply.skippedBooks.isEmpty {
-                print("タグを読めなかった本: \(reply.skippedBooks.count) 冊")
+                print(L10n.plural("タグを読めなかった本: %d 冊", count: reply.skippedBooks.count, reply.skippedBooks.count))
             }
             if !reply.indexingDisabledVolumes.isEmpty {
-                print("Spotlight 索引が無効: " + reply.indexingDisabledVolumes.joined(separator: "・"))
+                print(L10n.format("Spotlight 索引が無効: %@", reply.indexingDisabledVolumes.joined(separator: L10n.text("・"))))
             }
             if let failure = reply.failure {
-                print("失敗: \(failure)")
+                print(L10n.format("失敗: %@", failure))
             }
         }
     }
@@ -1247,9 +1245,9 @@ struct FinderTagsResync: ParsableCommand {
 struct FinderTagsSet: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "set",
-        abstract: "同期する項目を変える（none で同期しない・前回同期値は消える）")
+        abstract: L10n.text("同期する項目を変える（none で同期しない・前回同期値は消える）"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "項目の列名（genre / series / author / neta / keyword_a / keyword_b / keyword_c）または none")
+    @Argument(help: ArgumentHelp(L10n.text("項目の列名（genre / series / author / neta / keyword_a / keyword_b / keyword_c）または none")))
     var field: String
     func run() throws {
         try mappingAPIErrors {
@@ -1263,7 +1261,7 @@ struct FinderTagsSet: ParsableCommand {
                 return
             }
             let reply = try JSONDecoder().decode(FinderTagSyncStatusReply.self, from: data)
-            print("項目: \(reply.field ?? "（同期しない）")")
+            print(L10n.format("項目: %@", reply.field ?? L10n.text("（同期しない）")))
         }
     }
 }
@@ -1276,18 +1274,18 @@ struct FinderTagsSet: ParsableCommand {
 struct RenameFiles: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "rename-files",
-        abstract: "メタデータでファイル名を変える（既定は計画のみ・--apply で実行）")
+        abstract: L10n.text("メタデータでファイル名を変える（既定は計画のみ・--apply で実行）"))
     @OptionGroup var common: CommonOptions
-    @Argument(help: "対象の書籍 ID（複数可）") var bookIDs: [Int]
-    @Option(name: .long, help: "使う命名プリセットの ID（省略時は庫の既定）") var preset: String?
-    @Option(name: .long, help: "その場で使う書式（例: \"@series v@volume\"）。--preset とは併用できない")
+    @Argument(help: ArgumentHelp(L10n.text("対象の書籍 ID（複数可）"))) var bookIDs: [Int]
+    @Option(name: .long, help: ArgumentHelp(L10n.text("使う命名プリセットの ID（省略時は庫の既定）"))) var preset: String?
+    @Option(name: .long, help: ArgumentHelp(L10n.text("その場で使う書式（例: \"@series v@volume\"）。--preset とは併用できない")))
     var format: String?
-    @Flag(name: .long, help: "実際にファイルを改名する（付けなければ計画のみ）") var apply = false
+    @Flag(name: .long, help: ArgumentHelp(L10n.text("実際にファイルを改名する（付けなければ計画のみ）"))) var apply = false
 
     func run() throws {
         try mappingAPIErrors {
             if preset != nil && format != nil {
-                throw ValidationError("--preset と --format は同時に指定できません")
+                throw ValidationError(L10n.text("--preset と --format は同時に指定できません"))
             }
             let ep = try resolveEndpoint(common: common)
             let client = APIClient(endpoint: ep)
@@ -1306,27 +1304,28 @@ struct RenameFiles: ParsableCommand {
                     // status が "ok" のまま failure に理由が入る。failure を見ずに
                     // status だけで分岐すると、失敗した行にも成功の矢印が出てしまう。
                     if let failure = row.failure {
-                        print("× \(row.oldName) → \(row.newName)（失敗: \(failure)）")
+                        print(L10n.format("× %@ → %@（失敗: %@）", row.oldName, row.newName, failure))
                     } else if row.status == "ok" {
                         print("→ \(row.oldName) → \(row.newName)")
                     } else {
-                        print("× \(row.oldName) → \(row.newName)（\(row.status)）")
+                        print(L10n.format("× %@ → %@（%@）", row.oldName, row.newName, row.status))
                     }
                 }
                 if reply.applied {
-                    print("改名しました: \(reply.renamed) 件 / 見送り \(reply.skipped) 件")
+                    print(L10n.format("改名しました: %d 件 / 見送り %d 件", reply.renamed, reply.skipped))
                 } else {
-                    print("計画のみ（--apply を付けると実行します）: 改名 \(reply.rows.filter { $0.status == "ok" }.count) 件予定")
+                    let planned = reply.rows.filter { $0.status == "ok" }.count
+                    print(L10n.plural("計画のみ（--apply を付けると実行します）: 改名 %d 件予定", count: planned, planned))
                 }
                 if !reply.missingIDs.isEmpty {
-                    print("庫に無い ID: " + reply.missingIDs.map(String.init).joined(separator: ", "))
+                    print(L10n.format("庫に無い ID: %@", reply.missingIDs.map(String.init).joined(separator: ", ")))
                 }
             case "badFormat":
-                print("書式が不正です")
+                print(L10n.text("書式が不正です"))
             case "failed":
-                print("失敗しました: " + (reply.failure ?? "理由不明"))
+                print(L10n.format("失敗しました: %@", reply.failure ?? L10n.text("理由不明")))
             case "noLibrary":
-                print("庫が開いていません")
+                print(L10n.text("庫が開いていません"))
             default:
                 print(reply.status)
             }

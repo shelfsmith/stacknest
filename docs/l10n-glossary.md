@@ -34,6 +34,8 @@
 | リンク切れ／再リンク | Missing File／Relink | |
 | お知らせ | Notice | |
 | 厚い本／薄い本／本の一部／画像セット／テキスト／ムービー | Thick Book／Thin Book／Part of Book／Image Set／Text／Movie | 既存訳のまま |
+| ネタ | Content Notes | 書籍メタデータの自由記述欄（memo とは別枠）。CLI/MCP の `--neta`/`neta` は識別子のまま |
+| ゴミ箱 | Trash | macOS 標準訳語 |
 
 **文体**: メニューとボタンは Apple HIG の Title Case（例 "Reveal in Finder"）。説明文とエラー文は文頭だけ大文字の文。省略記号は `…`（U+2026）。
 実装中に出た語は `docs/l10n-glossary.md` に追記する（そちらが正本。この表は起点）。
@@ -81,3 +83,8 @@
 | 次の巻へ／先頭へ／本を閉じる | Next Volume／To the Beginning／Close the Book | 巻末ダイアログのボタン |
 | 続きから（reader.js の巻送りダイアログ） | Resume | 「続きから読む」（Resume Reading）より短い、巻送り確認ダイアログ専用の文言 |
 
+## G55 U7（CLI／MCP）追記（2026-09-27）
+
+- CLI の `--help`／`abstract` は名詞句・小文字始まりの短いフレーズ（例 "Access token"）。エラー文・確認文は文（例 "Error: Not found (HTTP 404)."）。
+- 複数形は `L10nEntry(one:other:)` で分岐。`%d 冊` → one "%d book" / other "%d books" のように単位語も英訳する。
+- MCP（`mcp-stacknest/`）はテーブルを持たず、docstring と例外メッセージを直接英語で書く（言語切り替えなし・spec §1）。

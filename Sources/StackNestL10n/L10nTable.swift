@@ -13,6 +13,7 @@ public struct L10nEntry: Sendable {
 public enum L10nTable {
     static let parts: [[String: L10nEntry]] = [
         core,
+        cli,
     ]
 
     public static let all: [String: L10nEntry] = {

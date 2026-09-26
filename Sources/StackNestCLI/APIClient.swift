@@ -13,10 +13,10 @@ enum APIError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .notFound: return "HTTP 404: リソースが見つかりません"
-        case .http(let s): return "HTTP \(s): サーバエラー"
-        case .network(let e): return "ネットワークエラー: \(e.localizedDescription)"
-        case .decode(let e): return "デコードエラー: \(e.localizedDescription)"
+        case .notFound: return L10n.text("HTTP 404: リソースが見つかりません")
+        case .http(let s): return L10n.format("HTTP %d: サーバエラー", s)
+        case .network(let e): return L10n.format("ネットワークエラー: %@", e.localizedDescription)
+        case .decode(let e): return L10n.format("デコードエラー: %@", e.localizedDescription)
         }
     }
 }

@@ -23,8 +23,8 @@ public struct BenchCommand: ParsableCommand {
     @Option(help: "Query for the LIKE path (1-2 chars). Default 'KA' = broad short-query (worst case).")
     public var likeQuery: String = "KA"
 
-    @Option(help: "Query for the FTS path (3+ chars). Default '第1巻' = selective (~2% of rows).")
-    public var ftsQuery: String = "第1巻"
+    @Option(help: "Query for the FTS path (3+ chars). Default '第1巻' = selective (~2% of rows).")  // l10n:ignore developer-facing bench tool; the Japanese sample query is test data, not UI text
+    public var ftsQuery: String = "第1巻"  // l10n:ignore test fixture value (Japanese FTS query), not UI text
 
     public init() {}
 
