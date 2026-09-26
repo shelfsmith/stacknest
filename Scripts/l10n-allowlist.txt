@@ -1,0 +1,11 @@
+# l10n-lint allowlist.
+# Each line: a path (glob allowed) whose Japanese literals are intentional, followed by " # reason".
+# A single line in source can instead carry the trailing comment `// l10n:ignore <reason>`.
+Tests/**  # test data
+App/StackNestTests/**  # test data
+Sources/EPUBAdapterTestSupport/**  # test fixtures
+Sources/StackNestL10n/Tables/**  # the dictionaries themselves
+Sources/LibraryServer/Resources/web/i18n-en.js  # the web dictionary itself
+Sources/LibraryServer/Resources/web/vendor/**  # third-party code
+Sources/LibraryServer/Resources/openapi/**  # developer docs, out of scope (spec §5)
+App/StackNest/Help/HelpContent+ja.swift  # Japanese help text by design
