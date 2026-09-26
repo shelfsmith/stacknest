@@ -105,14 +105,14 @@ struct TitleScreenView: View {
     )
   }
 
-  private func presentError(_ error: Error?, title: String = "エラー",
+  private func presentError(_ error: Error?, title: String = String(localized: "エラー"),
                             message: String? = nil) {
     if let message = message {
       errorMessage = message
     } else if let error = error {
       errorMessage = error.localizedDescription
     } else {
-      errorMessage = "不明なエラーが発生しました"
+      errorMessage = String(localized: "不明なエラーが発生しました")
     }
     showError = true
   }

@@ -23,7 +23,7 @@ struct RemoteCoverPickerSheet: View {
                 let names = await loadCandidates()
                 // リモートは取得エラーを区別できない（クロージャは throw しない）ため、
                 // 空リストはエラー表示に寄せる（従来挙動）。
-                return (names, names.isEmpty ? "画像エントリが見つかりませんでした" : nil)
+                return (names, names.isEmpty ? String(localized: "画像エントリが見つかりませんでした") : nil)
             },
             thumbnail: { entry in
                 guard let img = await loadEntryImage(entry) else { return nil }

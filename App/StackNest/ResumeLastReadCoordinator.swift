@@ -69,7 +69,7 @@ enum ResumeLastReadCoordinator {
             }
             let store = ServerConnectionStore()
             guard let conn = store.connection(id: serverID), let base = URL(string: conn.baseURL) else {
-                presentInfo("最後に開いた本のサーバ接続が見つかりません。「共有 → サーバに接続」で接続してから再度実行してください。")
+                presentInfo(String(localized: "最後に開いた本のサーバ接続が見つかりません。「共有 → サーバに接続」で接続してから再度実行してください。"))
                 return
             }
             // #7: 施錠リモートライブラリの resume はロックを迂回しない。以前はセッション内で unlock
@@ -84,7 +84,7 @@ enum ResumeLastReadCoordinator {
                 do {
                     token = try await client.unlock(libraryUUID: libraryUUID, password: pw)
                 } catch {
-                    presentInfo("解錠に失敗しました（パスワードを確認してください）。")
+                    presentInfo(String(localized: "解錠に失敗しました（パスワードを確認してください）。"))
                     return
                 }
             }
@@ -98,12 +98,12 @@ enum ResumeLastReadCoordinator {
     /// NSAlert＋セキュア入力でパスワードを尋ねる。OK→文字列、キャンセル→nil。
     private static func promptPassword() -> String? {
         let alert = NSAlert()
-        alert.messageText = "ライブラリのパスワード"
-        alert.informativeText = "最後に開いた本のライブラリは保護されています。"
+        alert.messageText = String(localized: "ライブラリのパスワード")
+        alert.informativeText = String(localized: "最後に開いた本のライブラリは保護されています。")
         let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         alert.accessoryView = field
-        alert.addButton(withTitle: "解錠")
-        alert.addButton(withTitle: "キャンセル")
+        alert.addButton(withTitle: String(localized: "解錠"))
+        alert.addButton(withTitle: String(localized: "キャンセル"))
         let resp = alert.runModal()
         guard resp == .alertFirstButtonReturn else { return nil }
         let v = field.stringValue
@@ -112,7 +112,7 @@ enum ResumeLastReadCoordinator {
 
     private static func presentInfo(_ text: String) {
         let alert = NSAlert()
-        alert.messageText = "最後に開いたページ"
+        alert.messageText = String(localized: "最後に開いたページ")
         alert.informativeText = text
         alert.addButton(withTitle: "OK")
         alert.runModal()

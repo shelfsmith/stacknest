@@ -41,9 +41,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// G54-S3e: 出したシートを返す。差し替えで閉じるのはこのシートだけ（他のシートには触らない）。
     var resumeSheetPresenter: @MainActor (NSWindow, @escaping ResumeSheetCompletion) -> NSWindow? = { window, completion in
         let alert = NSAlert()
-        alert.messageText = "続きから読みますか？"
-        alert.addButton(withTitle: "続きから")     // .alertFirstButtonReturn
-        alert.addButton(withTitle: "最初から")     // .alertSecondButtonReturn
+        alert.messageText = String(localized: "続きから読みますか？")
+        alert.addButton(withTitle: String(localized: "続きから"))     // .alertFirstButtonReturn
+        alert.addButton(withTitle: String(localized: "最初から"))     // .alertSecondButtonReturn
         alert.beginSheetModal(for: window) { response in completion(response) }
         return alert.window
     }
@@ -316,7 +316,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         case .toggleSpread:
             let next: EPUBColumnModeValue = (reader.columnMode == .double) ? .single : .double
             reader.columnMode = next
-            hudNote(next == .double ? "見開き" : "単ページ")
+            hudNote(next == .double ? String(localized: "見開き") : String(localized: "単ページ"))
         case .toggleAutoAdvance: toggleAutoAdvance()
         case .nextVolume:      loadSibling(.next)
         case .prevVolume:      loadSibling(.prev)
@@ -348,7 +348,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
             reader.go(toGlobalPage: page)
         } else if let spines = reader.spineItemCount, let spine = EPUBPercentJump.spineIndex(fraction: fraction, spineCount: spines) {
             reader.go(to: EPUBLocatorValue(spine: spine, progress: 0, cfi: nil, engine: nil))
-            hudNote("計測中のため章単位で移動")
+            hudNote(String(localized: "計測中のため章単位で移動"))
         }
     }
 
@@ -362,14 +362,14 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private func toggleAutoAdvance() {
         if autoAdvanceTimer != nil {
             stopAutoAdvance()
-            hudNote("スライドショー 停止")
+            hudNote(String(localized: "スライドショー 停止"))
             return
         }
         let interval = max(1.0, settings.autoAdvanceInterval)
         autoAdvanceTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.reader.goForward() }
         }
-        hudNote("スライドショー ▶ \(Int(interval))秒")
+        hudNote(String(localized: "スライドショー ▶ \(Int(interval))秒"))
     }
 
     /// 本の端に達した（手動・自動どちらでも）。末尾では「最後のページの次」の設定に従う（画像ビューアと同じ）。
@@ -378,7 +378,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         switch settings.endOfBookBehavior {
         case .stop:
             stopAutoAdvance()
-            hudNote("最終ページです")
+            hudNote(String(localized: "最終ページです"))
         case .loop:
             reader.goToBookStart()
         case .nextBook:
@@ -392,7 +392,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
 
     private func loadSibling(_ direction: SiblingDirection) {
         guard !isResolvingSibling, !isClosed else { return }
-        let noSiblingNote = direction == .next ? "次の巻なし" : "前の巻なし"
+        let noSiblingNote = direction == .next ? String(localized: "次の巻なし") : String(localized: "前の巻なし")
         // G54-S3e（spec §2.3 ③）: `openSibling` は `.reopen` のときだけ要る（差し替えだけなら無くてよい）。
         guard let resolveSibling else { hudNote(noSiblingNote); return }
         // 解決から差し替え完了まで立てたまま（連打で二重に走らない）。
@@ -414,11 +414,11 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
                 self.hudNote(noSiblingNote)
             case .failed:
                 // reader を用意できなかった: 今の本のまま（窓・保存先・reader を変えない）。
-                self.hudNote(direction == .next ? "次の巻を開けません" : "前の巻を開けません")
+                self.hudNote(direction == .next ? String(localized: "次の巻を開けません") : String(localized: "前の巻を開けません"))
             case .reopen(let row):
                 // G54-S3e: 開き直す手段が無ければ窓を閉じない（画像ビューアの `handOverToEPUBReader` と同じ文言）。
                 guard let openSibling = self.openSibling else {
-                    self.hudNote("この巻はここでは開けません")
+                    self.hudNote(String(localized: "この巻はここでは開けません"))
                     break
                 }
                 // 明示 flushPersist は不要: windowWillClose が close() の中で必ず 1 回 flush する
@@ -465,7 +465,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         window?.title = next.book.title
         refreshProgress()
         onBookSwapped?(next.book)
-        hudNote("\(direction == .next ? "次の巻を開きました" : "前の巻を開きました")：\(next.book.title)")
+        let swapVerb = direction == .next ? String(localized: "次の巻を開きました") : String(localized: "前の巻を開きました")
+        hudNote("\(swapVerb)：\(next.book.title)")
         // 6) 次の巻に読みかけがあれば訊く（画像ビューアの performSwap と同じ）。
         showResumeDialogIfNeeded()
     }
@@ -498,7 +499,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         return Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard !Task.isCancelled, let self, self.isResolvingSibling, !self.isClosed else { return }
-            self.showStickyNote(direction == .next ? "次の巻を読み込み中…" : "前の巻を読み込み中…")
+            self.showStickyNote(direction == .next
+                ? String(localized: "次の巻を読み込み中…")
+                : String(localized: "前の巻を読み込み中…"))
         }
     }
 

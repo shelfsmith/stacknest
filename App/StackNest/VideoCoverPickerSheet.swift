@@ -182,7 +182,7 @@ struct VideoCoverPickerSheet: View {
                 guard let image = NSImage(data: data) else {
                     await MainActor.run {
                         isExtracting = false
-                        extractError = "このシーンのプレビューを作れませんでした。シーンを選び直してください"
+                        extractError = String(localized: "このシーンのプレビューを作れませんでした。シーンを選び直してください")
                     }
                     return
                 }
@@ -198,7 +198,7 @@ struct VideoCoverPickerSheet: View {
             } catch {
                 await MainActor.run {
                     isExtracting = false
-                    extractError = "このシーンのフレームを取り出せませんでした。シーンを選び直してください"
+                    extractError = String(localized: "このシーンのフレームを取り出せませんでした。シーンを選び直してください")
                 }
             }
         }

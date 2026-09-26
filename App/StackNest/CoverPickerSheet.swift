@@ -258,15 +258,15 @@ extension CoverPickerSource {
 /// ローカル経路の実処理（ArchiveAdapter）。
 private enum LocalCoverEntryLoader {
     static func entries(path: String?) async -> (entries: [String], errorMessage: String?) {
-        guard let path else { return ([], "ファイル パスが見つかりません") }
+        guard let path else { return ([], String(localized: "ファイル パスが見つかりません")) }
         let url = URL(fileURLWithPath: path)
         guard let extractor = ArchiveAdapter.coverExtractor(for: url) else {
-            return ([], "未対応のフォーマットです")
+            return ([], String(localized: "未対応のフォーマットです"))
         }
         do {
             return (try await extractor.listImageEntries(in: url).names, nil)
         } catch {
-            return ([], "ページ一覧の取得に失敗: \(error.localizedDescription)")
+            return ([], String(localized: "ページ一覧の取得に失敗: \(error.localizedDescription)"))
         }
     }
 

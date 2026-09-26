@@ -256,19 +256,19 @@ struct StackNestApp: App {
         let credits = NSMutableAttributedString()
         let body: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
         let head: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 11), .foregroundColor: NSColor.labelColor]
-        credits.append(NSAttributedString(string: "オープンソースソフトウェア\n", attributes: head))
+        credits.append(NSAttributedString(string: String(localized: "オープンソースソフトウェア") + "\n", attributes: head))
         for line in [
-            "Washi (MIT) — EPUB の解析と表示 — github.com/shunnag/Washi",
-            "foliate-js (MIT) — Web リーダーの EPUB 表示 — github.com/johnfactotum/foliate-js",
-            "zip.js (BSD-3-Clause) — Web リーダーの EPUB 展開",
+            "Washi (MIT) — " + String(localized: "EPUB の解析と表示") + " — github.com/shunnag/Washi",
+            "foliate-js (MIT) — " + String(localized: "Web リーダーの EPUB 表示") + " — github.com/johnfactotum/foliate-js",
+            "zip.js (BSD-3-Clause) — " + String(localized: "Web リーダーの EPUB 展開"),
             "GRDB.swift (MIT) — SQLite",
-            "Hummingbird (Apache-2.0) — 内蔵サーバ",
+            "Hummingbird (Apache-2.0) — " + String(localized: "内蔵サーバ"),
             "swift-argument-parser (Apache-2.0)",
             "libarchive (BSD-2-Clause) — ZIP / RAR / 7z",
         ] {
             credits.append(NSAttributedString(string: line + "\n", attributes: body))
         }
-        credits.append(NSAttributedString(string: "\nオリジナル Stackroom: aroma / aromatics soft（無関係の独立した互換実装です）", attributes: body))
+        credits.append(NSAttributedString(string: "\n" + String(localized: "オリジナル Stackroom: aroma / aromatics soft（無関係の独立した互換実装です）"), attributes: body))
         NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: credits])
     }
 }
@@ -355,8 +355,8 @@ struct BridgeContent: View {
                             if restore.failedToRestore {
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                     let alert = NSAlert()
-                                    alert.messageText = "前回のライブラリが見つかりません"
-                                    alert.informativeText = "タイトル画面から再度開いてください。"
+                                    alert.messageText = String(localized: "前回のライブラリが見つかりません")
+                                    alert.informativeText = String(localized: "タイトル画面から再度開いてください。")
                                     alert.runModal()
                                 }
                             }
@@ -376,8 +376,8 @@ struct BridgeContent: View {
                             openWindow(id: "title")
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                 let alert = NSAlert()
-                                alert.messageText = "指定ライブラリが見つかりません"
-                                alert.informativeText = "Settings で再設定してください。"
+                                alert.messageText = String(localized: "指定ライブラリが見つかりません")
+                                alert.informativeText = String(localized: "Settings で再設定してください。")
                                 alert.runModal()
                             }
                         }
@@ -776,13 +776,13 @@ struct LibraryWindowContainer: View {
         // 開こうとした場合の二重の歯止め。
         if AppEnvironment.isRunningUnitTests { return false }
         let sameHost = holder.hostUUID == LibraryOpenLockManager.shared.currentHostUUIDString
-        let location = sameHost ? "別のプロセス" : "別の Mac（\(holder.hostName)）"
+        let location = sameHost ? String(localized: "別のプロセス") : String(localized: "別の Mac（\(holder.hostName)）")
         let alert = NSAlert()
         alert.alertStyle = .critical
-        alert.messageText = "「\(bundleName)」は\(location)で開かれています"
-        alert.informativeText = "同時に開くとデータベースが破損する恐れがあります。通常は開かないことを強く推奨します。"
-        alert.addButton(withTitle: "開かない")                 // default (return .alertFirstButtonReturn)
-        alert.addButton(withTitle: "強制的に開く（危険）")
+        alert.messageText = String(localized: "「\(bundleName)」は\(location)で開かれています")
+        alert.informativeText = String(localized: "同時に開くとデータベースが破損する恐れがあります。通常は開かないことを強く推奨します。")
+        alert.addButton(withTitle: String(localized: "開かない"))                 // default (return .alertFirstButtonReturn)
+        alert.addButton(withTitle: String(localized: "強制的に開く（危険）"))
         return alert.runModal() == .alertSecondButtonReturn
     }
 }
@@ -841,7 +841,7 @@ struct FileCommands: Commands {
                             // appendLastOpenedBundleURL は LibraryWindowContainer.openBundleIfNeeded に集約済 (Phase 2.5f)
                             openWindow(value: finalURL)
                         } catch {
-                            NSAlert.presentError(error, title: "ライブラリを作成できませんでした")
+                            NSAlert.presentError(error, title: String(localized: "ライブラリを作成できませんでした"))
                         }
                     }
                 }
@@ -862,7 +862,7 @@ struct FileCommands: Commands {
                             // appendLastOpenedBundleURL は LibraryWindowContainer.openBundleIfNeeded に集約済 (Phase 2.5f)
                             openWindow(value: bundleURL)
                         } catch {
-                            NSAlert.presentError(error, title: "ライブラリを開けませんでした")
+                            NSAlert.presentError(error, title: String(localized: "ライブラリを開けませんでした"))
                         }
                     }
                 }
@@ -870,6 +870,11 @@ struct FileCommands: Commands {
             .keyboardShortcut("o", modifiers: .command)
 
             Button("Stackroom Library から取り込む…") {
+                // G55: これらのタイトルは深いネスト（Task/do-catch を複数段挟む）の底で
+                // `String(localized:)` を直に書くと、Xcode の文字列抽出が拾い損なうことがある
+                // （lint の app-literal で実測）。呼び出し側に近い、浅い位置で一度だけ解決しておく。
+                let xmlSelectionFailedTitle = String(localized: "XML ファイルを選択できませんでした")
+                let importFailedTitle = String(localized: "ライブラリを取り込めませんでした")
                 LibraryActions.runXMLOpenPanelStandalone { xmlURL in
                     Task {
                         do {
@@ -886,12 +891,12 @@ struct FileCommands: Commands {
                                         // appendLastOpenedBundleURL は LibraryWindowContainer.openBundleIfNeeded に集約済 (Phase 2.5f)
                                         openWindow(value: finalURL)
                                     } catch {
-                                        NSAlert.presentError(error, title: "ライブラリを取り込めませんでした")
+                                        NSAlert.presentError(error, title: importFailedTitle)
                                     }
                                 }
                             }
                         } catch {
-                            NSAlert.presentError(error, title: "XML ファイルを選択できませんでした")
+                            NSAlert.presentError(error, title: xmlSelectionFailedTitle)
                         }
                     }
                 }
@@ -1183,7 +1188,7 @@ extension NSAlert {
     /// Present an error alert to the user.
     static func presentError(
         _ error: Error?,
-        title: String = "エラー",
+        title: String = String(localized: "エラー"),
         message: String? = nil
     ) {
         let alert = NSAlert()
@@ -1195,7 +1200,7 @@ extension NSAlert {
         } else if let error = error {
             alert.informativeText = error.localizedDescription
         } else {
-            alert.informativeText = "不明なエラーが発生しました"
+            alert.informativeText = String(localized: "不明なエラーが発生しました")
         }
 
         alert.addButton(withTitle: "OK")

@@ -70,7 +70,9 @@ struct DuplicateResolutionSheet: View {
 
     @ViewBuilder private var resultsView: some View {
         if result.exact.isEmpty && result.possible.isEmpty {
-            Text("重複は見つかりませんでした。" + (result.missingCount > 0 ? "（ファイル不明 \(result.missingCount) 件はスキップ）" : ""))
+            Text(result.missingCount > 0
+                ? String(localized: "重複は見つかりませんでした。（ファイル不明 \(result.missingCount) 件はスキップ）")
+                : String(localized: "重複は見つかりませんでした。"))
         }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {

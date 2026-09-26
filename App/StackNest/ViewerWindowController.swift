@@ -333,7 +333,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         }
         canvas.onLoupeMagnificationChanged = { [weak self] mag in
             guard let self else { return }
-            self.hudNote(String(format: "ルーペ %.1f×", mag))
+            self.hudNote(String(localized: "ルーペ \(String(format: "%.1f", mag))×"))
             self.scheduleZoomRedecodeCheck()
         }
         canvas.firstOnRight = (model.options.pageDirection == .rightToLeft)
@@ -473,10 +473,10 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             return
         }
         let alert = NSAlert()
-        alert.messageText = "続きから読みますか？"
-        alert.informativeText = "前回は P.\(lastPage + 1) まで読みました。"
-        alert.addButton(withTitle: "続きから (P.\(lastPage + 1))")   // .alertFirstButtonReturn
-        alert.addButton(withTitle: "最初から")                       // .alertSecondButtonReturn
+        alert.messageText = String(localized: "続きから読みますか？")
+        alert.informativeText = String(localized: "前回は P.\(lastPage + 1) まで読みました。")
+        alert.addButton(withTitle: String(localized: "続きから (P.\(lastPage + 1))"))   // .alertFirstButtonReturn
+        alert.addButton(withTitle: String(localized: "最初から"))                       // .alertSecondButtonReturn
         alert.beginSheetModal(for: window) { [weak self] response in
             guard let self else {
                 onDismiss?()
@@ -881,12 +881,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             persistCurrent()
         case .endStop:
             cancelPageTurn()                         // G54-S3: 動かなかった送りに演出しない
-            hudNote("最終ページです")
+            hudNote(String(localized: "最終ページです"))
         case .endLoop:
             cancelPageTurn()                         // G54-S3: 先頭へのループはジャンプ扱い
             loadCurrentPage()
             persistCurrent()
-            hudNote("先頭ページに移動しました")
+            hudNote(String(localized: "先頭ページに移動しました"))
         case .endNextBook:
             cancelPageTurn()                         // G54-S3: 巻送りには演出しない
             // 成功時のノートは performSwap 内の hudNote が発火する。
@@ -1027,7 +1027,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             scheduleZoomRedecodeCheck()
             // G38 final review I-2: showsHUD==false かつ hudNote も呼んでいなかったため、
             // mouseExited で円が消えると ON/OFF を判別する手段が無かった（spec §4 未達）。
-            hudNote(canvas.loupeEnabled ? "ルーペ ON" : "ルーペ OFF")
+            hudNote(canvas.loupeEnabled ? String(localized: "ルーペ ON") : String(localized: "ルーペ OFF"))
         }
         if action.showsHUD { showHUDThenScheduleHide() }
     }
@@ -1040,26 +1040,26 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         rebuildSpreads()   // 末尾の model.setSpreads(...) が currentPage から再アンカーする
         loadCurrentPage()  // 表示時にデコード画像から向きを学習し、判明次第に再ページングする
         persistCurrent()
-        hudNote(newMode == .spread ? "見開き" : "単ページ")
+        hudNote(newMode == .spread ? String(localized: "見開き") : String(localized: "単ページ"))
     }
 
     private func toggleCoverOffset() {
         guard model.displayMode == .spread else {
-            hudNote("見開きモードで有効")
+            hudNote(String(localized: "見開きモードで有効"))
             return
         }
         model.setCoverOffset(!model.coverOffset)
         rebuildSpreads()   // 末尾の model.setSpreads(...) が currentPage から再アンカーする
         loadCurrentPage()
         persistCurrent()
-        hudNote(model.coverOffset ? "表紙独立" : "先頭からペア")
+        hudNote(model.coverOffset ? String(localized: "表紙独立") : String(localized: "先頭からペア"))
     }
 
     /// 現在見開きの先頭ページ（single なら現在ページ）の横長オーバーライドを
     /// 自動 → 強制単独 → 強制ペア → 自動 で巡回する。
     private func cyclePageLayout() {
         guard model.displayMode == .spread else {
-            hudNote("見開きモードで有効")
+            hudNote(String(localized: "見開きモードで有効"))
             return
         }
         let target = currentSpreadPages().first ?? model.currentPage
@@ -1082,9 +1082,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         persistCurrent()
         let label: String
         switch next {
-        case nil:          label = "自動"
-        case .forceSolo?:  label = "強制単独"
-        case .forcePair?:  label = "強制ペア"
+        case nil:          label = String(localized: "自動")
+        case .forceSolo?:  label = String(localized: "強制単独")
+        case .forcePair?:  label = String(localized: "強制ペア")
         }
         hudNote("\(target + 1): \(label)")
     }
@@ -1123,7 +1123,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     private func toggleAutoAdvance() {
         if autoAdvanceTimer != nil {
             stopAutoAdvance()
-            hudNote("スライドショー 停止")
+            hudNote(String(localized: "スライドショー 停止"))
             return
         }
         let interval = max(1.0, ViewerSettings.shared.autoAdvanceInterval)
@@ -1131,7 +1131,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             Task { @MainActor in self?.autoAdvanceTick() }
         }
         let arrow = model.options.pageDirection == .rightToLeft ? "◀" : "▶"
-        hudNote("スライドショー \(arrow) \(Int(interval))秒")
+        hudNote(String(localized: "スライドショー \(arrow) \(Int(interval))秒"))
     }
 
     /// タイマー発火時の 1 ステップ。advance の結果に応じて次巻/ループ/停止を処理する。
@@ -1152,7 +1152,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             cancelPageTurn()                         // G54-S3: 先頭へのループはジャンプ扱い
             loadCurrentPage()
             persistCurrent()
-            hudNote("先頭ページに移動しました")
+            hudNote(String(localized: "先頭ページに移動しました"))
         case .endNextBook:
             cancelPageTurn()                         // G54-S3: 巻送りには演出しない
             // 成功時のノートは performSwap 内の hudNote が発火。次巻なし時は loadVolume 内で
@@ -1161,18 +1161,22 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         case .endStop:
             cancelPageTurn()                         // G54-S3: 動かなかった送りに演出しない
             stopAutoAdvance()
-            hudNote("最終ページです")
+            hudNote(String(localized: "最終ページです"))
         }
     }
 
     /// 次巻を同一ウィンドウでロードする（解決は非同期）。
     private func loadNextVolumeNow() {
-        loadVolume(resolve: loadNextVolume, hudPrefix: "次の巻を開きました", noVolumeNote: "次の巻なし")
+        loadVolume(resolve: loadNextVolume,
+                   hudPrefix: String(localized: "次の巻を開きました"),
+                   noVolumeNote: String(localized: "次の巻なし"))
     }
 
     /// 前巻を同一ウィンドウでロードする（解決は非同期）。
     private func loadPrevVolumeNow() {
-        loadVolume(resolve: loadPrevVolume, hudPrefix: "前の巻を開きました", noVolumeNote: "前の巻なし")
+        loadVolume(resolve: loadPrevVolume,
+                   hudPrefix: String(localized: "前の巻を開きました"),
+                   noVolumeNote: String(localized: "前の巻なし"))
     }
 
     /// 隣接巻の「解決(async)」と「atomic swap」を 1 つの isSwapping ガード＋1 つの Task に統合する。
@@ -1230,7 +1234,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         isSwapping = false
         stopAutoAdvance()
         guard let open = onOpenInEPUBReader else {
-            hudNote("この巻はここでは開けません")
+            hudNote(String(localized: "この巻はここでは開けません"))
             return
         }
         skipsFlushOnClose = true
@@ -1252,7 +1256,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         // openInBuiltInViewer のガードと同じ方針で早期リターンする。
         guard pageCount > 0 else {
             isSwapping = false
-            hudNote("次の巻を開けません（0ページ）")
+            hudNote(String(localized: "次の巻を開けません（0ページ）"))
             return
         }
         // G26 最終レビュー Important #1: 新 content の打ち切り判定は、下のアトミック区間へ入る**前**に
@@ -1335,9 +1339,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         model.options.endOfBookBehavior = next
         let label: String
         switch next {
-        case .stop:     label = "末: 停止"
-        case .nextBook: label = "末: 次の巻へ"
-        case .loop:     label = "末: ループ"
+        case .stop:     label = String(localized: "末: 停止")
+        case .nextBook: label = String(localized: "末: 次の巻へ")
+        case .loop:     label = String(localized: "末: ループ")
         }
         hudNote(label)
     }
@@ -1351,8 +1355,8 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         canvas.firstOnRight = (newDir == .rightToLeft)
         rebuildSpreads()
         loadCurrentPage()
-        let label = newDir == .rightToLeft ? "右→左" : "左→右"
-        hudNote("ページ方向: \(label)")
+        let label = newDir == .rightToLeft ? String(localized: "右→左") : String(localized: "左→右")
+        hudNote(String(localized: "ページ方向: \(label)"))
         onSetBookPageDirection?(book.id, newDir)
     }
 

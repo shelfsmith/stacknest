@@ -143,7 +143,7 @@ struct KeyBindingsSettingsView: View {
             conflictMessage[action] = nil
             persist()
         case .failure(let conflict):
-            conflictMessage[action] = "このキーは「\(conflict.existing.displayName)」に使用中です"
+            conflictMessage[action] = String(localized: "このキーは「\(conflict.existing.displayName)」に使用中です")
         }
     }
 

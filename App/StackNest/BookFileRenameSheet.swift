@@ -93,16 +93,17 @@ struct BookFileRenameSheet: View {
         }
         onComplete(rows.filter { $0.status == .ok }.map(\.id))
         let alert = NSAlert()
-        alert.messageText = "リネーム結果"
+        alert.messageText = String(localized: "リネーム結果")
         // smoke 修正 3（B5）: 「既に正しい名前で直す必要が無かった本」と
         // 「衝突などで見送った本」は意味が違う。ひとまとめの「スキップ」に混ぜない。
         let unchanged = rows.filter { $0.status == .unchanged }.count
         let skipped = rows.count - result.applied - unchanged
-        var text = "\(result.applied) 件を変更しました"
-        if unchanged > 0 { text += " / 変更不要 \(unchanged) 件" }
-        if skipped > 0 { text += " / 見送り \(skipped) 件" }
+        var text = String(localized: "\(result.applied) 件を変更しました")
+        if unchanged > 0 { text += " / " + String(localized: "変更不要 \(unchanged) 件") }
+        if skipped > 0 { text += " / " + String(localized: "見送り \(skipped) 件") }
         if !result.failed.isEmpty {
-            text += "\n\n失敗:\n" + result.failed.map { "・\($0.reason)" }.joined(separator: "\n")
+            text += "\n\n" + String(localized: "失敗:") + "\n"
+                + result.failed.map { String(localized: "・\($0.reason)") }.joined(separator: "\n")
         }
         alert.informativeText = text
         alert.runModal()
