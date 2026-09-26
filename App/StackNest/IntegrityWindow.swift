@@ -5,6 +5,7 @@ import Foundation
 import LibraryServerAPI
 import LibraryStore
 import RemoteClient
+import StackNestL10n
 import SwiftUI
 
 // Phase G27b Task 6: 整合性チェックウィンドウ。
@@ -37,9 +38,9 @@ enum IntegrityWindowLogic {
 
         var title: String {
             switch self {
-            case .uncheckedOnly: return "未検査をスキャン"
-            case .all: return "全件やり直し"
-            case .damagedOnly: return "破損のみ再検査"
+            case .uncheckedOnly: return String(localized: "未検査をスキャン")
+            case .all: return String(localized: "全件やり直し")
+            case .damagedOnly: return String(localized: "破損のみ再検査")
             }
         }
 
@@ -78,8 +79,8 @@ enum IntegrityWindowLogic {
     /// 破損 3 冊」という自己矛盾した断言になっていた。「取得できない」と「一度もしていない」は
     /// 別の答えなので、`isKnown` で分岐する。
     static func lastScanText(_ lastScanAt: Date?, isKnown: Bool) -> String {
-        guard isKnown else { return "不明（リモートでは取得できません）" }
-        return lastScanAt.map(formattedDate) ?? "未検査"
+        guard isKnown else { return String(localized: "不明（リモートでは取得できません）") }
+        return lastScanAt.map { formattedDate($0) } ?? String(localized: "未検査")
     }
 
     /// 概要行（brief: 「最終検査 / 未検査 N 冊 / 破損 N 冊 / 劣化 N 冊」）。
@@ -87,7 +88,7 @@ enum IntegrityWindowLogic {
         summary: IntegritySummary, lastScanAt: Date?, lastScanAtIsKnown: Bool = true, now: Date = Date()
     ) -> String {
         let last = lastScanText(lastScanAt, isKnown: lastScanAtIsKnown)
-        return "最終検査: \(last)　未検査 \(summary.unchecked) 冊　破損 \(summary.damaged) 冊　劣化 \(summary.degraded) 冊"
+        return String(localized: "最終検査: \(last)　未検査 \(summary.unchecked) 冊　破損 \(summary.damaged) 冊　劣化 \(summary.degraded) 冊")
     }
 
     /// `summaryLine` を表示してよいかどうかの判定込みの版。`loadErrorText != nil`（読み込み失敗）
@@ -123,17 +124,17 @@ enum IntegrityWindowLogic {
     /// ため、「更新を押す」までを指示に含めることで、指示どおりに操作すれば実際に直るようにする。
     static func remoteFailureMessage(for error: Error, context: String) -> String {
         if case RemoteClientError.libraryLocked = error {
-            return "この庫は施錠されています。庫のウィンドウで解錠してから「更新」を押してください。"
+            return String(localized: "この庫は施錠されています。庫のウィンドウで解錠してから「更新」を押してください。")
         }
         // fix round 6 (whole-branch review NEW-4): 庫のウィンドウが閉じられて権限を確認できない状態。
         // 「取得に失敗した」ではなく「聞きに行く前提が崩れている」ので、促す操作も再試行ではなく更新。
         if case RemoteIntegrityUnavailable.permissionUnconfirmed = error {
-            return "庫のウィンドウが閉じられているため、状態を確認できません。庫を開き直してから「更新」を押してください。"
+            return String(localized: "庫のウィンドウが閉じられているため、状態を確認できません。庫を開き直してから「更新」を押してください。")
         }
         // Codex レビュー(Important): サーバが running=true と言いながら進捗の内訳を返さなかった。
         // 0/0 を確定値として描かず、取得できなかったことをそのまま言う。
         if case RemoteIntegrityUnavailable.progressIncomplete = error {
-            return "サーバが進捗の内訳を返しませんでした。"
+            return String(localized: "サーバが進捗の内訳を返しませんでした。")
         }
         return context
     }
@@ -146,12 +147,14 @@ enum IntegrityWindowLogic {
     /// 読める。隣に出る `progressErrorText` は警告として気づかれるとは限らないため、
     /// 数字そのものにも「最新ではないかもしれない」を明示する。
     static func staleSuffix(stale: Bool) -> String {
-        stale ? "（最終取得の値）" : ""
+        stale ? String(localized: "（最終取得の値）") : ""
     }
 
-    static func formattedDate(_ date: Date) -> String {
+    /// G55: `lang` は UI 言語に従う（既定は現在の言語）。`.en` なら英語ロケールで整形し、
+    /// 日本語 UI（`.ja`）では従来どおり `ja_JP` の見え方を維持する。
+    static func formattedDate(_ date: Date, lang: L10nLang = .current) -> String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "ja_JP")
+        f.locale = Locale(identifier: lang == .ja ? "ja_JP" : "en_US")
         f.dateStyle = .medium
         f.timeStyle = .short
         return f.string(from: date)
@@ -164,9 +167,10 @@ enum IntegrityWindowLogic {
     /// 本はありません。」も「最終検査: 不明」も**いつの時点の情報かを言わない**現在形の断言に
     /// 見えてしまう。更新ボタンの隣にこの時刻を出すことで、「これは取得できた時点の情報」と
     /// 明示する。
-    static func formattedTime(_ date: Date) -> String {
+    /// G55: `formattedDate` と同じく `lang` は UI 言語に従う（既定は現在の言語）。
+    static func formattedTime(_ date: Date, lang: L10nLang = .current) -> String {
         let f = DateFormatter()
-        f.locale = Locale(identifier: "ja_JP")
+        f.locale = Locale(identifier: lang == .ja ? "ja_JP" : "en_US")
         f.dateStyle = .none
         f.timeStyle = .short
         return f.string(from: date)
@@ -175,13 +179,13 @@ enum IntegrityWindowLogic {
     /// スキャン完了後の 1 行メッセージ。中断か完走かで文言を変える。
     static func completionSummary(_ report: FullScanReport) -> String {
         if report.cancelled {
-            return "中断しました（\(report.scanned) 件検査済み）"
+            return String(localized: "中断しました（\(report.scanned) 件検査済み）")
         }
         let damaged = report.byStatus[.damaged] ?? 0
         if report.persistenceFailures > 0 {
-            return "完了: \(report.scanned) 件検査 / 破損 \(damaged) 件（保存失敗 \(report.persistenceFailures) 件）"
+            return String(localized: "完了: \(report.scanned) 件検査 / 破損 \(damaged) 件（保存失敗 \(report.persistenceFailures) 件）")
         }
-        return "完了: \(report.scanned) 件検査 / 破損 \(damaged) 件"
+        return String(localized: "完了: \(report.scanned) 件検査 / 破損 \(damaged) 件")
     }
 
     /// File メニュー「ファイルの破損チェック…」の有効化条件（2026-08-08 smoke フィードバック由来）。
@@ -264,29 +268,29 @@ enum IntegrityWindowLogic {
     static func badEntryText(_ raw: String) -> String {
         switch raw {
         case "archive read truncated":
-            return "アーカイブが途中で切れています"
+            return String(localized: "アーカイブが途中で切れています")
         case "no image entry found":
-            return "画像が 1 枚も見つかりません"
+            return String(localized: "画像が 1 枚も見つかりません")
         case "archive unreadable: could not open archive":
-            return "アーカイブを開けません"
+            return String(localized: "アーカイブを開けません")
         case "archive unreadable: unrecognized archive format":
-            return "未対応のアーカイブ形式です"
+            return String(localized: "未対応のアーカイブ形式です")
         case "archive unreadable: unexpected archive read failure":
-            return "アーカイブの読み取りに失敗しました"
+            return String(localized: "アーカイブの読み取りに失敗しました")
         // プランの表には無かったが、grep で見つかった同じ語彙クラスの理由文字列（上のコメント参照）。
         case "image file size is zero or unknown":
-            return "画像ファイルのサイズが 0 または不明です"
+            return String(localized: "画像ファイルのサイズが 0 または不明です")
         case "probe not performed":
-            return "検査が実行されませんでした"
+            return String(localized: "検査が実行されませんでした")
         case "enumeration truncated":
-            return "列挙が途中で打ち切られました"
+            return String(localized: "列挙が途中で打ち切られました")
         default:
             if raw.hasPrefix("archive unreadable: ") {
-                return "アーカイブを読み取れません"
+                return String(localized: "アーカイブを読み取れません")
             }
             if raw.hasPrefix("probe failed: ") {
                 let detail = raw.dropFirst("probe failed: ".count)
-                return "検査に失敗しました（\(detail)）"
+                return String(localized: "検査に失敗しました（\(detail)）")
             }
             return raw
         }
@@ -400,8 +404,8 @@ struct IntegrityWindowContainer: View {
 
     private var missingText: String {
         switch ref {
-        case .local: return "ライブラリが開かれていません"
-        case .remote: return "サーバが見つかりません。再接続してください"
+        case .local: return String(localized: "ライブラリが開かれていません")
+        case .remote: return String(localized: "サーバが見つかりません。再接続してください")
         }
     }
 
@@ -811,7 +815,7 @@ struct IntegrityCheckView: View {
             // 次の `reload()` は新しいトークンを使うようになったが、それを呼ぶ手段（更新ボタン）が
             // あることも伝える。
             IntegrityWindowLogic.remoteFailureMessage(
-                for: $0, context: "読み込みに失敗しました。")
+                for: $0, context: String(localized: "読み込みに失敗しました。"))
         }
         // fix round 5 (Minor): 成功時だけ鮮度スタンプを進める。失敗時は「画面上のデータは
         // 直近の成功時点のまま」なので、スタンプもそのときのままにしておく。
@@ -902,7 +906,7 @@ struct IntegrityCheckView: View {
                     // `jobStatus`/`wasRunning` は前回値のまま ―― 「取得できていない」を
                     // 「止まった」と混同しない。
                     progressErrorText = IntegrityWindowLogic.remoteFailureMessage(
-                        for: error, context: "進捗を取得できません。")
+                        for: error, context: String(localized: "進捗を取得できません。"))
                 }
                 // fix round 4 (C1): tier は live-state 経由で変わりうるので、jobProgress の成否に
                 // かかわらず毎 tick 読み直す。
@@ -923,10 +927,10 @@ struct IntegrityCheckView: View {
     private func requestScan(_ action: IntegrityWindowLogic.ScanAction) {
         if action.needsConfirmation {
             let alert = NSAlert()
-            alert.messageText = "全件やり直しを開始しますか？"
-            alert.informativeText = "対象冊数によっては非常に長時間（数時間〜数十時間）かかることがあります。開始後はいつでも中断できます。"
-            alert.addButton(withTitle: "開始")
-            alert.addButton(withTitle: "キャンセル")
+            alert.messageText = String(localized: "全件やり直しを開始しますか？")
+            alert.informativeText = String(localized: "対象冊数によっては非常に長時間（数時間〜数十時間）かかることがあります。開始後はいつでも中断できます。")
+            alert.addButton(withTitle: String(localized: "開始"))
+            alert.addButton(withTitle: String(localized: "キャンセル"))
             guard alert.runModal() == .alertFirstButtonReturn else { return }
         }
         startScan(action)
@@ -957,7 +961,7 @@ struct IntegrityCheckView: View {
                 // started == false（busy）のときは何もしない。次のポーリングで jobStatus が反映される。
             } catch {
                 scanErrorText = IntegrityWindowLogic.remoteFailureMessage(
-                    for: error, context: "スキャンを開始できませんでした。")
+                    for: error, context: String(localized: "スキャンを開始できませんでした。"))
             }
         }
     }
@@ -973,7 +977,7 @@ struct IntegrityCheckView: View {
                 scanErrorText = nil
             } catch {
                 scanErrorText = IntegrityWindowLogic.remoteFailureMessage(
-                    for: error, context: "中断できませんでした。")
+                    for: error, context: String(localized: "中断できませんでした。"))
             }
         }
     }

@@ -273,7 +273,7 @@ final class RemoteLibraryState {
         } catch let e as RemoteClientError {
             presentRemoteError(e)
         } catch {
-            errorText = "読み込みに失敗しました"
+            errorText = String(localized: "読み込みに失敗しました")
         }
     }
 
@@ -322,7 +322,7 @@ final class RemoteLibraryState {
             presentRemoteError(e)
         } catch {
             if Task.isCancelled { return }
-            errorText = "読み込みに失敗しました"
+            errorText = String(localized: "読み込みに失敗しました")
         }
         // 4.2c-7: filter/sort/facet/sidebar/mode 変更はいずれも reload を伴うため、
         // ここで現在のブラウズ状態を (serverID, libraryUUID) 単位で永続化する。
@@ -406,7 +406,7 @@ final class RemoteLibraryState {
             presentRemoteError(e)
         } catch {
             if Task.isCancelled { return }
-            errorText = "読み込みに失敗しました"
+            errorText = String(localized: "読み込みに失敗しました")
         }
         persistBrowseState()
     }
@@ -446,7 +446,7 @@ final class RemoteLibraryState {
         } catch let e as RemoteClientError {
             presentRemoteError(e)
         } catch {
-            errorText = "読み込みに失敗しました"
+            errorText = String(localized: "読み込みに失敗しました")
         }
     }
 
@@ -479,7 +479,7 @@ final class RemoteLibraryState {
         guard libraryToken != nil else { return }
         libraryToken = nil
         locked = true
-        errorText = "ライブラリのパスワードが変更されました。解錠し直してください。"
+        errorText = String(localized: "ライブラリのパスワードが変更されました。解錠し直してください。")
     }
 
     func unlock(password: String) async {
@@ -489,11 +489,11 @@ final class RemoteLibraryState {
             errorText = nil
             await reload()
         } catch RemoteClientError.forbidden {
-            errorText = "パスワードが違います"
+            errorText = String(localized: "パスワードが違います")
         } catch let e as RemoteClientError {
             presentRemoteError(e)
         } catch {
-            errorText = "解錠に失敗しました"
+            errorText = String(localized: "解錠に失敗しました")
         }
     }
 
@@ -533,10 +533,10 @@ final class RemoteLibraryState {
             // 4.2c-3 (D2a): ×ボタンによる中断はエラー扱いしない（要約に「中断」を出す）。
             if (cancelToken?.isCancelled ?? false) || error is CancellationError || Task.isCancelled { return }
             switch error as? RemoteClientError {
-            case .offline: errorText = "ダウンロードできません（サーバに接続できません）"
-            case .timeout: errorText = "ダウンロードがタイムアウトしました"
-            case .notFound, .server: errorText = "この本はオフラインに保存できません（フォルダ型など非対応の可能性）"
-            default: errorText = "ダウンロードに失敗しました"
+            case .offline: errorText = String(localized: "ダウンロードできません（サーバに接続できません）")
+            case .timeout: errorText = String(localized: "ダウンロードがタイムアウトしました")
+            case .notFound, .server: errorText = String(localized: "この本はオフラインに保存できません（フォルダ型など非対応の可能性）")
+            default: errorText = String(localized: "ダウンロードに失敗しました")
             }
         }
     }
@@ -591,7 +591,7 @@ final class RemoteLibraryState {
         }
         let skipped = ids.count - pending.count
         guard !pending.isEmpty else {
-            showBatchSummary(skipped > 0 ? "選択はすべてダウンロード済みです" : "書籍が選択されていません",
+            showBatchSummary(skipped > 0 ? String(localized: "選択はすべてダウンロード済みです") : String(localized: "書籍が選択されていません"),
                              kind: .info)
             return
         }
@@ -611,13 +611,13 @@ final class RemoteLibraryState {
             batchProgress = (i + 1, pending.count)
         }
         batchProgress = nil
-        var parts = ["\(ok) 件ダウンロード"]
-        if skipped > 0 { parts.append("\(skipped) 件スキップ") }
-        if fail > 0 { parts.append("\(fail) 件失敗") }
+        var parts = [String(localized: "\(ok) 件ダウンロード")]
+        if skipped > 0 { parts.append(String(localized: "\(skipped) 件スキップ")) }
+        if fail > 0 { parts.append(String(localized: "\(fail) 件失敗")) }
         if cancelled {
             // 中断で未完了になった件数（= 未DL対象 − 成功 − 失敗。in-flight 中断＋未着手を含む）。
             let cancelledCount = max(0, pending.count - ok - fail)
-            parts.append(cancelledCount > 0 ? "\(cancelledCount) 件中断" : "中断")
+            parts.append(cancelledCount > 0 ? String(localized: "\(cancelledCount) 件中断") : String(localized: "中断"))
         }
         // per-book 失敗で downloadBook が errorText を立てている場合があるためクリアし、要約に一本化。
         errorText = nil
@@ -767,8 +767,8 @@ final class RemoteLibraryState {
             await selectBook(bookID)   // 詳細ペインを最新内容で再描画
             await liveReload()         // 一覧行も位置保持で更新
         } catch {
-            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
-            else { errorText = "編集に失敗しました" }
+            if case RemoteClientError.forbidden = error { errorText = String(localized: "編集権限がありません") }
+            else { errorText = String(localized: "編集に失敗しました") }
         }
     }
 
@@ -895,7 +895,7 @@ final class RemoteLibraryState {
             }
             guard anySucceeded else {
                 undoStack.append(op)
-                errorText = "取り消しに失敗しました"
+                errorText = String(localized: "取り消しに失敗しました")
                 return
             }
             redoStack.append(.rePatch(redoItems))
@@ -905,14 +905,14 @@ final class RemoteLibraryState {
                 result = try await client.restoreBooks(rows, libraryUUID: libraryUUID, libraryToken: libraryToken)
             } catch {
                 undoStack.append(op)
-                errorText = "取り消しに失敗しました"
+                errorText = String(localized: "取り消しに失敗しました")
                 return
             }
             // G16 A1: 0 件復元は「サーバは受理したが対象が見つからなかった（＝実質失敗）」。
             // 元の undoStack には戻さない（再試行しても結果は変わらない見込みのため）、かつ
             // redo スタックにも積まない（何も戻っていないのに「やり直し」を提示しない）。
             guard result.restored > 0 else {
-                errorText = "取り消せませんでした（対象が見つかりません）"
+                errorText = String(localized: "取り消せませんでした（対象が見つかりません）")
                 return
             }
             // G16 Codex Critical: 部分復元（id 衝突で一部スキップ／path 検証で一部見送り）のとき、
@@ -953,7 +953,7 @@ final class RemoteLibraryState {
             }
             guard anySucceeded else {
                 redoStack.append(op)
-                errorText = "やり直しに失敗しました"
+                errorText = String(localized: "やり直しに失敗しました")
                 return
             }
             undoStack.append(.rePatch(undoItems))
@@ -974,7 +974,7 @@ final class RemoteLibraryState {
             }
             guard anySucceeded else {
                 redoStack.append(op)
-                errorText = "やり直しに失敗しました"
+                errorText = String(localized: "やり直しに失敗しました")
                 return
             }
             undoStack.append(.restore(reRows))
@@ -1047,9 +1047,9 @@ final class RemoteLibraryState {
         editProgress = nil
         multiSelection.removeAll()
         if let sel = selection, !books.contains(where: { $0.id == sel }) { selection = nil }
-        var parts = ["\(ok) 件削除"]
-        if fail > 0 { parts.append("\(fail) 件失敗") }
-        if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }
+        var parts = [String(localized: "\(ok) 件削除")]
+        if fail > 0 { parts.append(String(localized: "\(fail) 件失敗")) }
+        if cancelled { parts.append(String(localized: "\(max(0, list.count - ok - fail)) 件中断")) }
         showEditSummary(parts.joined(separator: " / "),
                         kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
         // Fix 3 (Codex Medium): cancel された in-flight 削除がサーバでは commit 済みだと、その 1 件が
@@ -1153,9 +1153,9 @@ final class RemoteLibraryState {
         }
         // editSummary も共有 UI 状態なので所有時のみ出す（超越された旧タスクが旧要約を出さない）。
         guard editCancel === cancel else { return }
-        var parts = ["\(ok) 件更新"]
-        if fail > 0 { parts.append("\(fail) 件失敗") }
-        if cancelled { parts.append("\(max(0, list.count - ok - fail)) 件中断") }
+        var parts = [String(localized: "\(ok) 件更新")]
+        if fail > 0 { parts.append(String(localized: "\(fail) 件失敗")) }
+        if cancelled { parts.append(String(localized: "\(max(0, list.count - ok - fail)) 件中断")) }
         showEditSummary(parts.joined(separator: " / "), kind: cancelled ? .cancelled : (fail > 0 ? .warning : .success))
     }
 
@@ -1204,7 +1204,7 @@ final class RemoteLibraryState {
         do {
             return try await client.getImportConfig(libraryUUID: libraryUUID, libraryToken: libraryToken)
         } catch {
-            errorText = "取り込み設定の取得に失敗しました"
+            errorText = String(localized: "取り込み設定の取得に失敗しました")
             return nil
         }
     }
@@ -1215,7 +1215,7 @@ final class RemoteLibraryState {
         do {
             _ = try await client.putImportConfig(dto, libraryUUID: libraryUUID, libraryToken: libraryToken)
         } catch {
-            errorText = "取り込み設定の保存に失敗しました"
+            errorText = String(localized: "取り込み設定の保存に失敗しました")
         }
     }
 
@@ -1224,7 +1224,7 @@ final class RemoteLibraryState {
     /// 監視設定を取得（RW 必須ではないが本タブは canEdit で表示）。失敗時は errorText を立て nil。
     func loadWatchConfig() async -> WatchConfigDTO? {
         do { return try await client.fetchWatchConfig(libraryUUID: libraryUUID, libraryToken: libraryToken) }
-        catch { errorText = "監視設定の取得に失敗しました"; return nil }
+        catch { errorText = String(localized: "監視設定の取得に失敗しました"); return nil }
     }
 
     /// 監視設定を保存（RW 必須）。パス検証エラー(400)・権限(403)を文言で提示。成功で適用後 DTO を返す。
@@ -1236,22 +1236,22 @@ final class RemoteLibraryState {
             case .badRequest(let msg):
                 // サーバは不正パスを含む文言（例「監視フォルダのパスが無効です: /no/such/dir」）を返すので、
                 // 複数追加時にどのパスが不正かを提示できるよう、その文言をそのまま出す（A3 smoke 修正）。
-                errorText = msg ?? "監視フォルダのパスが無効です（ホストに存在しないか、フォルダではありません）"
-            case .forbidden: errorText = "編集権限がありません"
-            default: errorText = "監視設定の保存に失敗しました"
+                errorText = msg ?? String(localized: "監視フォルダのパスが無効です（ホストに存在しないか、フォルダではありません）")
+            case .forbidden: errorText = String(localized: "編集権限がありません")
+            default: errorText = String(localized: "監視設定の保存に失敗しました")
             }
             return nil
-        } catch { errorText = "監視設定の保存に失敗しました"; return nil }
+        } catch { errorText = String(localized: "監視設定の保存に失敗しました"); return nil }
     }
 
     /// 指定フォルダの既存ファイルも取り込む（admin 必須。baseline をクリアして再スキャン）。
     func importExisting(folderID: String) async {
-        guard canDelete else { errorText = "管理者権限が必要です"; return }
+        guard canDelete else { errorText = String(localized: "管理者権限が必要です"); return }
         do { try await client.importExistingInWatchedFolder(folderID: folderID, libraryUUID: libraryUUID, libraryToken: libraryToken) }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "既存取り込みの開始に失敗しました" } }()
+            errorText = { if case .forbidden = e { return String(localized: "管理者権限が必要です") } else { return String(localized: "既存取り込みの開始に失敗しました") } }()
         }
-        catch { errorText = "既存取り込みの開始に失敗しました" }
+        catch { errorText = String(localized: "既存取り込みの開始に失敗しました") }
     }
 
     // MARK: - G12b-3c: 命名プリセット集合（GET/PUT）
@@ -1259,7 +1259,7 @@ final class RemoteLibraryState {
     /// プリセット集合を取得（RW 不要・admin ゲート表示側の責務）。失敗時は errorText を立て nil。
     func loadPresets() async -> PresetSetDTO? {
         do { return try await client.fetchPresets(libraryUUID: libraryUUID, libraryToken: libraryToken) }
-        catch { errorText = "プリセットの取得に失敗しました"; return nil }
+        catch { errorText = String(localized: "プリセットの取得に失敗しました"); return nil }
     }
 
     /// プリセット集合を保存（admin 必須）。成功で適用後 DTO を返す。
@@ -1267,16 +1267,16 @@ final class RemoteLibraryState {
     func savePresets(_ dto: PresetSetDTO) async -> PresetSetDTO? {
         do { return try await client.putPresets(dto, libraryUUID: libraryUUID, libraryToken: libraryToken) }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "プリセットの保存に失敗しました" } }()
+            errorText = { if case .forbidden = e { return String(localized: "管理者権限が必要です") } else { return String(localized: "プリセットの保存に失敗しました") } }()
             return nil
-        } catch { errorText = "プリセットの保存に失敗しました"; return nil }
+        } catch { errorText = String(localized: "プリセットの保存に失敗しました"); return nil }
     }
 
     // MARK: - G12b-3a: 一般設定・保守・scan-now
 
     func loadGeneralSettings() async -> GeneralSettingsDTO? {
         do { return try await client.fetchGeneralSettings(libraryUUID: libraryUUID, libraryToken: libraryToken) }
-        catch { errorText = "一般設定の取得に失敗しました"; return nil }
+        catch { errorText = String(localized: "一般設定の取得に失敗しました"); return nil }
     }
     @discardableResult
     func saveGeneralSettings(_ dto: GeneralSettingsDTO) async -> GeneralSettingsDTO? {
@@ -1288,32 +1288,32 @@ final class RemoteLibraryState {
             return saved
         }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "一般設定の保存に失敗しました" } }()
+            errorText = { if case .forbidden = e { return String(localized: "管理者権限が必要です") } else { return String(localized: "一般設定の保存に失敗しました") } }()
             return nil
-        } catch { errorText = "一般設定の保存に失敗しました"; return nil }
+        } catch { errorText = String(localized: "一般設定の保存に失敗しました"); return nil }
     }
     func runIntegrityCheck() async -> IntegrityCheckDTO? {
         do { return try await client.checkIntegrity(libraryUUID: libraryUUID, libraryToken: libraryToken) }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "データベースの検査に失敗しました" } }()
+            errorText = { if case .forbidden = e { return String(localized: "管理者権限が必要です") } else { return String(localized: "データベースの検査に失敗しました") } }()
             return nil
-        } catch { errorText = "データベースの検査に失敗しました"; return nil }
+        } catch { errorText = String(localized: "データベースの検査に失敗しました"); return nil }
     }
     @discardableResult
     func runBackupNow() async -> Bool {
         do { try await client.backupNow(libraryUUID: libraryUUID, libraryToken: libraryToken); return true }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "バックアップに失敗しました" } }()
+            errorText = { if case .forbidden = e { return String(localized: "管理者権限が必要です") } else { return String(localized: "バックアップに失敗しました") } }()
             return false
-        } catch { errorText = "バックアップに失敗しました"; return false }
+        } catch { errorText = String(localized: "バックアップに失敗しました"); return false }
     }
     @discardableResult
     func runScanNow() async -> Bool {
         do { try await client.scanWatchedFoldersNow(libraryUUID: libraryUUID, libraryToken: libraryToken); return true }
         catch let e as RemoteClientError {
-            errorText = { if case .forbidden = e { return "管理者権限が必要です" } else { return "スキャンの開始に失敗しました" } }()
+            errorText = { if case .forbidden = e { return String(localized: "管理者権限が必要です") } else { return String(localized: "スキャンの開始に失敗しました") } }()
             return false
-        } catch { errorText = "スキャンの開始に失敗しました"; return false }
+        } catch { errorText = String(localized: "スキャンの開始に失敗しました"); return false }
     }
 
     // MARK: - G12b-3b: メンテナンス（メタデータ補完・表紙圧縮）
@@ -1326,7 +1326,7 @@ final class RemoteLibraryState {
 
     /// runCompleteMetadata / runCompressCovers 共通本体。job 名・開始 API 呼び出し・失敗文言のみが異なる。
     private func runMaintenance(job: String, failureMessage: String, start: () async throws -> Void) async {
-        guard canDelete else { errorText = "管理者権限が必要です"; return }
+        guard canDelete else { errorText = String(localized: "管理者権限が必要です"); return }
         // M2: finished が 202 応答を追い越しても取りこぼさないよう、await の前に gate を立てる。
         maintenanceActive = true
         maintenanceJob = MaintenanceUIState(job: job, done: 0, total: 0)
@@ -1341,12 +1341,12 @@ final class RemoteLibraryState {
         }
     }
     func runCompleteMetadata() async {
-        await runMaintenance(job: "complete-metadata", failureMessage: "メタデータ補完の開始に失敗しました") {
+        await runMaintenance(job: "complete-metadata", failureMessage: String(localized: "メタデータ補完の開始に失敗しました")) {
             try await client.startCompleteMetadata(libraryUUID: libraryUUID, libraryToken: libraryToken)
         }
     }
     func runCompressCovers() async {
-        await runMaintenance(job: "compress-covers", failureMessage: "表紙の再生成の開始に失敗しました") {
+        await runMaintenance(job: "compress-covers", failureMessage: String(localized: "表紙の再生成の開始に失敗しました")) {
             try await client.startCompressCovers(libraryUUID: libraryUUID, libraryToken: libraryToken)
         }
     }
@@ -1363,9 +1363,9 @@ final class RemoteLibraryState {
     }
 
     private static func maintenanceMessage(for e: RemoteClientError) -> String {
-        if case .forbidden = e { return "管理者権限が必要です" }
-        if case .server(let code) = e, code == 409 { return "別のメンテナンスが実行中です" }
-        return "メンテナンスの開始に失敗しました"
+        if case .forbidden = e { return String(localized: "管理者権限が必要です") }
+        if case .server(let code) = e, code == 409 { return String(localized: "別のメンテナンスが実行中です") }
+        return String(localized: "メンテナンスの開始に失敗しました")
     }
 
     /// ライブラリロックを設定・変更（admin 必須）。
@@ -1377,13 +1377,13 @@ final class RemoteLibraryState {
         do {
             try await client.setLock(password: password, currentPassword: currentPassword,
                                      libraryUUID: libraryUUID, libraryToken: libraryToken)
-            showEditSummary("ロックを設定しました", kind: .success)
+            showEditSummary(String(localized: "ロックを設定しました"), kind: .success)
             return true
         } catch RemoteClientError.forbidden {
-            errorText = "現在のパスワードが違います"
+            errorText = String(localized: "現在のパスワードが違います")
             return false
         } catch {
-            errorText = "ロックの設定に失敗しました"
+            errorText = String(localized: "ロックの設定に失敗しました")
             return false
         }
     }
@@ -1396,13 +1396,13 @@ final class RemoteLibraryState {
         do {
             try await client.clearLock(currentPassword: currentPassword,
                                        libraryUUID: libraryUUID, libraryToken: libraryToken)
-            showEditSummary("ロックを解除しました", kind: .success)
+            showEditSummary(String(localized: "ロックを解除しました"), kind: .success)
             return true
         } catch RemoteClientError.forbidden {
-            errorText = "現在のパスワードが違います"
+            errorText = String(localized: "現在のパスワードが違います")
             return false
         } catch {
-            errorText = "ロックの解除に失敗しました"
+            errorText = String(localized: "ロックの解除に失敗しました")
             return false
         }
     }
@@ -1412,9 +1412,9 @@ final class RemoteLibraryState {
         guard canEdit, !ids.isEmpty else { return }
         do {
             try await client.addBooksToShelf(shelfID: shelfID, bookIDs: Array(ids), libraryUUID: libraryUUID, libraryToken: libraryToken)
-            showEditSummary("\(ids.count) 件をシェルフに追加", kind: .success)
+            showEditSummary(String(localized: "\(ids.count) 件をシェルフに追加"), kind: .success)
         } catch {
-            errorText = "シェルフへの追加に失敗しました"
+            errorText = String(localized: "シェルフへの追加に失敗しました")
         }
     }
 
@@ -1424,9 +1424,9 @@ final class RemoteLibraryState {
         do {
             try await client.removeBooksFromShelf(shelfID: shelfID, bookIDs: Array(ids), libraryUUID: libraryUUID, libraryToken: libraryToken)
             await reload(clearFirst: false)
-            showEditSummary("\(ids.count) 件をシェルフから除外", kind: .success)
+            showEditSummary(String(localized: "\(ids.count) 件をシェルフから除外"), kind: .success)
         } catch {
-            errorText = "シェルフからの除外に失敗しました"
+            errorText = String(localized: "シェルフからの除外に失敗しました")
         }
     }
 
@@ -1434,7 +1434,7 @@ final class RemoteLibraryState {
     /// errorText を出して何もしない（呼び出し側は事前に loadShelves() 済みであること）。
     func toggleFavorite(ids: Set<Int>, add: Bool) async {
         guard canEdit, !ids.isEmpty, let fid = favoritesShelfID else {
-            if favoritesShelfID == nil { errorText = "お気に入りシェルフが見つかりません" }
+            if favoritesShelfID == nil { errorText = String(localized: "お気に入りシェルフが見つかりません") }
             return
         }
         if add { await addSelectionToShelf(fid, ids: ids) } else { await removeSelectionFromShelf(fid, ids: ids) }
@@ -1454,7 +1454,7 @@ final class RemoteLibraryState {
         do {
             return try await client.scanDuplicates(libraryUUID: libraryUUID, libraryToken: libraryToken)
         } catch {
-            errorText = "重複スキャンに失敗しました"
+            errorText = String(localized: "重複スキャンに失敗しました")
             return nil
         }
     }
@@ -1486,7 +1486,7 @@ final class RemoteLibraryState {
             }
             await reload(clearFirst: false)
             if let sel = selection, ids.contains(sel) { await selectBook(sel) }
-            if failed { errorText = "レートの更新に失敗しました" }
+            if failed { errorText = String(localized: "レートの更新に失敗しました") }
         }
     }
 
@@ -1528,7 +1528,7 @@ final class RemoteLibraryState {
             }
             await reload(clearFirst: false)
             if let sel = selection, ids.contains(sel) { await selectBook(sel) }
-            if failed { errorText = "未読状態の更新に失敗しました" }
+            if failed { errorText = String(localized: "未読状態の更新に失敗しました") }
         }
     }
 
@@ -1655,8 +1655,8 @@ final class RemoteLibraryState {
             coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（メタ不変でも）
             if selection == bookID { await selectBook(bookID) }
         } catch {
-            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
-            else { errorText = "表紙の更新に失敗しました" }
+            if case RemoteClientError.forbidden = error { errorText = String(localized: "編集権限がありません") }
+            else { errorText = String(localized: "表紙の更新に失敗しました") }
         }
     }
 
@@ -1675,10 +1675,10 @@ final class RemoteLibraryState {
         } catch {
             // Review follow-up Important #2: 対応不可な形式（動画・epub・txt 等）はサーバが
             // 400 + message を返すので、それをそのまま出す（旧実装は 500 で一律「失敗しました」だった）。
-            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
+            if case RemoteClientError.forbidden = error { errorText = String(localized: "編集権限がありません") }
             else if case RemoteClientError.badRequest(let message) = error {
-                errorText = message ?? "表紙の再生成に失敗しました"
-            } else { errorText = "表紙の再生成に失敗しました" }
+                errorText = message ?? String(localized: "表紙の再生成に失敗しました")
+            } else { errorText = String(localized: "表紙の再生成に失敗しました") }
         }
     }
 
@@ -1697,9 +1697,9 @@ final class RemoteLibraryState {
             coverVersion &+= 1        // 詳細ペイン表紙の再描画/再取得トリガ（@external 差し替えでメタ不変でも）
             if selection == bookID { await selectBook(bookID) }
         } catch {
-            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
-            else if case RemoteClientError.server(413) = error { errorText = "画像が大きすぎます（30MB まで）" }
-            else { errorText = "表紙の更新に失敗しました" }
+            if case RemoteClientError.forbidden = error { errorText = String(localized: "編集権限がありません") }
+            else if case RemoteClientError.server(413) = error { errorText = String(localized: "画像が大きすぎます（30MB まで）") }
+            else { errorText = String(localized: "表紙の更新に失敗しました") }
         }
     }
 
@@ -1804,7 +1804,7 @@ final class RemoteLibraryState {
             presentRemoteError(e)
             return
         } catch {
-            errorText = "本を開けませんでした"
+            errorText = String(localized: "本を開けませんでした")
             return
         }
         // G16 C2: filename を渡さないと openViewer 冒頭の V3 未対応形式チェックが素通りする
@@ -1836,10 +1836,10 @@ final class RemoteLibraryState {
             switch BookCategory.builtInViewerSupport(filename: name) {
             case .supported: break
             case .unsupportedVideo:
-                errorText = "動画はリモートビューアでは再生できません。"
+                errorText = String(localized: "動画はリモートビューアでは再生できません。")
                 return
             case .unsupportedDocument:
-                errorText = "この形式（EPUB・テキストなど）はリモートビューアでは開けません。"
+                errorText = String(localized: "この形式（EPUB・テキストなど）はリモートビューアでは開けません。")
                 return
             }
         }
@@ -1924,7 +1924,7 @@ final class RemoteLibraryState {
             if readingOffline, let offlineContent, let offlineRow {
                 content = SiblingVolumeKind.content(reusing: imageBook, orMake: { offlineContent })
                 row = offlineRow
-                sourceLabel = "オフライン"
+                sourceLabel = String(localized: "オフライン")
                 damageNote = await offlineContent.damageNote
             } else {
                 // G26 Codex Important #3: manifest は **1 回**取り、pageCount / damageNote /
@@ -1935,7 +1935,7 @@ final class RemoteLibraryState {
                 // まさに守ろうとしている読書位置を壊す側の失敗なので、fail safe に倒す。
                 // G54-S3e: 巻送りの判定で取ったばかりの manifest があればそれを使う（2 回目だけ落ちて窓を失わない）。
                 guard let m = await self.manifestForOpening(bookID: book.id, handed: handedManifest) else {
-                    self.errorText = "本を開けませんでした"
+                    self.errorText = String(localized: "本を開けませんでした")
                     ViewerWindowRegistry.shared.cancelOpen(identity)
                     return
                 }
@@ -1954,18 +1954,18 @@ final class RemoteLibraryState {
                 content = made
                 remoteContent = made
                 row = Self.makeBookRow(from: book)
-                sourceLabel = "リモート"
+                sourceLabel = String(localized: "リモート")
             }
             let pageCount: Int
             do {
                 pageCount = try await content.pageCount
             } catch {
-                self.errorText = "本を開けませんでした"
+                self.errorText = String(localized: "本を開けませんでした")
                 ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
             guard pageCount > 0 else {
-                self.errorText = "本を開けませんでした（0ページ）"
+                self.errorText = String(localized: "本を開けませんでした（0ページ）")
                 ViewerWindowRegistry.shared.cancelOpen(identity)
                 return
             }
@@ -2144,14 +2144,14 @@ final class RemoteLibraryState {
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.present()
         } catch RemoteEPUBPrepareError.noRenderer {
-            errorText = "EPUB リーダーが使えません"
+            errorText = String(localized: "EPUB リーダーが使えません")
             ViewerWindowRegistry.shared.cancelOpen(identity)
         } catch RemoteEPUBPrepareError.downloadFailed {
-            errorText = "本を開けませんでした（EPUB の取得に失敗）"
+            errorText = String(localized: "本を開けませんでした（EPUB の取得に失敗）")
             ViewerWindowRegistry.shared.cancelOpen(identity)
         } catch {
             Self.epubLog.warning("openRemoteEPUBReader: makeReaderView failed bookID=\(book.id, privacy: .public)")
-            errorText = "本を開けませんでした"
+            errorText = String(localized: "本を開けませんでした")
             ViewerWindowRegistry.shared.cancelOpen(identity)
         }
     }
@@ -2319,7 +2319,7 @@ final class RemoteLibraryState {
                 detail = try? await client.bookDetail(libraryUUID: libraryUUID, bookID: bookID, libraryToken: libraryToken)
             }
         } catch {
-            errorText = "読む方向の同期に失敗しました"
+            errorText = String(localized: "読む方向の同期に失敗しました")
         }
     }
 
@@ -2478,7 +2478,7 @@ final class RemoteLibraryState {
                 lastPage: max(0, dto.lastPage ?? 0),
                 overrides: remoteOverrides
             )
-            return .swap(NextVolume(content: made, book: row, state: state, sourceLabel: "オフライン"))
+            return .swap(NextVolume(content: made, book: row, state: state, sourceLabel: String(localized: "オフライン")))
         }
         // レビュー Minor3 fix: ここに到達するのは (a) offlineEntry == nil（上の manifest 取得済み）、
         // または (b) offlineEntry != nil だが BookContentFactory.make が失敗した場合。(b) は
@@ -2518,7 +2518,7 @@ final class RemoteLibraryState {
             client: client, serverID: serverID, libraryUUID: libraryUUID,
             bookID: dto.id, libraryToken: libraryToken, maxWidth: 1600, snapshot: snapshot)
         let row = Self.makeBookRow(from: dto)
-        return .swap(NextVolume(content: content, book: row, state: state, sourceLabel: "リモート"))
+        return .swap(NextVolume(content: content, book: row, state: state, sourceLabel: String(localized: "リモート")))
     }
 
     // MARK: - G8a: リモート即時同期（SSE 購読・反映・再接続）
@@ -2610,9 +2610,9 @@ final class RemoteLibraryState {
             maintenanceActive = false
             maintenanceJob = nil
             switch outcome {
-            case "cancelled": maintenanceResult = "中断しました（\(count) 件処理済み）"
-            case "failed":    maintenanceResult = "メンテナンスに失敗しました"
-            default:          maintenanceResult = "\(count) 件を更新しました"
+            case "cancelled": maintenanceResult = String(localized: "中断しました（\(count) 件処理済み）")
+            case "failed":    maintenanceResult = String(localized: "メンテナンスに失敗しました")
+            default:          maintenanceResult = String(localized: "\(count) 件を更新しました")
             }
             // 完了時の structureChanged は別途届き reload を誘発する（表紙更新）。progress/finished 自体は
             // reload を誘発しない（進捗 UI のみ）。
@@ -2662,21 +2662,21 @@ final class RemoteLibraryState {
 
     static func message(for error: RemoteClientError) -> String {
         switch error {
-        case .offline: return "サーバに接続できません（ネットワーク/アドレスを確認）"
-        case .timeout: return "接続がタイムアウトしました"
-        case .unauthorized: return "トークンが無効です"
-        case .forbidden: return "アクセスが拒否されました"
-        case .libraryLocked: return "ライブラリのパスワードが変更されました。解錠し直してください。"
-        case .notFound: return "見つかりませんでした"
-        case .badRequest(let msg): return msg ?? "リクエストが不正です"
-        case .server(let code): return "サーバエラー（\(code)）"
-        case .decoding: return "応答の解析に失敗しました"
-        case .badResponse: return "不正な応答を受信しました"
+        case .offline: return String(localized: "サーバに接続できません（ネットワーク/アドレスを確認）")
+        case .timeout: return String(localized: "接続がタイムアウトしました")
+        case .unauthorized: return String(localized: "トークンが無効です")
+        case .forbidden: return String(localized: "アクセスが拒否されました")
+        case .libraryLocked: return String(localized: "ライブラリのパスワードが変更されました。解錠し直してください。")
+        case .notFound: return String(localized: "見つかりませんでした")
+        case .badRequest(let msg): return msg ?? String(localized: "リクエストが不正です")
+        case .server(let code): return String(localized: "サーバエラー（\(code)）")
+        case .decoding: return String(localized: "応答の解析に失敗しました")
+        case .badResponse: return String(localized: "不正な応答を受信しました")
         // G21 #4: 実際にはキャンセル追い越しを握り潰す呼び出し元（liveReload）では表示されないが、
         // message(for:) は switch の網羅性のため文言を用意しておく。
-        case .cancelled: return "操作が中断されました"
+        case .cancelled: return String(localized: "操作が中断されました")
         // #12: サーバ応答が上限を超え中断（クライアント側 DoS 対策）。
-        case .responseTooLarge: return "サーバの応答が大きすぎるため中断しました"
+        case .responseTooLarge: return String(localized: "サーバの応答が大きすぎるため中断しました")
         }
     }
 }

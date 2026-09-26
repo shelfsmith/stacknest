@@ -179,8 +179,8 @@ struct RemoteLibrarySettingsSheet: View {
             errorText = nil
             dismiss()
         } catch {
-            if case RemoteClientError.forbidden = error { errorText = "編集権限がありません" }
-            else { errorText = "ラベルの更新に失敗しました" }
+            if case RemoteClientError.forbidden = error { errorText = String(localized: "編集権限がありません") }
+            else { errorText = String(localized: "ラベルの更新に失敗しました") }
         }
     }
 
@@ -423,7 +423,7 @@ struct RemoteLibrarySettingsSheet: View {
         // 既にロック中で toggle が変化していない場合は何もしない（保存対象なし）。
         guard lockToggleOn, !state.locked else { return }
         guard !passwordInput.isEmpty, passwordInput == passwordConfirm else {
-            errorText = "パスワードが一致しません"
+            errorText = String(localized: "パスワードが一致しません")
             return
         }
         saving = true
@@ -495,7 +495,7 @@ struct RemoteLibrarySettingsSheet: View {
                         // Review follow-up Important #3: このジョブは全冊の表紙を元ファイルから
                         // 作り直す（1200px 超は縮小、外部表紙は対象外）— 「圧縮」ではない
                         // （ローカル LibrarySettingsSheet の Step 9 修正と同じ文言に揃える）。
-                        let label = job.job == "compress-covers" ? "表紙を再生成中…" : "メタデータを補完中…"
+                        let label = job.job == "compress-covers" ? String(localized: "表紙を再生成中…") : String(localized: "メタデータを補完中…")
                         HStack {
                             if job.total > 0 { ProgressView(value: Double(job.done), total: Double(job.total)) }
                             else { ProgressView() }
@@ -586,7 +586,7 @@ struct RemoteLibrarySettingsSheet: View {
         } message: {
             if let integrityResult {
                 Text(integrityResult.healthy
-                    ? "問題は見つかりませんでした"
+                    ? String(localized: "問題は見つかりませんでした")
                     : integrityResult.rows.prefix(20).joined(separator: "\n"))
             }
         }
@@ -874,7 +874,7 @@ struct RemoteLibrarySettingsSheet: View {
     }
 
     private func addStagedPreset() {
-        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: "新規プリセット", format: "@title")
+        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: String(localized: "新規プリセット"), format: "@title")
         stagedPresets.append(p)
         selectedPresetID = p.id
         loadSelectedStagedPreset()
@@ -882,7 +882,7 @@ struct RemoteLibrarySettingsSheet: View {
 
     private func duplicateStagedPreset() {
         guard let src = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
-        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: src.name + " のコピー", format: src.format ?? "")
+        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: String(localized: "\(src.name) のコピー"), format: src.format ?? "")
         stagedPresets.append(p)
         selectedPresetID = p.id
         loadSelectedStagedPreset()
@@ -915,7 +915,7 @@ struct RemoteLibrarySettingsSheet: View {
             formatError = LibrarySettingsSheet.describe(error)
             samplePreview = []
         } catch {
-            formatError = "構文エラー"
+            formatError = String(localized: "構文エラー")
             samplePreview = []
         }
     }

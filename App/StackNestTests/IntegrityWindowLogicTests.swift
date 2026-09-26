@@ -5,6 +5,7 @@ import AppCore
 import LibraryServerAPI
 import LibraryStore
 import RemoteClient
+import StackNestL10n
 @testable import StackNest
 
 /// `IntegrityWindowLogic` の純関数テスト（Phase G27b Task 6）。
@@ -230,6 +231,25 @@ struct IntegrityWindowLogicTests {
         let full = IntegrityWindowLogic.formattedDate(date)
         #expect(time != full)
         #expect(full.contains(time), "formattedDate は時刻部分を含み、formattedTime はその時刻部分と一致するはず")
+    }
+
+    // G55: 日付表示は現在の UI 言語に従う（以前は ja_JP に固定されており、英語 UI でも
+    // 日本語の日付表記が残っていた）。グローバルな L10nLang.processDefault は並列テストで
+    // 書き換え禁止のため、L10n.text 等と同じ `lang:` 引数越しに検証する。
+    @Test("formattedDate は lang: .en なら英語ロケールで整形し、日本語表記を含まない")
+    func formattedDateRespectsEnglishLanguage() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let en = IntegrityWindowLogic.formattedDate(date, lang: .en)
+        let ja = IntegrityWindowLogic.formattedDate(date, lang: .ja)
+        #expect(en != ja)
+        #expect(!en.contains("年") && !en.contains("月") && !en.contains("日"))
+    }
+
+    @Test("formattedTime は lang: .en なら英語ロケールで整形する")
+    func formattedTimeRespectsEnglishLanguage() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let en = IntegrityWindowLogic.formattedTime(date, lang: .en)
+        #expect(!en.contains("時") && !en.contains("分"))
     }
 
     // MARK: - completionSummary

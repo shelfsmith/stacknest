@@ -1,0 +1,872 @@
+{
+  "%@ のコピー": {
+    "en": "%@ copy"
+  },
+  "%lld / %lld ページ": {
+    "en": "Page %lld of %lld"
+  },
+  "%lld 件": {
+    "plural": {
+      "one": "%lld book",
+      "other": "%lld books"
+    }
+  },
+  "%lld 件をシェルフから除外": {
+    "en": "%lld removed from shelf"
+  },
+  "%lld 件をシェルフに追加": {
+    "en": "%lld added to shelf"
+  },
+  "%lld 件を更新しました": {
+    "plural": {
+      "one": "Updated %lld book.",
+      "other": "Updated %lld books."
+    }
+  },
+  "%lld 件スキップ": {
+    "en": "%lld skipped"
+  },
+  "%lld 件ダウンロード": {
+    "en": "%lld downloaded"
+  },
+  "%lld 件中断": {
+    "en": "%lld stopped"
+  },
+  "%lld 件削除": {
+    "en": "%lld deleted"
+  },
+  "%lld 件失敗": {
+    "en": "%lld failed"
+  },
+  "%lld 件更新": {
+    "en": "%lld updated"
+  },
+  "1ページ": {
+    "en": "Show"
+  },
+  "EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。": {
+    "en": "Uses the EPUB's title when it has one. By default, a title built from the filename is used instead. This only affects new imports."
+  },
+  "EPUB の題名を使う": {
+    "en": "Use the EPUB Title"
+  },
+  "EPUB リーダーが使えません": {
+    "en": "The EPUB reader isn't available."
+  },
+  "Finder で表示": {
+    "en": "Reveal in Finder"
+  },
+  "URL が不正です": {
+    "en": "The URL is invalid."
+  },
+  "⚠ コロン (:) は ： に自動変換されます": {
+    "en": "⚠ A colon (:) is automatically converted to ："
+  },
+  "「%@」にリンクするファイルを選択してください。": {
+    "en": "Choose the file to link to “%@.”"
+  },
+  "「%@」は保護されています": {
+    "en": "“%@” is protected"
+  },
+  "「保存」でこのライブラリにロックを設定します。": {
+    "en": "Choosing “Save” locks this library with a password."
+  },
+  "「既定に従う」を選ぶと、サーバのグローバル設定を使います。": {
+    "en": "Choosing “Use Default” uses the server's global setting."
+  },
+  "お気に入り": {
+    "en": "Favorites"
+  },
+  "お気に入りから削除": {
+    "en": "Remove from Favorites"
+  },
+  "お気に入りに追加": {
+    "en": "Add to Favorites"
+  },
+  "お気に入りシェルフが見つかりません": {
+    "en": "The Favorites shelf can't be found."
+  },
+  "このサーバで共有中のライブラリがありません": {
+    "en": "This server isn't sharing any libraries."
+  },
+  "このフォルダに元からあるファイルもまとめて取り込みます。": {
+    "en": "Also imports files that were already in this folder."
+  },
+  "このフォルダ内の既存ファイルも取り込みます。よろしいですか？": {
+    "en": "This also imports the existing files in this folder. Continue?"
+  },
+  "このライブラリで有効": {
+    "en": "On for This Library"
+  },
+  "このライブラリで無効": {
+    "en": "Off for This Library"
+  },
+  "このライブラリにパスワードロックを設定する": {
+    "en": "Require a Password to Unlock This Library"
+  },
+  "この庫は施錠されています。庫のウィンドウで解錠してから「更新」を押してください。": {
+    "en": "This library is locked. Unlock it in the library's window, then click “Refresh.”"
+  },
+  "この形式（EPUB・テキストなど）はリモートビューアでは開けません。": {
+    "en": "This format (EPUB, text, etc.) can't be opened in the remote viewer."
+  },
+  "この接続には管理者権限がないため、スキャンを開始できません。": {
+    "en": "This connection doesn't have administrator access, so a scan can't be started."
+  },
+  "この接続先を履歴から削除": {
+    "en": "Remove this connection from history"
+  },
+  "この本はオフラインに保存できません（フォルダ型など非対応の可能性）": {
+    "en": "This book can't be saved offline (it may be an unsupported type, such as a folder book)."
+  },
+  "やり直しに失敗しました": {
+    "en": "Couldn't redo."
+  },
+  "アクセスが拒否されました": {
+    "en": "Access was denied."
+  },
+  "アーカイブが途中で切れています": {
+    "en": "The archive is truncated."
+  },
+  "アーカイブの読み取りに失敗しました": {
+    "en": "Couldn't read the archive."
+  },
+  "アーカイブを読み取れません": {
+    "en": "The archive can't be read."
+  },
+  "アーカイブを開けません": {
+    "en": "Couldn't open the archive."
+  },
+  "オフライン": {
+    "en": "Offline"
+  },
+  "オフラインから削除": {
+    "en": "Remove Offline Copy"
+  },
+  "オフライン保存済み": {
+    "en": "Available Offline"
+  },
+  "キャンセル": {
+    "en": "Cancel"
+  },
+  "ゴミ箱に移動": {
+    "en": "Move to Trash"
+  },
+  "サブフォルダ": {
+    "en": "Subfolders"
+  },
+  "サブフォルダの中も個別に取り込む": {
+    "en": "Import the Contents of Subfolders Individually"
+  },
+  "サブフォルダを1冊として取り込む": {
+    "en": "Import Each Subfolder as One Book"
+  },
+  "サブフォルダを取り込まない": {
+    "en": "Don't Import Subfolders"
+  },
+  "サーバ URL（http://host:port/）": {
+    "en": "Server URL (http://host:port/)"
+  },
+  "サーバが見つかりません。再接続してください": {
+    "en": "The server can't be found. Please reconnect."
+  },
+  "サーバが進捗の内訳を返しませんでした。": {
+    "en": "The server didn't return a progress breakdown."
+  },
+  "サーバに接続": {
+    "en": "Connect to Server"
+  },
+  "サーバに接続できないため、権限を確認できません。": {
+    "en": "Permissions can't be checked because the server can't be reached."
+  },
+  "サーバに接続できません（ネットワーク/アドレスを確認）": {
+    "en": "Can't reach the server (check the network and address)."
+  },
+  "サーバの応答が大きすぎるため中断しました": {
+    "en": "Cancelled because the server's response was too large."
+  },
+  "サーバエラー（%lld）": {
+    "en": "Server error (%lld)."
+  },
+  "サーバ名を変更": {
+    "en": "Rename Server"
+  },
+  "サーバ名（任意）": {
+    "en": "Server Name (optional)"
+  },
+  "サーバ名（空欄でホスト名に戻す）": {
+    "en": "Server Name (leave blank to use the host name)"
+  },
+  "サーバ接続時に書籍をダウンロードすると、ここでオフライン閲覧できます。": {
+    "en": "Books you download while connected to the server appear here for offline reading."
+  },
+  "シェルフ": {
+    "en": "Shelves"
+  },
+  "シェルフからの除外に失敗しました": {
+    "en": "Couldn't remove from the shelf."
+  },
+  "シェルフに追加": {
+    "en": "Add to Shelf"
+  },
+  "シェルフへの追加に失敗しました": {
+    "en": "Couldn't add to the shelf."
+  },
+  "シリーズ/巻 の可能性": {
+    "en": "Possible Series/Volume Matches"
+  },
+  "スキャンの開始に失敗しました": {
+    "en": "Couldn't start the scan."
+  },
+  "スキャンを開始できませんでした。": {
+    "en": "Couldn't start the scan."
+  },
+  "スマートシェルフ": {
+    "en": "Smart Shelves"
+  },
+  "タイトルで検索": {
+    "en": "Search by Title"
+  },
+  "ダウンロード": {
+    "en": "Download"
+  },
+  "ダウンロードがタイムアウトしました": {
+    "en": "The download timed out."
+  },
+  "ダウンロードできません（サーバに接続できません）": {
+    "en": "Can't download (can't reach the server)."
+  },
+  "ダウンロードに失敗しました": {
+    "en": "The download failed."
+  },
+  "ダウンロードを中断": {
+    "en": "Stop Download"
+  },
+  "ダウンロード済みの書籍がありません": {
+    "en": "No Downloaded Books"
+  },
+  "データベースの検査に失敗しました": {
+    "en": "Couldn't check the database."
+  },
+  "データベースを検査": {
+    "en": "Check Database"
+  },
+  "データベース検査結果": {
+    "en": "Database Check Results"
+  },
+  "トークン": {
+    "en": "Token"
+  },
+  "トークンが無効です": {
+    "en": "The token is invalid."
+  },
+  "トークンを挿入": {
+    "en": "Insert Token"
+  },
+  "バックアップ": {
+    "en": "Backup"
+  },
+  "バックアップに失敗しました": {
+    "en": "The backup failed."
+  },
+  "パスはホスト（サーバ機）の絶対パスです。保存時に存在を検証します。": {
+    "en": "The path is an absolute path on the host (server machine). Its existence is checked when you save."
+  },
+  "パスワード": {
+    "en": "Password"
+  },
+  "パスワード (確認)": {
+    "en": "Password (Confirm)"
+  },
+  "パスワードが一致しません": {
+    "en": "The passwords don't match."
+  },
+  "パスワードが違います": {
+    "en": "The password is wrong."
+  },
+  "ビューアで開く": {
+    "en": "Open in Viewer"
+  },
+  "ファイルの破損チェック": {
+    "en": "Integrity Check"
+  },
+  "ファイルを macOS のゴミ箱へ移し、ライブラリの記録も削除します。⌘Z でライブラリの記録とファイルを（ゴミ箱から）戻せます。": {
+    "en": "This moves the files to the macOS Trash and removes their library records. ⌘Z restores both the library records and the files (from the Trash)."
+  },
+  "ファイルをゴミ箱に移動…": {
+    "en": "Move File to Trash…"
+  },
+  "ファイル名からシリーズ・巻数を補完": {
+    "en": "Fill In Series and Volume from Filenames"
+  },
+  "フォルダを追加": {
+    "en": "Add Folder"
+  },
+  "フォーマット": {
+    "en": "Format"
+  },
+  "フォーマット（例: @title [@keywordA]）": {
+    "en": "Format (e.g. @title [@keywordA])"
+  },
+  "ブラウザのタイトルやリモート配信名に使われます。空欄でバンドル名にフォールバックします。": {
+    "en": "Used for the browser tab title and the remote sharing name. Leave blank to fall back to the bundle name."
+  },
+  "プリセット": {
+    "en": "Preset"
+  },
+  "プリセットの保存に失敗しました": {
+    "en": "Couldn't save the presets."
+  },
+  "プリセットの取得に失敗しました": {
+    "en": "Couldn't get the presets."
+  },
+  "プリセット名": {
+    "en": "Preset Name"
+  },
+  "プレビュー:": {
+    "en": "Preview:"
+  },
+  "ページ表示": {
+    "en": "Paged"
+  },
+  "メタデータ": {
+    "en": "Metadata"
+  },
+  "メタデータを補完中…": {
+    "en": "Completing Metadata…"
+  },
+  "メタデータ補完の開始に失敗しました": {
+    "en": "Couldn't start completing the metadata."
+  },
+  "メンテナンスに失敗しました": {
+    "en": "The maintenance task failed."
+  },
+  "メンテナンスの開始に失敗しました": {
+    "en": "Couldn't start the maintenance task."
+  },
+  "メンテナンス完了": {
+    "en": "Maintenance Complete"
+  },
+  "ライブラリ": {
+    "en": "Library"
+  },
+  "ライブラリから削除": {
+    "en": "Remove from Library"
+  },
+  "ライブラリが開かれていません": {
+    "en": "No library is open."
+  },
+  "ライブラリのパスワードが変更されました。解錠し直してください。": {
+    "en": "The library's password has changed. Please unlock it again."
+  },
+  "ライブラリの記録のみ削除します（ファイルは残ります）。⌘Z で取り消せます。": {
+    "en": "This removes only the library records (the files stay). ⌘Z undoes it."
+  },
+  "ライブラリを選択": {
+    "en": "Choose a Library"
+  },
+  "ライブラリ名": {
+    "en": "Library Name"
+  },
+  "ライブラリ既定": {
+    "en": "Library Default"
+  },
+  "ライブラリ設定": {
+    "en": "Library Settings"
+  },
+  "ラベル": {
+    "en": "Labels"
+  },
+  "ラベルの更新に失敗しました": {
+    "en": "Couldn't update the labels."
+  },
+  "リクエストが不正です": {
+    "en": "The request is invalid."
+  },
+  "リモート": {
+    "en": "Remote"
+  },
+  "レート": {
+    "en": "Rating"
+  },
+  "レートなし": {
+    "en": "No Rating"
+  },
+  "レートの更新に失敗しました": {
+    "en": "Couldn't update the rating."
+  },
+  "ロック": {
+    "en": "Lock"
+  },
+  "ロックの解除に失敗しました": {
+    "en": "Couldn't remove the lock."
+  },
+  "ロックの設定に失敗しました": {
+    "en": "Couldn't set the lock."
+  },
+  "ロックを解除しました": {
+    "en": "The lock is removed."
+  },
+  "ロックを解除するには現在のパスワードを入力してください": {
+    "en": "Enter the current password to unlock this library"
+  },
+  "ロックを設定しました": {
+    "en": "The lock is set."
+  },
+  "ロック解除": {
+    "en": "Unlock"
+  },
+  "ロック設定": {
+    "en": "Lock Settings"
+  },
+  "一般": {
+    "en": "General"
+  },
+  "一般設定の保存に失敗しました": {
+    "en": "Couldn't save the general settings."
+  },
+  "一般設定の取得に失敗しました": {
+    "en": "Couldn't get the general settings."
+  },
+  "上ペイン切替": {
+    "en": "Switch Top Pane"
+  },
+  "不明（リモートでは取得できません）": {
+    "en": "Unknown (unavailable remotely)"
+  },
+  "不正な応答を受信しました": {
+    "en": "Received an invalid response."
+  },
+  "並び替え": {
+    "en": "Sort By"
+  },
+  "中断": {
+    "en": "Stop"
+  },
+  "中断しました（%lld 件処理済み）": {
+    "en": "Stopped (%lld processed)"
+  },
+  "中断しました（%lld 件検査済み）": {
+    "en": "Stopped (%lld checked)"
+  },
+  "中断できませんでした。": {
+    "en": "Couldn't cancel."
+  },
+  "今すぐスキャン": {
+    "en": "Scan Now"
+  },
+  "今すぐバックアップ": {
+    "en": "Back Up Now"
+  },
+  "他のメンテナンス処理を実行中です（%@）… %lld/%lld%@": {
+    "en": "Another maintenance task is running (%@)… %lld/%lld%@"
+  },
+  "件": {
+    "en": "per page"
+  },
+  "保存": {
+    "en": "Save"
+  },
+  "保持する世代数: %lld": {
+    "en": "Generations to keep: %lld"
+  },
+  "候補 %lld / ハッシュ済 %lld / 未算出 %lld": {
+    "en": "%lld candidates, %lld hashed, %lld pending"
+  },
+  "全 %lld 件": {
+    "en": "%lld total"
+  },
+  "全ての表紙を元ファイルから作り直します（1200px を超えるものは縮小されます。手動で選んだ表紙・アップロードした表紙は対象外）。": {
+    "en": "Rebuilds every cover from its original file (covers over 1200px are shrunk). Covers you picked manually or uploaded are left alone."
+  },
+  "全件やり直し": {
+    "en": "Rescan Everything"
+  },
+  "全件やり直しを開始しますか？": {
+    "en": "Start rescanning everything?"
+  },
+  "再リンク…": {
+    "en": "Relink…"
+  },
+  "再リンクに失敗しました": {
+    "en": "Couldn't relink."
+  },
+  "再読み込み": {
+    "en": "Reload"
+  },
+  "列挙が途中で打ち切られました": {
+    "en": "Enumeration was cut short."
+  },
+  "別のメンテナンスが実行中です": {
+    "en": "Another maintenance task is already running."
+  },
+  "削除": {
+    "en": "Delete"
+  },
+  "前": {
+    "en": "Previous"
+  },
+  "劣化": {
+    "en": "Degraded"
+  },
+  "劣化: 前回は正常だった本が壊れています（ビット腐敗の疑い）": {
+    "en": "Degraded: a book that was fine last time is now damaged (possible bit rot)"
+  },
+  "動画はリモートビューアでは再生できません。": {
+    "en": "Videos can't be played in the remote viewer."
+  },
+  "厚い本の閾値を既定に従う": {
+    "en": "Use the Default Thick Book Threshold"
+  },
+  "厚い本判定閾値（ページ数）": {
+    "en": "Thick Book Threshold (Pages)"
+  },
+  "取り消しに失敗しました": {
+    "en": "Couldn't undo."
+  },
+  "取り消せませんでした（対象が見つかりません）": {
+    "en": "Couldn't undo (the item can't be found)."
+  },
+  "取り込み": {
+    "en": "Import"
+  },
+  "取り込み設定の保存に失敗しました": {
+    "en": "Couldn't save the import settings."
+  },
+  "取り込み設定の取得に失敗しました": {
+    "en": "Couldn't get the import settings."
+  },
+  "取り込む": {
+    "en": "Import"
+  },
+  "取得: %@": {
+    "en": "Fetched: %@"
+  },
+  "名前": {
+    "en": "Name"
+  },
+  "命名プリセット": {
+    "en": "Naming Presets"
+  },
+  "問題は見つかりませんでした": {
+    "en": "No problems were found."
+  },
+  "変更": {
+    "en": "Rename"
+  },
+  "完了: %lld 件検査 / 破損 %lld 件": {
+    "en": "Completed: %lld checked / %lld damaged"
+  },
+  "完了: %lld 件検査 / 破損 %lld 件（保存失敗 %lld 件）": {
+    "en": "Completed: %lld checked / %lld damaged (%lld failed to save)"
+  },
+  "完全一致": {
+    "en": "Exact Matches"
+  },
+  "対象冊数によっては非常に長時間（数時間〜数十時間）かかることがあります。開始後はいつでも中断できます。": {
+    "en": "Depending on how many books there are, this can take a very long time (hours to tens of hours). You can cancel it at any time once it starts."
+  },
+  "庫のウィンドウが閉じられているため、状態を確認できません。庫を開き直してから「更新」を押してください。": {
+    "en": "The library's window is closed, so its status can't be checked. Reopen the library, then click “Refresh.”"
+  },
+  "応答の解析に失敗しました": {
+    "en": "Couldn't parse the response."
+  },
+  "戻る": {
+    "en": "Back"
+  },
+  "接続": {
+    "en": "Connect"
+  },
+  "接続がタイムアウトしました": {
+    "en": "The connection timed out."
+  },
+  "接続に失敗しました": {
+    "en": "Couldn't connect."
+  },
+  "接続中…": {
+    "en": "Connecting…"
+  },
+  "接続済みサーバ": {
+    "en": "Connected Servers"
+  },
+  "操作が中断されました": {
+    "en": "The operation was cancelled."
+  },
+  "新規プリセット": {
+    "en": "New Preset"
+  },
+  "既存のシリーズ・巻数が空欄の本のみ、タイトル／ファイル名から自動推測して補完します。": {
+    "en": "Fills in the series and volume only for books that don't have them yet, guessing from the title or filename."
+  },
+  "既存も取り込む": {
+    "en": "Also Import Existing Files"
+  },
+  "既存ファイルも取り込む（ローカル同様。OFF で以降の新規のみ）": {
+    "en": "Also Import Existing Files (like local; off imports only new files from now on)"
+  },
+  "既存取り込みの開始に失敗しました": {
+    "en": "Couldn't start importing the existing files."
+  },
+  "既定 ✓": {
+    "en": "Default ✓"
+  },
+  "既定に従う": {
+    "en": "Use Default"
+  },
+  "既定に設定": {
+    "en": "Make Default"
+  },
+  "更新（解錠・権限確定・他の接続によるスキャン完了を反映します）": {
+    "en": "Refresh (reflects unlocking, permission changes, and scans completed by other connections)"
+  },
+  "書籍が選択されていません": {
+    "en": "No books are selected."
+  },
+  "最終検査: %@　未検査 %lld 冊　破損 %lld 冊　劣化 %lld 冊": {
+    "en": "Last checked: %@  Unchecked %lld  Damaged %lld  Degraded %lld"
+  },
+  "最近の項目": {
+    "en": "Recent"
+  },
+  "有効にすると、サーバ側でホスト側の設定に従いバックアップ・世代管理を行います。": {
+    "en": "When on, the server backs up and manages generations according to the host's settings."
+  },
+  "未対応のアーカイブ形式です": {
+    "en": "This archive format isn't supported."
+  },
+  "未検査": {
+    "en": "Not Checked"
+  },
+  "未検査をスキャン": {
+    "en": "Scan Unchecked"
+  },
+  "未読チェック": {
+    "en": "Toggle Unread"
+  },
+  "未読状態の更新に失敗しました": {
+    "en": "Couldn't update the unread state."
+  },
+  "本の種類を自動分類": {
+    "en": "Auto-Categorize Book Type"
+  },
+  "本を開けませんでした": {
+    "en": "Couldn't open the book."
+  },
+  "本を開けませんでした（0ページ）": {
+    "en": "Couldn't open the book (0 pages)."
+  },
+  "本を開けませんでした（EPUB の取得に失敗）": {
+    "en": "Couldn't open the book (couldn't get the EPUB)."
+  },
+  "検査が実行されませんでした": {
+    "en": "The check wasn't run."
+  },
+  "検査に失敗しました（%@）": {
+    "en": "The check failed (%@)."
+  },
+  "検査中… %lld/%lld%@": {
+    "en": "Checking… %lld/%lld%@"
+  },
+  "検索": {
+    "en": "Search"
+  },
+  "構文エラー": {
+    "en": "Syntax Error"
+  },
+  "権限を確認できません。「更新」を押してください。": {
+    "en": "Permissions can't be checked. Click “Refresh.”"
+  },
+  "次": {
+    "en": "Next"
+  },
+  "無限スクロール": {
+    "en": "Infinite Scroll"
+  },
+  "現在のパスワード": {
+    "en": "Current Password"
+  },
+  "現在のパスワードが違います": {
+    "en": "The current password is wrong."
+  },
+  "現在ロック中です。解除するにはトグルを OFF にしてください。": {
+    "en": "This library is currently locked. Turn the toggle off to unlock it."
+  },
+  "画像が 1 枚も見つかりません": {
+    "en": "No images were found."
+  },
+  "画像が大きすぎます（30MB まで）": {
+    "en": "The image is too large (30 MB maximum)."
+  },
+  "画像ファイルのサイズが 0 または不明です": {
+    "en": "The image file's size is zero or unknown."
+  },
+  "監視フォルダが未設定です。下の入力で追加してください。": {
+    "en": "No watched folder is set. Add one below."
+  },
+  "監視フォルダに入った本を自動でライブラリに追加します（ホスト側で実行）。": {
+    "en": "Automatically adds books placed in the watched folder to the library (runs on the host)."
+  },
+  "監視フォルダのパスが無効です（ホストに存在しないか、フォルダではありません）": {
+    "en": "The watched folder's path is invalid (it doesn't exist on the host, or isn't a folder)."
+  },
+  "監視設定の保存に失敗しました": {
+    "en": "Couldn't save the watch settings."
+  },
+  "監視設定の取得に失敗しました": {
+    "en": "Couldn't get the watch settings."
+  },
+  "破損している本はありません。": {
+    "en": "No books are damaged."
+  },
+  "破損のみ再検査": {
+    "en": "Recheck Damaged Only"
+  },
+  "確認パスワードが一致しません": {
+    "en": "The confirmation password doesn't match."
+  },
+  "種類": {
+    "en": "Type"
+  },
+  "管理者": {
+    "en": "Administrator"
+  },
+  "管理者権限が必要です": {
+    "en": "Administrator access is required."
+  },
+  "管理者（ローカルコントロール・フル操作）": {
+    "en": "Administrator (local control, full access)"
+  },
+  "編集に失敗しました": {
+    "en": "Couldn't edit."
+  },
+  "編集可": {
+    "en": "Editable"
+  },
+  "編集可能（RW トークン）": {
+    "en": "Editable (RW token)"
+  },
+  "編集後にバックアップを保存": {
+    "en": "Save a Backup After Editing"
+  },
+  "編集権限がありません": {
+    "en": "You don't have edit permission."
+  },
+  "自動分類": {
+    "en": "Auto-Categorization"
+  },
+  "自動追加": {
+    "en": "Auto Add"
+  },
+  "自動追加の有効/無効に関わらず、監視フォルダを即座にスキャンします。": {
+    "en": "Scans the watched folder right away, whether or not Auto Add is on."
+  },
+  "自動追加を有効にする": {
+    "en": "Enable Auto Add"
+  },
+  "表示モード": {
+    "en": "Display Mode"
+  },
+  "表紙の再生成に失敗しました": {
+    "en": "Couldn't regenerate the cover."
+  },
+  "表紙の再生成の開始に失敗しました": {
+    "en": "Couldn't start regenerating the covers."
+  },
+  "表紙の更新に失敗しました": {
+    "en": "Couldn't update the cover."
+  },
+  "表紙を再生成": {
+    "en": "Regenerate Covers"
+  },
+  "表紙を再生成中…": {
+    "en": "Regenerating Covers…"
+  },
+  "複製": {
+    "en": "Duplicate"
+  },
+  "見つかりませんでした": {
+    "en": "It couldn't be found."
+  },
+  "解錠": {
+    "en": "Unlock"
+  },
+  "解錠に失敗しました": {
+    "en": "Couldn't unlock."
+  },
+  "詳細ペインの表紙": {
+    "en": "Cover in Detail Pane"
+  },
+  "詳細ペインの表紙表示を切り替え": {
+    "en": "Toggle the cover in the detail pane"
+  },
+  "読み込みに失敗しました": {
+    "en": "Couldn't load."
+  },
+  "読み込みに失敗しました。": {
+    "en": "Couldn't load."
+  },
+  "読み込み中…": {
+    "en": "Loading…"
+  },
+  "読む方向の同期に失敗しました": {
+    "en": "Couldn't sync the reading direction."
+  },
+  "追加": {
+    "en": "Add"
+  },
+  "追加する監視フォルダのホスト絶対パス（例: /Users/you/Watch）": {
+    "en": "Absolute host path of the folder to watch (e.g. /Users/you/Watch)"
+  },
+  "進捗を取得できません。": {
+    "en": "Couldn't get progress."
+  },
+  "選択した %lld 件のファイルをゴミ箱に移動しますか?": {
+    "en": "Move the %lld selected files to the Trash?"
+  },
+  "選択した %lld 件をライブラリから削除しますか?": {
+    "en": "Remove the %lld selected items from the library?"
+  },
+  "選択した書籍をダウンロード": {
+    "en": "Download the selected books"
+  },
+  "選択した本のオフライン保存を削除": {
+    "en": "Remove the offline copy of the selected book"
+  },
+  "選択はすべてダウンロード済みです": {
+    "en": "Everything selected is already downloaded."
+  },
+  "選択をダウンロード": {
+    "en": "Download Selection"
+  },
+  "重複の検出結果": {
+    "en": "Duplicate Scan Results"
+  },
+  "重複は見つかりませんでした。": {
+    "en": "No duplicates were found."
+  },
+  "重複を検索中…": {
+    "en": "Scanning for Duplicates…"
+  },
+  "重複スキャンに失敗しました": {
+    "en": "The duplicate scan failed."
+  },
+  "閉じる": {
+    "en": "Close"
+  },
+  "開く": {
+    "en": "Open"
+  },
+  "開始": {
+    "en": "Start"
+  },
+  "閲覧のみ": {
+    "en": "View Only"
+  },
+  "閲覧のみ（R トークン）": {
+    "en": "View only (R token)"
+  },
+  "（最終取得の値）": {
+    "en": " (last fetched value)"
+  }
+}

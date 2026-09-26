@@ -45,7 +45,7 @@ struct RemoteConnectFlowView: View {
     /// 接続成功時のハンドラ。共有ライブラリ数で分岐する。
     private func handleConnected(conn: ServerConnection, libs: [LibraryDTO]) {
         if libs.isEmpty {
-            emptyMessage = "このサーバで共有中のライブラリがありません"
+            emptyMessage = String(localized: "このサーバで共有中のライブラリがありません")
         } else if libs.count == 1 {
             emptyMessage = nil
             openWindow(value: RemoteLibraryRef(serverID: conn.id, libraryUUID: libs[0].id))
@@ -197,7 +197,7 @@ struct ConnectFormView: View {
     }
 
     @MainActor private func connectNew() async {
-        guard let base = URL(string: urlText) else { error = "URL が不正です"; return }
+        guard let base = URL(string: urlText) else { error = String(localized: "URL が不正です"); return }
         connecting = true
         defer { connecting = false }
         // サーバ名: 入力があればそれを、なければ host にフォールバック（改名と同一規則）。
@@ -208,7 +208,7 @@ struct ConnectFormView: View {
     }
 
     @MainActor private func connect(saved conn: ServerConnection) async {
-        guard let base = URL(string: conn.baseURL) else { error = "URL が不正です"; return }
+        guard let base = URL(string: conn.baseURL) else { error = String(localized: "URL が不正です"); return }
         connecting = true
         defer { connecting = false }
         await attempt(conn, base: base)
@@ -231,6 +231,6 @@ struct ConnectFormView: View {
         if let e = error as? RemoteClientError {
             return RemoteLibraryState.message(for: e)
         }
-        return "接続に失敗しました"
+        return String(localized: "接続に失敗しました")
     }
 }

@@ -125,3 +125,16 @@
 | 自動追加 | Auto-Add | 監視フォルダの自動取り込み機能名（LibrarySettingsSheet の GroupBox 見出し） |
 | 自動分類 | Auto-Classify | 本の種類の自動判定機能名 |
 | 既定に従う（現在: …） | Follow the Default (Currently: …) | 3-way ピッカー（既定に従う/このライブラリで有効/無効）の共通句 |
+## 追記（U4・G55 リモート/オフライン/破損チェック）
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| お気に入り | Favorites | シェルフ一覧の特別項目。DB 保存名（`お気に入り`）は変えない（kind=="favorites" で判定・表示だけ訳す） |
+| 管理者／編集可／閲覧のみ | Administrator／Editable／View Only | リモート接続 tier（admin/edit/read）の表示ラベル |
+| プリセット／命名プリセット | Preset／Naming Preset | ファイル名フォーマットのプリセット |
+| 破損／劣化 | Damaged／Degraded | 破損チェックの状態。「劣化」は前回 OK→今回破損（ビット腐敗疑い） |
+| バックアップ | Backup | |
+| メンテナンス | Maintenance | メタデータ補完・表紙再生成などの長時間ジョブの総称 |
+| 自動分類 | Auto-Categorization | 本の種類の自動判定設定 |
+| サブフォルダ | Subfolder | 取り込み設定の階層扱い |
+| 中断（実行中の処理を止める操作・状態） | Stop／Stopped | 「キャンセル」ではなく実行中ジョブの停止を指す（スキャン・メンテナンス・ダウンロードの中断ボタンと要約文言の両方で使う語を統一） |

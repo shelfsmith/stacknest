@@ -509,7 +509,7 @@ struct OfflineLibraryView: View {
                 // ページレイアウト override はオフラインでは永続化しない（no-op）。
                 persistPageOverride: { _, _, _ in },
                 suppressResumeDialog: resumeDirect,
-                sourceLabel: "オフライン",
+                sourceLabel: String(localized: "オフライン"),
                 damageNote: damageNote
             )
             // G16 C1 fix: onClose は controller 生成後に [weak controller] で設定する

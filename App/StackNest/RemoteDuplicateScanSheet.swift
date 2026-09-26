@@ -43,7 +43,7 @@ struct RemoteDuplicateScanSheet: View {
     }
 
     @ViewBuilder
-    private func groupList(title: String, groups: [DuplicateGroupDTO]) -> some View {
+    private func groupList(title: LocalizedStringKey, groups: [DuplicateGroupDTO]) -> some View {
         if !groups.isEmpty {
             Text(title).font(.headline).padding(.top, 6)
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in

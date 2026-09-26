@@ -357,12 +357,12 @@ final class RemoteIntegrityDataSource: IntegrityDataSource {
             // fix round 5: サーバへ接続できないわけではない（ブラウズ窓の参照を失っただけ）ので、
             // フォールバック経路の「サーバに接続できないため」という文言は使わない。「更新」で
             // 再解決すれば直る（`IntegrityWindowContainer.resolveRemoteDataSource` 参照）。
-            return "権限を確認できません。「更新」を押してください。"
+            return String(localized: "権限を確認できません。「更新」を押してください。")
         }
         if explicitTierResolutionFailed {
-            return "サーバに接続できないため、権限を確認できません。"
+            return String(localized: "サーバに接続できないため、権限を確認できません。")
         }
-        return "この接続には管理者権限がないため、スキャンを開始できません。"
+        return String(localized: "この接続には管理者権限がないため、スキャンを開始できません。")
     }
 
     /// Phase G31 Task 3: 以前は `summary()`/`lastScanAt()` に分かれており、両方が同じ
