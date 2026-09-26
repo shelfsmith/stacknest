@@ -7,6 +7,33 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [0.15.1] - 2026-09-26 — Books dropped while a shelf is shown now go into that shelf, Washi 1.22.0
+
+> [@gsugawara](https://github.com/gsugawara) reported this bug and proposed a fix in
+> [PR #4](https://github.com/shelfsmith/stacknest/pull/4). Thank you for both. The contributed commit is included with its
+> authorship intact; on top of it we handle a selection change during the import and books that were already in the library.
+
+### Fixed
+
+- **★ Dropping book files from Finder while a manual shelf or Favorites is shown did not put them into that shelf**:
+  they were added to the library but not to the shelf on screen. Dropped books (and books added with the toolbar's
+  "+") now **also go into the shelf being shown**. While the library, a smart shelf or Recent Items is shown, they are
+  only added to the library, as before.
+  - Files of **books already in the library** are put into the shelf too. The notice then reads
+    "N items were already in the library, so they were only added to the shelf".
+  - The target is **the shelf shown when you dropped**. Selecting another shelf in the sidebar while a large folder is
+    still importing does not redirect the books there, and if that shelf is deleted during the import, nothing is added to it.
+
+### Changed
+
+- **Washi, which renders EPUBs, is now 1.22.0** (the upstream release). It brings the fixes made after 1.21.0:
+  - Moving to an item that cannot be shown (for example one with no renderable fallback) could leave the reader on the
+    previous page and unresponsive. The move is now refused and the previous page stays. Page turns skip such items,
+    and if nothing displayable remains, that counts as the end of the book.
+  - When a chapter fails to load, the last shown position is reloaded, and the page number no longer stays missing after such a failure.
+  - Rapid moves (holding a key, for example) no longer flash the previous page or the margin colour at chapter
+    changes, and the previous page shown during a chapter change no longer keeps the old colour theme after you change it.
+
 ## [0.15.0] - 2026-09-26 — Easier EPUB reading (whole-book progress, resume, volume turns in the same window), page-turn effects, a separate EPUB external viewer (Phase G54)
 
 > This release makes EPUB comfortable for everyday reading: you can see where you are in the whole book, choose
