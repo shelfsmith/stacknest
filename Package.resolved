@@ -240,7 +240,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/shunnag/Washi",
       "state" : {
-        "revision" : "d0122d8902ca520ba43d440ea83bb4456402c38e"
+        "revision" : "100d500edba5242f6a92c20f62fefcb68f7ecf1a"
       }
     }
   ],
