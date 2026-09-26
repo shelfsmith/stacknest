@@ -50,3 +50,34 @@
 | 全画面で開く | Open in Full Screen |
 | 配信インジケータ | Broadcast Indicator |
 | 共有トークン | Sharing Token |
+## 追加語（Task 16 / U8 Web で判明）
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| タイトル | Title | ソート項目・詳細列見出し |
+| 作者／著者 | Author | Web の一覧では 2 種の日本語表記が混在（既存コード）。英訳はどちらも Author に統一 |
+| ジャンル | Genre | ファセット ブラウズの列 |
+| 追加日 | Date Added | |
+| 最終読書／最終読書日 | Last Read／Last Read Date | 詳細行は「最終読書」、ソート項目は「最終読書日」（別の日本語文字列） |
+| 評価 | Rating | レート（既存用語集）と同義の別表記 |
+| 進行 | Progress | 詳細シートの読書進捗行 |
+| ページ数 | Pages | |
+| 検索／並び替え | Search／Sort | |
+| グリッド／リスト／カラム（表示モード） | Grid／List／Column | ビュー切替セグメント |
+| 表示件数 / スクロール | Items Per Page / Scroll | per-page ＋無限スクロールの統合セレクタ |
+| 無限 | Unlimited | 上記セレクタの無限スクロール選択肢 |
+| すべて | All | ファセット列の先頭項目（選択解除） |
+| ステップ | Steps | 狭幅 column stepper のパンくず nav の aria-label |
+| ペアリング | Pairing | Web 版のペアリング画面タイトル |
+| トークン／パスワード | Token／Password | 入力欄のプレースホルダ |
+| 接続／解錠 | Connect／Unlock | ボタン |
+| 設定 | Settings | リーダーの歯車ボタン |
+| リーダー設定 | Reader Settings | リーダー設定シートの見出し |
+| 読み方向 | Reading Direction | |
+| キャッシュ上限 | Cache Limit | |
+| フル先読み（Tier3） | Full Prefetch (Tier 3) | |
+| (無題) | (Untitled) | タイトル未設定の本のプレースホルダ |
+| 本の詳細 | Book Details | 詳細モーダルの aria-label |
+| 次の巻へ／先頭へ／本を閉じる | Next Volume／To the Beginning／Close the Book | 巻末ダイアログのボタン |
+| 続きから（reader.js の巻送りダイアログ） | Resume | 「続きから読む」（Resume Reading）より短い、巻送り確認ダイアログ専用の文言 |
+

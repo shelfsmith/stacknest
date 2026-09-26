@@ -7,6 +7,7 @@ import { fetchBookFileBlob, postEPUBProgress, UnauthorizedError, NetworkError } 
 import { toLocator, restoreTarget, clampScale } from "./epub-locator.js";
 import { isImageOnlySection, layoutChanges, shouldToggleBar, imageChainAncestors, svgAspectRatioTargets }
     from "./epub-section.js";
+import { t } from "./i18n.js";
 
 const SCALE_KEY = "stacknest.epubFontScale";
 const readScale = () => clampScale(localStorage.getItem(SCALE_KEY));
@@ -15,6 +16,7 @@ const saveScale = (s) => localStorage.setItem(SCALE_KEY, String(s));
 /// foliate の renderer（各セクションの document）に注入するスタイル。倍率と配色
 /// （prefers-color-scheme のみに追従。手動トグルは無し — G48-3 controller ruling）。
 function styles(scale) {
+    // l10n:ignore CSS 内の実装コメント（UI に表示されないため訳の対象外）
     return `
         html { font-size: ${Math.round(scale * 100)}% !important; }
         @media (prefers-color-scheme: dark) {
@@ -90,15 +92,15 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
     const view = document.createElement("foliate-view");
     view.className = "epub-view";
     const backBtn = el("button", {
-        class: "icon-btn", type: "button", "aria-label": "戻る",
+        class: "icon-btn", type: "button", "aria-label": t("戻る"),
         onClick: () => goBack(),
     }, "‹");
     const smallerBtn = el("button", {
-        class: "icon-btn", type: "button", "aria-label": "文字を小さく",
+        class: "icon-btn", type: "button", "aria-label": t("文字を小さく"),
         onClick: () => setScale(scale / 1.122),
     }, "A−");
     const biggerBtn = el("button", {
-        class: "icon-btn", type: "button", "aria-label": "文字を大きく",
+        class: "icon-btn", type: "button", "aria-label": t("文字を大きく"),
         onClick: () => setScale(scale * 1.122),
     }, "A+");
     const bar = el("div", { class: "epub-bar" }, [
@@ -286,7 +288,7 @@ export async function renderEPUBReader(uuid, bookId, query, deps, manifest, back
     } catch (e) {
         // T4 レビュー Important #1: 401 は api.js が #/pair へ遷移済み（reader.js と同じ扱い）。誤った toast を出さない。
         if (e instanceof UnauthorizedError) return teardown;
-        if (!torn) toast(e instanceof NetworkError ? "サーバに接続できません" : "本を開けませんでした");
+        if (!torn) toast(e instanceof NetworkError ? t("サーバに接続できません") : t("本を開けませんでした"));
         console.error(e);
     }
 

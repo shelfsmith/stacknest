@@ -6,6 +6,7 @@ import { api, apiJSON, deviceToken, libToken, browseParam, fetchFacet,
          ensureSessionToken, currentSessionToken, fetchManifest } from "./api.js";
 import { startLiveSync } from "./livesync.js";
 import { offersEPUBResume, isEPUBFilename } from "./epub-locator.js";
+import { t } from "./i18n.js";
 
 // ---- localStorage キー（端末ごとの表示設定） --------------------------------
 const VIEW_KEY = "stacknest.books.view";   // "list" | "grid" | "column"
@@ -15,10 +16,10 @@ const ORDER_KEY = "stacknest.books.order"; // asc | desc
 const SCROLLMODE_KEY = "stacknest.books.scrollmode"; // "paged" | "infinite"
 
 const SORT_OPTIONS = [
-    { value: "title", label: "タイトル" },
-    { value: "series", label: "シリーズ" },
-    { value: "dateAdded", label: "追加日" },
-    { value: "lastRead", label: "最終読書日" },
+    { value: "title", label: t("タイトル") },
+    { value: "series", label: t("シリーズ") },
+    { value: "dateAdded", label: t("追加日") },
+    { value: "lastRead", label: t("最終読書日") },
 ];
 const SORT_VALUES = new Set(SORT_OPTIONS.map((o) => o.value));
 const PER_OPTIONS = [50, 100, 200];
@@ -40,9 +41,9 @@ function isNarrow() { return window.matchMedia("(max-width:767px)").matches; }
 // ---- browse（ファセット ドリルダウン）定義 ----------------------------------
 // レベル順: ジャンル → 作者 → シリーズ。SQL 列名 / 日本語ラベル / URL クエリ名。
 const BROWSE_LEVELS = [
-    { column: "genre", label: "ジャンル", param: "g" },
-    { column: "author", label: "作者", param: "a" },
-    { column: "series", label: "シリーズ", param: "s" },
+    { column: "genre", label: t("ジャンル"), param: "g" },
+    { column: "author", label: t("作者"), param: "a" },
+    { column: "series", label: t("シリーズ"), param: "s" },
 ];
 
 /// query（parseRoute の query）から各レベルの選択値を読み出す。
@@ -158,7 +159,7 @@ function volumeLabel(volume) {
 function seriesLabel(book) {
     if (!book.series) return "";
     const vol = volumeLabel(book.volume);
-    return vol === null ? book.series : `${book.series} 第${vol}巻`;
+    return vol === null ? book.series : t("{series} 第{vol}巻", { series: book.series, vol });
 }
 
 /// 進行状況「lastPage+1 / pages」。lastPage が null なら null（非表示）。
@@ -410,9 +411,9 @@ export async function renderBooks(uuid, query, deps) {
 
     // --- ツールバー（検索・ソート・表示切替） ---
     const search = el("input", {
-        type: "search", class: "books-search", placeholder: "タイトル・シリーズ・著者で検索",
+        type: "search", class: "books-search", placeholder: t("タイトル・シリーズ・著者で検索"),
         value: q, autocomplete: "off", autocapitalize: "off",
-        autocorrect: "off", spellcheck: "false", "aria-label": "検索",
+        autocorrect: "off", spellcheck: "false", "aria-label": t("検索"),
     });
     // 300ms デバウンス。検索でページを 1 にリセット。
     // navigate() は DOM（検索 input 含む）を作り直すため、IME 変換中に発火すると
@@ -437,7 +438,7 @@ export async function renderBooks(uuid, query, deps) {
         scheduleSearch();
     });
 
-    const sortSelect = el("select", { class: "books-sort", "aria-label": "並び替え" },
+    const sortSelect = el("select", { class: "books-sort", "aria-label": t("並び替え") },
         SORT_OPTIONS.map((o) =>
             el("option", { value: o.value, selected: o.value === sort, text: o.label })));
     sortSelect.addEventListener("change", () => {
@@ -452,9 +453,9 @@ export async function renderBooks(uuid, query, deps) {
     // 昇順/降順トグル。現在方向を表示し、押すと反転する。
     const orderBtn = el("button", {
         type: "button", class: "books-ordertoggle",
-        "aria-label": order === "asc" ? "降順に切替" : "昇順に切替",
-        title: order === "asc" ? "昇順（押すと降順）" : "降順（押すと昇順）",
-        text: order === "asc" ? "↑ 昇順" : "↓ 降順",
+        "aria-label": order === "asc" ? t("降順に切替") : t("昇順に切替"),
+        title: order === "asc" ? t("昇順（押すと降順）") : t("降順（押すと昇順）"),
+        text: order === "asc" ? t("↑ 昇順") : t("↓ 降順"),
     });
     orderBtn.addEventListener("click", () => {
         const o = order === "asc" ? "desc" : "asc";
@@ -463,13 +464,13 @@ export async function renderBooks(uuid, query, deps) {
     });
 
     // 表示モード切替（リスト / グリッド / カラム）のセグメント コントロール。
-    const makeSegBtn = (mode, label, icon) => {
+    const makeSegBtn = (mode, label, display, icon) => {
         const btn = el("button", {
             type: "button",
             class: mode === view ? "seg-btn sel" : "seg-btn",
             "aria-pressed": mode === view ? "true" : "false",
-            "aria-label": `${label}表示`,
-            title: `${label}表示`,
+            "aria-label": display,
+            title: display,
         }, icon ? [icon] : [label]);
         btn.addEventListener("click", () => {
             if (mode === view) return;
@@ -484,20 +485,20 @@ export async function renderBooks(uuid, query, deps) {
         });
         return btn;
     };
-    const viewSeg = el("div", { class: "seg", role: "group", "aria-label": "表示モード" }, [
-        makeSegBtn("grid", "グリッド", gridIconSVG()),
-        makeSegBtn("list", "リスト", listIconSVG()),
-        makeSegBtn("column", "カラム", columnIconSVG()),
+    const viewSeg = el("div", { class: "seg", role: "group", "aria-label": t("表示モード") }, [
+        makeSegBtn("grid", t("グリッド"), t("グリッド表示"), gridIconSVG()),
+        makeSegBtn("list", t("リスト"), t("リスト表示"), listIconSVG()),
+        makeSegBtn("column", t("カラム"), t("カラム表示"), columnIconSVG()),
     ]);
 
     // 件数セレクタ（50/100/200/無限）。無限スクロールのモード選択もここに統合する。
     // 現在値: 無限モードなら "infinite"、ページ表示なら現在の per（数値）。
     // ツールバー行に常設し、無限モードでも見えるようにする（戻れるように）。
-    const perScrollSelect = el("select", { class: "pager-per books-perscroll", "aria-label": "表示件数 / スクロール" },
+    const perScrollSelect = el("select", { class: "pager-per books-perscroll", "aria-label": t("表示件数 / スクロール") },
         [
             ...PER_OPTIONS.map((n) =>
-                el("option", { value: String(n), selected: scrollMode !== "infinite" && n === per, text: `${n}件` })),
-            el("option", { value: "infinite", selected: scrollMode === "infinite", text: "無限" }),
+                el("option", { value: String(n), selected: scrollMode !== "infinite" && n === per, text: t("{n}件", { n }) })),
+            el("option", { value: "infinite", selected: scrollMode === "infinite", text: t("無限") }),
         ]);
     perScrollSelect.addEventListener("change", () => {
         const v = perScrollSelect.value;
@@ -531,7 +532,7 @@ export async function renderBooks(uuid, query, deps) {
         root.append(el("div", { class: "columns stepper" }, [
             buildFacetColumn(uuid, step, { sel, q, deps, onPick: onPickNarrow }),
         ]));
-        render("ライブラリ", root, { showBack: true });
+        render(t("ライブラリ"), root, { showBack: true });
         return;
     }
 
@@ -551,7 +552,7 @@ export async function renderBooks(uuid, query, deps) {
     const pagerStep = narrowColumn ? step : undefined;
     if (infinite) {
         root.append(el("div", { class: "pager pager-countonly" }, [
-            el("span", { class: "pager-info", text: `全${total}冊` }),
+            el("span", { class: "pager-info", text: t("全{count}冊", { count: total }) }),
         ]));
     } else {
         root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
@@ -562,7 +563,7 @@ export async function renderBooks(uuid, query, deps) {
     let resultContainer = null;
     if (items.length === 0) {
         root.append(el("div", { class: "empty" },
-            q ? "該当する本がありません。" : "このライブラリには本がありません。"));
+            q ? t("該当する本がありません。") : t("このライブラリには本がありません。")));
     } else if (view === "grid") {
         resultContainer = gridView(uuid, items, deps);
         root.append(resultContainer);
@@ -583,7 +584,7 @@ export async function renderBooks(uuid, query, deps) {
         root.append(pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, step: pagerStep, deps }));
     }
 
-    render("ライブラリ", root, { showBack: true });
+    render(t("ライブラリ"), root, { showBack: true });
     restoreListScrollIfPending(location.hash); // D5: リーダーから同一一覧へ戻ったとき位置を復元
 }
 
@@ -631,7 +632,7 @@ function setupInfiniteScroll(root, container, deps, state) {
         } catch (e) {
             // エラー時は停止し、タップで再試行できるようにする。
             removeSkeletonNodes(skeletonNodes);
-            status.textContent = "読み込みに失敗しました。タップで再試行";
+            status.textContent = t("読み込みに失敗しました。タップで再試行");
             status.classList.add("inf-error");
             status.onclick = () => { status.onclick = null; loadNext(); };
         } finally {
@@ -674,22 +675,22 @@ function listView(uuid, items, deps) {
         if (sl) meta.push(el("span", { class: "book-series" }, [
             el("button", {
                 type: "button", class: "series-link", text: book.series,
-                "aria-label": `シリーズ「${book.series}」で絞り込み`,
+                "aria-label": t("シリーズ「{series}」で絞り込み", { series: book.series }),
                 onClick: (ev) => {
                     ev.stopPropagation();
                     seriesDrilldown(uuid, book.series, deps);
                 },
             }),
             volumeLabel(book.volume) !== null
-                ? el("span", { text: ` 第${volumeLabel(book.volume)}巻` })
+                ? el("span", { text: t(" 第{vol}巻", { vol: volumeLabel(book.volume) }) })
                 : null,
         ]));
         const pl = progressLabel(book);
         if (pl) meta.push(el("span", { class: "book-progress", text: pl }));
 
         const right = [];
-        if (book.unseen) right.push(el("span", { class: "unseen-dot", title: "未読", "aria-label": "未読" }));
-        if (book.rating > 0) right.push(el("span", { class: "book-rating", "aria-label": `星${book.rating}`, text: "★".repeat(book.rating) }));
+        if (book.unseen) right.push(el("span", { class: "unseen-dot", title: t("未読"), "aria-label": t("未読") }));
+        if (book.rating > 0) right.push(el("span", { class: "book-rating", "aria-label": t("星{n}", { n: book.rating, count: book.rating }), text: "★".repeat(book.rating) }));
 
         // 4.2c: list 行にも小さな表紙サムネ（遅延読み込み・縮小・キャッシュ）。表紙なしはプレースホルダ。
         const thumbURL = coverURL(uuid, book, 120);
@@ -706,7 +707,7 @@ function listView(uuid, items, deps) {
         }, [
             thumb,
             el("div", { class: "book-row-main" }, [
-                el("div", { class: "book-title", text: book.title || "(無題)" }),
+                el("div", { class: "book-title", text: book.title || t("(無題)") }),
                 meta.length ? el("div", { class: "book-meta" }, meta) : null,
             ]),
             right.length ? el("div", { class: "book-row-side" }, right) : null,
@@ -733,16 +734,16 @@ function gridView(uuid, items, deps) {
         } else {
             // 表紙なし: タイトル文字のプレースホルダ枠。
             cover = el("div", { class: "grid-cover grid-cover-empty" },
-                [el("span", { class: "grid-cover-text", text: book.title || "(無題)" })]);
+                [el("span", { class: "grid-cover-text", text: book.title || t("(無題)") })]);
         }
         const badges = [];
-        if (book.unseen) badges.push(el("span", { class: "grid-unseen", "aria-label": "未読" }));
+        if (book.unseen) badges.push(el("span", { class: "grid-unseen", "aria-label": t("未読") }));
         const tile = el("button", {
             type: "button", class: "book-tile",
             onClick: () => openDetail(uuid, book, deps),
         }, [
             el("div", { class: "grid-cover-wrap" }, [cover, ...badges]),
-            el("div", { class: "grid-title", text: book.title || "(無題)" }),
+            el("div", { class: "grid-title", text: book.title || t("(無題)") }),
         ]);
         grid.append(tile);
     }
@@ -804,7 +805,7 @@ function buildFacetColumn(uuid, columnIdx, { sel, q, deps, onPick }) {
         type: "button",
         class: selectedValue ? "col-item all" : "col-item all sel",
         onClick: () => onPick(columnIdx, ""),
-    }, ["すべて"]);
+    }, [t("すべて")]);
     listEl.append(allItem);
 
     // ローディング プレースホルダ。
@@ -828,7 +829,7 @@ function buildFacetColumn(uuid, columnIdx, { sel, q, deps, onPick }) {
             }
         })
         .catch(() => {
-            loading.textContent = "読み込み失敗";
+            loading.textContent = t("読み込み失敗");
         });
 
     return el("div", { class: "col" }, [header, listEl]);
@@ -858,8 +859,8 @@ function renderColumns(uuid, { sel, q, deps }) {
 function stepBackBar(uuid, navState, deps) {
     const { el } = deps;
     const back = el("button", {
-        type: "button", class: "icon-btn step-back", text: "‹ 戻る",
-        "aria-label": "前のステップに戻る",
+        type: "button", class: "icon-btn step-back", text: t("‹ 戻る"),
+        "aria-label": t("前のステップに戻る"),
         onClick: () => navigate(uuid, navState),
     });
     return el("div", { class: "stepper-bar" }, [back]);
@@ -873,8 +874,8 @@ function renderStepperBar(uuid, { sel, step, q, sort, order, deps }) {
     // 戻る（step>0 のとき 1 つ前へ）。
     const back = step > 0
         ? el("button", {
-            type: "button", class: "icon-btn step-back", text: "‹ 戻る",
-            "aria-label": "前のステップに戻る",
+            type: "button", class: "icon-btn step-back", text: t("‹ 戻る"),
+            "aria-label": t("前のステップに戻る"),
             onClick: () => navigate(uuid, { page: 1, q, sort, order, ...selParams, step: step - 1 }),
         })
         : null;
@@ -887,7 +888,7 @@ function renderStepperBar(uuid, { sel, step, q, sort, order, deps }) {
         const value = sel[lv.column] || "";
         let text;
         if (value) text = value;            // 選択済み
-        else if (i < step) text = "すべて";  // 通過済みで未選択（=すべて）
+        else if (i < step) text = t("すべて");  // 通過済みで未選択（=すべて）
         else text = lv.label;               // 未到達（プレーンなラベル）
         const cls = i === step ? "crumb cur" : "crumb step";
         crumbs.push(el("button", {
@@ -903,7 +904,7 @@ function renderStepperBar(uuid, { sel, step, q, sort, order, deps }) {
 
     return el("div", { class: "stepper-bar" }, [
         back,
-        el("nav", { class: "crumbs", "aria-label": "ステップ" }, crumbs),
+        el("nav", { class: "crumbs", "aria-label": t("ステップ") }, crumbs),
     ]);
 }
 
@@ -916,12 +917,12 @@ function pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, st
     const selParams = sel ? { g: sel.genre, a: sel.author, s: sel.series } : {};
     if (step != null) selParams.step = step;
     const prev = el("button", {
-        type: "button", class: "pager-btn", text: "‹ 前",
+        type: "button", class: "pager-btn", text: t("‹ 前"),
         disabled: page <= 1,
         onClick: () => navigate(uuid, { page: page - 1, q, sort, order, ...selParams }),
     });
     const next = el("button", {
-        type: "button", class: "pager-btn", text: "次 ›",
+        type: "button", class: "pager-btn", text: t("次 ›"),
         disabled: page >= totalPages,
         onClick: () => navigate(uuid, { page: page + 1, q, sort, order, ...selParams }),
     });
@@ -930,7 +931,7 @@ function pager(uuid, { page, totalPages, total, perPage, q, sort, order, sel, st
     // ページャは前後送り＋件数表示のみを担う。
     return el("div", { class: "pager" }, [
         prev,
-        el("span", { class: "pager-info", text: `${page} / 全${totalPages}（${total}冊）` }),
+        el("span", { class: "pager-info", text: t("{page} / 全{pages}（{count}冊）", { page, pages: totalPages, count: total }) }),
         next,
     ]);
 }
@@ -953,7 +954,7 @@ function openDetail(uuid, book, deps) {
     const coverEl = url
         ? el("img", { class: "detail-cover", src: url, alt: book.title || "", decoding: "async" })
         : el("div", { class: "detail-cover detail-cover-empty" },
-            [el("span", { class: "grid-cover-text", text: book.title || "(無題)" })]);
+            [el("span", { class: "grid-cover-text", text: book.title || t("(無題)") })]);
 
     const rows = [];
     const addRow = (label, value) => {
@@ -963,22 +964,22 @@ function openDetail(uuid, book, deps) {
             el("span", { class: "detail-value", text: String(value) }),
         ]));
     };
-    if (book.author) addRow("著者", book.author);
+    if (book.author) addRow(t("著者"), book.author);
     if (book.series) {
         rows.push(el("div", { class: "detail-row" }, [
-            el("span", { class: "detail-label", text: "シリーズ" }),
+            el("span", { class: "detail-label", text: t("シリーズ") }),
             el("button", {
                 type: "button", class: "series-link", text: seriesLabel(book) || book.series,
                 onClick: () => { close(); seriesDrilldown(uuid, book.series, deps); },
             }),
         ]));
     }
-    if (book.rating > 0) addRow("評価", "★".repeat(book.rating));
+    if (book.rating > 0) addRow(t("評価"), "★".repeat(book.rating));
     const pl = progressLabel(book);
-    if (pl) addRow("進行", pl);
-    else if (book.pages) addRow("ページ数", book.pages);
-    if (book.dateAdded) addRow("追加日", formatDate(book.dateAdded));
-    if (book.lastReadAt) addRow("最終読書", formatDate(book.lastReadAt));
+    if (pl) addRow(t("進行"), pl);
+    else if (book.pages) addRow(t("ページ数"), book.pages);
+    if (book.dateAdded) addRow(t("追加日"), formatDate(book.dateAdded));
+    if (book.lastReadAt) addRow(t("最終読書"), formatDate(book.lastReadAt));
 
     const lastUi = (book.lastPage != null && book.lastPage > 0) ? book.lastPage + 1 : null;
     // G26 Codex Important #1: restart=true は「読みかけの本で『最初から』を選んだ」＝保存済み
@@ -996,21 +997,21 @@ function openDetail(uuid, book, deps) {
     };
     // G54-S3d: 「続きから／最初から」の 2 択（zip は lastPage、テキスト EPUB は保存位置で出す・下の manifest 参照）。
     const resumeActions = (resumeUi) => [
-        el("button", { type: "button", class: "btn-primary", text: "続きから読む", onClick: () => openAt(resumeUi) }),
-        el("button", { type: "button", class: "btn-secondary", text: "最初から", onClick: () => openAt(1, true) }),
-        el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }),
+        el("button", { type: "button", class: "btn-primary", text: t("続きから読む"), onClick: () => openAt(resumeUi) }),
+        el("button", { type: "button", class: "btn-secondary", text: t("最初から"), onClick: () => openAt(1, true) }),
+        el("button", { type: "button", class: "btn-secondary", text: t("閉じる"), onClick: close }),
     ];
     const openActions = () => [
-        el("button", { type: "button", class: "btn-primary", text: "開く", onClick: () => openAt(1) }),
-        el("button", { type: "button", class: "btn-secondary", text: "閉じる", onClick: close }),
+        el("button", { type: "button", class: "btn-primary", text: t("開く"), onClick: () => openAt(1) }),
+        el("button", { type: "button", class: "btn-secondary", text: t("閉じる"), onClick: close }),
     ];
     const actionsEl = el("div", { class: "modal-actions" }, lastUi ? resumeActions(lastUi) : openActions());
 
-    const modal = el("div", { class: "modal detail-modal", role: "dialog", "aria-label": "本の詳細" }, [
+    const modal = el("div", { class: "modal detail-modal", role: "dialog", "aria-label": t("本の詳細") }, [
         el("div", { class: "detail-header" }, [
             coverEl,
             el("div", { class: "detail-headinfo" }, [
-                el("h2", { class: "detail-title", text: book.title || "(無題)" }),
+                el("h2", { class: "detail-title", text: book.title || t("(無題)") }),
                 book.author ? el("p", { class: "detail-author", text: book.author }) : null,
             ]),
         ]),

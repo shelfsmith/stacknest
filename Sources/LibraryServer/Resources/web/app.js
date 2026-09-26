@@ -10,7 +10,7 @@ import { renderBooks, buildBooksSkeleton } from "./books.js";
 import { renderReader, resolveBackHash } from "./reader.js";
 import { stopLiveSync } from "./livesync.js";
 import { spring } from "./anim.js";
-import { applyI18n } from "./i18n.js";
+import { applyI18n, t } from "./i18n.js";
 
 const appEl = () => document.getElementById("app");
 const backBtn = () => document.getElementById("back-btn");
@@ -296,12 +296,13 @@ async function route() {
     } catch (e) {
         if (e instanceof UnauthorizedError) return; // すでに #/pair へ遷移済み
         if (e instanceof NetworkError) {
-            render("StackNest", el("div", { class: "empty" }, "読み込めませんでした。"));
-            toast("サーバに接続できません", { actionLabel: "再試行", onAction: () => route() });
+            render("StackNest", el("div", { class: "empty" }, t("読み込めませんでした。")));
+            toast(t("サーバに接続できません"), { actionLabel: t("再試行"), onAction: () => route() });
             return;
         }
-        render("StackNest", el("div", { class: "empty" }, "エラーが発生しました。"));
-        toast(e.message || "エラーが発生しました", { actionLabel: "再試行", onAction: () => route() });
+        render("StackNest", el("div", { class: "empty" }, t("エラーが発生しました。")));
+        // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+        toast(e.message || t("エラーが発生しました"), { actionLabel: t("再試行"), onAction: () => route() });
     }
 }
 
@@ -309,19 +310,19 @@ async function route() {
 
 function renderPair() {
     const form = el("form", { class: "pair-form" }, [
-        el("p", { class: "pair-lead", text: "Mac の「設定 › 共有」に表示されたトークンを入力してください。" }),
-        el("p", { class: "pair-hint", text: "iPhone のカメラで QR コードを読み取ると、ここは自動で入力されます。" }),
+        el("p", { class: "pair-lead", text: t("Mac の「設定 › 共有」に表示されたトークンを入力してください。") }),
+        el("p", { class: "pair-hint", text: t("iPhone のカメラで QR コードを読み取ると、ここは自動で入力されます。") }),
         el("input", {
             type: "text", id: "token-input", class: "pair-input",
-            placeholder: "トークン", autocomplete: "off",
+            placeholder: t("トークン"), autocomplete: "off",
             autocapitalize: "off", autocorrect: "off", spellcheck: "false",
         }),
-        el("button", { type: "submit", class: "btn-primary", text: "接続" }),
+        el("button", { type: "submit", class: "btn-primary", text: t("接続") }),
     ]);
     form.addEventListener("submit", async (ev) => {
         ev.preventDefault();
         const value = document.getElementById("token-input").value.trim();
-        if (!value) { toast("トークンを入力してください"); return; }
+        if (!value) { toast(t("トークンを入力してください")); return; }
         saveDeviceToken(value);
         // 到達性 + トークン妥当性を /libraries で確認（401 なら api 側でクリアされる）。
         try {
@@ -329,15 +330,16 @@ function renderPair() {
             location.hash = "#/libraries";
         } catch (e) {
             if (e instanceof UnauthorizedError) {
-                toast("トークンが正しくありません");
+                toast(t("トークンが正しくありません"));
             } else if (e instanceof NetworkError) {
-                toast("サーバに接続できません", { actionLabel: "再試行", onAction: () => form.requestSubmit() });
+                toast(t("サーバに接続できません"), { actionLabel: t("再試行"), onAction: () => form.requestSubmit() });
             } else {
-                toast(e.message || "接続に失敗しました");
+                // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+                toast(e.message || t("接続に失敗しました"));
             }
         }
     });
-    render("ペアリング", form);
+    render(t("ペアリング"), form);
 }
 
 // ---- ライブラリ一覧画面 -----------------------------------------------------
@@ -345,8 +347,8 @@ function renderPair() {
 async function renderLibraries() {
     const libraries = await listLibraries();
     if (!Array.isArray(libraries) || libraries.length === 0) {
-        render("ライブラリ", el("div", { class: "empty" },
-            "Mac 側で「リモート共有を許可」したライブラリがここに表示されます。"));
+        render(t("ライブラリ"), el("div", { class: "empty" },
+            t("Mac 側で「リモート共有を許可」したライブラリがここに表示されます。")));
         return;
     }
     const list = el("div", { class: "card-list" });
@@ -356,14 +358,14 @@ async function renderLibraries() {
             onClick: () => { location.hash = `#/lib/${encodeURIComponent(lib.id)}`; },
         }, [
             el("div", { class: "card-title" }, [
-                lib.locked ? el("span", { class: "lock", title: "ロック中", text: "🔒" }) : null,
-                el("span", { text: lib.name || "(無題)" }),
+                lib.locked ? el("span", { class: "lock", title: t("ロック中"), text: "🔒" }) : null,
+                el("span", { text: lib.name || t("(無題)") }),
             ]),
-            el("div", { class: "card-sub", text: `${lib.bookCount ?? 0} 冊` }),
+            el("div", { class: "card-sub", text: t("{n} 冊", { n: lib.bookCount ?? 0, count: lib.bookCount ?? 0 }) }),
         ]);
         list.append(card);
     }
-    render("ライブラリ", list);
+    render(t("ライブラリ"), list);
 }
 
 // ---- ライブラリ内（books ブラウズ + ロック庫の unlock フロー） ----------------
@@ -380,7 +382,7 @@ async function renderLib(uuid, query) {
     // データ到着前に最終レイアウト準拠のスケルトンを即時表示する（G17 Pack B）。
     // 同一画面内の再描画（route() の再呼び出し）では表示しない（毎回ちらつくのを避ける）。
     if (isFreshEntry(screenKeyFor({ name: "lib", uuid }))) {
-        render("ライブラリ", buildBooksSkeleton({ el }), { showBack: true });
+        render(t("ライブラリ"), buildBooksSkeleton({ el }), { showBack: true });
     }
     // ロック庫はトークン未保持だと books 取得が 403 になる。先に軽く叩いて判定する。
     const res = await api(`/libraries/${encodeURIComponent(uuid)}/books?per=1`, { libraryUUID: uuid });
@@ -398,7 +400,7 @@ async function renderLib(uuid, query) {
 /// 閲覧中のライブラリが配信停止されたとき（books 取得 404）の共通フォールバック。
 /// トーストで通知し、ライブラリ一覧（配信中のみ表示）へ戻す。
 function handleLibraryUnshared() {
-    toast("このライブラリの共有が停止されました");
+    toast(t("このライブラリの共有が停止されました"));
     location.hash = "#/libraries";
 }
 
@@ -407,44 +409,45 @@ function promptUnlock(uuid) {
     const overlay = el("div", { class: "modal-overlay" });
     const errorLine = el("p", { class: "modal-error", hidden: true });
     const form = el("form", { class: "modal" }, [
-        el("h2", { class: "modal-title", text: "ロックされたライブラリ" }),
-        el("p", { class: "modal-lead", text: "このライブラリのパスワードを入力してください。" }),
+        el("h2", { class: "modal-title", text: t("ロックされたライブラリ") }),
+        el("p", { class: "modal-lead", text: t("このライブラリのパスワードを入力してください。") }),
         el("input", {
             type: "password", id: "lib-password", class: "pair-input",
-            placeholder: "パスワード", autocomplete: "off",
+            placeholder: t("パスワード"), autocomplete: "off",
         }),
         errorLine,
         el("div", { class: "modal-actions" }, [
-            el("button", { type: "button", class: "btn-secondary", text: "戻る",
+            el("button", { type: "button", class: "btn-secondary", text: t("戻る"),
                 onClick: () => { overlay.remove(); location.hash = "#/libraries"; } }),
-            el("button", { type: "submit", class: "btn-primary", text: "解錠" }),
+            el("button", { type: "submit", class: "btn-primary", text: t("解錠") }),
         ]),
     ]);
     form.addEventListener("submit", async (ev) => {
         ev.preventDefault();
         errorLine.hidden = true;
         const pw = document.getElementById("lib-password").value;
-        if (!pw) { errorLine.textContent = "パスワードを入力してください"; errorLine.hidden = false; return; }
+        if (!pw) { errorLine.textContent = t("パスワードを入力してください"); errorLine.hidden = false; return; }
         try {
             const ok = await unlockLibrary(uuid, pw);
             if (ok) {
                 overlay.remove();
                 route(); // 同じ #/lib/<uuid> を再評価（今度は books 取得が通る）
             } else {
-                errorLine.textContent = "パスワードが違います";
+                errorLine.textContent = t("パスワードが違います");
                 errorLine.hidden = false;
             }
         } catch (e) {
             if (e instanceof NetworkError) {
-                errorLine.textContent = "サーバに接続できません";
+                errorLine.textContent = t("サーバに接続できません");
             } else if (!(e instanceof UnauthorizedError)) {
-                errorLine.textContent = e.message || "解錠に失敗しました";
+                // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+                errorLine.textContent = e.message || t("解錠に失敗しました");
             }
             errorLine.hidden = false;
         }
     });
     overlay.append(form);
-    render("ライブラリ", el("div", { class: "placeholder" }), { showBack: true });
+    render(t("ライブラリ"), el("div", { class: "placeholder" }), { showBack: true });
     appEl().append(overlay);
     setTimeout(() => { const i = document.getElementById("lib-password"); if (i) i.focus(); }, 0);
 }

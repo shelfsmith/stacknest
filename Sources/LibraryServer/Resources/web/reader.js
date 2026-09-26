@@ -7,6 +7,7 @@ import { deleteBook, clearAll, purgeExpired } from "./idb.js";
 import { PrefetchEngine } from "./prefetch.js";
 import { readerPrefs, setReaderPref } from "./prefs.js";
 import { spring } from "./anim.js";
+import { t } from "./i18n.js";
 
 // 同時に存在するリーダーは 1 つ。再マウント前に前インスタンスを確実に teardown する。
 let activeReaderTeardown = null;
@@ -135,21 +136,22 @@ export async function renderReader(uuid, bookId, query, deps) {
     } catch (e) {
         if (e instanceof UnauthorizedError) return; // api.js が #/pair へ遷移済み
         if (e instanceof NetworkError) {
-            toast("サーバに接続できません");
+            toast(t("サーバに接続できません"));
             location.hash = backHash;
             return;
         }
         if (e && e.status === 404) {
-            toast("配信が停止されました");
+            toast(t("配信が停止されました"));
             typeof onLibraryUnshared === "function" && onLibraryUnshared();
             return;
         }
         if (e && e.status === 403) {
-            toast("このライブラリはロックされています");
+            toast(t("このライブラリはロックされています"));
             location.hash = "#/libraries";
             return;
         }
-        toast(e.message || "読み込みに失敗しました");
+        // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+        toast(e.message || t("読み込みに失敗しました"));
         location.hash = backHash;
         return;
     }
@@ -250,7 +252,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         for (let attempt = 0; attempt < 2; attempt++) {
             const blob = await engine.requestPage(apiIndex, attempt > 0); // attempt>0 で bypass 再取得
             const url = URL.createObjectURL(blob);
-            const img = el("img", { class: "reader-page", alt: `ページ ${apiIndex + 1}`, draggable: "false" });
+            const img = el("img", { class: "reader-page", alt: t("ページ {n}", { n: apiIndex + 1 }), draggable: "false" });
             img.src = url;
             try {
                 if (img.decode) { await img.decode(); }   // デコード可能になるまで待つ（壊れていれば reject）
@@ -301,30 +303,30 @@ export async function renderReader(uuid, bookId, query, deps) {
 
     // 7. DOM 構築
     const stageEl = el("div", { class: "reader-stage" });
-    const loadingEl = el("div", { class: "reader-loading hidden" }, ["読み込み中…"]);
+    const loadingEl = el("div", { class: "reader-loading hidden" }, [t("読み込み中…")]);
 
     const backBtn = el("button", {
         class: "reader-back", type: "button", text: "‹",
-        "aria-label": "戻る",
+        "aria-label": t("戻る"),
         onClick: () => goBack(),
     });
     const titleSpan = el("span", { class: "reader-title" });
     const gearBtn = el("button", {
         class: "reader-gear", type: "button", text: "⚙",
-        "aria-label": "設定",
+        "aria-label": t("設定"),
         onClick: () => openReaderSettings(),
     });
     const topChrome = el("div", { class: "reader-chrome top" }, [backBtn, titleSpan, gearBtn]);
 
     const spreadToggleBtn = el("button", {
         class: "reader-spread-toggle", type: "button",
-        text: spread ? "見開き ON" : "見開き OFF",
-        "aria-label": spread ? "見開きを解除" : "見開きモードにする",
+        text: spread ? t("見開き ON") : t("見開き OFF"),
+        "aria-label": spread ? t("見開きを解除") : t("見開きモードにする"),
         onClick: () => {
             spread = !spread;
             setReaderPref("spread", spread);   // 手動選択を localStorage に永続化
-            spreadToggleBtn.textContent = spread ? "見開き ON" : "見開き OFF";
-            spreadToggleBtn.setAttribute("aria-label", spread ? "見開きを解除" : "見開きモードにする");
+            spreadToggleBtn.textContent = spread ? t("見開き ON") : t("見開き OFF");
+            spreadToggleBtn.setAttribute("aria-label", spread ? t("見開きを解除") : t("見開きモードにする"));
             stepOneBtn.hidden = !spread;
             show(cur);
         },
@@ -339,8 +341,8 @@ export async function renderReader(uuid, bookId, query, deps) {
     // stepOneBtn のラベル/aria を cur の実効表示（override 込み）に同期する。
     function updatePageLayoutLabel() {
         const paired = pageLayoutIsPaired(cur);
-        stepOneBtn.textContent = paired ? "単頁化" : "見開き化";
-        stepOneBtn.setAttribute("aria-label", paired ? "このページを単独表示にする" : "このページを見開きにする");
+        stepOneBtn.textContent = paired ? t("単頁化") : t("見開き化");
+        stepOneBtn.setAttribute("aria-label", paired ? t("このページを単独表示にする") : t("このページを見開きにする"));
     }
 
     // 表示中ページ(cur)の単頁/見開きを反転し、ローカル反映＋サーバへ永続化する（G17 T6b）。
@@ -370,7 +372,7 @@ export async function renderReader(uuid, bookId, query, deps) {
                 // 単頁なのは自分の override 以外の理由（次頁が単頁指定 / 最終ページ）、または
                 // 先頭ページ以外（forcePair(mode 0) は先頭ページ以外では pagesForView が参照せず
                 // 無効）。正直に理由を示して中断する（無効な書き込みも行わない）。
-                toast("次のページが単頁指定、または最終ページのため見開きにできません");
+                toast(t("次のページが単頁指定、または最終ページのため見開きにできません"));
                 return;
             }
         }
@@ -387,14 +389,14 @@ export async function renderReader(uuid, bookId, query, deps) {
             // これは閲覧専用ユーザーが単頁化/見開き化ボタンを押すたびに必ずエラーを見る既存バグの解消。
             // ネットワーク/サーバ(5xx)等の実際の保存失敗は従来どおり通知する。
             if (e instanceof UnauthorizedError || (e && e.status === 403)) return;
-            toast("ページ表示の保存に失敗しました");
+            toast(t("ページ表示の保存に失敗しました"));
         }
     }
 
     const stepOneBtn = el("button", {
         class: "reader-step-one", type: "button",
-        text: pageLayoutIsPaired(cur) ? "単頁化" : "見開き化",
-        "aria-label": pageLayoutIsPaired(cur) ? "このページを単独表示にする" : "このページを見開きにする",
+        text: pageLayoutIsPaired(cur) ? t("単頁化") : t("見開き化"),
+        "aria-label": pageLayoutIsPaired(cur) ? t("このページを単独表示にする") : t("このページを見開きにする"),
         onClick: () => { togglePageLayout(); },
     });
     stepOneBtn.hidden = !spread;  // 初期は見開き OFF なので非表示
@@ -474,7 +476,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         sliderEl.value = String(uiPage);
         sliderEl.style.direction = (direction === "rtl") ? "rtl" : "ltr";
         counterEl.textContent = `${uiPage} / ${pageCount}`;
-        titleSpan.textContent = `ページ ${uiPage} / ${pageCount}`;
+        titleSpan.textContent = t("ページ {page} / {pages}", { page: uiPage, pages: pageCount });
         updatePageLayoutLabel();   // G17 T6b: トグルボタンの表示を cur の実効表示に同期
     }
 
@@ -505,12 +507,12 @@ export async function renderReader(uuid, bookId, query, deps) {
             if (my === renderToken) loadingEl.classList.add("hidden");
             if (my !== renderToken) return; // 古い描画は捨てる
             if (e && (e.status === 404 || e.status === 403)) {
-                toast("配信が停止されました");
+                toast(t("配信が停止されました"));
                 typeof onLibraryUnshared === "function" && onLibraryUnshared();
             } else if (e && e.name === "AbortError") {
                 return; // 中断は正常系
             } else {
-                toast("ページを読み込めませんでした");
+                toast(t("ページを読み込めませんでした"));
                 location.hash = backHash;
                 teardown();
             }
@@ -945,20 +947,20 @@ export async function renderReader(uuid, bookId, query, deps) {
         if (readerEl.querySelector(".reader-dialog-overlay")) return;
         const overlay = el("div", { class: "reader-dialog-overlay" });
         const panel = el("div", { class: "reader-dialog" });
-        panel.append(el("p", { class: "reader-dialog-title", text: "巻末です" }));
+        panel.append(el("p", { class: "reader-dialog-title", text: t("巻末です") }));
         const close = () => overlay.remove();
-        const nextBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "次の巻へ" });
+        const nextBtn = el("button", { class: "reader-dialog-btn", type: "button", text: t("次の巻へ") });
         nextBtn.addEventListener("click", async () => {
             close();
             let book = null;
             try { book = await fetchAdjacent(uuid, bookId, "next"); }
-            catch { toast("次の巻を取得できませんでした"); return; }
-            if (!book) { toast("これが最後の巻です"); return; }
+            catch { toast(t("次の巻を取得できませんでした")); return; }
+            if (!book) { toast(t("これが最後の巻です")); return; }
             openVolume(book);
         });
-        const headBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "先頭へ" });
+        const headBtn = el("button", { class: "reader-dialog-btn", type: "button", text: t("先頭へ") });
         headBtn.addEventListener("click", () => { close(); show(0); });
-        const closeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "本を閉じる" });
+        const closeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: t("本を閉じる") });
         closeBtn.addEventListener("click", () => { close(); goBack(); });
         panel.append(nextBtn, headBtn, closeBtn);
         overlay.append(panel);
@@ -982,10 +984,10 @@ export async function renderReader(uuid, bookId, query, deps) {
         if (last > 0) {
             const overlay = el("div", { class: "reader-dialog-overlay" });
             const panel = el("div", { class: "reader-dialog" });
-            panel.append(el("p", { class: "reader-dialog-title", text: `「${book.title}」は読みかけです` }));
-            const resumeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "続きから" });
+            panel.append(el("p", { class: "reader-dialog-title", text: t("「{title}」は読みかけです", { title: book.title }) }));
+            const resumeBtn = el("button", { class: "reader-dialog-btn", type: "button", text: t("続きから") });
             resumeBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(last + 1); });
-            const startBtn = el("button", { class: "reader-dialog-btn", type: "button", text: "最初から" });
+            const startBtn = el("button", { class: "reader-dialog-btn", type: "button", text: t("最初から") });
             startBtn.addEventListener("click", () => { overlay.remove(); gotoVolume(1, true); });
             panel.append(resumeBtn, startBtn);
             overlay.append(panel);
@@ -1026,7 +1028,7 @@ export async function renderReader(uuid, bookId, query, deps) {
                 engine.setCurrentPage(cur);
             },
         });
-        const tier3Label = el("label", { for: "rs-tier3", text: "フル先読み（Tier3）" });
+        const tier3Label = el("label", { for: "rs-tier3", text: t("フル先読み（Tier3）") });
         const tier3Row = settingRow("", el("div", { class: "reader-settings-toggle-wrap" }, [tier3Check, tier3Label]));
 
         // 2. キャッシュ上限プリセット
@@ -1047,7 +1049,7 @@ export async function renderReader(uuid, bookId, query, deps) {
         }, cacheLimits.map(({ label, bytes }) =>
             el("option", { value: String(bytes), text: label, selected: bytes === currentLimit ? true : false })
         ));
-        const cacheLimitRow = settingRow("キャッシュ上限", cacheSelect);
+        const cacheLimitRow = settingRow(t("キャッシュ上限"), cacheSelect);
 
         // 3. 終了時にキャッシュを消す
         const clearExitCheck = el("input", {
@@ -1058,34 +1060,34 @@ export async function renderReader(uuid, bookId, query, deps) {
                 setReaderPref("clearCacheOnExit", e.target.checked);
             },
         });
-        const clearExitLabel = el("label", { for: "rs-clear-exit", text: "終了時にキャッシュを消す" });
+        const clearExitLabel = el("label", { for: "rs-clear-exit", text: t("終了時にキャッシュを消す") });
         const clearExitRow = settingRow("", el("div", { class: "reader-settings-toggle-wrap" }, [clearExitCheck, clearExitLabel]));
 
         // 4. 読み方向（DB に書き戻し）
         const dirOptions = [
-            { label: "左開き（ltr・左→右）", value: "ltr" },
-            { label: "右開き（rtl・右→左 / 漫画）", value: "rtl" },
+            { label: t("左開き（ltr・左→右）"), value: "ltr" },
+            { label: t("右開き（rtl・右→左 / 漫画）"), value: "rtl" },
         ];
         const dirSelect = el("select", {
             class: "reader-settings-select",
             onChange: (e) => {
                 direction = e.target.value;
                 show(cur);
-                postDirection(uuid, bookId, direction).catch(() => { toast("方向の保存に失敗しました"); });
+                postDirection(uuid, bookId, direction).catch(() => { toast(t("方向の保存に失敗しました")); });
             },
         }, dirOptions.map(({ label, value }) =>
             el("option", { value, text: label, selected: value === direction ? true : false })
         ));
-        const dirRow = settingRow("読み方向", dirSelect);
+        const dirRow = settingRow(t("読み方向"), dirSelect);
 
         // 5. 今すぐキャッシュを消去
         const clearNowBtn = el("button", {
             class: "btn-secondary reader-settings-btn",
             type: "button",
-            text: "今すぐキャッシュを消去",
+            text: t("今すぐキャッシュを消去"),
             onClick: async () => {
                 await clearAll();
-                toast("キャッシュを消去しました");
+                toast(t("キャッシュを消去しました"));
             },
         });
 
@@ -1093,12 +1095,12 @@ export async function renderReader(uuid, bookId, query, deps) {
         const closeBtn = el("button", {
             class: "btn-primary reader-settings-btn",
             type: "button",
-            text: "閉じる",
+            text: t("閉じる"),
             onClick: () => closeSheet(),
         });
 
         const sheet = el("div", { class: "reader-settings" }, [
-            el("h2", { class: "reader-settings-title", text: "リーダー設定" }),
+            el("h2", { class: "reader-settings-title", text: t("リーダー設定") }),
             tier3Row,
             cacheLimitRow,
             clearExitRow,
