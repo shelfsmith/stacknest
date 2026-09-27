@@ -48,12 +48,14 @@ jobs:
           STACKNEST_LANG: ja
         run: swift test --parallel
 
-      # G55: report mode (exit 0). No App build in this job, so the App extraction checks are
-      # explicitly skipped; the build-app job runs them. Task 17 adds --strict.
-      - name: Localization lint (report)
+      # G55: strict (exit 1 on any finding). No App build in this job, so the App extraction
+      # checks are explicitly skipped; the build-app job below runs those with --strict too
+      # (Task 17: the fragments are merged into Localizable.xcstrings, so report mode no longer
+      # hides real leaks).
+      - name: Localization lint (strict)
         run: |
           python3 -m unittest Scripts/tests/test_l10n_lint.py
-          python3 Scripts/l10n-lint.py --no-app-checks
+          python3 Scripts/l10n-lint.py --strict --no-app-checks
 
       # A bare directory argument (`node --test web-tests/`) fails on Node 22+ ("Cannot find module");
       # let the shell expand the files so it works on every Node version.
@@ -100,11 +102,12 @@ jobs:
       # G55: the build above ran with SWIFT_EMIT_LOC_STRINGS=YES, so the App checks can run here.
       # This job uses the default DerivedData (no -derivedDataPath), so ask xcodebuild for OBJROOT
       # (= <DerivedData>/Build/Intermediates.noindex) instead of assuming App/build.
-      - name: Localization lint with extracted strings (report)
+      # Task 17: --strict now that the fragments are merged into Localizable.xcstrings.
+      - name: Localization lint with extracted strings (strict)
         run: |
           OBJROOT="$(xcodebuild -project App/StackNest.xcodeproj -scheme StackNest -configuration Debug -showBuildSettings 2>/dev/null | awk -F' = ' '/^ *OBJROOT = /{print $2; exit}')"
           [ -n "$OBJROOT" ] && [ -d "$OBJROOT" ] || { echo "l10n lint: no build folder at '$OBJROOT'"; exit 1; }
-          python3 Scripts/l10n-lint.py --stringsdata-root "$OBJROOT"
+          python3 Scripts/l10n-lint.py --strict --stringsdata-root "$OBJROOT"
 
       - name: Build macOS App (Universal)
         run: |

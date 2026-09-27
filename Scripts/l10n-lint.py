@@ -1104,18 +1104,25 @@ def _has_checked_ja_literal(src: str) -> bool:
 
 def check_stale(root, files, sd_mtimes, warn) -> list[Finding]:
     """stale-build: a selected App source edited after its newest .stringsdata, or (only when it
-    has a checked Japanese literal of its own) never extracted at all."""
+    has a checked Japanese literal of its own) never extracted at all.
+
+    A file with no checked Japanese literal of its own (an English-only helper such as
+    `HelpContent+en.swift`, a `LocalizedStringKey`-only passthrough, ...) never gets its
+    `.stringsdata` rewritten by Xcode even when edited (there is nothing to (re-)extract), so its
+    mtime is not evidence of a stale build either. `_has_checked_ja_literal` therefore gates both
+    branches below, not just the "never extracted" one (G55 Task 17 supplement)."""
     out = []
     # "Never extracted" only means something when the build did extract other App sources
     # (every compiled App source with a checked literal gets its own .stringsdata entry).
     any_app = any(r.startswith(APP_DIR + "/") for r in sd_mtimes)
     for f in files:
         rel = _rel(root, f)
+        has_lit = _has_checked_ja_literal(_read(f))
         if rel not in sd_mtimes:
-            if not any_app or not _has_checked_ja_literal(_read(f)):
+            if not any_app or not has_lit:
                 continue
             out.append(Finding("stale-build", rel, 0, "no .stringsdata for this file; rebuild the App"))
-        elif f.stat().st_mtime > sd_mtimes[rel]:
+        elif has_lit and f.stat().st_mtime > sd_mtimes[rel]:
             out.append(Finding("stale-build", rel, 0, "edited after the last App build; rebuild the App"))
     if out:
         warn(f"warning: {len(out)} App source(s) are newer than their extracted strings; "

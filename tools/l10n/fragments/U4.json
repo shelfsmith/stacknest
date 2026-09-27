@@ -641,9 +641,6 @@
   "未検査をスキャン": {
     "en": "Scan Unchecked"
   },
-  "未読チェック": {
-    "en": "Mark as Unread"
-  },
   "未読状態の更新に失敗しました": {
     "en": "Couldn't update the unread state."
   },

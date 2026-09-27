@@ -328,6 +328,31 @@ class Extraction(unittest.TestCase):
         write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
         self.assertEqual([(f.kind, f.path) for f in lint.run(r)], [])
 
+    def test_touched_file_without_ja_literal_is_not_flagged_stale(self):
+        # A previously-extracted App file that no longer has a Japanese literal of its own (e.g.
+        # HelpContent+en.swift, whose strings are already English) does not get its empty
+        # .stringsdata rewritten by Xcode, so its mtime alone must not trigger stale-build when
+        # it is edited later (Task 17 supplement: _has_checked_ja_literal must gate both branches
+        # of check_stale, not just the "never extracted" one).
+        r = self._tree('Text("x")\n')
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
+        (r / "App/StackNest/Help.swift").write_text('let a = "hello"\n', encoding="utf-8")
+        write_sd(r, "Help.stringsdata", "App/StackNest/Help.swift", [], time.time() - 2000)
+        now = time.time()
+        os.utime(r / "App/StackNest/Help.swift", (now, now))
+        self.assertEqual(kinds(r), [])
+
+    def test_touched_file_with_ja_literal_is_still_flagged_stale(self):
+        # The same shape as above, but the file does have a checked Japanese literal: the mtime
+        # check must still fire (the fix must not blanket-disable the mtime branch).
+        r = self._tree('Text("x")\n')
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
+        (r / "App/StackNest/Help.swift").write_text('let a = "新規"\n', encoding="utf-8")
+        write_sd(r, "Help.stringsdata", "App/StackNest/Help.swift", [("新規", 1)], time.time() - 2000)
+        now = time.time()
+        os.utime(r / "App/StackNest/Help.swift", (now, now))
+        self.assertIn("stale-build", kinds(r))
+
     def test_never_extracted_source_with_only_ignored_ja_literal_is_not_flagged(self):
         # A Japanese literal that is entirely `l10n:ignore`d (or logger-only) does not count either:
         # it is excluded from every other check the same way, so it must not force a rebuild here.
