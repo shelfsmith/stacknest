@@ -67,6 +67,29 @@ time swift run stackroom-import \
 sqlite3 /tmp/stackroom.sqlite "SELECT COUNT(*) FROM book"   # ≥ 10000
 ```
 
+## Japanese and English localization (required)
+
+StackNest's UI is available in Japanese and English (it follows the macOS language). **Any change that adds or edits user-facing text — App UI, messages, help, web UI, CLI/MCP output — must include the English translation in the same change.** Japanese text without English fails CI (`Scripts/l10n-lint.py --strict`).
+
+- **Japanese is the source language**, and keys are the Japanese strings themselves.
+  - App (SwiftUI / AppKit): add `en` to `App/StackNest/Localizable.xcstrings`. Build `String` values with `String(localized: "…")`.
+  - SPM modules (AppCore, server, CLI): `L10n.text("…")` / `L10n.format("…%@…", value)` / `L10n.plural("%lld …", count: n, n)`, with dictionaries in `Sources/StackNestL10n/Tables/`. Use `%lld` for integers (`%d` truncates 64-bit values).
+  - In-app help: edit both `App/StackNest/Help/HelpContent+ja.swift` and `+en.swift`, keeping the same structure.
+  - Web: use `t('…')` / `data-i18n`, with the English in `Sources/LibraryServer/Resources/web/i18n-en.js`.
+  - MCP (`mcp-stacknest/`) text is written in English.
+- **Do not translate** values stored in the DB, settings, Finder tags or filenames, `--json`/API output, logs, or comments. Never branch on display strings.
+- Follow [`docs/l10n-glossary.md`](docs/l10n-glossary.md) for terms and style (add new terms there).
+- Checks:
+
+```bash
+STACKNEST_LANG=ja swift test
+xcodebuild test -project App/StackNest.xcodeproj -scheme StackNest -destination 'platform=macOS' -testLanguage ja -testRegion JP
+python3 Scripts/l10n-lint.py --strict --stringsdata-root <App DerivedData>/Build/Intermediates.noindex/StackNest.build/Debug
+node --test web-tests/*.mjs
+```
+
+To see the English UI, run `open StackNest.app --args -AppleLanguages '(en)'`.
+
 ## Architecture
 
 See `docs/architecture.md` for module boundaries and dependency graph.
