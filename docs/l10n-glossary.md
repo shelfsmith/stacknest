@@ -149,6 +149,7 @@
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
 | ロック解除（パスワードロックを外す操作＝ disableLock） | Remove Lock | 「解錠」（生体認証/Apple Watch によるセッションの解錠）とは別物。ロック設定そのものを外す操作・確認文言に使う（U3 の LibrarySettingsSheet+Lock.swift と共有キーのため訳を揃える） |
+
 ## 追記（Task 14 / U6・AppCore・LibraryStore・アダプタ・サーバ）
 
 | 日本語 | 英訳 | 備考 |
