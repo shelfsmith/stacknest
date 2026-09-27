@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryServerAPI
+import StackNestL10n
 
 /// グラント管理 GUI の純ロジック（App の SwiftUI から呼ぶ・testable なので AppCore に置く）。
 public enum GrantManagementLogic {
@@ -16,8 +17,8 @@ public enum GrantManagementLogic {
     /// スコープの短い要約文字列（一覧表示用）。
     public static func scopeSummary(_ scope: GrantScope) -> String {
         switch scope {
-        case .all: return "全ライブラリ"
-        case .libraries(let ids): return "\(ids.count) 庫"
+        case .all: return L10n.text("全ライブラリ")
+        case .libraries(let ids): return L10n.plural("%lld 庫", count: ids.count, ids.count)
         }
     }
 

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 public enum StampField: String, CaseIterable, Sendable {
     case genre
@@ -20,11 +21,11 @@ public enum StampField: String, CaseIterable, Sendable {
 
     public var localizedTitle: String {
         switch self {
-        case .genre:    return String(localized: "ジャンル")
-        case .neta:     return String(localized: "関連")
-        case .keywordA: return String(localized: "キーワード A")
-        case .keywordB: return String(localized: "キーワード B")
-        case .keywordC: return String(localized: "キーワード C")
+        case .genre:    return L10n.text("ジャンル")
+        case .neta:     return L10n.text("関連")
+        case .keywordA: return L10n.text("キーワード A")
+        case .keywordB: return L10n.text("キーワード B")
+        case .keywordC: return L10n.text("キーワード C")
         }
     }
 }

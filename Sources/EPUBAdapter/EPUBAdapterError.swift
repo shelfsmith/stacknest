@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 public enum EPUBAdapterError: Error, Equatable, Sendable, LocalizedError {
     /// 実装側のエラー文言をそのまま持つ（型は外に漏らさない）。
@@ -10,7 +11,7 @@ public enum EPUBAdapterError: Error, Equatable, Sendable, LocalizedError {
     /// 「予期しないエラー: … error 0.」）に落ち、`cannotOpen` が持つ理由が消えてしまう。
     public var errorDescription: String? {
         switch self {
-        case .cannotOpen(let reason): return "EPUB を開けません: \(reason)"
+        case .cannotOpen(let reason): return L10n.format("EPUB を開けません: %@", reason)
         }
     }
 }

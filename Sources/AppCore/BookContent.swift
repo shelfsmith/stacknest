@@ -2,6 +2,7 @@
 import Foundation
 import LibraryStore
 import ArchiveAdapter
+import StackNestL10n
 
 /// 内蔵ビューアが書籍の中身を読むための抽象化（§5.5）。0-based page index。
 public protocol BookContent: Sendable {
@@ -123,7 +124,7 @@ public actor ArchiveBookContent: BookContent {
     public var damageNote: String? {
         get async {
             guard let names = try? await loadEntries(), listingTruncated else { return nil }
-            return "⚠ このファイルは破損しています。\(names.count) ページまで読み込みました"
+            return L10n.plural("⚠ このファイルは破損しています。%lld ページまで読み込みました", count: names.count, names.count)
         }
     }
 

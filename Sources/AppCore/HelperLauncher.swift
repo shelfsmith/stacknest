@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import AppKit
 import LibraryStore
+import StackNestL10n
 
 public enum HelperLauncher {
     /// 実際にアプリを起動する処理。**テストから差し替えるための継ぎ目。**
@@ -25,12 +26,12 @@ public enum HelperLauncher {
     @MainActor
     public static func open(book: BookRow, settings: ViewerSettings) -> AppError? {
         guard let path = book.path, !path.isEmpty else {
-            return .launchFailed(path: "(empty)", reason: "書籍にパスが設定されていません。")
+            return .launchFailed(path: "(empty)", reason: L10n.text("書籍にパスが設定されていません。"))
         }
         guard FileManager.default.fileExists(atPath: path) else {
             return .launchFailed(
                 path: path,
-                reason: "ファイルが見つかりません。"
+                reason: L10n.text("ファイルが見つかりません。")
             )
         }
 
@@ -39,16 +40,16 @@ public enum HelperLauncher {
         guard let viewerPath = settings.resolvedViewerPath(forPath: path, category: category) else {
             // G54-S2b: EPUB は `.text` に分類されるが、テキストの指定は経由しないので名前も分ける。
             let viewerKindName = (category == .text && (path as NSString).pathExtension.lowercased() == "epub")
-                ? "電子書籍" : category.displayName
+                ? L10n.text("電子書籍") : category.displayName
             return .launchFailed(
                 path: path,
-                reason: "\(viewerKindName) 用の外部ビューアが未設定です。設定 (⌘,) で選択してください。"
+                reason: L10n.format("%@ 用の外部ビューアが未設定です。設定 (⌘,) で選択してください。", viewerKindName)
             )
         }
         guard FileManager.default.fileExists(atPath: viewerPath) else {
             return .launchFailed(
                 path: path,
-                reason: "外部ビューアが見つかりません: \(viewerPath)\n設定 (⌘,) で再選択してください。"
+                reason: L10n.format("外部ビューアが見つかりません: %@\n設定 (⌘,) で再選択してください。", viewerPath)
             )
         }
         let viewerURL = URL(fileURLWithPath: viewerPath)

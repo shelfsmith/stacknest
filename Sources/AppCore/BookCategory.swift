@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 /// HelperLauncher が viewer 選択に使う file category。
 /// B18 (bookType 自動分類, Phase 2.5f) の DB 属性とは目的が異なるため独立 enum。
@@ -9,11 +10,11 @@ public enum BookCategory: String, CaseIterable, Codable, Sendable {
     /// UI 表示用ラベル (Settings 画面)
     public var displayName: String {
         switch self {
-        case .archive: return "アーカイブ"
-        case .image:   return "画像"
-        case .folder:  return "フォルダ"
-        case .video:   return "動画"
-        case .text:    return "テキスト"
+        case .archive: return L10n.text("アーカイブ")
+        case .image:   return L10n.text("画像")
+        case .folder:  return L10n.text("フォルダ")
+        case .video:   return L10n.text("動画")
+        case .text:    return L10n.text("テキスト")
         }
     }
 
@@ -22,7 +23,7 @@ public enum BookCategory: String, CaseIterable, Codable, Sendable {
         switch self {
         case .archive: return ".zip / .cbz / .rar / .cbr / .7z"
         case .image:   return ".jpg / .png / .gif / .webp / .heic / etc"
-        case .folder:  return "(ディレクトリ書籍)"
+        case .folder:  return L10n.text("(ディレクトリ書籍)")
         case .video:   return ".mp4 / .mov / .avi / .mkv / .webm / .m4v"
         case .text:    return ".pdf / .txt / .md / .rtf"
         }

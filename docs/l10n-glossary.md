@@ -149,3 +149,18 @@
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
 | ロック解除（パスワードロックを外す操作＝ disableLock） | Remove Lock | 「解錠」（生体認証/Apple Watch によるセッションの解錠）とは別物。ロック設定そのものを外す操作・確認文言に使う（U3 の LibrarySettingsSheet+Lock.swift と共有キーのため訳を揃える） |
+## 追記（Task 14 / U6・AppCore・LibraryStore・アダプタ・サーバ）
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| タイトル／作者／ジャンル／登録日／読んだ日／未読／種類／関連／メモ／シリーズ／巻数 | Title／Author／Genre／Date Added／Date Read／Unread／Type／Relation／Memo／Series／Volume | 列ヘッダ・スタンプ・ブラウズ共通のフィールド名（BookColumn/StampField/LibrarySettings で共有） |
+| キーワード A／B／C | Keyword A／B／C | |
+| アーカイブ／画像／フォルダ／動画／テキスト | Archive／Image／Folder／Video／Text | `BookCategory`（ビューア設定の分類。書籍の種類ラベルとは別語彙） |
+| 電子書籍 | E-Book | EPUB 用外部ビューア未設定時の表示名 |
+| 円／正方形（ルーペの形） | Circle／Square | |
+| 小／中／大（サイズ一般） | Small／Medium／Large | ルーペの大きさ |
+| 全ライブラリ | All Libraries | グラントのスコープ表示 |
+| ナビゲーション／ズーム／見開き・スライドショー／巻移動／その他 | Navigation／Zoom／Spread & Slideshow／Volume Navigation／Other | キー操作設定のセクション名 |
+| 既定（プリセット名の種） | Default | 保存値は `既定` のまま。表示だけ `FilenameFormatPreset.displayName` で訳す |
+| (既定) 閲覧／(既定) 編集（グラントの種） | (Default) View／(Default) Edit | 保存値は日本語のまま。表示だけ `GrantStore.displayLabel(for:)` で訳す |
+| 厚い本 ほか 6 種（`@type` の値） | Thick Book ほか（上の表） | `canonicalLabel(for:)` はファイル名トークンなので日本語固定。表示は `BookTypeLabel.displayLabel(for:)` |

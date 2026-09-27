@@ -9,6 +9,7 @@ import LibraryServerAPI
 import StackroomFormat
 import ImageIO
 import OSLog
+import StackNestL10n
 
 /// LibraryServer の設定（4.1b でアプリ設定 UI から渡される）。
 public struct LibraryServerConfig: Sendable {
@@ -383,7 +384,7 @@ public struct LibraryServerCore: Sendable {
         case "unchecked": return .uncheckedOnly
         case "all": return .all
         case "damaged": return .damagedOnly
-        default: throw HTTPError(.badRequest, message: "mode は unchecked/all/damaged のいずれかです（受信: \(raw)）")
+        default: throw HTTPError(.badRequest, message: L10n.format("mode は unchecked/all/damaged のいずれかです（受信: %@）", raw))
         }
     }
 
@@ -1345,7 +1346,7 @@ public struct LibraryServerCore: Sendable {
                     // 新規: パス検証（実在＋ディレクトリ）
                     var isDir: ObjCBool = false
                     guard FileManager.default.fileExists(atPath: f.path, isDirectory: &isDir), isDir.boolValue else {
-                        throw HTTPError(.badRequest, message: "監視フォルダのパスが無効です: \(f.path)")
+                        throw HTTPError(.badRequest, message: L10n.format("監視フォルダのパスが無効です: %@", f.path))
                     }
                     // baseline = 現在の中身（既存スキップ）
                     let baseline = WatchFolderScanner.enumerateCandidates(
@@ -1523,7 +1524,7 @@ public struct LibraryServerCore: Sendable {
             if presets.isEmpty {
                 // 空/未設定はローカル既定の単一プリセット相当にフォールバック。
                 let fmt = ((try? lib.db.getLibrarySetting(key: "filename_format")) ?? nil) ?? "(@genre) [@keywordB] [@author] @title"
-                presets = [FilenameFormatPreset(id: "default", name: "既定", format: fmt)]
+                presets = [FilenameFormatPreset(id: "default", name: "既定", format: fmt)]  // l10n:ignore stored preset name (persisted; user-renamable, parity with FilenameFormatPresetLogic.migrate)
             }
             let dto = PresetSetDTO(presets: presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.name, format: $0.format) },
                                    defaultID: FilenameFormatPresetLogic.validatedDefaultID(presets: presets, requested: defID))
@@ -1538,10 +1539,10 @@ public struct LibraryServerCore: Sendable {
             // 共有 DB キー filename_format_presets に "" が永続化され、ローカル側の読み取りも壊れる。
             // 1 件でも無効なら 400 でリクエスト全体を拒否する（部分保存はしない）。
             guard dto.presets.allSatisfy({ !($0.format ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
-                throw HTTPError(.badRequest, message: "各プリセットに format が必要です")
+                throw HTTPError(.badRequest, message: L10n.text("各プリセットに format が必要です"))
             }
             let presets = dto.presets.map { FilenameFormatPreset(id: $0.id, name: $0.name, format: $0.format ?? "") }
-            guard !presets.isEmpty else { throw HTTPError(.badRequest, message: "プリセットは最低 1 個必要です") }
+            guard !presets.isEmpty else { throw HTTPError(.badRequest, message: L10n.text("プリセットは最低 1 個必要です")) }
             let validDefault = FilenameFormatPresetLogic.validatedDefaultID(presets: presets, requested: dto.defaultID)
             let encoded = String(decoding: try JSONEncoder().encode(presets), as: UTF8.self)
             try lib.db.setLibrarySetting(key: "filename_format_presets", value: encoded)
@@ -1553,7 +1554,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/integrity-check") { request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
-            let rows = (try? lib.db.integrityCheck()) ?? ["(エラー)"]
+            let rows = (try? lib.db.integrityCheck()) ?? [L10n.text("(エラー)")]
             return IntegrityCheckDTO(healthy: rows == ["ok"], rows: rows)
         }
         // G12b-3a: 今すぐバックアップ（admin）。同一 lib.db から作成し世代 prune。
@@ -2314,7 +2315,7 @@ public struct LibraryServerCore: Sendable {
         simulateRaceBeforeWrite: (@Sendable () async -> Void)? = nil
     ) async throws -> CoverRegenOutcome {
         guard let path = sourceURLPath else {
-            throw HTTPError(.badRequest, message: "本の実ファイルが見つかりません")
+            throw HTTPError(.badRequest, message: L10n.text("本の実ファイルが見つかりません"))
         }
         let sourceURL = URL(fileURLWithPath: path)
         let data: Data
@@ -2322,9 +2323,9 @@ public struct LibraryServerCore: Sendable {
             data = try await CoverRefresher.extractCoverData(sourceURL: sourceURL, preferredName: preferredName)
         } catch CoverRefreshError.unsupportedFormat {
             let ext = sourceURL.pathExtension
-            throw HTTPError(.badRequest, message: "この形式（.\(ext.isEmpty ? "?" : ext)）は表紙を自動生成できません")
+            throw HTTPError(.badRequest, message: L10n.format("この形式（.%@）は表紙を自動生成できません", ext.isEmpty ? "?" : ext))
         } catch CoverRefreshError.noCoverImage {
-            throw HTTPError(.badRequest, message: "この本には表紙画像がありません")
+            throw HTTPError(.badRequest, message: L10n.text("この本には表紙画像がありません"))
         }
         let resized = await CoverRefresher.resizeCoverDataOffMain(data, maxPixelSize: 1200)
         let url = coverURL(bundleURL: bundleURL, bookID: bookID)

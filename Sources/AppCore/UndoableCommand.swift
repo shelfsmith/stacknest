@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryStore
+import StackNestL10n
 
 /// 取り消し可能な book mutation の抽象。memento パターンで実装。
 public protocol UndoableCommand {
@@ -16,7 +17,7 @@ public protocol UndoableCommand {
 public final class DeleteBooksCommand: UndoableCommand {
     public let bookIDs: [Int]
     public private(set) var snapshot: [BookRow]
-    public var actionName: String { "\(bookIDs.count) 件のライブラリから削除" }
+    public var actionName: String { L10n.plural("%lld 件のライブラリから削除", count: bookIDs.count, bookIDs.count) }
 
     private init(bookIDs: [Int], snapshot: [BookRow]) {
         self.bookIDs = bookIDs
@@ -48,7 +49,7 @@ public final class DeleteBooksCommand: UndoableCommand {
 public final class PatchBooksCommand: UndoableCommand {
     public let patches: [(bookID: Int, patch: BookPatch)]
     public private(set) var previousValues: [Int: BookPatch]
-    public var actionName: String { "\(patches.count) 件のメタデータ編集" }
+    public var actionName: String { L10n.plural("%lld 件のメタデータ編集", count: patches.count, patches.count) }
 
     private init(patches: [(Int, BookPatch)], previousValues: [Int: BookPatch]) {
         self.patches = patches

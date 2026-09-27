@@ -49,15 +49,15 @@ public enum NumeralNormalizer {
     // MARK: - Kanji
 
     private static let kanjiDigit: [Character: Double] = [
-        "〇": 0, "零": 0,
-        "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
-        "六": 6, "七": 7, "八": 8, "九": 9,
-        "壱": 1, "弐": 2, "参": 3, "肆": 4, "伍": 5,
-        "陸": 6, "柒": 7, "捌": 8, "玖": 9
+        "〇": 0, "零": 0,  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
+        "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
+        "六": 6, "七": 7, "八": 8, "九": 9,  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
+        "壱": 1, "弐": 2, "参": 3, "肆": 4, "伍": 5,  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
+        "陸": 6, "柒": 7, "捌": 8, "玖": 9  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
     ]
     private static let kanjiPower: [Character: Double] = [
-        "十": 10, "百": 100, "千": 1000,
-        "拾": 10, "佰": 100, "仟": 1000
+        "十": 10, "百": 100, "千": 1000,  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
+        "拾": 10, "佰": 100, "仟": 1000  // l10n:ignore parser lexicon (kanji numeral mapping), not UI
     ]
 
     /// 漢数字 (単独 0-9、桁 (十百千)、複合 「十一」「二十」「二十一」)。

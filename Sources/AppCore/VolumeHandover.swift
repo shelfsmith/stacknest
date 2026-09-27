@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 /// G54-S3e: 巻送りの引き渡しの事前確認と文言（spec §2.1・平木氏の判断 2026-09-25）。
 ///
@@ -40,11 +41,13 @@ public enum VolumeHandover {
 
     /// 「次（前）の巻を開けません（ファイルが見つかりません）」。
     public static func missingFileNote(forward: Bool) -> String {
-        "\(unavailableNote(forward: forward))（ファイルが見つかりません）"
+        forward
+            ? L10n.text("次の巻を開けません（ファイルが見つかりません）")
+            : L10n.text("前の巻を開けません（ファイルが見つかりません）")
     }
 
     /// 「次（前）の巻を開けません」（EPUB の窓の `.failed` と同じ言い方）。
     public static func unavailableNote(forward: Bool) -> String {
-        forward ? "次の巻を開けません" : "前の巻を開けません"
+        forward ? L10n.text("次の巻を開けません") : L10n.text("前の巻を開けません")
     }
 }

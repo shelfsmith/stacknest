@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 /// 共有サーバ起動失敗の分類。EADDRINUSE（ポート使用中）を判別する。
 public enum ServerStartError: Equatable, Sendable {
@@ -24,7 +25,7 @@ public enum ServerStartError: Equatable, Sendable {
     public var message: String {
         switch self {
         case .portInUse(let p):
-            return "ポート \(p) は使用中です。別のアプリ/サービスが使用している可能性があります。ポート番号を変更するか「ランダム」を押して再起動してください。"
+            return L10n.format("ポート %lld は使用中です。別のアプリ/サービスが使用している可能性があります。ポート番号を変更するか「ランダム」を押して再起動してください。", p)
         case .generic(let m):
             return m
         }

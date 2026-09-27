@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 /// User-facing errors when opening a library, carrying localized (Japanese) descriptions
 /// so the UI shows a clear message instead of a raw engine error.
@@ -19,11 +20,11 @@ public enum LibraryOpenError: LocalizedError, Equatable, Sendable {
     public var errorDescription: String? {
         switch self {
         case .readOnly:
-            return "このライブラリは読み取り専用のため開けません。Finder の「ロック」を解除するか、書き込み可能な場所にコピーしてからお試しください。"
+            return L10n.text("このライブラリは読み取り専用のため開けません。Finder の「ロック」を解除するか、書き込み可能な場所にコピーしてからお試しください。")
         case .corrupt:
-            return "データベースが破損しています。"
+            return L10n.text("データベースが破損しています。")
         case .cancelledByUser:
-            return "操作はキャンセルされました。"
+            return L10n.text("操作はキャンセルされました。")
         }
     }
 }

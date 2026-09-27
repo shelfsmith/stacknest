@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryStore
+import StackNestL10n
 
 public enum AppError: Error, LocalizedError {
     case databaseOpenFailed(Error)
@@ -12,15 +13,15 @@ public enum AppError: Error, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .databaseOpenFailed(let e):
-            return "ライブラリ DB を開けませんでした: \(e.localizedDescription)"
+            return L10n.format("ライブラリ DB を開けませんでした: %@", e.localizedDescription)
         case .importFailed(let ie):
-            return "取り込みに失敗しました: \(ie.localizedDescription)"
+            return L10n.format("取り込みに失敗しました: %@", ie.localizedDescription)
         case .launchFailed(let path, let reason):
-            return "\"\(path)\"を開けませんでした: \(reason)"
+            return L10n.format("\"%@\"を開けませんでした: %@", path, reason)
         case .titleRequired:
-            return "タイトルは必須項目です"
+            return L10n.text("タイトルは必須項目です")
         case .unexpected(let e):
-            return "予期しないエラー: \(e.localizedDescription)"
+            return L10n.format("予期しないエラー: %@", e.localizedDescription)
         }
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
     case title
@@ -30,24 +31,24 @@ public enum BookColumn: String, Codable, CaseIterable, Sendable, Hashable {
     }
 
     /// Plain string version of the column title (for AppKit NSTableColumn.title).
-    /// Uses String(localized:) for runtime localization.
+    /// Uses `L10n.text` (StackNestL10n) for runtime localization.
     public var localizedTitleString: String {
         switch self {
-        case .title:     return String(localized: "タイトル")
-        case .rating:    return String(localized: "レート")
-        case .author:    return String(localized: "作者")
-        case .genre:     return String(localized: "ジャンル")
-        case .dateAdded: return String(localized: "登録日")
-        case .playDate:  return String(localized: "読んだ日")
-        case .unseen:    return String(localized: "未読")
-        case .bookType:  return String(localized: "種類")
-        case .neta:      return String(localized: "関連")
-        case .keywordA:  return String(localized: "キーワード A")
-        case .keywordB:  return String(localized: "キーワード B")
-        case .keywordC:  return String(localized: "キーワード C")
-        case .memo:      return String(localized: "メモ")
-        case .series:    return String(localized: "シリーズ")
-        case .volume:    return String(localized: "巻数")
+        case .title:     return L10n.text("タイトル")
+        case .rating:    return L10n.text("レート")
+        case .author:    return L10n.text("作者")
+        case .genre:     return L10n.text("ジャンル")
+        case .dateAdded: return L10n.text("登録日")
+        case .playDate:  return L10n.text("読んだ日")
+        case .unseen:    return L10n.text("未読")
+        case .bookType:  return L10n.text("種類")
+        case .neta:      return L10n.text("関連")
+        case .keywordA:  return L10n.text("キーワード A")
+        case .keywordB:  return L10n.text("キーワード B")
+        case .keywordC:  return L10n.text("キーワード C")
+        case .memo:      return L10n.text("メモ")
+        case .series:    return L10n.text("シリーズ")
+        case .volume:    return L10n.text("巻数")
         }
     }
 

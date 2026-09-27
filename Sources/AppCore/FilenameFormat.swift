@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import StackroomFormat
+import StackNestL10n
 
 public enum FormatToken: String, CaseIterable, Sendable {
     case title
@@ -81,9 +82,10 @@ public enum FormatToken: String, CaseIterable, Sendable {
 /// Stackroom-compatible book_type label mapping (0-5).
 /// Used by `FormatToken.type` for forward rendering and reverse lookup.
 public enum BookTypeLabel {
-    /// 正準ラベル（index = book_type 0..5）。表示の単一ソース。
+    /// 正準ラベル（index = book_type 0..5）。ファイル名トークン `@type` の値（外部出力・逆引き）なので
+    /// **言語に依らず日本語のまま**（G55）。画面に出すときは `displayLabel(for:)` を使う。
     public static let canonicalLabels: [String] = [
-        "厚い本", "薄い本", "本の一部", "画像セット", "テキスト", "ムービー"
+        "厚い本", "薄い本", "本の一部", "画像セット", "テキスト", "ムービー"  // l10n:ignore @type filename token values (external output, language-independent); display via displayLabel(for:)
     ]
 
     static let labels: [Int: String] = Dictionary(
@@ -94,6 +96,13 @@ public enum BookTypeLabel {
     public static func canonicalLabel(for type: Int) -> String {
         guard canonicalLabels.indices.contains(type) else { return "" }
         return canonicalLabels[type]
+    }
+
+    /// 画面表示用の種類名（G55）。正準ラベルを現在の言語に訳す（日本語 UI では `canonicalLabel(for:)` と同じ）。
+    /// 範囲外は空文字。**保存・ファイル名・逆引きには使わない。**
+    public static func displayLabel(for type: Int) -> String {
+        let label = canonicalLabel(for: type)
+        return label.isEmpty ? "" : L10n.text(label)
     }
 
     public static func label(for type: Int) -> String? {

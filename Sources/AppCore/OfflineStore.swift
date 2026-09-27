@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import Foundation
 import LibraryServerAPI
+import StackNestL10n
 
 public extension Notification.Name {
     /// OfflineStore の DL 済み集合が変化した（save/remove）。オフライン UI が監視して再読込する。
@@ -22,8 +23,8 @@ public enum OfflineStoreError: Error, Equatable, Sendable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidLibraryUUID: return "不正な libraryUUID です"
-        case .invalidFileExtension: return "不正なファイル拡張子です"
+        case .invalidLibraryUUID: return L10n.text("不正な libraryUUID です")
+        case .invalidFileExtension: return L10n.text("不正なファイル拡張子です")
         }
     }
 }

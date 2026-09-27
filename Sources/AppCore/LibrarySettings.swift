@@ -3,6 +3,7 @@ import Foundation
 import OSLog
 import Observation
 import LibraryStore
+import StackNestL10n
 
 public enum ViewMode: String, Codable {
     case grid, list
@@ -1176,13 +1177,13 @@ private extension LibrarySettings {
     /// BrowseField の正準ラベル（String）。LocalizedStringKey を文字列化するための対応表。
     static func browseDefaultString(_ field: BrowserPaneState.BrowseField) -> String {
         switch field {
-        case .genre:    return String(localized: "ジャンル")
-        case .series:   return String(localized: "シリーズ")
-        case .author:   return String(localized: "作者")
-        case .neta:     return String(localized: "関連")
-        case .keywordA: return String(localized: "キーワード A")
-        case .keywordB: return String(localized: "キーワード B")
-        case .keywordC: return String(localized: "キーワード C")
+        case .genre:    return L10n.text("ジャンル")
+        case .series:   return L10n.text("シリーズ")
+        case .author:   return L10n.text("作者")
+        case .neta:     return L10n.text("関連")
+        case .keywordA: return L10n.text("キーワード A")
+        case .keywordB: return L10n.text("キーワード B")
+        case .keywordC: return L10n.text("キーワード C")
         }
     }
 }

@@ -43,10 +43,10 @@ public enum FilenameParser {
         // NUMERAL token (alternation)
         // 注: ASCII ローマ [IVXLCDM]+ は context 内 (第N巻/Vol./末尾括弧) でのみ使われるため
         //     誤検出を抑制できる。bare token での単独マッチは行わない。
-        let numeralPattern = #"([0-9０-９]+(?:[.．][0-9０-９]+)?|[〇零一二三四五六七八九十百千壱弐参肆伍陸柒捌玖拾佰仟]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹⅺⅻ]|[IVXLCDM]+|[αβγδεζηθικλμνξοπρστυφχψω])"#
+        let numeralPattern = #"([0-9０-９]+(?:[.．][0-9０-９]+)?|[〇零一二三四五六七八九十百千壱弐参肆伍陸柒捌玖拾佰仟]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹⅺⅻ]|[IVXLCDM]+|[αβγδεζηθικλμνξοπρστυφχψω])"#  // l10n:ignore parser lexicon (kanji/roman/greek numerals to match), not UI
 
         let patterns: [String] = [
-            #"第\s*"# + numeralPattern + #"\s*巻"#,      // 「第5巻」「第三巻」「第Ⅴ巻」「第0巻」「第零巻」
+            #"第\s*"# + numeralPattern + #"\s*巻"#,      // 「第5巻」「第三巻」「第Ⅴ巻」「第0巻」「第零巻」  // l10n:ignore parser lexicon (volume-marker tokens), not UI
             #"[Vv]ol[\s.]*"# + numeralPattern,           // 「Vol.7」「Vol.Ⅴ」
             #"[Vv]olume\s*"# + numeralPattern,           // 「Volume 3」
             #"\("# + numeralPattern + #"\)$"#,           // 末尾の「(12)」「(壱)」
@@ -81,9 +81,9 @@ public enum FilenameParser {
     /// 中巻がタイトルにあれば 3 巻構成と判定し、上=1/中=2/下=3。
     /// 中巻がなければ上下 2 巻構成で、上=1/下=2。
     private static func parseJoChuGe(_ input: String) -> ParsedMetadata? {
-        let hasJou = input.range(of: #"上\s*巻"#, options: .regularExpression) != nil
-        let hasChuu = input.range(of: #"中\s*巻"#, options: .regularExpression) != nil
-        let hasGe = input.range(of: #"下\s*巻"#, options: .regularExpression) != nil
+        let hasJou = input.range(of: #"上\s*巻"#, options: .regularExpression) != nil  // l10n:ignore parser lexicon (上/中/下 volume markers), not UI
+        let hasChuu = input.range(of: #"中\s*巻"#, options: .regularExpression) != nil  // l10n:ignore parser lexicon (上/中/下 volume markers), not UI
+        let hasGe = input.range(of: #"下\s*巻"#, options: .regularExpression) != nil  // l10n:ignore parser lexicon (上/中/下 volume markers), not UI
 
         let threeVolume = hasChuu
 
@@ -91,13 +91,13 @@ public enum FilenameParser {
         var rangePattern: String?
         if hasJou {
             volume = 1.0
-            rangePattern = #"上\s*巻"#
+            rangePattern = #"上\s*巻"#  // l10n:ignore parser lexicon (volume-marker token), not UI
         } else if hasChuu {
             volume = 2.0
-            rangePattern = #"中\s*巻"#
+            rangePattern = #"中\s*巻"#  // l10n:ignore parser lexicon (volume-marker token), not UI
         } else if hasGe {
             volume = threeVolume ? 3.0 : 2.0
-            rangePattern = #"下\s*巻"#
+            rangePattern = #"下\s*巻"#  // l10n:ignore parser lexicon (volume-marker token), not UI
         }
         guard let v = volume,
               let pat = rangePattern,

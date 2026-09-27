@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 public struct RenameFailure: Equatable, Sendable {
     public let id: Int
@@ -114,7 +115,7 @@ public enum BookRenameExecutor {
 
     /// 巻き戻しに失敗したときの理由。**人が探しに行けるようにパスを必ず含める。**
     static func orphanReason(stagingPath: String, underlying: Error) -> String {
-        "手動確認が必要: ファイルが \(stagingPath) のまま残っている可能性があります"
-            + "（\(underlying.localizedDescription)）"
+        L10n.format("手動確認が必要: ファイルが %@ のまま残っている可能性があります（%@）",
+                    stagingPath, underlying.localizedDescription)
     }
 }

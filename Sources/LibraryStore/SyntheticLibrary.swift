@@ -6,17 +6,17 @@ import Foundation
 public enum SyntheticLibrary {
     public static func generate(into db: Database, count: Int, seed: UInt64 = 42) throws {
         var rng = SplitMix64(seed: seed)
-        let authors = (0..<30).map { "作者\($0)" }
-        let genres  = (0..<12).map { "ジャンル\($0)" }
+        let authors = (0..<30).map { "作者\($0)" }  // l10n:ignore synthetic benchmark data (B9 measurement harness), not user-facing
+        let genres  = (0..<12).map { "ジャンル\($0)" }  // l10n:ignore synthetic benchmark data (B9 measurement harness), not user-facing
         let kwA     = (0..<40).map { "KA\($0)" }
         let kwB     = (0..<40).map { "KB\($0)" }
         let seriesCount = max(1, count / 20)
         let base = Date(timeIntervalSince1970: 1_600_000_000).timeIntervalSince1970
         try db.write { gdb in
             for i in 0..<count {
-                let series  = "シリーズ\(Int(rng.next() % UInt64(seriesCount)))"
+                let series  = "シリーズ\(Int(rng.next() % UInt64(seriesCount)))"  // l10n:ignore synthetic benchmark data (B9 measurement harness), not user-facing
                 let volume  = Double((i % 50) + 1)
-                let title   = "\(series) 第\(Int(volume))巻"
+                let title   = "\(series) 第\(Int(volume))巻"  // l10n:ignore synthetic benchmark data (B9 measurement harness), not user-facing
                 let author  = authors[Int(rng.next() % UInt64(authors.count))]
                 let genre   = genres[Int(rng.next() % UInt64(genres.count))]
                 let ka      = kwA[Int(rng.next() % UInt64(kwA.count))]

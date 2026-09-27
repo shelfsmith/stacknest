@@ -1134,7 +1134,7 @@ public final class Database: @unchecked Sendable {
                 INSERT INTO playlist (title, type, icon, item_view, tool_tab, conditions, kind)
                 VALUES (?, ?, NULL, 0, 0, NULL, 'favorites')
                 """,
-                arguments: ["お気に入り", 0]
+                arguments: ["お気に入り", 0]  // l10n:ignore stored name (G55 spec §5)
             )
             return db.lastInsertedRowID
         }

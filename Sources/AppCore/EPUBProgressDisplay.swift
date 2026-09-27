@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 /// G54-S3: EPUB の窓の HUD に出す文字と進捗バーの割合。画像ビューアの
 /// `ViewerModel.progressText` / `progressFraction` と同じ作法（1 始まり・見開きは「p–q / N」・割合は先頭ページ）。
@@ -8,7 +9,7 @@ public struct EPUBProgressDisplay: Equatable, Sendable {
     public let text: String
     public let fraction: Double
 
-    public static let measuringText = "計測中…"
+    public static var measuringText: String { L10n.text("計測中…") }
 
     public init(text: String, fraction: Double) {
         self.text = text

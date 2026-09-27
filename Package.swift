@@ -132,7 +132,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AppCoreTests",
-            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI", "ArchiveAdapter", "EPUBAdapter"],
+            dependencies: ["AppCore", "LibraryStore", "StackroomFormat", "LibraryServerAPI", "ArchiveAdapter", "EPUBAdapter", "StackNestL10n"],
             path: "Tests/AppCoreTests",
             resources: [.copy("PDFFixtures"), .copy("VideoFixtures")]
         ),

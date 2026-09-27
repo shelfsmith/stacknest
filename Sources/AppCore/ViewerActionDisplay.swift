@@ -1,43 +1,45 @@
 // SPDX-License-Identifier: MIT
 import Foundation
+import StackNestL10n
 
 public extension ViewerAction {
-    /// 設定 UI / ヘルプ表示用の日本語ラベル。新 case を足したらここで必ず付与する（網羅 switch）。
+    /// 設定 UI / ヘルプ表示用のラベル（`L10n.text` で言語ごとに引く）。
+    /// 新 case を足したらここで必ず付与する（網羅 switch）。
     var displayName: String {
         switch self {
-        case .nextPage: return "ページ送り"
-        case .previousPage: return "ページ戻し"
-        case .pageLeftward: return "左方向へ"
-        case .pageRightward: return "右方向へ"
-        case .firstPage: return "先頭ページ"
-        case .lastPage: return "末尾ページ"
-        case .zoomIn: return "ズームイン"
-        case .zoomOut: return "ズームアウト"
-        case .fitToWindow: return "ウィンドウに合わせる"
-        case .toggleFullScreen: return "全画面 切替"
-        case .close: return "閉じる"
-        case .toggleSpread: return "見開き 切替"
-        case .toggleCoverOffset: return "表紙オフセット 切替"
-        case .toggleAutoAdvance: return "スライドショー 開始/停止"
-        case .cyclePageLayout: return "横長レイアウト 巡回"
-        case .nextVolume: return "次の巻"
-        case .prevVolume: return "前の巻"
-        case .cycleEndOfBookBehavior: return "巻末挙動 切替"
-        case .showHelp: return "ヘルプ表示"
-        case .jumpToPercent0: return "位置ジャンプ 0%"
-        case .jumpToPercent10: return "位置ジャンプ 10%"
-        case .jumpToPercent20: return "位置ジャンプ 20%"
-        case .jumpToPercent30: return "位置ジャンプ 30%"
-        case .jumpToPercent40: return "位置ジャンプ 40%"
-        case .jumpToPercent50: return "位置ジャンプ 50%"
-        case .jumpToPercent60: return "位置ジャンプ 60%"
-        case .jumpToPercent70: return "位置ジャンプ 70%"
-        case .jumpToPercent80: return "位置ジャンプ 80%"
-        case .jumpToPercent90: return "位置ジャンプ 90%"
-        case .skipForward: return "ページスキップ（進む）"
-        case .skipBackward: return "ページスキップ（戻る）"
-        case .togglePageDirection: return "ページ方向 切替（この本）"
-        case .toggleLoupe: return "ルーペ"
+        case .nextPage: return L10n.text("ページ送り")
+        case .previousPage: return L10n.text("ページ戻し")
+        case .pageLeftward: return L10n.text("左方向へ")
+        case .pageRightward: return L10n.text("右方向へ")
+        case .firstPage: return L10n.text("先頭ページ")
+        case .lastPage: return L10n.text("末尾ページ")
+        case .zoomIn: return L10n.text("ズームイン")
+        case .zoomOut: return L10n.text("ズームアウト")
+        case .fitToWindow: return L10n.text("ウィンドウに合わせる")
+        case .toggleFullScreen: return L10n.text("全画面 切替")
+        case .close: return L10n.text("閉じる")
+        case .toggleSpread: return L10n.text("見開き 切替")
+        case .toggleCoverOffset: return L10n.text("表紙オフセット 切替")
+        case .toggleAutoAdvance: return L10n.text("スライドショー 開始/停止")
+        case .cyclePageLayout: return L10n.text("横長レイアウト 巡回")
+        case .nextVolume: return L10n.text("次の巻")
+        case .prevVolume: return L10n.text("前の巻")
+        case .cycleEndOfBookBehavior: return L10n.text("巻末挙動 切替")
+        case .showHelp: return L10n.text("ヘルプ表示")
+        case .jumpToPercent0: return L10n.text("位置ジャンプ 0%")
+        case .jumpToPercent10: return L10n.text("位置ジャンプ 10%")
+        case .jumpToPercent20: return L10n.text("位置ジャンプ 20%")
+        case .jumpToPercent30: return L10n.text("位置ジャンプ 30%")
+        case .jumpToPercent40: return L10n.text("位置ジャンプ 40%")
+        case .jumpToPercent50: return L10n.text("位置ジャンプ 50%")
+        case .jumpToPercent60: return L10n.text("位置ジャンプ 60%")
+        case .jumpToPercent70: return L10n.text("位置ジャンプ 70%")
+        case .jumpToPercent80: return L10n.text("位置ジャンプ 80%")
+        case .jumpToPercent90: return L10n.text("位置ジャンプ 90%")
+        case .skipForward: return L10n.text("ページスキップ（進む）")
+        case .skipBackward: return L10n.text("ページスキップ（戻る）")
+        case .togglePageDirection: return L10n.text("ページ方向 切替（この本）")
+        case .toggleLoupe: return L10n.text("ルーペ")
         }
     }
 }
@@ -48,11 +50,11 @@ public enum ViewerActionSection: CaseIterable {
 
     public var title: String {
         switch self {
-        case .navigation: return "ナビゲーション"
-        case .zoom: return "ズーム"
-        case .spreadSlideshow: return "見開き・スライドショー"
-        case .volume: return "巻移動"
-        case .misc: return "その他"
+        case .navigation: return L10n.text("ナビゲーション")
+        case .zoom: return L10n.text("ズーム")
+        case .spreadSlideshow: return L10n.text("見開き・スライドショー")
+        case .volume: return L10n.text("巻移動")
+        case .misc: return L10n.text("その他")
         }
     }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 import CoreGraphics
 import Foundation
+import StackNestL10n
 
 /// ルーペの形。**描画のクリップ形状だけの関心事**で、`CanvasFitMath.loupeSource` には影響しない
 /// （あの純関数はもともと正方形の probe を計算しており、円はクリップで作っている）。
@@ -12,8 +13,8 @@ public enum LoupeShape: String, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .circle: return "円"
-        case .square: return "正方形"
+        case .circle: return L10n.text("円")
+        case .square: return L10n.text("正方形")
         }
     }
 }
@@ -64,9 +65,9 @@ public enum LoupeSize: String, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .small:  return "小"
-        case .medium: return "中"
-        case .large:  return "大"
+        case .small:  return L10n.text("小")
+        case .medium: return L10n.text("中")
+        case .large:  return L10n.text("大")
         }
     }
 
