@@ -4,6 +4,7 @@ import StackNestL10n
 
 /// G55: リクエストの Accept-Language を L10nLang.requestOverride に載せる。
 /// ハンドラ内の L10n.text はこの言語で引かれ、HTTPError の message もこの言語になる。
+/// ヘッダが無い（または空の）リクエストはサーバ自身の言語（`L10nLang.processDefault`）で答える。
 /// タスクローカルなので、並行したリクエストの間で混ざらない。
 struct LanguageMiddleware<Context: RequestContext>: RouterMiddleware {
     func handle(

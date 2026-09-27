@@ -18,15 +18,26 @@ struct L10nLangTests {
         ("ja,en-US;q=0.9,en;q=0.8", .ja),
         ("fr;q=0.9, ja;q=0.95", .ja),
         ("de", .en),
-        ("", .en),
     ])
     func acceptLanguage(header: String, expected: L10nLang) {
         #expect(L10nLang.from(acceptLanguage: header) == expected)
+        // 明示されたヘッダは既定言語に左右されない
+        #expect(L10nLang.from(acceptLanguage: header, fallback: .ja) == expected)
+        #expect(L10nLang.from(acceptLanguage: header, fallback: .en) == expected)
     }
 
-    @Test("Accept-Language が無ければ en")
-    func acceptLanguageMissing() {
-        #expect(L10nLang.from(acceptLanguage: nil) == .en)
+    /// 最終レビュー item 3: ヘッダが無い・空・解釈できないときはサーバの既定言語（ホストの言語）。
+    @Test("Accept-Language が無い・空なら fallback（既定は processDefault）", arguments: [
+        (nil, L10nLang.ja), (nil, .en), ("", .ja), ("", .en), (" , ", .ja), (" , ", .en),
+    ] as [(String?, L10nLang)])
+    func acceptLanguageMissing(header: String?, fallback: L10nLang) {
+        #expect(L10nLang.from(acceptLanguage: header, fallback: fallback) == fallback)
+    }
+
+    @Test("fallback を省略すると processDefault")
+    func acceptLanguageMissingUsesProcessDefault() {
+        #expect(L10nLang.from(acceptLanguage: nil) == L10nLang.processDefault)
+        #expect(L10nLang.from(acceptLanguage: "") == L10nLang.processDefault)
     }
 
     @Test("STACKNEST_LANG は preferredLanguages より優先")
@@ -35,6 +46,27 @@ struct L10nLangTests {
         #expect(L10nLang.from(preferredLanguages: ["en-US"], env: ["STACKNEST_LANG": "ja"]) == .ja)
         #expect(L10nLang.from(preferredLanguages: ["ja-JP", "en"], env: [:]) == .ja)
         #expect(L10nLang.from(preferredLanguages: [], env: [:]) == .en)
+    }
+
+    /// 最終レビュー item 2: テストランナーでは、STACKNEST_LANG が無ければ OS の言語に関係なく ja。
+    /// STACKNEST_LANG は引き続き最優先（CI の `STACKNEST_LANG=ja`、英語の手動確認 `STACKNEST_LANG=en`）。
+    @Test("テストプロセスでは STACKNEST_LANG が無ければ ja")
+    func testProcessDefaultsToJapanese() {
+        #expect(L10nLang.from(preferredLanguages: ["en-US"], env: [:], isTestProcess: true) == .ja)
+        #expect(L10nLang.from(preferredLanguages: [], env: [:], isTestProcess: true) == .ja)
+        #expect(L10nLang.from(preferredLanguages: ["en-US"], env: ["STACKNEST_LANG": ""], isTestProcess: true) == .ja)
+        #expect(L10nLang.from(preferredLanguages: ["ja-JP"], env: ["STACKNEST_LANG": "en"], isTestProcess: true) == .en)
+        #expect(L10nLang.from(preferredLanguages: ["en-US"], env: [:], isTestProcess: false) == .en)
+    }
+
+    /// このテスト自身がテストランナーの中で動いていることを検出できる（読むだけ・書き込まない）。
+    @Test("isTestProcess はテストランナーの中で true、processDefault は ja（STACKNEST_LANG 未指定時）")
+    func detectsTestRunner() {
+        #expect(L10nLang.isTestProcess)
+        let forced = ProcessInfo.processInfo.environment["STACKNEST_LANG"] ?? ""
+        if forced.isEmpty {
+            #expect(L10nLang.processDefault == .ja)
+        }
     }
 
     /// Review Focus 4: アプリごとの言語設定。App は Bundle.main.preferredLocalizations を渡す。

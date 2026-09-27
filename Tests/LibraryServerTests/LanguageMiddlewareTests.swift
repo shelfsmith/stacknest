@@ -26,11 +26,14 @@ struct LanguageMiddlewareTests {
         }
     }
 
-    @Test("ヘッダが無ければ en")
-    func noHeaderIsEnglish() async throws {
+    /// 最終レビュー item 3: ヘッダが無ければサーバの既定言語（ホストの言語 = processDefault）。
+    /// テストプロセスの processDefault は ja（`L10nLang.isTestProcess`）なので、旧挙動（常に en）と区別できる。
+    @Test("ヘッダが無い・空ならサーバの既定言語", arguments: [nil, ""] as [String?])
+    func noHeaderUsesHostLanguage(header: String?) async throws {
         try await makeApp().test(.router) { client in
-            try await client.execute(uri: "/lang", method: .get) { res in
-                #expect(String(buffer: res.body) == "en")
+            let headers: HTTPFields = header.map { [.acceptLanguage: $0] } ?? [:]
+            try await client.execute(uri: "/lang", method: .get, headers: headers) { res in
+                #expect(String(buffer: res.body) == L10nLang.processDefault.rawValue)
             }
         }
     }
