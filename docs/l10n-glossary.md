@@ -3,172 +3,204 @@
 この表が訳語の正本。新しい語を訳したらここに追記する（spec §6 は起点の写し）。
 文体: メニューとボタンは Apple HIG の Title Case、説明文とエラーは文頭だけ大文字の文、省略記号は `…`（U+2026）。
 
+段 1（8 単位の並列翻訳）の追記節は、段 2（Task S2-B・2026-09-27）で分野ごとの表にまとめ直した。
+割れていた訳は 1 つに決め、決めた訳だけを残している（経緯は `.superpowers/sdd/2026-09-27-phase-g55-localization/task-S2B-report.md`）。
+App の文字列カタログは **1 つの日本語キーに 1 つの英訳**しか持てない。同じキーを別の意味で使っている箇所は §5 にまとめた。
+
+## 1. 基本語（起点の表）
+
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
 | ライブラリ／庫 | Library | 「庫」は略称。英語では区別しない |
-| シェルフ／棚 | Shelf | |
-| スマートシェルフ | Smart Shelf | |
+| シェルフ／棚 | Shelf | サイドバーのセクション見出しは複数形 Shelves |
+| スマートシェルフ | Smart Shelf | §5 参照（サイドバー見出しも単数） |
 | 本・書籍 | Book | 画像セット・動画も含めて Book |
-| 巻 | Volume（略記 Vol.） | 巻送りは next/previous volume |
+| 巻 | Volume（略記 Vol.） | 巻送りは Next Volume／Previous Volume |
 | シリーズ | Series | |
-| 内蔵ビューア／外部ビューア | Built-in Viewer／External Viewer | |
+| 内蔵ビューア／外部ビューア | Built-in Viewer／External Viewer | `Built-In` とは書かない |
 | 表紙 | Cover | |
-| 見開き | Two-Page Spread（短縮時 Spread） | |
-| ページ送り | Page Turn | |
-| 巻末 | End of Volume | |
-| 続きから読む | Resume Reading | |
-| ルーペ | Magnifier | |
+| 見開き | Two-Page Spread（短縮時 Spread） | ビューアの HUD・トグルは Spread |
+| ページ送り | Page Turn | 設定名・演出名。キー操作の動作名は Next Page（§4） |
+| 巻末 | End of Volume | Web の巻末ダイアログの見出しも End of Volume |
+| 続きから読む | Resume Reading | 再開ダイアログは Resume／Start Over（§2.2） |
+| ルーペ | Magnifier | 倍率は Magnifier Zoom |
 | スタンプ | Stamp | |
 | ブラウザ（属性列） | Browser | Web ブラウザと紛れる箇所は Column Browser |
-| レート | Rating | |
+| レート／評価 | Rating | 「評価」は同義の別表記 |
 | 未読／既読 | Unread／Read | |
-| ロック／解錠 | Lock／Unlock | |
+| ロック／解錠 | Lock／Unlock | ロック設定そのものを外す操作は Remove Lock（§2.4） |
 | 共有 | Sharing | |
-| グラント | Access Grant | |
+| グラント | Access Grant | CLI の `grant` グループでは短く grant（List grants 等）。コマンド名に合わせた略 |
 | トークン／編集トークン | Token／Edit Token | |
 | リモート | Remote | |
 | オフライン | Offline Copy／Available Offline | |
 | 監視フォルダ | Watched Folder | |
 | 取り込み | Import | |
-| 破損チェック | Integrity Check | CLI の `integrity` と揃う |
+| 破損チェック | Integrity Check | CLI の `integrity` と揃う。メニューは Integrity Check… |
 | リンク切れ／再リンク | Missing File／Relink | |
 | お知らせ | Notice | |
-| 厚い本／薄い本／本の一部／画像セット／テキスト／ムービー | Thick Book／Thin Book／Part of Book／Image Set／Text／Movie | 既存訳のまま |
+| 厚い本／薄い本／本の一部／画像セット／テキスト／ムービー | Thick Book／Thin Book／Part of Book／Image Set／Text／Movie | 表示だけの訳。`@type` のファイル名トークン（`canonicalLabel(for:)`）は日本語のまま |
 | ネタ | Content Notes | 書籍メタデータの自由記述欄（memo とは別枠）。CLI/MCP の `--neta`/`neta` は識別子のまま |
 | ゴミ箱 | Trash | macOS 標準訳語 |
 
-**文体**: メニューとボタンは Apple HIG の Title Case（例 "Reveal in Finder"）。説明文とエラー文は文頭だけ大文字の文。省略記号は `…`（U+2026）。
-実装中に出た語は `docs/l10n-glossary.md` に追記する（そちらが正本。この表は起点）。
+## 2. 分野別の語彙
 
-## 追加語彙（U5・ヘルプ英訳で新規に訳出した語）
+### 2.1 本のフィールド・一覧・フィルタ
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| タイトル／作者・著者／ジャンル | Title／Author／Genre | 「作者」「著者」はどちらも Author |
+| 登録日・追加日 | Date Added | |
+| 読んだ日 | Date Read | 列ヘッダ・スタンプ |
+| 最終閲覧日・最終読書日 | Last Read Date | 「最終読書」（Web の詳細行）は Last Read |
+| 最後に読んだ日 | Last Read | 既存カタログの訳 |
+| 種類 | Type | |
+| 関連 | Related | `neta` 列の既定の表示名。§1 の「ネタ」（Content Notes）とは別の日本語 |
+| メモ | Memo | |
+| キーワード A／B／C | Keyword A／B／C | |
+| 巻数 | Volume | |
+| ページ数 | Page Count（App のスマートシェルフ条件）／Pages（Web のソート・詳細） | §4 |
+| 進行 | Progress | Web の詳細シート |
+| メタデータ | Metadata | |
+| フィルタ | Filter | 単数形 |
+| 既読状態 | Read Status | |
+| 消去 | Clear | |
+| 検索／並び替え | Search／Sort By（App のメニュー）・Sort（Web） | §4 |
+| グリッド／リスト／カラム | Grid／List／Column | |
+| 表示 | View | 設定のタブ名・ツールバーの表示切替 Picker（ヘルプの Settings ▸ View と一致） |
+| 表示モード | View Mode | App・Web 共通 |
+| リスト/アイコン表示 | List/Icon View | 既存カタログの訳（メニュー） |
+| 最近の項目 | Recent Items | 既存カタログの訳 |
+| 未読チェック | Mark as Unread | 既存カタログの訳。実際はトグル（§5） |
+| 書籍が選択されていません | No Book Selected | 既存カタログの訳 |
+| お気に入り | Favorites | DB 保存名 `お気に入り` は変えない（kind で判定・表示だけ訳す） |
+| ラベル | Label | 設定のタブ名・グラントのラベル欄で共有（単数） |
+| (無題) | (Untitled) | |
+| すべて | All | ファセット列の先頭項目 |
+| 詳細ペイン | Detail Pane | 表紙の表示切替は Detail Pane Cover／ツールチップ Show or hide the cover in the detail pane |
+| 上ペイン／ファセット／伏せ字 | Top Pane／Facets／Hidden | |
+| ・（箇条書きの行頭記号） | • (U+2022) または `, `（列挙の区切り） | 列挙に使うと主語が複数になりうるので、動詞の数に依存しない語順にする（例 Spotlight indexing is turned off for “%@”） |
+
+スマートシェルフの演算子（Picker 項目・Title Case）:
 
 | 日本語 | 英訳 |
 |---|---|
-| 命名プリセット | Naming Preset |
-| 簡易チェック | Quick Check |
-| 詳細（CRC）チェック | Detailed (CRC) Check |
-| ページ送りの演出 | Page Turn Effect |
-| ノンブル（章ごとのページ番号） | Page Number |
-| 全画面で開く | Open in Full Screen |
-| 配信インジケータ | Broadcast Indicator |
-| 共有トークン | Sharing Token |
+| が次と等しい／を含む／で始まる／で終わる | Equals／Contains／Starts With／Ends With |
+| 以上／以下 | At Least／At Most |
+| 以内／より前（日付） | Within／Older Than |
+| である／ではない | Is／Is Not |
 
-## 追加語（Task 16 / U8 Web で判明）
+日付フィルタ（`DateFilterRow`）の方向 Picker も同じ訳（以内 → Within、以前 → Older Than）。英語では Picker が数値の前に来る（Within [7] days）。
+
+### 2.2 ビューア・EPUB
 
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
-| タイトル | Title | ソート項目・詳細列見出し |
-| 作者／著者 | Author | Web の一覧では 2 種の日本語表記が混在（既存コード）。英訳はどちらも Author に統一 |
-| ジャンル | Genre | ファセット ブラウズの列 |
-| 追加日 | Date Added | |
-| 最終読書／最終読書日 | Last Read／Last Read Date | 詳細行は「最終読書」、ソート項目は「最終読書日」（別の日本語文字列） |
-| 評価 | Rating | レート（既存用語集）と同義の別表記 |
-| 進行 | Progress | 詳細シートの読書進捗行 |
-| ページ数 | Pages | |
-| 検索／並び替え | Search／Sort | |
-| グリッド／リスト／カラム（表示モード） | Grid／List／Column | ビュー切替セグメント |
-| 表示件数 / スクロール | Items Per Page / Scroll | per-page ＋無限スクロールの統合セレクタ |
-| 無限 | Unlimited | 上記セレクタの無限スクロール選択肢 |
-| すべて | All | ファセット列の先頭項目（選択解除） |
-| ステップ | Steps | 狭幅 column stepper のパンくず nav の aria-label |
-| ペアリング | Pairing | Web 版のペアリング画面タイトル |
-| トークン／パスワード | Token／Password | 入力欄のプレースホルダ |
-| 接続／解錠 | Connect／Unlock | ボタン |
-| 設定 | Settings | リーダーの歯車ボタン |
-| リーダー設定 | Reader Settings | リーダー設定シートの見出し |
-| 読み方向 | Reading Direction | |
-| キャッシュ上限 | Cache Limit | |
-| フル先読み（Tier3） | Full Prefetch (Tier 3) | |
-| (無題) | (Untitled) | タイトル未設定の本のプレースホルダ |
-| 本の詳細 | Book Details | 詳細モーダルの aria-label |
-| 次の巻へ／先頭へ／本を閉じる | Next Volume／To the Beginning／Close the Book | 巻末ダイアログのボタン |
-| 続きから（reader.js の巻送りダイアログ） | Resume | 「続きから読む」（Resume Reading）より短い、巻送り確認ダイアログ専用の文言 |
+| 単ページ | Single Page | Spread の対 |
+| 表紙独立／先頭からペア | Cover on Its Own Page／Paired from First Page | |
+| ページ方向 | Page Direction | Right to Left／Left to Right |
+| 読み方向（Web） | Reading Direction | 選択肢は Left to Right／Right to Left (Manga) |
+| 続きから／最初から | Resume／Start Over | App の再開ダイアログ・Web の巻送りダイアログ共通。問いは Resume reading? |
+| キー操作・キー割り当て | Key Bindings | |
+| ページ送りの演出 | Page Turn Effect | |
+| ノンブル | Page Number | |
+| 全画面で開く | Open in Full Screen | |
+| 次の巻へ／先頭へ／本を閉じる | Next Volume／To the Beginning／Close the Book | Web の巻末ダイアログ |
+| ルーペの形・大きさ | Circle／Square、Small／Medium／Large | |
+| キー操作のセクション | Navigation／Zoom／Spread & Slideshow／Volume Navigation／Other | |
+| アーカイブ／画像／フォルダ／動画／テキスト | Archive／Image／Folder／Video／Text | `BookCategory`（ビューア選択の分類。本の種類ラベルとは別語彙） |
+| 電子書籍 | E-Book | EPUB 用外部ビューア未設定時の表示名。複数形 E-Books (EPUB) |
 
-## G55 U7（CLI／MCP）追記（2026-09-27）
-
-- CLI の `--help`／`abstract` は名詞句・小文字始まりの短いフレーズ（例 "Access token"）。エラー文・確認文は文（例 "Error: Not found (HTTP 404)."）。
-- 複数形は `L10nEntry(one:other:)` で分岐。`%d 冊` → one "%d book" / other "%d books" のように単位語も英訳する。
-- MCP（`mcp-stacknest/`）はテーブルを持たず、docstring と例外メッセージを直接英語で書く（言語切り替えなし・spec §1）。
-
-## 実装中に追加した語（U1・2026-09-27）
+### 2.3 ファイル操作・取り込み・監視
 
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
-| メタデータ | Metadata | Finder タグ同期の対象フィールド未設定時の既定表示 |
-| フィルタ | Filter | ツールバーボタン／ポップオーバー見出し兼用（単数形） |
-| 詳細ペイン | Detail Pane | 右側パネルの呼称 |
-| Finder タグ | Finder Tag(s) | 複数形は文脈依存（%lld との組み合わせ時は数値側で表現） |
-| 同期／再照合 | Sync／Re-sync | 「今すぐ再照合」= "Re-sync Now" 相当 |
-| ゴミ箱 | Trash | macOS 標準語彙 |
-| ページ数 | Page Count | スマートシェルフの条件フィールド名 |
-| 追加日 | Date Added | スマートシェルフの条件フィールド名 |
-| 最終閲覧日 | Last Read Date | スマートシェルフの条件フィールド名（本文中の「続きから読む」とは別語） |
-| 既読状態 | Read Status | フィルタポップオーバーの見出し |
-| 消去 | Clear | スタンプ／テキストフィールドの値クリア chip・ボタン |
-| スマートシェルフの演算子（が次と等しい／を含む／で始まる／で終わる／以上／以下／より前／である／ではない） | Equals／Contains／Starts With／Ends With／At Least／At Most／Before／Is／Is Not | Picker 項目、Title Case で統一 |
-| 以内（日付フィルタ・スマートシェルフ共用） | within | 開発者コメント指定の訳（`DateFilterRow.swift`）。小文字のまま流用 |
-| 以前 | older than | 同上 |
-| ・（箇条書きの行頭記号として使う場合） | • (U+2022) または `, `（列挙の区切り） | 日本語のナカグロは英語では箇条書き記号／区切りとして意味を持たないため、英訳では US プレフィックス記号に置き換える（表示文字列そのものの変更で JA 側は不変） |
+| ファイル名を変更…／ファイルを移動…／ファイルをゴミ箱に移動… | Rename Files…／Move Files…／Move to Trash… | 選択中の本（複数可）に効くメニュー。ヘルプのキー表も同じ |
+| ライブラリから削除 | Remove from Library | Undo 名も Remove %lld Item(s) from Library |
+| ファイルを再指定… | Relink File… | |
+| リンク切れを検出…／リンク切れの検出と再リンク | Find Missing Files…／Find Missing Files and Relink | 「検出」は Find（Detect は使わない）。開始ボタンは Start、再実行は Find Again |
+| 重複を検出… | Find Duplicates… | |
+| 命名プリセット／プリセット | Naming Preset／Preset | 既定のプリセット名 `既定` は保存値のまま、表示は Default |
+| （プリセットの）のコピー | copy（小文字・Finder と同じ） | 例 “Default copy” |
+| 自動追加 | Auto-Add | |
+| 自動分類 | Auto-Classify | 本の種類の自動判定。U4 の Auto-Categorization から統一（§3） |
+| 既定に従う（現在: …） | Follow the Default (Currently: …) | |
+| 有効／無効 | On／Off | このライブラリで有効 → On for This Library |
+| サブフォルダ | Subfolder | 選択肢 Don't Import Subfolders／Import Each Subfolder as One Book／Import Subfolder Contents Individually |
+| 既存も取り込む | Import Existing Files | |
+| 厚い本判定閾値 | Thick Book Threshold | ハイフンを付けない |
+| Finder タグ | Finder Tag(s) | |
+| 同期／再照合 | Sync／Re-sync | 今すぐ再照合 → Re-sync Now、メニュー Re-sync Finder Tags。CLI・MCP・ヘルプも Re-sync（Reconcile は使わない） |
 
-## 追記（G55 U2・内蔵ビューア／EPUB／メニュー／ウィザード／表紙・リネーム・再リンク系シート）
-
-| 日本語 | 英訳 | 備考 |
-|---|---|---|
-| 単ページ | Single Page | 見開き（Spread）の対 |
-| 上ペイン | Top Pane | ブラウズ／スタンプ／伏せ字を切り替える領域 |
-| ファセット | Facets | 上ペインの一モード |
-| 伏せ字 | Hidden | 上ペインの一モード（隠した項目の表示） |
-| 続きから／最初から | Continue／Start Over | 再開ダイアログの二択 |
-| ページ方向 | Page Direction | 右→左 (Right to Left) ／左→右 (Left to Right) |
-| キー操作 | Key Bindings | ビューア内キー割当ヘルプの見出し |
-
-## 追加語（Task 11 / U3・設定タブ全般）
+### 2.4 共有・リモート・ロック
 
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
-| 自動追加 | Auto-Add | 監視フォルダの自動取り込み機能名（LibrarySettingsSheet の GroupBox 見出し） |
-| 自動分類 | Auto-Classify | 本の種類の自動判定機能名 |
-| 既定に従う（現在: …） | Follow the Default (Currently: …) | 3-way ピッカー（既定に従う/このライブラリで有効/無効）の共通句 |
+| 管理者／編集可／閲覧のみ | Admin／Can Edit／View Only | 接続 tier の表示とグラントの Picker。macOS の「ユーザとグループ」の Admin に合わせる（§3） |
+| 共有トークン | Sharing Token | |
+| 全ライブラリ／%lld 庫 | All Libraries／%lld Library(ies) | グラントのスコープ表示 |
+| (既定) 閲覧／(既定) 編集 | (Default) View／(Default) Edit | 保存値は日本語のまま。表示だけ `GrantStore.displayLabel(for:)` で訳す |
+| 接続 | Connect | ボタン。共有設定のセクション見出しも同じキー（§5） |
+| ペアリング | Pairing | |
+| 配信インジケータ | Broadcast Indicator | |
+| ロック解除（パスワードロックを外す操作） | Remove Lock | 生体認証・Apple Watch によるセッションの「解錠」（Unlock）とは別物 |
+| パスワードロックを設定する（トグル） | Lock This Library with a Password | |
+| 表示件数 / スクロール（Web） | Items Per Page / Scroll | 選択肢は {n} per page／Infinite Scroll |
+| 1ページ [n] 件（App のリモート一覧） | Show [n] per page | 2 つの素のキー「1ページ」「件」の訳 |
 
-## 追記（U4・G55 リモート/オフライン/破損チェック）
+### 2.5 破損チェック・メンテナンス・バックアップ
 
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
-| お気に入り | Favorites | シェルフ一覧の特別項目。DB 保存名（`お気に入り`）は変えない（kind=="favorites" で判定・表示だけ訳す） |
-| 管理者／編集可／閲覧のみ | Administrator／Editable／View Only | リモート接続 tier（admin/edit/read）の表示ラベル |
-| プリセット／命名プリセット | Preset／Naming Preset | ファイル名フォーマットのプリセット |
-| 破損／劣化 | Damaged／Degraded | 破損チェックの状態。「劣化」は前回 OK→今回破損（ビット腐敗疑い） |
+| ファイルの破損チェック(…) | Integrity Check(…) | メニュー・ウィンドウ題 |
+| 簡易チェック／詳細（CRC）チェック | Quick Check／Detailed (CRC) Check | |
+| 未検査をスキャン／全件やり直し／前回破損のみ再検査 | Scan Unchecked／Recheck All／Recheck Damaged Only | ヘルプも同じ語 |
+| 破損／劣化 | Damaged／Degraded | 「劣化」は前回 OK → 今回破損 |
 | バックアップ | Backup | |
-| メンテナンス | Maintenance | メタデータ補完・表紙再生成などの長時間ジョブの総称 |
-| 自動分類 | Auto-Categorization | 本の種類の自動判定設定 |
-| サブフォルダ | Subfolder | 取り込み設定の階層扱い |
-| 中断（実行中の処理を止める操作・状態） | Stop／Stopped | 「キャンセル」ではなく実行中ジョブの停止を指す（スキャン・メンテナンス・ダウンロードの中断ボタンと要約文言の両方で使う語を統一） |
+| メンテナンス | Maintenance | |
+| データベースを検査 | Check Database | |
+| 表紙を再生成 | Regenerate Cover | 詳細ペイン（1 冊）と設定（全体）で共有（§5） |
+| 中断 | Stop／Stopped | 実行中ジョブの停止（Cancel ではない） |
 
-## 追記（U4 fix round 1）
-
-| 日本語 | 英訳 | 備考 |
-|---|---|---|
-| ロック解除（パスワードロックを外す操作＝ disableLock） | Remove Lock | 「解錠」（生体認証/Apple Watch によるセッションの解錠）とは別物。ロック設定そのものを外す操作・確認文言に使う（U3 の LibrarySettingsSheet+Lock.swift と共有キーのため訳を揃える） |
-
-## 追記（Task 14 / U6・AppCore・LibraryStore・アダプタ・サーバ）
+### 2.6 その他（段 2 までに個別に決めたもの）
 
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
-| タイトル／作者／ジャンル／登録日／読んだ日／未読／種類／関連／メモ／シリーズ／巻数 | Title／Author／Genre／Date Added／Date Read／Unread／Type／Relation／Memo／Series／Volume | 列ヘッダ・スタンプ・ブラウズ共通のフィールド名（BookColumn/StampField/LibrarySettings で共有） |
-| キーワード A／B／C | Keyword A／B／C | |
-| アーカイブ／画像／フォルダ／動画／テキスト | Archive／Image／Folder／Video／Text | `BookCategory`（ビューア設定の分類。書籍の種類ラベルとは別語彙） |
-| 電子書籍 | E-Book | EPUB 用外部ビューア未設定時の表示名 |
-| 円／正方形（ルーペの形） | Circle／Square | |
-| 小／中／大（サイズ一般） | Small／Medium／Large | ルーペの大きさ |
-| 全ライブラリ | All Libraries | グラントのスコープ表示 |
-| ナビゲーション／ズーム／見開き・スライドショー／巻移動／その他 | Navigation／Zoom／Spread & Slideshow／Volume Navigation／Other | キー操作設定のセクション名 |
-| 既定（プリセット名の種） | Default | 保存値は `既定` のまま。表示だけ `FilenameFormatPreset.displayName` で訳す |
-| (既定) 閲覧／(既定) 編集（グラントの種） | (Default) View／(Default) Edit | 保存値は日本語のまま。表示だけ `GrantStore.displayLabel(for:)` で訳す |
-| 厚い本 ほか 6 種（`@type` の値） | Thick Book ほか（上の表） | `canonicalLabel(for:)` はファイル名トークンなので日本語固定。表示は `BookTypeLabel.displayLabel(for:)` |
+| ファイル名では「%@」 | In filenames: “%@” | ラベル編集シートの補足キャプション（英語 UI でのみ出る） |
+| libarchive の版不一致メッセージ | The libarchive header (%lld) and the runtime library (%lld) are different versions. | `LibarchiveVersion.mismatchMessage` |
+| フル先読み（Tier3）／キャッシュ上限 | Full Prefetch (Tier 3)／Cache Limit | Web のリーダー設定 |
+| リーダー設定／本の詳細／ステップ | Reader Settings／Book Details／Steps | Web |
 
-## 追記（Task S2-A・段 2 の穴埋め）
+## 3. 文体の規則
 
-| 日本語 | 英訳 | 備考 |
+- **Title Case**: メニュー項目・ボタン・タブ・設定項目の見出し・Picker の選択肢・ツールバーのラベル・ビューア HUD のうち名詞句や状態のもの（Spread、Magnifier On、Last Page、Loading Next Volume…）。
+- **文（文頭だけ大文字）**: 説明文・エラー・確認・ステータス行・**NSAlert の messageText と SwiftUI の `.alert`／`.confirmationDialog` の題**・ビューア HUD のうち動詞を含む節（Can't open the next volume、Moved to the first page）。
+- **末尾の句点**: アラートの題とステータス行・短いエラー行には付けない（Couldn't open the library）。複数の文からなる説明・本文の文には付ける。日本語が 。 で終わる短い文は付けてよい（段 1 の訳の多くはこれに従っている）。
+- **エラーの言い回し**: できなかったことは `Couldn't …`、恒常的にできないことは `Can't …`。`Failed to …`／`… Failed` は使わない（「%lld 件失敗」のような件数の要約だけは `%lld failed`）。
+- **件数**: 「件」は item(s)、「冊」は book(s)。本の削除確認のように対象を明示したい文では book(s) を使ってよい。`(s)` は使わない。単数・複数を 1 つのキーで持てない 2 つの数の文は、名詞を数の前に出して数に依存しない形にする（Missing files: %1$lld (in folders: %2$lld)）。
+- **省略記号** `…`（U+2026）。引用には “ ” を使う（UI の項目名の引用も “Move to Trash”）。**アポストロフィはまっすぐな `'`**（don't、library's）。段 1 で ’ を使っていた訳は S2-B で ' に揃えた。
+- **CLI**: `--help`／abstract は文頭だけ大文字の名詞句・動詞句（例 "Access token"、"List shelves in the library"）。エラー文・確認文は文。複数形は `L10nEntry(one:other:)`。
+- **MCP**（`mcp-stacknest/`）: テーブルを持たず、docstring と例外メッセージを直接英語で書く（言語切り替えなし）。
+- **Web**: タッチ操作を前提に tap と書く（Couldn't load. Tap to retry）。
+
+## 4. 文脈で訳し分ける語
+
+| 日本語 | 訳し分け | 理由 |
 |---|---|---|
-| ファイル名では「%@」 | In filenames: “%@” | ラベル編集シートの本の種類行。英語 UI でのみ表示する補足キャプション（`@type` に入る正準名を明示）。日本語 UI では display==canonical のため出ない |
-| libarchive の版不一致メッセージ | The libarchive header (%lld) and the runtime library (%lld) are different versions. | `LibarchiveVersion.mismatchMessage`。改行込みの単一キー（`Sources/StackNestL10n/Tables/L10n+Core.swift`） |
+| ページ送り | 設定・演出名は Page Turn、キー操作の動作名（`ViewerActionDisplay`）は Next Page | 動作名は「ページ戻し」→ Previous Page と対になる |
+| ページ数 | App のスマートシェルフ条件は Page Count、Web のソート・詳細行は Pages | Web は狭い列に入る短い語 |
+| 並び替え | App のメニューは Sort By、Web のボタンは Sort | Web は単独のボタン |
+| 設定 | App の外部表紙シートのボタンは Set、Web のリーダーの歯車は Settings | 別の画面・別の辞書で意味が違う |
+| 以内／以前 | どちらも Picker の選択肢として Title Case（Within／Older Than） | 段 1 の小文字 within／older than は Picker の他の項目と揃わなかった |
+
+## 5. 1 キー 1 訳の制約で妥協している語（将来キーを分ける候補）
+
+App のカタログは同じ日本語キーに 1 つの訳しか持てない。次の語は意味の違う箇所で同じキーを使っているため、どちらかに寄せた。直すにはソース側のキーを分ける必要がある（日本語 UI を変えないためにはテーブル名やコメント付きの別キーが要り、設計の変更になる）。
+
+| 日本語キー | 採った訳 | 合わない箇所 |
+|---|---|---|
+| 接続 | Connect | 共有設定のセクション見出し（本来は Connection） |
+| スマートシェルフ | Smart Shelf | リモートのサイドバーのセクション見出し（本来は Smart Shelves。同じ列の「シェルフ」は Shelves） |
+| 表紙を再生成 | Regenerate Cover | ライブラリ設定のメンテナンス（全体。本来は Regenerate Covers） |
+| 変更 | Change | リモートのサーバ名変更シートのボタン（本来は Rename） |
+| 未読チェック | Mark as Unread（既存カタログ） | 実際は未読のトグル（Toggle Unread のほうが正確）。カタログの既存訳と食い違うと `merge_fragments.py` が止まるため既存訳に合わせた |
