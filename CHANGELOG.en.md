@@ -7,7 +7,7 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
-## [Unreleased] — English UI (Phase G55)
+## [0.16.0] - 2026-09-27 — English UI (Phase G55)
 
 ### Added
 
