@@ -1155,7 +1155,7 @@ struct WindowCommands: Commands {
                 .keyboardShortcut("5", modifiers: .command).disabled(!(target?.canRate ?? false))
             Divider()
             // 4.2c-9: 未読チェックも target 経由（リモートは R でも可＝共有閲覧状態・canMarkUnread）。
-            Button("未読チェック") { target?.toggleUnread() }
+            Button(String(localized: "menu.toggleUnread", defaultValue: "未読チェック")) { target?.toggleUnread() }
                 .keyboardShortcut("t", modifiers: .command).disabled(!(target?.canMarkUnread ?? false))
         }
     }

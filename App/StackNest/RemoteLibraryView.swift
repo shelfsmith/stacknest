@@ -599,7 +599,7 @@ struct RemoteLibraryView: View {
                 }
             }
         }
-        Button("未読チェック") { state.toggleUnread(ids: ids) }
+        Button(String(localized: "menu.toggleUnread", defaultValue: "未読チェック")) { state.toggleUnread(ids: ids) }
         // G12b-2 Task 4: お気に入り 追加/削除・シェルフに追加（edit 未満では出さない）。
         // シェルフに追加の対象は「スマートでなく、お気に入りでもない」棚（RemoteSidebarView.userShelves
         // と同じ判定）。kind=="user" だけだとスマート棚も含んでしまう（サーバは kind を常に "user" で

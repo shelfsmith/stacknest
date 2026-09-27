@@ -5,7 +5,7 @@
 
 段 1（8 単位の並列翻訳）の追記節は、段 2（Task S2-B・2026-09-27）で分野ごとの表にまとめ直した。
 割れていた訳は 1 つに決め、決めた訳だけを残している（経緯は `.superpowers/sdd/2026-09-27-phase-g55-localization/task-S2B-report.md`）。
-App の文字列カタログは **1 つの日本語キーに 1 つの英訳**しか持てない。同じキーを別の意味で使っている箇所は §5 にまとめた。
+App の文字列カタログは **1 つの日本語キーに 1 つの英訳**しか持てない。同じ日本語を別の意味で使っている箇所は、S2-C で英語のドット区切りキーに分けた（§5）。
 
 ## 1. 基本語（起点の表）
 
@@ -13,7 +13,7 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 |---|---|---|
 | ライブラリ／庫 | Library | 「庫」は略称。英語では区別しない |
 | シェルフ／棚 | Shelf | サイドバーのセクション見出しは複数形 Shelves |
-| スマートシェルフ | Smart Shelf | §5 参照（サイドバー見出しも単数） |
+| スマートシェルフ | Smart Shelf | サイドバーのセクション見出しは複数形 Smart Shelves（キー `sidebar.section.smartShelves`・§5） |
 | 本・書籍 | Book | 画像セット・動画も含めて Book |
 | 巻 | Volume（略記 Vol.） | 巻送りは Next Volume／Previous Volume |
 | シリーズ | Series | |
@@ -71,10 +71,10 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | 表示モード | View Mode | App・Web 共通 |
 | リスト/アイコン表示 | List/Icon View | 既存カタログの訳（メニュー） |
 | 最近の項目 | Recent Items | 既存カタログの訳 |
-| 未読チェック | Mark as Unread | 既存カタログの訳。実際はトグル（§5） |
-| 書籍が選択されていません | No Book Selected | 既存カタログの訳 |
+| 未読チェック | Toggle Unread | メニュー項目はすべてトグル。キー `menu.toggleUnread`（§5）。日本語キー「未読チェック」の既存訳 Mark as Unread はもう使われない |
+| 書籍が選択されていません | No Book Selected（詳細ペインの空状態）／No books selected.（リモートの一括ダウンロードの要約文。キー `remote.batch.noBooksSelected`） | §5 |
 | お気に入り | Favorites | DB 保存名 `お気に入り` は変えない（kind で判定・表示だけ訳す） |
-| ラベル | Label | 設定のタブ名・グラントのラベル欄で共有（単数） |
+| ラベル | Label（グラントのラベル欄）／Labels（ライブラリ設定のタブ名。キー `settings.tab.labels`） | §5 |
 | (無題) | (Untitled) | |
 | すべて | All | ファセット列の先頭項目 |
 | 詳細ペイン | Detail Pane | 表紙の表示切替は Detail Pane Cover／ツールチップ Show or hide the cover in the detail pane |
@@ -140,7 +140,8 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | 共有トークン | Sharing Token | |
 | 全ライブラリ／%lld 庫 | All Libraries／%lld Library(ies) | グラントのスコープ表示 |
 | (既定) 閲覧／(既定) 編集 | (Default) View／(Default) Edit | 保存値は日本語のまま。表示だけ `GrantStore.displayLabel(for:)` で訳す |
-| 接続 | Connect | ボタン。共有設定のセクション見出しも同じキー（§5） |
+| 接続 | Connect（ボタン）／Connection（共有設定のセクション見出し。キー `sharing.section.connection`） | §5 |
+| 変更（サーバ名の変更シートのボタン） | Rename | キー `remote.server.rename`（§5）。ロック設定の「変更」ボタンは Change のまま |
 | ペアリング | Pairing | |
 | 配信インジケータ | Broadcast Indicator | |
 | ロック解除（パスワードロックを外す操作） | Remove Lock | 生体認証・Apple Watch によるセッションの「解錠」（Unlock）とは別物 |
@@ -159,7 +160,7 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | バックアップ | Backup | |
 | メンテナンス | Maintenance | |
 | データベースを検査 | Check Database | |
-| 表紙を再生成 | Regenerate Cover | 詳細ペイン（1 冊）と設定（全体）で共有（§5） |
+| 表紙を再生成 | Regenerate Cover（詳細ペインの右クリック・1 冊）／Regenerate Covers（ライブラリ設定のメンテナンス・全体。キー `settings.maintenance.regenerateCovers`） | §5。ヘルプも同じ |
 | 中断 | Stop／Stopped | 実行中ジョブの停止（Cancel ではない） |
 
 ### 2.6 その他（段 2 までに個別に決めたもの）
@@ -193,14 +194,25 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | 設定 | App の外部表紙シートのボタンは Set、Web のリーダーの歯車は Settings | 別の画面・別の辞書で意味が違う |
 | 以内／以前 | どちらも Picker の選択肢として Title Case（Within／Older Than） | 段 1 の小文字 within／older than は Picker の他の項目と揃わなかった |
 
-## 5. 1 キー 1 訳の制約で妥協している語（将来キーを分ける候補）
+## 5. 文脈で分けたキー（S2-C）
 
-App のカタログは同じ日本語キーに 1 つの訳しか持てない。次の語は意味の違う箇所で同じキーを使っているため、どちらかに寄せた。直すにはソース側のキーを分ける必要がある（日本語 UI を変えないためにはテーブル名やコメント付きの別キーが要り、設計の変更になる）。
+App のカタログは同じ日本語キーに 1 つの訳しか持てない。同じ日本語を意味の違う箇所で使っていたものは、
+合わない側の呼び出しだけを **英語のドット区切りキー＋元の日本語の `defaultValue`** に分けた
+（`String(localized: "sidebar.section.smartShelves", defaultValue: "スマートシェルフ")`）。
+日本語 UI は `defaultValue`（とカタログの `ja`）がそのまま出るので一字一句変わらない。
 
-| 日本語キー | 採った訳 | 合わない箇所 |
-|---|---|---|
-| 接続 | Connect | 共有設定のセクション見出し（本来は Connection） |
-| スマートシェルフ | Smart Shelf | リモートのサイドバーのセクション見出し（本来は Smart Shelves。同じ列の「シェルフ」は Shelves） |
-| 表紙を再生成 | Regenerate Cover | ライブラリ設定のメンテナンス（全体。本来は Regenerate Covers） |
-| 変更 | Change | リモートのサーバ名変更シートのボタン（本来は Rename） |
-| 未読チェック | Mark as Unread（既存カタログ） | 実際は未読のトグル（Toggle Unread のほうが正確）。カタログの既存訳と食い違うと `merge_fragments.py` が止まるため既存訳に合わせた |
+- 訳は `tools/l10n/fragments/S2C.json` に `{ "key": { "ja": "元の日本語", "en": "English" } }` の形で書く。
+  `merge_fragments.py` が `ja` と `en` の両方の localization を書く（ドット区切りキーに `ja` が無ければ止まる）。
+- `l10n-lint.py` は `.stringsdata` の `value`（＝`defaultValue`）で抽出を照合し、ドット区切りキーには
+  en の訳に加えて ja の値が `defaultValue` と一字一句同じであることを求める（`app-missing`）。
+- キー名は `領域.種類.名前`（lowerCamel）。新しく分けるときもこの形にする。
+
+| 元の日本語キー | 分けた箇所 | 新しいキー | 英訳 | 元のキーの英訳（そのまま残る箇所） |
+|---|---|---|---|---|
+| 表紙を再生成 | ライブラリ設定のメンテナンス（ローカル・リモート） | `settings.maintenance.regenerateCovers` | Regenerate Covers | Regenerate Cover（1 冊の右クリック） |
+| スマートシェルフ | リモートのサイドバーのセクション見出し（ローカルの `SidebarView` には見出しが無い） | `sidebar.section.smartShelves` | Smart Shelves | Smart Shelf（編集シートの題） |
+| 接続 | 共有設定のセクション見出し | `sharing.section.connection` | Connection | Connect（ボタン） |
+| ラベル | ライブラリ設定のタブ名（ローカル・リモート） | `settings.tab.labels` | Labels | Label（グラントのラベル欄） |
+| 変更 | リモートのサーバ名変更シートのボタン | `remote.server.rename` | Rename | Change（ロック設定のボタン） |
+| 書籍が選択されていません | リモートの一括ダウンロードの要約文 | `remote.batch.noBooksSelected` | No books selected. | No Book Selected（詳細ペインの空状態） |
+| 未読チェック | メニュー項目すべて（6 箇所。いずれもトグル） | `menu.toggleUnread` | Toggle Unread | （使われなくなった。カタログに Mark as Unread が残る） |

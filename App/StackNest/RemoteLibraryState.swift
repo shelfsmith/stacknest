@@ -591,7 +591,7 @@ final class RemoteLibraryState {
         }
         let skipped = ids.count - pending.count
         guard !pending.isEmpty else {
-            showBatchSummary(skipped > 0 ? String(localized: "選択はすべてダウンロード済みです") : String(localized: "書籍が選択されていません"),
+            showBatchSummary(skipped > 0 ? String(localized: "選択はすべてダウンロード済みです") : String(localized: "remote.batch.noBooksSelected", defaultValue: "書籍が選択されていません"),
                              kind: .info)
             return
         }

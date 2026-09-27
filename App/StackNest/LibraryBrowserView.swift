@@ -700,7 +700,7 @@ struct LibraryBrowserView: View {
             .disabled(!enabled)
         typeMenu(forContextBook: book)
             .disabled(!enabled)
-        Button("未読チェック") {
+        Button(String(localized: "menu.toggleUnread", defaultValue: "未読チェック")) {
             ensureSelected(book)
             appState.toggleUnreadForSelected()
         }

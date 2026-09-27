@@ -41,7 +41,7 @@ extension HelpContent {
                 .bullet("Revert to Automatic — removes the manual cover and returns to the automatic cover from the first page"),
                 .bullet("Regenerate Cover — rebuilds the cover from the current file (**per book**). Use this when you've replaced a file's contents but the cover is still the old one. Not available for books whose cover is an external image (by design, it won't be overwritten). After relinking a missing file, the cover and page count update automatically."),
                 .para("Changing the cover only affects **the thumbnail**; it never touches the archive itself or the original file. The same operations are available remotely (with an edit token); if the cover changes on the sharing side or another client, reloading the list or reconnecting picks up the change."),
-                .para("To regenerate covers for the whole library at once, use \"Regenerate Cover\" in this library's settings (⇧⌘,) (shows progress)."),
+                .para("To regenerate covers for the whole library at once, use \"Regenerate Covers\" in this library's settings (⇧⌘,) (shows progress)."),
             ]),
             HelpSection(title: "Built-in Viewer", blocks: [
                 .para("Opening a book displays it in a dedicated window (or full screen). Key controls:"),

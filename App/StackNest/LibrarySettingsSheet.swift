@@ -108,7 +108,7 @@ struct LibrarySettingsSheet: View {
                     .tabItem { Label("取り込み", systemImage: "tray.and.arrow.down") }
                     .tag(5)
                 ScrollView { labelSection().padding(16) }
-                    .tabItem { Label("ラベル", systemImage: "tag") }
+                    .tabItem { Label(String(localized: "settings.tab.labels", defaultValue: "ラベル"), systemImage: "tag") }
                     .tag(2)
                 ScrollView { lockSection().padding(16) }
                     .tabItem { Label("ロック", systemImage: "lock") }
@@ -315,7 +315,7 @@ struct LibrarySettingsSheet: View {
                 Button {
                     showRegenerationConfirm = true
                 } label: {
-                    Label("表紙を再生成", systemImage: "arrow.down.circle")
+                    Label(String(localized: "settings.maintenance.regenerateCovers", defaultValue: "表紙を再生成"), systemImage: "arrow.down.circle")
                 }
                 .disabled(appState?.database == nil || bundleURL == nil)
                 Text("全ての表紙を元ファイルから作り直します（手動・アップロードした表紙は対象外）。")

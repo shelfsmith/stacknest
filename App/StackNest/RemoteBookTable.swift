@@ -499,7 +499,7 @@ extension RemoteBookTableCoordinator: NSMenuDelegate {
         }
 
         // 未読チェック トグル。共有状態のため canEdit ゲート不要。
-        let unread = NSMenuItem(title: String(localized: "未読チェック"), action: #selector(ctxToggleUnread(_:)), keyEquivalent: "")
+        let unread = NSMenuItem(title: String(localized: "menu.toggleUnread", defaultValue: "未読チェック"), action: #selector(ctxToggleUnread(_:)), keyEquivalent: "")
         unread.target = self; menu.addItem(unread)
 
         // G12b-2 Task 4: お気に入り 追加/削除・シェルフに追加（edit 未満では出さない）。

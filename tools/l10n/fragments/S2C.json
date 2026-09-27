@@ -1,0 +1,30 @@
+{
+  "menu.toggleUnread": {
+    "ja": "未読チェック",
+    "en": "Toggle Unread"
+  },
+  "remote.batch.noBooksSelected": {
+    "ja": "書籍が選択されていません",
+    "en": "No books selected."
+  },
+  "remote.server.rename": {
+    "ja": "変更",
+    "en": "Rename"
+  },
+  "settings.maintenance.regenerateCovers": {
+    "ja": "表紙を再生成",
+    "en": "Regenerate Covers"
+  },
+  "settings.tab.labels": {
+    "ja": "ラベル",
+    "en": "Labels"
+  },
+  "sharing.section.connection": {
+    "ja": "接続",
+    "en": "Connection"
+  },
+  "sidebar.section.smartShelves": {
+    "ja": "スマートシェルフ",
+    "en": "Smart Shelves"
+  }
+}

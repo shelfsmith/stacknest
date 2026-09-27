@@ -118,7 +118,7 @@ struct RemoteLibrarySettingsSheet: View {
                 }
 
                 ScrollView { labelTab().padding(16) }
-                    .tabItem { Label("ラベル", systemImage: "tag") }
+                    .tabItem { Label(String(localized: "settings.tab.labels", defaultValue: "ラベル"), systemImage: "tag") }
                     .tag(0)
 
                 if state.canDelete {
@@ -510,7 +510,7 @@ struct RemoteLibrarySettingsSheet: View {
                             .font(.caption).foregroundStyle(.secondary)
                         Divider()
                         Button { Task { await state.runCompressCovers() } } label: {
-                            Label("表紙を再生成", systemImage: "arrow.down.circle")
+                            Label(String(localized: "settings.maintenance.regenerateCovers", defaultValue: "表紙を再生成"), systemImage: "arrow.down.circle")
                         }
                         .disabled(!state.canDelete)
                         Text("全ての表紙を元ファイルから作り直します（1200px を超えるものは縮小されます。手動で選んだ表紙・アップロードした表紙は対象外）。")

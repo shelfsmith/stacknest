@@ -169,7 +169,7 @@ struct SharingSettingsView: View {
     private var connectionSection: some View {
         // IPv4 + IPv6 を en0 優先・IPv4→IPv6 順で取得する。
         let addresses = NetworkInterfaces.addresses()
-        Section("接続") {
+        Section(String(localized: "sharing.section.connection", defaultValue: "接続")) {
             if addresses.isEmpty {
                 Text("ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale の接続を確認してください。")
                     .font(.caption)

@@ -107,7 +107,7 @@ struct DateFilterRow: View {
     @ViewBuilder
     private var directionPicker: some View {
         Picker("", selection: directionBinding) {
-            // "以内" / "以前" も Localizable.xcstrings 経由で "within" / "older than" に翻訳される想定。
+            // "以内" / "以前" も Localizable.xcstrings 経由で "Within" / "Older Than" に翻訳される（Picker の選択肢なので Title Case）。
             Text("以内").tag(FilterState.DateRangeCondition.Direction.within)
             Text("以前").tag(FilterState.DateRangeCondition.Direction.olderThan)
         }

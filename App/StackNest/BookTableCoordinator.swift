@@ -484,7 +484,7 @@ extension BookTableCoordinator: NSMenuDelegate {
         menu.addItem(typeItem)
 
         // Unread toggle
-        let unreadItem = NSMenuItem(title: String(localized: "未読チェック"),
+        let unreadItem = NSMenuItem(title: String(localized: "menu.toggleUnread", defaultValue: "未読チェック"),
                                     action: #selector(toggleUnreadAction(_:)), keyEquivalent: "")
         unreadItem.target = self
         menu.addItem(unreadItem)
@@ -637,7 +637,7 @@ extension BookTableCoordinator: NSMenuDelegate {
                 String(localized: "お気に入りに追加"),
                 String(localized: "レート"),
                 String(localized: "種類"),
-                String(localized: "未読チェック"),
+                String(localized: "menu.toggleUnread", defaultValue: "未読チェック"),
             ],
             [
                 String(localized: "Finder で表示"),

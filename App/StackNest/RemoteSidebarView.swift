@@ -70,7 +70,7 @@ struct RemoteSidebarView: View {
             }
 
             if !smartShelves.isEmpty {
-                Section("スマートシェルフ") {
+                Section(String(localized: "sidebar.section.smartShelves", defaultValue: "スマートシェルフ")) {
                     ForEach(smartShelves, id: \.id) { shelf in
                         HStack {
                             Label(shelf.title, systemImage: "gearshape")

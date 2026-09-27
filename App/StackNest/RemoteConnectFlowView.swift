@@ -178,7 +178,7 @@ struct ConnectFormView: View {
                 Spacer()
                 Button("キャンセル") { renaming = nil }
                     .keyboardShortcut(.cancelAction)
-                Button("変更") { applyRename(conn) }
+                Button(String(localized: "remote.server.rename", defaultValue: "変更")) { applyRename(conn) }
                     .keyboardShortcut(.defaultAction)
             }
         }
