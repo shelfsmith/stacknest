@@ -3,6 +3,7 @@ import SwiftUI
 import AppKit  // for NSAlert / NSWorkspace (backup section)
 import AppCore
 import LibraryStore
+import LibraryServerAPI  // for IntegrityCheckDTO.errorRow (G56-S1)
 import StackroomFormat  // for BookRecord
 import OSLog
 
@@ -376,7 +377,7 @@ struct LibrarySettingsSheet: View {
 
     private func performIntegrityCheck() {
         guard let db = appState?.database else { return }
-        let rows = (try? db.integrityCheck()) ?? [String(localized: "(エラー)")]
+        let rows = (try? db.integrityCheck()) ?? [IntegrityCheckDTO.errorRow]
         let healthy = rows == ["ok"]
         let alert = NSAlert()
         // fix round 4 (Minor, whole-branch review): 「整合性」は本フェーズで蔵書ファイルの
@@ -388,7 +389,7 @@ struct LibrarySettingsSheet: View {
             ? String(localized: "問題は見つかりませんでした")
             : String(localized: "データベースに問題が見つかりました")
         // 正常時は SQLite の "ok" 行をそのまま見せない（メッセージで十分）。
-        alert.informativeText = healthy ? "" : rows.prefix(20).joined(separator: "\n")
+        alert.informativeText = healthy ? "" : IntegrityRowsText.display(rows)
         alert.runModal()
     }
 

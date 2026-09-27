@@ -164,6 +164,5 @@ extension L10nTable {
         "本の実ファイルが見つかりません": L10nEntry("The book's file could not be found."),
         "この形式（.%@）は表紙を自動生成できません": L10nEntry("This format (.%@) doesn't support automatic cover generation."),
         "この本には表紙画像がありません": L10nEntry("This book has no cover image."),
-        "(エラー)": L10nEntry("(Error)"),
     ]
 }

@@ -588,7 +588,7 @@ struct RemoteLibrarySettingsSheet: View {
             if let integrityResult {
                 Text(integrityResult.healthy
                     ? String(localized: "問題は見つかりませんでした")
-                    : integrityResult.rows.prefix(20).joined(separator: "\n"))
+                    : IntegrityRowsText.display(integrityResult.rows))
             }
         }
         .alert("メンテナンス完了", isPresented: Binding(

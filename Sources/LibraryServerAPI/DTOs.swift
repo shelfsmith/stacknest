@@ -631,6 +631,10 @@ public struct IntegrityCheckDTO: Codable, Sendable {
     public var healthy: Bool
     public var rows: [String]
     public init(healthy: Bool, rows: [String]) { self.healthy = healthy; self.rows = rows }
+
+    /// G56-S1: 検査そのものが失敗したときの 1 行。**言語に依らない**（API／`--json` の値は訳さない規定）。
+    /// 表示するときにだけ訳す（Mac の `IntegrityRowsText`）。
+    public static let errorRow = "(error)"
 }
 
 /// 監視フォルダ設定全体の DTO（enabled フラグ＋フォルダ一覧）。

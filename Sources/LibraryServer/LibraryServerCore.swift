@@ -1557,7 +1557,7 @@ public struct LibraryServerCore: Sendable {
         api.get("libraries/:lib/integrity-check") { request, context in
             try context.requireAdmin()
             let lib = try await resolver.resolveLibrary(request, context)
-            let rows = (try? lib.db.integrityCheck()) ?? [L10n.text("(エラー)")]
+            let rows = (try? lib.db.integrityCheck()) ?? [IntegrityCheckDTO.errorRow]
             return IntegrityCheckDTO(healthy: rows == ["ok"], rows: rows)
         }
         // G12b-3a: 今すぐバックアップ（admin）。同一 lib.db から作成し世代 prune。
