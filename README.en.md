@@ -86,6 +86,7 @@ re-implemented from observation.
 - macOS 14 Sonoma or later (macOS 26 Tahoe is the primary target)
 - Apple Silicon native (Universal Binary also produced for x86_64)
 - Xcode 26+ to build from source
+- UI languages: Japanese and English (follows the macOS language; to run StackNest alone in another language, pick it in System Settings ▸ General ▸ Language & Region ▸ Applications. The web UI follows the browser language; the CLI can be forced with `STACKNEST_LANG=ja|en`)
 
 ## Installation (release builds)
 

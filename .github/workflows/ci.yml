@@ -84,8 +84,6 @@ jobs:
       # 失効以外の全通信エラーでクラッシュ）を CI が素通りする。実際 SPM の全テストも
       # App の通常ビルドも、その自己再帰を検出できなかった。
       # テストはホスト arch で十分（製品ビルドの Universal は下の step で別途行う）。
-      # 注: この workflow は 2026-07-31 時点で GitHub 側で disabled_manually。
-      # 再有効化したときに正しく回るよう用意している（現状このステップは実行されない）。
       - name: Test macOS App (app-layer unit tests)
         run: |
           xcodebuild \

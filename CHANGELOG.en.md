@@ -7,6 +7,17 @@ Releases are self-signed Universal builds (anonymous CN `StackNest Self-Signed`,
 
 > **About versioning:** Tagged releases start at `0.8.0`. Earlier work was developed by phase (2.1–2.6) without explicit version numbers. The history before tagging is summarized under "Before 0.8.0 (phase-based, untagged)" at the end of this file.
 
+## [Unreleased] — English UI (Phase G55)
+
+### Added
+
+- **★ English UI**: every screen of the Mac app, the in-app help (⌘?), the web library and reader, and the output of `stacknest-cli` and MCP are now available in English.
+  The language **follows macOS** (to run StackNest alone in another language, choose it in System Settings ▸ General ▸ Language & Region ▸ Applications).
+  - The web UI follows the browser language (override with `?lang=ja` / `?lang=en`). Server error messages come back in the requester's language.
+  - `stacknest-cli` help and messages follow the macOS language and can be forced with `STACKNEST_LANG=ja|en`. **`--json` output is identical in every language**, so scripts that read it need no change.
+  - The MCP (`mcp-stacknest`) tool descriptions are now in English.
+  - Values stored in libraries and filenames (default book-type names, the names written by `@type`, and default names such as Favorites) are unchanged, and the Japanese UI looks exactly as before.
+
 ## [0.15.1] - 2026-09-26 — Books dropped while a shelf is shown now go into that shelf, Washi 1.22.0
 
 > [@gsugawara](https://github.com/gsugawara) reported this bug and proposed a fix in

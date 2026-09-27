@@ -80,6 +80,7 @@ aroma 氏（原作者）は 2019 年頃、5ch 新・Mac 板のスレッド（[eg
 - macOS 14 Sonoma 以降（主要ターゲットは macOS 26 Tahoe）
 - Apple Silicon ネイティブ（x86_64 向け Universal Binary も生成）
 - ソースからビルドするには Xcode 26+
+- 表示言語: 日本語・英語（macOS の言語設定に従う。StackNest だけ別の言語にしたいときは システム設定 ▸ 一般 ▸ 言語と地域 ▸ アプリケーション で選ぶ。Web はブラウザの言語、CLI は `STACKNEST_LANG=ja|en` でも上書きできる）
 
 ## インストール（リリース版）
 
