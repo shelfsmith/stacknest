@@ -465,8 +465,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         window?.title = next.book.title
         refreshProgress()
         onBookSwapped?(next.book)
-        let swapVerb = direction == .next ? String(localized: "次の巻を開きました") : String(localized: "前の巻を開きました")
-        hudNote("\(swapVerb)：\(next.book.title)")
+        hudNote(direction == .next
+            ? String(localized: "次の巻を開きました：\(next.book.title)")
+            : String(localized: "前の巻を開きました：\(next.book.title)"))
         // 6) 次の巻に読みかけがあれば訊く（画像ビューアの performSwap と同じ）。
         showResumeDialogIfNeeded()
     }

@@ -1168,21 +1168,25 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// 次巻を同一ウィンドウでロードする（解決は非同期）。
     private func loadNextVolumeNow() {
         loadVolume(resolve: loadNextVolume,
-                   hudPrefix: String(localized: "次の巻を開きました"),
+                   direction: .next,
                    noVolumeNote: String(localized: "次の巻なし"))
     }
 
     /// 前巻を同一ウィンドウでロードする（解決は非同期）。
     private func loadPrevVolumeNow() {
         loadVolume(resolve: loadPrevVolume,
-                   hudPrefix: String(localized: "前の巻を開きました"),
+                   direction: .prev,
                    noVolumeNote: String(localized: "前の巻なし"))
     }
+
+    /// G55: HUD の「次/前の巻を開きました：タイトル」を 1 つの補間キーで訳せるよう、
+    /// 訳し終わった `String` ではなく方向だけを下流（`performSwap`）へ運ぶ。
+    private enum VolumeSwapDirection { case next, prev }
 
     /// 隣接巻の「解決(async)」と「atomic swap」を 1 つの isSwapping ガード＋1 つの Task に統合する。
     /// await 中は isSwapping=true で全入力/タイマーを無視し、旧 model と新 content の混在を防ぐ。
     private func loadVolume(resolve: @escaping (BookRow) async -> VolumeLoad?,
-                            hudPrefix: String, noVolumeNote: String) {
+                            direction: VolumeSwapDirection, noVolumeNote: String) {
         guard !isSwapping else { return }
         isSwapping = true
         // G19 案P review Critical fix: 巻スワップに入る＝旧巻の「現ページ表示待ち」は無効になる。
@@ -1216,7 +1220,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             }
             switch load {
             case .swap(let nv):
-                await self.performSwap(nv, hudPrefix: hudPrefix)
+                await self.performSwap(nv, direction: direction)
             case .openInEPUBReader(let row):
                 self.handOverToEPUBReader(row)
             case .unavailable(let note):
@@ -1245,7 +1249,7 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     /// content/book/model を差し替えて、その巻の保存済み読書位置から表示する。
     /// 呼び出し時点で isSwapping=true・旧巻保存済み。pageCount を await 取得後、
     /// content/book/model 等を **同期で一括** 差し替える（await 中の混在を作らない）。
-    private func performSwap(_ nv: NextVolume, hudPrefix: String) async {
+    private func performSwap(_ nv: NextVolume, direction: VolumeSwapDirection) async {
         // 次巻の per-book 方向を解決する。nil の場合はグローバル設定を引き継ぐ。
         var options = model.options
         options.pageDirection = nv.book.pageDirection ?? ViewerSettings.shared.pageDirection
@@ -1307,7 +1311,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
             window?.title = "\(newLabel): \(nv.book.title)"
         }
         isSwapping = false
-        hudNote("\(hudPrefix)：\(nv.book.title)")
+        hudNote(direction == .next
+            ? String(localized: "次の巻を開きました：\(nv.book.title)")
+            : String(localized: "前の巻を開きました：\(nv.book.title)"))
         // 4.2b-6: 巻送り先が読みかけなら、初回オープンと同じ「続き/最初」シートを出す。
         // 未読（lastPage==0）のときは出さず黙って先頭（既存挙動と一貫）。
         // G26 fix round 2: 破損通知はシートがあれば dismiss 後に、なければ上の hudNote
