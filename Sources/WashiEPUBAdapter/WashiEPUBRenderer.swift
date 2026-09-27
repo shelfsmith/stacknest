@@ -92,6 +92,37 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     var onPageCensusChange: (() -> Void)?
     private(set) var locator: EPUBLocatorValue?
 
+    // MARK: G56-S2 — 文の位置の補完
+
+    /// 復元直後の保護の鍵（着地の報告の spine と progress）。
+    struct LandingKey: Equatable { let spine: Int; let progress: Double }
+    /// アンカー付きで復元した直後の保護。利用者が動くまで、報告に復元のアンカーを付けたままにする
+    /// （開いてすぐ閉じても、保存済みのアンカーが進行率だけに格下げされない）。
+    struct RestoredAnchor { let anchor: EPUBLocator; var landing: LandingKey? }
+
+    /// 位置の報告ごとに進める世代。非同期の補完が、その間に来た次の報告を追い越さないようにする。
+    private var reportGeneration = 0
+    private var restoredAnchor: RestoredAnchor?
+    /// 最後に `onLocatorChange` へ出した位置（Washi の型）。Task 9 の「設定変更で同じ文へ戻る」が使う。
+    private(set) var lastPublished: EPUBLocator?
+    /// 現在位置をアンカー付きで取る（JS 1 往復）。テストで差し替える。
+    lazy var fetchAnchoredLocator: @MainActor () async -> EPUBLocator = { [weak self] in
+        guard let self else { return EPUBLocator(spineIndex: 0) }
+        return await self.reader.currentLocatorWithTextAnchor()
+    }
+
+    private func publish(_ l: EPUBLocator) {
+        lastPublished = l
+        let v = WashiLocatorMapping.toValue(l)
+        locator = v
+        onLocatorChange?(v)
+    }
+
+    private func armRestoredAnchor(_ l: EPUBLocator?) {
+        guard let l, l.textOffset != nil else { restoredAnchor = nil; return }
+        restoredAnchor = RestoredAnchor(anchor: l, landing: nil)
+    }
+
     /// `makeReaderView` が open 済みの publication を置いておく場所。窓に載って実寸が
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
@@ -124,6 +155,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         pendingLoad = nil
         let loadLine = "load: host=\(String(describing: self.hostView.bounds)) reader=\(String(describing: self.reader.bounds)) window=\(String(describing: self.hostView.window?.frame ?? .zero))"
         epubReaderLog.notice("\(loadLine, privacy: .public)")
+        armRestoredAnchor(pending.locator)
         reader.load(publication: pending.publication, at: pending.locator)
     }
 
@@ -133,6 +165,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// 本の参照を放す。容れ物を親から外すと Washi は `viewDidMoveToWindow(nil)` で
     /// ネイティブキー監視（`forwardsKeyEventsNatively`）を外す — 残ると外した本がキーを横取りする。
     func tearDown() {
+        // 走っている補完を無効にする。
+        reportGeneration += 1
+        restoredAnchor = nil
         onLocatorChange = nil
         onFontScaleChange = nil
         onKeyEvent = nil
@@ -149,6 +184,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     func go(to locator: EPUBLocatorValue) {
         let mapped = WashiLocatorMapping.toWashi(locator)
+        // G56-S2: 保護は load 前の分岐より前に張る（pending の差し替えでも着地で効く）。
+        armRestoredAnchor(mapped)
         guard hasPerformedInitialLoad else {
             // 窓に載る前（load() 未実行）の呼び出し: 落とさず、pending の開始位置を
             // 差し替えるだけにする（Washi 自身の go(to:) も publication == nil の間は
@@ -268,9 +305,34 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
-        let v = WashiLocatorMapping.toValue(locator)
-        self.locator = v
-        onLocatorChange?(v)
+        reportGeneration += 1
+        let generation = reportGeneration
+        var reported = locator
+        if var guardState = restoredAnchor {
+            let key = LandingKey(spine: locator.spineIndex, progress: locator.progression)
+            if guardState.landing == nil {
+                guardState.landing = key
+                restoredAnchor = guardState
+            }
+            if guardState.landing == key {
+                reported.textOffset = guardState.anchor.textOffset
+                reported.idref = guardState.anchor.idref ?? reported.idref
+            } else {
+                restoredAnchor = nil
+            }
+        }
+        publish(reported)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let anchored = await self.fetchAnchoredLocator()
+            guard generation == self.reportGeneration,
+                  anchored.spineIndex == locator.spineIndex,
+                  let offset = anchored.textOffset else { return }
+            var enriched = locator            // 報告の spine/progress を保つ（持続の門は spine/progress で比べる）
+            enriched.textOffset = offset
+            enriched.idref = anchored.idref ?? locator.idref
+            self.publish(enriched)
+        }
     }
 
     /// 読み込み失敗をログする（白紙表紙の追跡）。パス・題名は出さず、エラー型のみ。
