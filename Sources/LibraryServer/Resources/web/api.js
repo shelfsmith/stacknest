@@ -2,6 +2,8 @@
 // 認証付き fetch ラッパ。401→再ペアリング、ロック庫 403→呼び出し側が unlock フローへ。
 // デバイストークンは localStorage（端末永続）、ライブラリトークンは sessionStorage（タブ寿命）。
 
+import { LANG } from "./i18n.js";
+
 const TOKEN_KEY = "stacknest.token";
 
 export function deviceToken() { return localStorage.getItem(TOKEN_KEY); }
@@ -63,8 +65,10 @@ export class NetworkError extends Error {
 /// 認証付き fetch。`/api/v1` を自動付与し Bearer / X-Library-Token を載せる。
 /// 401 は UnauthorizedError、fetch 自体の失敗は NetworkError を投げる。
 /// 403（ロック庫）は Response をそのまま返すので呼び出し側で unlock フローへ。
+/// G55: `Accept-Language` に画面の言語（i18n.js の LANG）を載せ、`?lang=` で上書きしたときも
+/// サーバのエラー文が画面と同じ言語になるようにする（呼び出し側が明示したものは優先）。
 export async function api(path, { libraryUUID, ...options } = {}) {
-    const headers = { ...(options.headers || {}), Authorization: `Bearer ${deviceToken() || ""}` };
+    const headers = { "Accept-Language": LANG, ...(options.headers || {}), Authorization: `Bearer ${deviceToken() || ""}` };
     if (libraryUUID && libToken(libraryUUID)) headers["X-Library-Token"] = libToken(libraryUUID);
     let res;
     try {
