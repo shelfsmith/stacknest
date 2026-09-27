@@ -24,8 +24,11 @@
 除外: コメント、ロガー呼び出し（logger. / os_log( / Logger( / console.）、`l10n:ignore` の付いた行
 （リテラルの開始行、またはその直前のコメントだけの行。どちらも日本語リテラルが 1 つだけの行に限る。
 2 つ以上あると除外しない＝行を分ける・G56）、許可リスト（Scripts/l10n-allowlist.txt）のファイル。
+文字列補間の中の日本語リテラルも 1 つと数える（他のリテラルと合わせて 2 つ以上なら行を分ける・G56）。
 App の抽出物は位置（ファイルと行）で照合し、位置の無いものは同じファイルの中でだけ文字列で照合する。
 --stringsdata-root に Debug と Release の抽出物が混ざっていれば使い方の誤り（終了コード 2）。
+dist 配置のために同じ derivedData へ Release ビルドも行った後は、--stringsdata-root に
+…/StackNest.build/Debug を明示して Debug 側の抽出物だけを指すこと（既定のままだと両方混ざって終了コード 2 になる）。
 """
 
 import argparse
@@ -94,9 +97,10 @@ JS_COMPARE_BEFORE_RE = re.compile(
     r"|\bcase\s+$"
 )
 # `["上巻", "下巻"].contains(x)`: the literal sits in an array literal that is matched against (G56).
+# A trailing comma before `]` (`["上巻", "下巻",].contains(x)`) is allowed too.
 SWIFT_COMPARE_AFTER_RE = re.compile(
     r"^\s*(?:==|!=)"
-    r"|^(?:\s*,\s*" + PLACEHOLDER_RE + r")*\s*\]\s*\.(?:contains|firstIndex|lastIndex)\("
+    r"|^(?:\s*,\s*" + PLACEHOLDER_RE + r")*\s*,?\s*\]\s*\.(?:contains|firstIndex|lastIndex)\("
 )
 JS_COMPARE_AFTER_RE = re.compile(r"^\s*(?:===|!==|==|!=)")
 
@@ -228,7 +232,9 @@ def _enclosing_calls(code: str, off: int) -> tuple[list[str], bool]:
 
 _SWIFT_OPEN_RE = re.compile(r'(#*)("""|")')
 # A regex literal: `#…#/` (extended, unambiguous) or a bare `/` not followed by whitespace, `/` or `*`.
-_SWIFT_REGEX_OPEN_RE = re.compile(r"(#+)/|()/(?![\s/*])")
+# A bare `/` immediately followed by `)`, `,` or `;` is an operator reference/operator, not a regex
+# (SE-0354; e.g. `zip(a, b).map(/)` or `let f: (Double, Double) -> Double = /;` — G56).
+_SWIFT_REGEX_OPEN_RE = re.compile(r"(#+)/|()/(?![\s/*),;])")
 # Same idea as the JS scanner: after these a `/` starts a regex, otherwise it is a division.
 _SWIFT_REGEX_PREV = set("(,=:[!&|?{};") | {""}
 _SWIFT_REGEX_WORDS = {"return", "case", "in", "try", "await"}

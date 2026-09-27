@@ -131,6 +131,24 @@ class SwiftSources(unittest.TestCase):
         ''', "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
         self.assertEqual(kinds(r), ["swift-literal", "swift-literal"])
 
+    # G56-S1 (Task 4 review, controller ruling): an operator reference must not be read as a regex.
+    def test_g56_operator_reference_is_not_regex(self):
+        r = tree({"Sources/AppCore/A.swift": 'let q = zip(a, b).map(/); let s = Text("上巻/下巻")\n',
+                  "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
+        self.assertEqual(kinds(r), ["swift-literal"])
+        self.assertEqual([f.text for f in lint.run(r)], ["上巻/下巻"])
+
+    def test_g56_operator_reference_assignment_is_not_regex(self):
+        r = tree({"Sources/AppCore/A.swift": 'let f: (Double, Double) -> Double = /; let u = "下巻"\n',
+                  "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
+        self.assertEqual(kinds(r), ["swift-literal"])
+
+    # G56-S1 (Task 4 review): a trailing comma before `]` must not defeat the array-contains match.
+    def test_g56_array_contains_trailing_comma_is_compare(self):
+        r = tree({"Sources/AppCore/A.swift": 'if ["上巻", "下巻",].contains(x) {}\n',
+                  "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
+        self.assertEqual(kinds(r), ["compare", "compare"])
+
 
 class Allowlist(unittest.TestCase):
     def test_allowlisted_file_is_skipped(self):
