@@ -52,6 +52,7 @@
 | 全画面で開く | Open in Full Screen |
 | 配信インジケータ | Broadcast Indicator |
 | 共有トークン | Sharing Token |
+
 ## 追加語（Task 16 / U8 Web で判明）
 
 | 日本語 | 英訳 | 備考 |
@@ -88,6 +89,7 @@
 - CLI の `--help`／`abstract` は名詞句・小文字始まりの短いフレーズ（例 "Access token"）。エラー文・確認文は文（例 "Error: Not found (HTTP 404)."）。
 - 複数形は `L10nEntry(one:other:)` で分岐。`%d 冊` → one "%d book" / other "%d books" のように単位語も英訳する。
 - MCP（`mcp-stacknest/`）はテーブルを持たず、docstring と例外メッセージを直接英語で書く（言語切り替えなし・spec §1）。
+
 ## 実装中に追加した語（U1・2026-09-27）
 
 | 日本語 | 英訳 | 備考 |
@@ -107,6 +109,7 @@
 | 以内（日付フィルタ・スマートシェルフ共用） | within | 開発者コメント指定の訳（`DateFilterRow.swift`）。小文字のまま流用 |
 | 以前 | older than | 同上 |
 | ・（箇条書きの行頭記号として使う場合） | • (U+2022) または `, `（列挙の区切り） | 日本語のナカグロは英語では箇条書き記号／区切りとして意味を持たないため、英訳では US プレフィックス記号に置き換える（表示文字列そのものの変更で JA 側は不変） |
+
 ## 追記（G55 U2・内蔵ビューア／EPUB／メニュー／ウィザード／表紙・リネーム・再リンク系シート）
 
 | 日本語 | 英訳 | 備考 |
@@ -118,6 +121,7 @@
 | 続きから／最初から | Continue／Start Over | 再開ダイアログの二択 |
 | ページ方向 | Page Direction | 右→左 (Right to Left) ／左→右 (Left to Right) |
 | キー操作 | Key Bindings | ビューア内キー割当ヘルプの見出し |
+
 ## 追加語（Task 11 / U3・設定タブ全般）
 
 | 日本語 | 英訳 | 備考 |
@@ -125,6 +129,7 @@
 | 自動追加 | Auto-Add | 監視フォルダの自動取り込み機能名（LibrarySettingsSheet の GroupBox 見出し） |
 | 自動分類 | Auto-Classify | 本の種類の自動判定機能名 |
 | 既定に従う（現在: …） | Follow the Default (Currently: …) | 3-way ピッカー（既定に従う/このライブラリで有効/無効）の共通句 |
+
 ## 追記（U4・G55 リモート/オフライン/破損チェック）
 
 | 日本語 | 英訳 | 備考 |
