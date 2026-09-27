@@ -8,7 +8,7 @@ extension L10nTable {
         "ライブラリ DB を開けませんでした: %@": L10nEntry("Couldn't open the library database: %@"),
         "取り込みに失敗しました: %@": L10nEntry("Import failed: %@"),
         "\"%@\"を開けませんでした: %@": L10nEntry("Couldn't open \"%@\": %@"),
-        "タイトルは必須項目です": L10nEntry("A title is required."),
+        "タイトルは必須項目です": L10nEntry("Title is required"),
         "予期しないエラー: %@": L10nEntry("Unexpected error: %@"),
 
         // MARK: - AppCore/BookCategory.swift
@@ -28,7 +28,7 @@ extension L10nTable {
         "読んだ日": L10nEntry("Date Read"),
         "未読": L10nEntry("Unread"),
         "種類": L10nEntry("Type"),
-        "関連": L10nEntry("Relation"),
+        "関連": L10nEntry("Related"),
         "キーワード A": L10nEntry("Keyword A"),
         "キーワード B": L10nEntry("Keyword B"),
         "キーワード C": L10nEntry("Keyword C"),
@@ -38,7 +38,7 @@ extension L10nTable {
 
         // MARK: - AppCore/BookContent.swift
         "⚠ このファイルは破損しています。%lld ページまで読み込みました":
-            L10nEntry(one: "⚠ This file is damaged. Loaded %lld page", other: "⚠ This file is damaged. Loaded %lld pages"),
+            L10nEntry(one: "⚠ This file is damaged. Loaded up to %lld page", other: "⚠ This file is damaged. Loaded up to %lld pages"),
 
         // MARK: - AppCore/BookRenameExecutor.swift
         "手動確認が必要: ファイルが %@ のまま残っている可能性があります（%@）":
@@ -96,7 +96,7 @@ extension L10nTable {
             L10nEntry("Port %lld is already in use. Another app or service may be using it. Change the port number or click \u{201C}Random\u{201D} and restart."),
 
         // MARK: - AppCore/UndoableCommand.swift
-        "%lld 件のライブラリから削除": L10nEntry(one: "Delete %lld Item from Library", other: "Delete %lld Items from Library"),
+        "%lld 件のライブラリから削除": L10nEntry(one: "Remove %lld Item from Library", other: "Remove %lld Items from Library"),
         "%lld 件のメタデータ編集": L10nEntry(one: "Edit Metadata for %lld Item", other: "Edit Metadata for %lld Items"),
 
         // MARK: - AppCore/ViewerActionDisplay.swift

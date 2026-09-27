@@ -7,8 +7,8 @@
   },
   "%lld 件": {
     "plural": {
-      "one": "%lld book",
-      "other": "%lld books"
+      "one": "%lld item",
+      "other": "%lld items"
     }
   },
   "%lld 件をシェルフから除外": {
@@ -19,8 +19,8 @@
   },
   "%lld 件を更新しました": {
     "plural": {
-      "one": "Updated %lld book.",
-      "other": "Updated %lld books."
+      "one": "Updated %lld item",
+      "other": "Updated %lld items"
     }
   },
   "%lld 件スキップ": {
@@ -42,7 +42,7 @@
     "en": "%lld updated"
   },
   "1ページ": {
-    "en": "Per Page"
+    "en": "Show"
   },
   "EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。": {
     "en": "Uses the EPUB's title when it has one. By default, a title built from the filename is used instead. This only affects new imports."
@@ -102,7 +102,7 @@
     "en": "Off for This Library"
   },
   "このライブラリにパスワードロックを設定する": {
-    "en": "Require a Password to Unlock This Library"
+    "en": "Lock This Library with a Password"
   },
   "この庫は施錠されています。庫のウィンドウで解錠してから「更新」を押してください。": {
     "en": "This library is locked. Unlock it in the library's window, then click “Refresh.”"
@@ -156,7 +156,7 @@
     "en": "Subfolders"
   },
   "サブフォルダの中も個別に取り込む": {
-    "en": "Import the Contents of Subfolders Individually"
+    "en": "Import Subfolder Contents Individually"
   },
   "サブフォルダを1冊として取り込む": {
     "en": "Import Each Subfolder as One Book"
@@ -222,7 +222,7 @@
     "en": "Couldn't start the scan."
   },
   "スマートシェルフ": {
-    "en": "Smart Shelves"
+    "en": "Smart Shelf"
   },
   "タイトルで検索": {
     "en": "Search by Title"
@@ -252,7 +252,7 @@
     "en": "Check Database"
   },
   "データベース検査結果": {
-    "en": "Database Check Results"
+    "en": "Database check results"
   },
   "トークン": {
     "en": "Token"
@@ -282,7 +282,7 @@
     "en": "The passwords don't match."
   },
   "パスワードが違います": {
-    "en": "The password is wrong."
+    "en": "The password is incorrect"
   },
   "ビューアで開く": {
     "en": "Open in Viewer"
@@ -294,7 +294,7 @@
     "en": "This moves the files to the macOS Trash and removes their library records. ⌘Z restores both the library records and the files (from the Trash)."
   },
   "ファイルをゴミ箱に移動…": {
-    "en": "Move File to Trash…"
+    "en": "Move to Trash…"
   },
   "ファイル名からシリーズ・巻数を補完": {
     "en": "Fill In Series and Volume from Filenames"
@@ -345,7 +345,7 @@
     "en": "Couldn't start the maintenance task."
   },
   "メンテナンス完了": {
-    "en": "Maintenance Complete"
+    "en": "Maintenance complete"
   },
   "ライブラリ": {
     "en": "Library"
@@ -375,7 +375,7 @@
     "en": "Library Settings"
   },
   "ラベル": {
-    "en": "Labels"
+    "en": "Label"
   },
   "ラベルの更新に失敗しました": {
     "en": "Couldn't update the labels."
@@ -405,13 +405,13 @@
     "en": "Couldn't set the lock."
   },
   "ロックを解除しました": {
-    "en": "The lock is removed."
+    "en": "Lock removed"
   },
   "ロックを解除するには現在のパスワードを入力してください": {
     "en": "Enter the current password to remove the lock"
   },
   "ロックを設定しました": {
-    "en": "The lock is set."
+    "en": "Lock set"
   },
   "ロック解除": {
     "en": "Remove Lock"
@@ -462,7 +462,7 @@
     "en": "Another maintenance task is running (%@)… %lld/%lld%@"
   },
   "件": {
-    "en": "items"
+    "en": "per page"
   },
   "保存": {
     "en": "Save"
@@ -480,16 +480,16 @@
     "en": "Rebuilds every cover from its original file (covers over 1200px are shrunk). Covers you picked manually or uploaded are left alone."
   },
   "全件やり直し": {
-    "en": "Rescan Everything"
+    "en": "Recheck All"
   },
   "全件やり直しを開始しますか？": {
-    "en": "Start rescanning everything?"
+    "en": "Recheck all books?"
   },
   "再リンク…": {
     "en": "Relink…"
   },
   "再リンクに失敗しました": {
-    "en": "Couldn't relink."
+    "en": "Couldn't relink"
   },
   "再読み込み": {
     "en": "Reload"
@@ -549,7 +549,7 @@
     "en": "Naming Presets"
   },
   "問題は見つかりませんでした": {
-    "en": "No problems were found."
+    "en": "No problems were found"
   },
   "変更": {
     "en": "Change"
@@ -582,7 +582,7 @@
     "en": "The connection timed out."
   },
   "接続に失敗しました": {
-    "en": "Couldn't connect."
+    "en": "Couldn't connect"
   },
   "接続中…": {
     "en": "Connecting…"
@@ -600,7 +600,7 @@
     "en": "Fills in the series and volume only for books that don't have them yet, guessing from the title or filename."
   },
   "既存も取り込む": {
-    "en": "Also Import Existing Files"
+    "en": "Import Existing Files"
   },
   "既存ファイルも取り込む（ローカル同様。OFF で以降の新規のみ）": {
     "en": "Also Import Existing Files (like local; off imports only new files from now on)"
@@ -615,19 +615,19 @@
     "en": "Use Default"
   },
   "既定に設定": {
-    "en": "Make Default"
+    "en": "Set as Default"
   },
   "更新（解錠・権限確定・他の接続によるスキャン完了を反映します）": {
     "en": "Refresh (reflects unlocking, permission changes, and scans completed by other connections)"
   },
   "書籍が選択されていません": {
-    "en": "No books are selected."
+    "en": "No Book Selected"
   },
   "最終検査: %@　未検査 %lld 冊　破損 %lld 冊　劣化 %lld 冊": {
     "en": "Last checked: %@  Unchecked %lld  Damaged %lld  Degraded %lld"
   },
   "最近の項目": {
-    "en": "Recent"
+    "en": "Recent Items"
   },
   "有効にすると、サーバ側でホスト側の設定に従いバックアップ・世代管理を行います。": {
     "en": "When on, the server backs up and manages generations according to the host's settings."
@@ -642,16 +642,16 @@
     "en": "Scan Unchecked"
   },
   "未読チェック": {
-    "en": "Toggle Unread"
+    "en": "Mark as Unread"
   },
   "未読状態の更新に失敗しました": {
     "en": "Couldn't update the unread state."
   },
   "本の種類を自動分類": {
-    "en": "Auto-Categorize Book Type"
+    "en": "Auto-Classify Book Types"
   },
   "本を開けませんでした": {
-    "en": "Couldn't open the book."
+    "en": "Couldn't open the book"
   },
   "本を開けませんでした（0ページ）": {
     "en": "Couldn't open the book (0 pages)."
@@ -672,7 +672,7 @@
     "en": "Search"
   },
   "構文エラー": {
-    "en": "Syntax Error"
+    "en": "Syntax error"
   },
   "権限を確認できません。「更新」を押してください。": {
     "en": "Permissions can't be checked. Click “Refresh.”"
@@ -723,13 +723,13 @@
     "en": "Recheck Damaged Only"
   },
   "確認パスワードが一致しません": {
-    "en": "The confirmation password doesn't match."
+    "en": "The confirmation password doesn't match"
   },
   "種類": {
     "en": "Type"
   },
   "管理者": {
-    "en": "Administrator"
+    "en": "Admin"
   },
   "管理者権限が必要です": {
     "en": "Administrator access is required."
@@ -741,7 +741,7 @@
     "en": "Couldn't edit."
   },
   "編集可": {
-    "en": "Editable"
+    "en": "Can Edit"
   },
   "編集可能（RW トークン）": {
     "en": "Editable (RW token)"
@@ -753,19 +753,19 @@
     "en": "You don't have edit permission."
   },
   "自動分類": {
-    "en": "Auto-Categorization"
+    "en": "Auto-Classify"
   },
   "自動追加": {
-    "en": "Auto Add"
+    "en": "Auto-Add"
   },
   "自動追加の有効/無効に関わらず、監視フォルダを即座にスキャンします。": {
-    "en": "Scans the watched folder right away, whether or not Auto Add is on."
+    "en": "Scans the watched folder right away, whether or not Auto-Add is on."
   },
   "自動追加を有効にする": {
-    "en": "Enable Auto Add"
+    "en": "Enable Auto-Add"
   },
   "表示モード": {
-    "en": "Display Mode"
+    "en": "View Mode"
   },
   "表紙の再生成に失敗しました": {
     "en": "Couldn't regenerate the cover."
@@ -777,7 +777,7 @@
     "en": "Couldn't update the cover."
   },
   "表紙を再生成": {
-    "en": "Regenerate Covers"
+    "en": "Regenerate Cover"
   },
   "表紙を再生成中…": {
     "en": "Regenerating Covers…"
@@ -792,16 +792,16 @@
     "en": "Unlock"
   },
   "解錠に失敗しました": {
-    "en": "Couldn't unlock."
+    "en": "Couldn't unlock"
   },
   "詳細ペインの表紙": {
-    "en": "Cover in Detail Pane"
+    "en": "Detail Pane Cover"
   },
   "詳細ペインの表紙表示を切り替え": {
-    "en": "Toggle the cover in the detail pane"
+    "en": "Show or hide the cover in the detail pane"
   },
   "読み込みに失敗しました": {
-    "en": "Couldn't load."
+    "en": "Couldn't load"
   },
   "読み込みに失敗しました。": {
     "en": "Couldn't load."
@@ -829,8 +829,8 @@
   },
   "選択した %lld 件をライブラリから削除しますか?": {
     "plural": {
-      "one": "Remove the %lld selected book from the library?",
-      "other": "Remove the %lld selected books from the library?"
+      "one": "Remove the selected %lld book from the library?",
+      "other": "Remove the selected %lld books from the library?"
     }
   },
   "選択した書籍をダウンロード": {

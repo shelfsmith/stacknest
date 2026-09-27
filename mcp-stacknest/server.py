@@ -242,8 +242,8 @@ def stacknest_finder_tags_set(library: str, field: str | None = None,
 
 @mcp.tool()
 def stacknest_finder_tags_resync(library: str, library_token: str | None = None) -> Any:
-    """Reconcile Finder tags now and wait for it to finish before returning the result.
-    Follows the exact same path as the app's "Reconcile Finder Tags" menu item (does not run while locked).
+    """Re-sync Finder tags now and wait for it to finish before returning the result.
+    Follows the exact same path as the app's "Re-sync Finder Tags" menu item (does not run while locked).
     The result's status is started / noField / locked / alreadyRunning / noLibrary.
     When status is anything other than started, every count is 0 (don't use the counts to distinguish
     "nothing changed" from "refused").
@@ -291,7 +291,7 @@ def stacknest_import_config_set(library: str,
                                 prefer_epub_title: bool | None = None,
                                 library_token: str | None = None) -> str:
     """Update the library's import setting overrides (only the fields given).
-    auto_classify: automatic genre classification ON/OFF. thick: thickness-detection threshold (page count).
+    auto_classify: auto-classify book types ON/OFF. thick: thickness-detection threshold (page count).
     prefer_epub_title: prefer an EPUB's own title when it has one (omit to defer to the global default; omitting clears the override).
     library_token is a locked library's unlock token (the session cache is used automatically when omitted)."""
     cli.import_config_set(library, auto_classify=auto_classify, thick=thick,

@@ -605,9 +605,9 @@ def finder_tags_set(library: str, field: str | None, *, library_token: str | Non
 
 
 def finder_tags_resync(library: str, *, library_token: str | None = None) -> Any:
-    """Reconcile now and wait for it to finish before returning the result.
+    """Re-sync now and wait for it to finish before returning the result.
 
-    Follows the same path as the app's "Reconcile Finder Tags" menu item, so it doesn't run while locked.
+    Follows the same path as the app's "Re-sync Finder Tags" menu item, so it doesn't run while locked.
     Measured at 0.4 seconds for 12,000 books, but it can run longer depending on mdfind, so the CLI side
     uses a generous wait."""
     return json.loads(_with_library(library, library_token,
