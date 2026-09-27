@@ -14,6 +14,7 @@
   web-literal    web/*.js の日本語リテラルが t( の第 1 引数でない／index.html の日本語テキストに data-i18n が無い
   web-missing    t('…')・data-i18n="…" のキーが i18n-en.js に無い
   stale-build    App のソースが最後の .stringsdata より新しい（または .stringsdata が無い）＝抽出が古い
+  mcp-literal    mcp-stacknest/*.py の文字列リテラル（docstring 含む）に日本語がある（tests/・.venv/ は対象外）
 英訳が空、または日本語を含むものは「訳なし」として *-missing に数える。
 
 終了コード: 0 = 報告モード／違反なし、1 = --strict で違反あり（App の抽出が無い場合も。--no-app-checks で除外）、
@@ -53,7 +54,7 @@ WEB_PARAM_RE = re.compile(r"\{(\w+)\}")
 
 KINDS = [
     "swift-literal", "swift-missing", "app-literal", "app-missing",
-    "compare", "specifier", "web-literal", "web-missing", "stale-build",
+    "compare", "specifier", "web-literal", "web-missing", "stale-build", "mcp-literal",
 ]
 
 PH = "\ufffc"  # stands for an interpolation inside a normalised literal
@@ -64,6 +65,7 @@ XCSTRINGS = "App/StackNest/Localizable.xcstrings"
 WEB_DIR = "Sources/LibraryServer/Resources/web"
 WEB_DICT = WEB_DIR + "/i18n-en.js"
 WEB_HTML = WEB_DIR + "/index.html"
+MCP_DIR = "mcp-stacknest"
 ALLOWLIST = "Scripts/l10n-allowlist.txt"
 DEFAULT_STRINGSDATA = "App/build/Build/Intermediates.noindex"
 
@@ -1092,6 +1094,31 @@ def check_web(root, allow, sel, web_dict) -> list[Finding]:
     return out
 
 
+def check_mcp(root, allow, sel) -> list[Finding]:
+    """mcp-literal: MCP server strings (docstrings included) must be English (G55 rule; no language switch)."""
+    import io, tokenize
+    out = []
+    d = root / MCP_DIR
+    if not d.is_dir():
+        return out
+    for f in sorted(d.glob("*.py")):
+        rel = _rel(root, f)
+        if allow.allows(rel) or not sel.includes(rel):
+            continue
+        src = _read(f)
+        lines = src.split("\n")
+        try:
+            toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
+        except (tokenize.TokenError, SyntaxError):
+            continue
+        for t in toks:
+            if t.type == tokenize.STRING and has_ja(t.string):
+                if IGNORE_MARK in _line_text(lines, t.start[0]):
+                    continue
+                out.append(Finding("mcp-literal", rel, t.start[0], _short(t.string)))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Entry points
 # ---------------------------------------------------------------------------
@@ -1133,9 +1160,11 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
     source_files = _swift_files(root / "Sources")
     app_files = _swift_files(root / APP_DIR)
     web_dir = root / WEB_DIR
+    mcp_dir = root / MCP_DIR
     scanned = [_rel(root, f) for f in source_files + app_files]
     scanned += [_rel(root, f) for f in sorted(web_dir.glob("*.js"))] if web_dir.is_dir() else []
     scanned += [r for r in (WEB_HTML, XCSTRINGS) if (root / r).is_file()]
+    scanned += [_rel(root, f) for f in sorted(mcp_dir.glob("*.py"))] if mcp_dir.is_dir() else []
     root_res = root.resolve()
     for defs in frags.values():
         for f, _ in defs:
@@ -1172,6 +1201,7 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
     if web_dir.is_dir() and not has_web_dict:
         warn(f"warning: {WEB_DICT} not found; every t()/data-i18n key counts as web-missing")
     findings += check_web(root, allow, sel, web_dict)
+    findings += check_mcp(root, allow, sel)
     res.findings = sorted(set(findings), key=lambda f: (KINDS.index(f.kind), f.path, f.line, f.text))
     return res
 

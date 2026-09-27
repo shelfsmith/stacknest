@@ -528,5 +528,13 @@ class MergeFragments(unittest.TestCase):
         self.assertEqual((r / "App/StackNest/Localizable.xcstrings").read_text(encoding="utf-8"), before)
 
 
+class Mcp(unittest.TestCase):
+    def test_g56_mcp_python_japanese_strings(self):
+        r = tree({"mcp-stacknest/server.py": 'def f():\n    """一覧を返す"""\n    # コメントは対象外\n    return "ok"\n',
+                  "mcp-stacknest/tests/test_x.py": 'x = "テスト"\n',
+                  "mcp-stacknest/cli.py": 'y = "上巻"  # l10n:ignore stored value\n'})
+        self.assertEqual(kinds(r, app_checks=False), ["mcp-literal"])
+
+
 if __name__ == "__main__":
     unittest.main()
