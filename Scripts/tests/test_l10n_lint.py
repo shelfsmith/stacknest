@@ -553,6 +553,19 @@ class Mcp(unittest.TestCase):
                   "mcp-stacknest/cli.py": 'y = "上巻"  # l10n:ignore stored value\n'})
         self.assertEqual(kinds(r, app_checks=False), ["mcp-literal"])
 
+    # G56-S1 (fix round 1): PEP 701 f-strings tokenize their text as FSTRING_MIDDLE, not STRING.
+    def test_g56_fstring_without_interpolation_is_flagged(self):
+        r = tree({"mcp-stacknest/server.py": 'y = f"一覧を返す"\n'})
+        self.assertEqual(kinds(r, app_checks=False), ["mcp-literal"])
+
+    def test_g56_fstring_with_interpolation_is_flagged(self):
+        r = tree({"mcp-stacknest/server.py": 'name = "x"\ny = f"一覧: {name}が見つかりません"\n'})
+        self.assertEqual(kinds(r, app_checks=False), ["mcp-literal", "mcp-literal"])
+
+    def test_g56_fstring_with_ignore_mark_is_excluded(self):
+        r = tree({"mcp-stacknest/server.py": 'y = f"一覧を返す"  # l10n:ignore\n'})
+        self.assertEqual(kinds(r, app_checks=False), [])
+
 
 if __name__ == "__main__":
     unittest.main()

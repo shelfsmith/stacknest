@@ -35,9 +35,11 @@ import argparse
 import bisect
 from collections import Counter
 import fnmatch
+import io
 import json
 import re
 import sys
+import tokenize
 from dataclasses import asdict, dataclass, field
 from html.parser import HTMLParser
 from pathlib import Path
@@ -69,6 +71,11 @@ WEB_DIR = "Sources/LibraryServer/Resources/web"
 WEB_DICT = WEB_DIR + "/i18n-en.js"
 WEB_HTML = WEB_DIR + "/index.html"
 MCP_DIR = "mcp-stacknest"
+# Python 3.12+ (PEP 701) tokenizes f-string text as FSTRING_MIDDLE (split around interpolations),
+# not STRING, so it must be checked too; on <3.12 tokenize has no such attribute (G56).
+_MCP_STRING_TOKEN_TYPES = {tokenize.STRING}
+if getattr(tokenize, "FSTRING_MIDDLE", None) is not None:
+    _MCP_STRING_TOKEN_TYPES.add(tokenize.FSTRING_MIDDLE)
 ALLOWLIST = "Scripts/l10n-allowlist.txt"
 DEFAULT_STRINGSDATA = "App/build/Build/Intermediates.noindex"
 
@@ -1101,8 +1108,10 @@ def check_web(root, allow, sel, web_dict) -> list[Finding]:
 
 
 def check_mcp(root, allow, sel) -> list[Finding]:
-    """mcp-literal: MCP server strings (docstrings included) must be English (G55 rule; no language switch)."""
-    import io, tokenize
+    """mcp-literal: MCP server strings (docstrings included) must be English (G55 rule; no language switch).
+
+    Checks both STRING tokens and (Python 3.12+) FSTRING_MIDDLE tokens, since PEP 701 f-strings
+    tokenize their literal text separately from `{…}` interpolations (G56)."""
     out = []
     d = root / MCP_DIR
     if not d.is_dir():
@@ -1118,7 +1127,7 @@ def check_mcp(root, allow, sel) -> list[Finding]:
         except (tokenize.TokenError, SyntaxError):
             continue
         for t in toks:
-            if t.type == tokenize.STRING and has_ja(t.string):
+            if t.type in _MCP_STRING_TOKEN_TYPES and has_ja(t.string):
                 if IGNORE_MARK in _line_text(lines, t.start[0]):
                     continue
                 out.append(Finding("mcp-literal", rel, t.start[0], _short(t.string)))
