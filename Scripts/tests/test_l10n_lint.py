@@ -138,6 +138,74 @@ class App(unittest.TestCase):
         self.assertEqual(kinds(r, fragments=r / "tools/l10n/fragments"), [])
 
 
+class AppDottedKeys(unittest.TestCase):
+    """G55 S2-C: an English dotted key with the original Japanese as `defaultValue`.
+
+    Xcode 26 extracts `String(localized: "k", defaultValue: "日本語")` as
+    {"key": "k", "value": "日本語", "location": …} (checked against a real build).
+    """
+    SRC = 'Section(String(localized: "sidebar.section.smartShelves", defaultValue: "スマートシェルフ")) {}\n'
+    KEY = "sidebar.section.smartShelves"
+
+    def _tree(self, catalog, fragment=None, value="スマートシェルフ"):
+        r = tree({
+            "App/StackNest/V.swift": self.SRC,
+            "App/StackNest/Localizable.xcstrings": json.dumps({"sourceLanguage": "ja", "strings": catalog, "version": "1.0"}, ensure_ascii=False),
+            "Sources/StackNestL10n/Tables/L10n+X.swift": "",
+        })
+        entry = {"comment": "", "key": self.KEY, "location": {"startingColumn": 9, "startingLine": 1}}
+        if value is not None:
+            entry["value"] = value
+        f = r / "App/build/Build/Intermediates.noindex/V.stringsdata"; f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(json.dumps({"source": str((r / "App/StackNest/V.swift").resolve()),
+                                 "tables": {"Localizable": [entry]}, "version": 1}, ensure_ascii=False), encoding="utf-8")
+        t = time.time() + 10; os.utime(f, (t, t))
+        if fragment is not None:
+            d = r / "tools/l10n/fragments"; d.mkdir(parents=True, exist_ok=True)
+            (d / "S2C.json").write_text(json.dumps(fragment, ensure_ascii=False), encoding="utf-8")
+        return r
+
+    @staticmethod
+    def _entry(en=None, ja=None):
+        locs = {}
+        if en is not None:
+            locs["en"] = {"stringUnit": {"state": "translated", "value": en}}
+        if ja is not None:
+            locs["ja"] = {"stringUnit": {"state": "translated", "value": ja}}
+        return {"localizations": locs}
+
+    def test_default_value_literal_counts_as_extracted(self):
+        r = self._tree({self.KEY: self._entry("Smart Shelves", "スマートシェルフ")})
+        self.assertEqual(kinds(r), [])
+
+    def test_dotted_key_without_english_is_app_missing(self):
+        r = self._tree({})
+        self.assertEqual(kinds(r), ["app-missing"])
+
+    def test_dotted_key_without_japanese_value_is_app_missing(self):
+        # Without a `ja` localization the Japanese UI could show the dotted key itself.
+        r = self._tree({self.KEY: self._entry("Smart Shelves")})
+        self.assertEqual(kinds(r), ["app-missing"])
+
+    def test_japanese_value_differing_from_default_is_app_missing(self):
+        r = self._tree({self.KEY: self._entry("Smart Shelves", "スマート棚")})
+        self.assertEqual(kinds(r), ["app-missing"])
+
+    def test_fragment_with_ja_counts_as_translated(self):
+        r = self._tree({}, fragment={self.KEY: {"ja": "スマートシェルフ", "en": "Smart Shelves"}})
+        self.assertEqual(kinds(r, fragments=r / "tools/l10n/fragments"), [])
+
+    def test_literal_other_than_the_default_value_is_still_app_literal(self):
+        r = self._tree({self.KEY: self._entry("Smart Shelves", "スマートシェルフ")}, value="別の文字列")
+        self.assertIn("app-literal", kinds(r))
+
+    def test_specifiers_compare_with_the_japanese_value_not_the_key(self):
+        ok = self._tree({}, fragment={"list.count": {"ja": "%lld 件", "en": "%lld items"}, self.KEY: {"ja": "スマートシェルフ", "en": "Smart Shelves"}})
+        self.assertEqual(kinds(ok, fragments=ok / "tools/l10n/fragments"), [])
+        bad = self._tree({"list.count": {**self._entry("%@ items", "%lld 件")}, self.KEY: self._entry("Smart Shelves", "スマートシェルフ")})
+        self.assertEqual(kinds(bad), ["specifier"])
+
+
 class Web(unittest.TestCase):
     def test_web_literal_missing_and_passing(self):
         r = tree({
@@ -335,6 +403,46 @@ class MergeFragments(unittest.TestCase):
         self.assertEqual(out["strings"]["%lld 件"]["localizations"]["en"]["variations"]["plural"]["one"]["stringUnit"]["value"], "%lld item")
         # A second unit translating the same key differently must stop the merge without writing.
         (r / "tools/l10n/fragments/U2.json").write_text(json.dumps({"閉じる": {"en": "Dismiss"}}, ensure_ascii=False), encoding="utf-8")
+        before = (r / "App/StackNest/Localizable.xcstrings").read_text(encoding="utf-8")
+        self.assertEqual(m.main(["--root", str(r)]), 2)
+        self.assertEqual((r / "App/StackNest/Localizable.xcstrings").read_text(encoding="utf-8"), before)
+
+
+    # G55 S2-C: an English dotted key carries its Japanese value as "ja".
+    def _tree_with(self, catalog_strings, *fragments):
+        cat = {"sourceLanguage": "ja", "strings": catalog_strings, "version": "1.0"}
+        files = {"App/StackNest/Localizable.xcstrings": json.dumps(cat, ensure_ascii=False)}
+        for i, frag in enumerate(fragments):
+            files[f"tools/l10n/fragments/F{i}.json"] = json.dumps(frag, ensure_ascii=False)
+        return tree(files)
+
+    def test_dotted_key_writes_ja_and_en(self):
+        m = self._load()
+        r = self._tree_with({}, {"settings.tab.labels": {"ja": "ラベル", "en": "Labels"}})
+        self.assertEqual(m.main(["--root", str(r)]), 0)
+        locs = json.loads((r / "App/StackNest/Localizable.xcstrings").read_text(encoding="utf-8"))["strings"]["settings.tab.labels"]["localizations"]
+        self.assertEqual(locs["ja"]["stringUnit"]["value"], "ラベル")
+        self.assertEqual(locs["en"]["stringUnit"]["value"], "Labels")
+        self.assertEqual(m.main(["--root", str(r), "--check"]), 0)
+
+    def test_dotted_key_without_ja_is_rejected(self):
+        m = self._load()
+        r = self._tree_with({}, {"settings.tab.labels": {"en": "Labels"}})
+        self.assertEqual(m.main(["--root", str(r)]), 2)
+
+    def test_ja_on_a_japanese_key_is_rejected(self):
+        m = self._load()
+        r = self._tree_with({}, {"ラベル": {"ja": "ラベル", "en": "Labels"}})
+        self.assertEqual(m.main(["--root", str(r)]), 2)
+
+    def test_ja_conflicts_are_detected(self):
+        m = self._load()
+        # Two fragments giving the same dotted key different Japanese values.
+        r = self._tree_with({}, {"k.a": {"ja": "接続", "en": "Connection"}}, {"k.a": {"ja": "接続先", "en": "Connection"}})
+        self.assertEqual(m.main(["--root", str(r)]), 2)
+        # The catalog already has a different Japanese value.
+        ja = {"stringUnit": {"state": "translated", "value": "接続先"}}
+        r = self._tree_with({"k.a": {"localizations": {"ja": ja}}}, {"k.a": {"ja": "接続", "en": "Connection"}})
         before = (r / "App/StackNest/Localizable.xcstrings").read_text(encoding="utf-8")
         self.assertEqual(m.main(["--root", str(r)]), 2)
         self.assertEqual((r / "App/StackNest/Localizable.xcstrings").read_text(encoding="utf-8"), before)

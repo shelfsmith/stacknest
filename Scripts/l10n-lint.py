@@ -5,7 +5,9 @@
   swift-literal  Sources（SPM）の Swift で、日本語を含む文字列リテラルが L10n.text/format/plural の第 1 引数でない
   swift-missing  L10n.* の日本語キーが Sources/StackNestL10n/Tables/*.swift の辞書に無い
   app-literal    App の Swift で、日本語リテラルが .stringsdata の抽出キーに無い（ローカライズされない経路）
-  app-missing    .stringsdata の日本語キーが Localizable.xcstrings（＋--fragments）に en を持たない
+  app-missing    .stringsdata の日本語キーが Localizable.xcstrings（＋--fragments）に en を持たない。
+                 英語のドット区切りキー＋日本語の defaultValue（G55 S2-C）は、en に加えて ja の値が
+                 defaultValue と一字一句同じであることも求める（ja が無いと日本語 UI にキーが出うる）
   compare        日本語リテラルが比較の文脈にある（==, !=, hasPrefix( 等, case "…":）
   specifier      キーと英訳の書式指定子が引数の順序どおりに一致しない（Web は {name} の集合）
   web-literal    web/*.js の日本語リテラルが t( の第 1 引数でない／index.html の日本語テキストに data-i18n が無い
@@ -680,6 +682,33 @@ def load_xcstrings(root: Path) -> dict[str, list[str]]:
     return {k: _xcstrings_forms(v) for k, v in data.get("strings", {}).items()}
 
 
+def load_xcstrings_ja(root: Path) -> dict[str, str]:
+    """Non-Japanese key -> its `ja` value (the Japanese source text of a dotted key, G55 S2-C)."""
+    p = root / XCSTRINGS
+    if not p.is_file():
+        return {}
+    out = {}
+    for k, v in json.loads(_read(p)).get("strings", {}).items():
+        if has_ja(k):
+            continue
+        val = ((v or {}).get("localizations", {}).get("ja") or {}).get("stringUnit", {}).get("value")
+        if isinstance(val, str):
+            out[k] = val
+    return out
+
+
+def load_fragments_ja(d) -> dict[str, list[tuple[Path, str]]]:
+    """Non-Japanese key -> [(fragment path, "ja" value)] (tools/l10n/merge_fragments.py writes it as `ja`)."""
+    out: dict[str, list] = {}
+    if not d:
+        return out
+    for f in sorted(Path(d).glob("*.json")):
+        for k, v in json.loads(_read(f)).items():
+            if isinstance(v, dict) and isinstance(v.get("ja"), str):
+                out.setdefault(k, []).append((f, v["ja"]))
+    return out
+
+
 def _fragment_forms(v) -> list[str]:
     if isinstance(v, dict):
         if "en" in v:
@@ -726,7 +755,10 @@ def load_web_dict(root: Path) -> tuple[dict[str, tuple[int, list[str]]], bool]:
 
 
 def load_stringsdata(sd_root: Path, root: Path):
-    """([(table, key, source, line)], app_emitted, {source rel: mtime}) from *.stringsdata under sd_root.
+    """([(table, key, source, line, value)], app_emitted, {source rel: mtime}) from *.stringsdata under sd_root.
+
+    `value` is the call's `defaultValue:` (None without one): `String(localized: "k", defaultValue: "日本語")`
+    is extracted as {"key": "k", "value": "日本語"} (G55 S2-C, checked against an Xcode 26 build).
 
     Only the newest file (by mtime) per `source` is used, so a stale Debug/Release/per-arch copy
     cannot hide a leak that the latest build no longer extracts.
@@ -760,7 +792,8 @@ def load_stringsdata(sd_root: Path, root: Path):
             for e in entries or []:
                 if isinstance(e, dict) and "key" in e:
                     line = (e.get("location") or {}).get("startingLine", 0)
-                    out.append((tname, e["key"], src, int(line or 0)))
+                    value = e.get("value")
+                    out.append((tname, e["key"], src, int(line or 0), value if isinstance(value, str) else None))
     return out, app_emitted, mtimes
 
 
@@ -817,19 +850,25 @@ def check_swift_sources(root, files, allow, sel, table_keys) -> list[Finding]:
     return out
 
 
-def check_app(root, files, allow, sel, sd_entries, catalog, fragments) -> list[Finding]:
-    """compare (always) and, when .stringsdata is available, app-literal / app-missing."""
+def check_app(root, files, allow, sel, sd_entries, catalog, fragments, source_ja=None) -> list[Finding]:
+    """compare (always) and, when .stringsdata is available, app-literal / app-missing.
+
+    `source_ja`: non-Japanese key -> the Japanese values the catalog / fragments give it.
+    """
+    source_ja = source_ja or {}
     out = []
     # A literal counts as extracted when an entry sits at the same file and line with the same
     # normalised text (entries carry `location.startingLine`); entries without a location match by text.
     root_res = root.resolve()
     extracted_at: set = set()
     extracted_any: set = set()
-    for _, k, src, line in sd_entries or []:
-        if line:
-            extracted_at.add((_source_rel(root_res, src), line, normalize_key(k)))
-        else:
-            extracted_any.add(normalize_key(k))
+    for _, k, src, line, value in sd_entries or []:
+        # A `defaultValue:` literal is extracted as the entry's value, under a separate key.
+        for text in (k, value) if value is not None else (k,):
+            if line:
+                extracted_at.add((_source_rel(root_res, src), line, normalize_key(text)))
+            else:
+                extracted_any.add(normalize_key(text))
     for f in files:
         rel = _rel(root, f)
         src = _read(f)
@@ -847,8 +886,9 @@ def check_app(root, files, allow, sel, sd_entries, catalog, fragments) -> list[F
     if sd_entries is None:
         return out
     seen = set()
-    for tname, key, src, line in sd_entries:
-        if tname != "Localizable" or not has_ja(key):
+    for tname, key, src, line, value in sd_entries:
+        dotted = not has_ja(key) and value is not None and has_ja(value)
+        if tname != "Localizable" or not (has_ja(key) or dotted):
             continue
         srel = _source_rel(root_res, src)
         # Only the App target's own sources belong to App/StackNest/Localizable.xcstrings.
@@ -861,7 +901,19 @@ def check_app(root, files, allow, sel, sd_entries, catalog, fragments) -> list[F
         if (key, srel) in seen:
             continue
         seen.add((key, srel))
-        if is_translated(catalog.get(key)) or any(is_translated(forms) for _, forms in fragments.get(key, [])):
+        translated = is_translated(catalog.get(key)) or any(is_translated(forms) for _, forms in fragments.get(key, []))
+        if dotted:
+            ja_values = source_ja.get(key, [])
+            if not translated:
+                out.append(Finding("app-missing", srel or XCSTRINGS, line, _short(f"{key} ({value}): no English")))
+            elif not ja_values:
+                out.append(Finding("app-missing", srel or XCSTRINGS, line,
+                                   _short(f"{key} ({value}): no ja value (the Japanese UI could show the key)")))
+            elif any(v != value for v in ja_values):
+                out.append(Finding("app-missing", srel or XCSTRINGS, line,
+                                   _short(f"{key}: ja {' | '.join(ja_values)} differs from defaultValue {value}")))
+            continue
+        if translated:
             continue
         out.append(Finding("app-missing", srel or XCSTRINGS, line, _short(key)))
     return out
@@ -880,7 +932,14 @@ def _source_rel(root_res: Path, src: str) -> str:
         return s[i + 1:] if i >= 0 else s
 
 
-def check_specifiers(root, sel, swift_table, catalog, fragments, web_dict) -> list[Finding]:
+def check_specifiers(root, sel, swift_table, catalog, fragments, web_dict, source_ja=None) -> list[Finding]:
+    """A dotted key (G55 S2-C) is compared through its Japanese value, not the key itself."""
+    source_ja = source_ja or {}
+
+    def source(key: str) -> str:
+        vals = source_ja.get(key)
+        return vals[0] if vals else key
+
     out = []
     for key, defs in swift_table.items():
         want = specifier_sequence(key)
@@ -889,11 +948,11 @@ def check_specifiers(root, sel, swift_table, catalog, fragments, web_dict) -> li
                 out.append(Finding("specifier", rel, line, _short(f"{key} -> {' | '.join(forms)}")))
     if sel.includes(XCSTRINGS):
         for key, forms in catalog.items():
-            want = specifier_sequence(key)
+            want = specifier_sequence(source(key))
             if is_translated(forms) and any(specifier_sequence(v) != want for v in forms):
                 out.append(Finding("specifier", XCSTRINGS, 0, _short(f"{key} -> {' | '.join(forms)}")))
     for key, defs in fragments.items():
-        want = specifier_sequence(key)
+        want = specifier_sequence(source(key))
         for f, forms in defs:
             rel = _rel(root, f) if f.resolve().is_relative_to(root.resolve()) else f.as_posix()
             if sel.includes(rel) and is_translated(forms) and any(specifier_sequence(v) != want for v in forms):
@@ -975,6 +1034,13 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
     swift_table = load_swift_tables(root)
     catalog = load_xcstrings(root)
     frags = load_fragments(fragments)
+    source_ja: dict[str, list[str]] = {}
+    for k, v in load_xcstrings_ja(root).items():
+        source_ja.setdefault(k, []).append(v)
+    for k, defs in load_fragments_ja(fragments).items():
+        for _, v in defs:
+            if v not in source_ja.setdefault(k, []):
+                source_ja[k].append(v)
     web_dict, has_web_dict = load_web_dict(root)
 
     source_files = _swift_files(root / "Sources")
@@ -1011,9 +1077,9 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
                 res.app_extraction_missing = bool(selected_app)
             else:
                 findings += check_stale(root, selected_app, sd_mtimes, warn)
-        findings += check_app(root, app_files, allow, sel, sd_entries, catalog, frags)
+        findings += check_app(root, app_files, allow, sel, sd_entries, catalog, frags, source_ja)
 
-    findings += check_specifiers(root, sel, swift_table, catalog, frags, web_dict)
+    findings += check_specifiers(root, sel, swift_table, catalog, frags, web_dict, source_ja)
     if web_dir.is_dir() and not has_web_dict:
         warn(f"warning: {WEB_DICT} not found; every t()/data-i18n key counts as web-missing")
     findings += check_web(root, allow, sel, web_dict)
