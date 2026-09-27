@@ -23,6 +23,23 @@ private func ucol_getSortKey(
 @_silgen_name("ucol_close")
 private func ucol_close(_ collator: OpaquePointer?)
 
+// MARK: - Locale ID
+
+/// ICU のロケール ID にキーワードを足す。`Locale.current.identifier` は地域の上書きで `en_US@rg=jpzzzz` のように
+/// 既に `@` を含みうる。そこへ `@…` を足すと `@` が 2 つの不正な ID になり、照合が変わる（G56: 英語＋日本の地域で発覚）。
+func icuLocaleID(base: String, keywords: String) -> String {
+    base.contains("@") ? "\(base);\(keywords)" : "\(base)@\(keywords)"
+}
+
+private let caseInsensitiveKeywords = "colStrength=secondary"
+private let standardKeywords = "colNumeric=yes;colStrength=quaternary"
+
+private func openCollator(localeID: String, numeric: Bool) -> OpaquePointer? {
+    let id = icuLocaleID(base: localeID, keywords: numeric ? standardKeywords : caseInsensitiveKeywords)
+    var status: Int32 = 0
+    return ucol_open(id, &status)
+}
+
 // MARK: - Collator cache
 
 /// 一度作成したコレーターはスレッドセーフに再利用する（コレーターは読み取り専用）。
@@ -30,18 +47,12 @@ private func ucol_close(_ collator: OpaquePointer?)
 /// `nonisolated(unsafe)` は「ICU コレーターは生成後に内部状態を変更しない」ことを根拠とする。
 private enum Collators {
     /// numeric=false: localizedCaseInsensitiveCompare 相当
-    nonisolated(unsafe) static let caseInsensitive: OpaquePointer? = {
-        let locale = "\(Locale.current.identifier)@colStrength=secondary"
-        var status: Int32 = 0
-        return ucol_open(locale, &status)
-    }()
+    nonisolated(unsafe) static let caseInsensitive: OpaquePointer? =
+        openCollator(localeID: Locale.current.identifier, numeric: false)
 
     /// numeric=true: localizedStandardCompare 相当（数値自然順）
-    nonisolated(unsafe) static let standard: OpaquePointer? = {
-        let locale = "\(Locale.current.identifier)@colNumeric=yes;colStrength=quaternary"
-        var status: Int32 = 0
-        return ucol_open(locale, &status)
-    }()
+    nonisolated(unsafe) static let standard: OpaquePointer? =
+        openCollator(localeID: Locale.current.identifier, numeric: true)
 }
 
 // MARK: - Public API
@@ -63,7 +74,19 @@ private enum Collators {
 /// - Returns: ゼロ終端バイト列。`lexicographicallyPrecedes` でバイト辞書比較可能。
 public func localizedSortKey(_ s: String, numeric: Bool) -> [UInt8] {
     guard !s.isEmpty else { return [] }
-    guard let col = numeric ? Collators.standard : Collators.caseInsensitive else {
+    return sortKey(s, collator: numeric ? Collators.standard : Collators.caseInsensitive)
+}
+
+/// テスト用: 指定したロケール ID で照合器をその場で開いて閉じる（公開 API はキャッシュした照合器を使う）。
+func localizedSortKey(_ s: String, numeric: Bool, localeID: String) -> [UInt8] {
+    guard !s.isEmpty else { return [] }
+    let col = openCollator(localeID: localeID, numeric: numeric)
+    defer { ucol_close(col) }
+    return sortKey(s, collator: col)
+}
+
+private func sortKey(_ s: String, collator: OpaquePointer?) -> [UInt8] {
+    guard let col = collator else {
         // Collator could not be created (should not happen on macOS).
         // Fall back to the string itself encoded as UTF-8.
         return Array(s.utf8)

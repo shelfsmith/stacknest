@@ -78,4 +78,17 @@ struct LocalizedSortKeyTests {
                     == a.localizedCaseInsensitiveCompare(b), "ci mismatch (realistic): \(a) vs \(b)")
         }}
     }
+
+    @Test("G56: 地域の上書き（@rg=）付きの ID にキーワードを足しても不正にならない")
+    func icuLocaleIDMergesKeywords() {
+        #expect(icuLocaleID(base: "en_US@rg=jpzzzz", keywords: "colStrength=secondary") == "en_US@rg=jpzzzz;colStrength=secondary")
+        #expect(icuLocaleID(base: "ja_JP", keywords: "colStrength=secondary") == "ja_JP@colStrength=secondary")
+    }
+
+    @Test("G56: en_US@rg=jpzzzz でも照合器が開け、大文字小文字を同一視する")
+    func collatorOpensWithRegionOverride() {
+        let key = { (s: String) in localizedSortKey(s, numeric: false, localeID: "en_US@rg=jpzzzz") }
+        #expect(key("abc") == key("ABC"))
+        #expect(key("a") != key("b"))
+    }
 }
