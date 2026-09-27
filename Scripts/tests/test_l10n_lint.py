@@ -243,11 +243,30 @@ class Extraction(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("stale-build", out)
 
-    def test_never_extracted_source_is_stale_build(self):
+    def test_never_extracted_source_with_ja_literal_is_stale_build(self):
+        r = self._tree('Text("x")\n')
+        (r / "App/StackNest/New.swift").write_text('let a = "新規"\n', encoding="utf-8")
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
+        # The un-extracted literal is also a genuine leak (app-literal); both are expected together.
+        self.assertEqual([(f.kind, f.path) for f in lint.run(r)],
+                          [("app-literal", "App/StackNest/New.swift"), ("stale-build", "App/StackNest/New.swift")])
+
+    def test_never_extracted_source_without_ja_literal_is_not_flagged(self):
+        # A file with no Japanese literal of its own (an English-only helper, a
+        # LocalizedStringKey-only parameter passthrough, ...) never produces a .stringsdata entry
+        # to begin with, so "never extracted" must not be raised for it (Task S2-A / brief §4).
         r = self._tree('Text("x")\n')
         (r / "App/StackNest/New.swift").write_text('let a = 1\n', encoding="utf-8")
         write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
-        self.assertEqual([(f.kind, f.path) for f in lint.run(r)], [("stale-build", "App/StackNest/New.swift")])
+        self.assertEqual([(f.kind, f.path) for f in lint.run(r)], [])
+
+    def test_never_extracted_source_with_only_ignored_ja_literal_is_not_flagged(self):
+        # A Japanese literal that is entirely `l10n:ignore`d (or logger-only) does not count either:
+        # it is excluded from every other check the same way, so it must not force a rebuild here.
+        r = self._tree('Text("x")\n')
+        (r / "App/StackNest/New.swift").write_text('let a = "新規" // l10n:ignore parser token\n', encoding="utf-8")
+        write_sd(r, "V.stringsdata", "App/StackNest/V.swift", [], time.time())
+        self.assertEqual([(f.kind, f.path) for f in lint.run(r)], [])
 
     def test_strict_without_extraction_fails_unless_no_app_checks(self):
         r = self._tree('let a = 1\n')

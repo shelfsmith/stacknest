@@ -1021,16 +1021,32 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
     return res
 
 
+def _has_checked_ja_literal(src: str) -> bool:
+    """True if `src` has at least one Japanese string literal that the lint would otherwise
+    check (not `l10n:ignore`d, not inside a logging call). Comments never produce literals (the
+    scanner strips them before tokenizing), so this only sees real string literals.
+
+    A file with none of these (an English-only helper table, a file that is entirely
+    `l10n:ignore`d, a view that only takes `LocalizedStringKey` parameters and has no literal of
+    its own) never produces a `.stringsdata` entry to begin with — for it, "never extracted" is
+    not a leak, it is the expected state.
+    """
+    lines = src.split("\n")
+    return any(has_ja(lit.text.replace(PH, "")) and not _excluded(lit, lines)
+               for lit in SwiftScanner(src).scan())
+
+
 def check_stale(root, files, sd_mtimes, warn) -> list[Finding]:
-    """stale-build: a selected App source edited after its newest .stringsdata, or never extracted."""
+    """stale-build: a selected App source edited after its newest .stringsdata, or (only when it
+    has a checked Japanese literal of its own) never extracted at all."""
     out = []
     # "Never extracted" only means something when the build did extract other App sources
-    # (every compiled App source gets its own .stringsdata, even with no strings).
+    # (every compiled App source with a checked literal gets its own .stringsdata entry).
     any_app = any(r.startswith(APP_DIR + "/") for r in sd_mtimes)
     for f in files:
         rel = _rel(root, f)
         if rel not in sd_mtimes:
-            if not any_app:
+            if not any_app or not _has_checked_ja_literal(_read(f)):
                 continue
             out.append(Finding("stale-build", rel, 0, "no .stringsdata for this file; rebuild the App"))
         elif f.stat().st_mtime > sd_mtimes[rel]:
