@@ -1158,9 +1158,10 @@ public extension LibrarySettings {
         return effectiveLabel(default: canonical, override: activeFieldLabels[key])
     }
 
-    /// bookType ラベル（0..5）。
+    /// bookType ラベル（0..5）。**画面表示専用**（`@type` の生成は `bookTypeLabelOverrides`＋正準ラベル）。
+    /// G55: 既定値は `displayLabel(for:)`（言語ごとの種類名）。利用者のカスタムラベルはそのまま。
     func bookTypeLabel(_ raw: Int) -> String {
-        effectiveLabel(default: BookTypeLabel.canonicalLabel(for: raw), override: activeBookTypeLabels[String(raw)])
+        effectiveLabel(default: BookTypeLabel.displayLabel(for: raw), override: activeBookTypeLabels[String(raw)])
     }
 
     /// ファイル名生成 `@type` 用の bookType カスタムラベル（Int キー・空値除外）。
