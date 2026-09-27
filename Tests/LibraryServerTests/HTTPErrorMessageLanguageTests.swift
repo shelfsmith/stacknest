@@ -41,8 +41,8 @@ struct HTTPErrorMessageLanguageTests {
         }
     }
 
-    /// 同じエンドポイントで `Accept-Language` を付けない（既定 en・`L10nLang.from(acceptLanguage:)` の
-    /// フォールバック）場合も英語になることの対比確認。日本語を明示指定すると日本語のままであること。
+    /// 同じエンドポイントで `Accept-Language: ja` を明示すると日本語のままであることの対比確認
+    /// （ヘッダを付けない場合はここでは検証していない）。
     @Test func unsupportedFormatMessageIsJapaneseWithAcceptLanguageJa() async throws {
         let fixture = try TestLibraryFixture(name: "CRUNSUP-JA", bookCount: 0)
         defer { fixture.cleanup() }

@@ -245,10 +245,15 @@ struct IntegrityWindowLogicTests {
         #expect(!en.contains("年") && !en.contains("月") && !en.contains("日"))
     }
 
+    // ja_JP の短い時刻（例 "7:13"）は「時」「分」を含まないので、それだけでは lang: の効きを確かめられない。
+    // en_US は 12 時間制で AM/PM が付くことで区別する（G55 S2-B・段 1 の Minor）。
     @Test("formattedTime は lang: .en なら英語ロケールで整形する")
     func formattedTimeRespectsEnglishLanguage() {
         let date = Date(timeIntervalSince1970: 1_700_000_000)
         let en = IntegrityWindowLogic.formattedTime(date, lang: .en)
+        let ja = IntegrityWindowLogic.formattedTime(date, lang: .ja)
+        #expect(en != ja)
+        #expect(en.contains("AM") || en.contains("PM"))
         #expect(!en.contains("時") && !en.contains("分"))
     }
 

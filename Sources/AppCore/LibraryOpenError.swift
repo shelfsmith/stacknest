@@ -2,7 +2,7 @@
 import Foundation
 import StackNestL10n
 
-/// User-facing errors when opening a library, carrying localized (Japanese) descriptions
+/// User-facing errors when opening a library, carrying localized (Japanese or English, via L10n) descriptions
 /// so the UI shows a clear message instead of a raw engine error.
 public enum LibraryOpenError: LocalizedError, Equatable, Sendable {
     /// The library cannot be written: Finder "Locked" (user-immutable), a read-only
