@@ -3,6 +3,7 @@ import Foundation
 
 /// G48-2: EPUB の読書位置。**共有の正は `spine`＋`progress`**（Washi と foliate-js の両方が出せる）。
 /// `cfi` は同じエンジン同士で復元精度を上げる補助。`engine` が違えば捨てる（`restorable(for:)`）。
+/// `cfi` の中身はエンジンごとの書式（foliate は EPUB CFI、Washi は `washi:t=…;idref=…` の文の位置＝G56-S2）。
 public struct EPUBLocatorValue: Codable, Equatable, Sendable {
     public let spine: Int
     public let progress: Double
