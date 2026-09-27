@@ -5,6 +5,7 @@ import Foundation
 import LibraryServerAPI
 import AppCore
 import LibraryStore
+import StackNestL10n
 
 final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Stub { let status: Int; let headers: [String: String]; let body: Data }
@@ -71,6 +72,24 @@ struct StubBackedRemoteClientTests {
             let req = StubURLProtocol.lastRequest
             #expect(req?.url?.path == "/api/v1/libraries")
             #expect(req?.value(forHTTPHeaderField: "Authorization") == "Bearer dtok")
+        }
+
+        /// G55 最終レビュー item 4: 自分の言語（`L10nLang.current`）を Accept-Language で明示する。
+        /// URLSession が付ける OS の言語任せにしない（CLI と同じ）。単一のビルダ `request(...)` を通る
+        /// GET と POST の両方で確かめる。
+        @Test("Accept-Language に L10nLang.current を載せる", arguments: [L10nLang.ja, .en])
+        func sendsAcceptLanguage(lang: L10nLang) async throws {
+            let libs = [LibraryDTO(id: "u1", name: "L1", locked: false, bookCount: 3)]
+            StubURLProtocol.stub = .init(status: 200, headers: ["Content-Type": "application/json"], body: try enc().encode(libs))
+            let client = makeClient()
+            _ = try await L10nLang.$requestOverride.withValue(lang) { try await client.listLibraries() }
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "Accept-Language") == lang.rawValue)
+            StubURLProtocol.stub = .init(status: 200, headers: [:], body: Data("{}".utf8))
+            try? await L10nLang.$requestOverride.withValue(lang) {
+                try await client.setRating(libraryUUID: "u1", bookID: 1, rating: 3, libraryToken: nil)
+            }
+            #expect(StubURLProtocol.lastRequest?.httpMethod == "POST")
+            #expect(StubURLProtocol.lastRequest?.value(forHTTPHeaderField: "Accept-Language") == lang.rawValue)
         }
 
         @Test func fetchBooksBuildsQuery() async throws {

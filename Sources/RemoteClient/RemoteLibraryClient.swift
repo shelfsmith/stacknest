@@ -2,6 +2,7 @@
 import Foundation
 import LibraryServerAPI
 import LibraryStore
+import StackNestL10n
 
 /// 別 StackNest サーバの HTTP API を叩くクライアント（メタ=JSON 共有 DTO / バイナリ=Data）。
 public struct RemoteLibraryClient: Sendable {
@@ -58,6 +59,8 @@ public struct RemoteLibraryClient: Sendable {
         req.timeoutInterval = timeout
         req.httpMethod = method
         req.setValue("Bearer \(deviceToken)", forHTTPHeaderField: "Authorization")
+        // G55: サーバのエラー文を自分の言語で受け取る（URLSession が付ける OS の言語任せにしない・CLI と同じ）。
+        req.setValue(L10nLang.current.rawValue, forHTTPHeaderField: "Accept-Language")
         if let libraryToken { req.setValue(libraryToken, forHTTPHeaderField: "X-Library-Token") }
         if let body { req.httpBody = body }
         if let contentType { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
