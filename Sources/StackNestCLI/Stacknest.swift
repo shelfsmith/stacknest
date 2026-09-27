@@ -460,11 +460,14 @@ struct Shelves: ParsableCommand {
             }
             let decoder = JSONDecoder()
             let shelfList = try decoder.decode([ShelfDTO].self, from: data)
-            for shelf in shelfList {
-                let kind = shelf.isSmart ? "smart" : "user"
-                print("\(shelf.id)\t\(shelf.title)\t[\(kind)]")
-            }
+            for shelf in shelfList { print(Self.humanLine(shelf)) }
         }
+    }
+
+    /// 人向けの 1 行。お気に入り棚は画面と同じく訳す（`--json` は保存値のまま）。
+    static func humanLine(_ shelf: ShelfDTO) -> String {
+        let kind = shelf.isSmart ? "smart" : "user"
+        return "\(shelf.id)\t\(L10nSeed.shelfTitle(shelf.title, kind: shelf.kind))\t[\(kind)]"
     }
 }
 
@@ -1015,15 +1018,18 @@ struct GrantList: ParsableCommand {
         let data = try client.grantList()
         if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
         let grants = try JSONDecoder().decode([GrantDTO].self, from: data)
-        for g in grants {
-            let scopeStr: String
-            switch g.scope {
-            case .all: scopeStr = "all"
-            case .libraries(let ids): scopeStr = ids.joined(separator: ",")
-            }
-            print("\(g.id)\t\(g.tier.rawValue)\t\(g.label)\t[\(scopeStr)]")
-        }
+        for g in grants { print(Self.humanLine(g)) }
     } }
+
+    /// 人向けの 1 行。既定ラベルは画面と同じく訳す（`--json` は保存値のまま）。
+    static func humanLine(_ g: GrantDTO) -> String {
+        let scopeStr: String
+        switch g.scope {
+        case .all: scopeStr = "all"
+        case .libraries(let ids): scopeStr = ids.joined(separator: ",")
+        }
+        return "\(g.id)\t\(g.tier.rawValue)\t\(L10nSeed.grantLabel(g.label))\t[\(scopeStr)]"
+    }
 }
 struct GrantCreate: ParsableCommand {
     static let configuration = CommandConfiguration(commandName: "create", abstract: L10n.text("グラントを作成する（token を返す）"))

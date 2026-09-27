@@ -61,6 +61,9 @@ extension L10nTable {
         "(既定) 閲覧": L10nEntry("(Default) View"),
         "(既定) 編集": L10nEntry("(Default) Edit"),
 
+        // MARK: - StackNestL10n/L10nSeed.swift (display only; the favorites shelf's stored name stays "お気に入り")
+        "お気に入り": L10nEntry("Favorites"),
+
         // MARK: - AppCore/GrantManagementLogic.swift
         "全ライブラリ": L10nEntry("All Libraries"),
         "%lld 庫": L10nEntry(one: "%lld Library", other: "%lld Libraries"),

@@ -24,12 +24,13 @@ public enum GrantStore {
     public static let key = "server_grants"
 
     /// `migrateIfNeeded`／`syncDefaultGrants` が種まきする既定ラベル（UserDefaults の保存値・G55 で不変）。
-    static let seededLabels: Set<String> = ["(既定) 閲覧", "(既定) 編集"]  // l10n:ignore stored seed values (language-independent); display via displayLabel(for:)
+    /// 値の正本は `L10nSeed.grantLabels`（CLI も同じ集合で訳すため StackNestL10n に置く）。
+    static let seededLabels: Set<String> = L10nSeed.grantLabels
 
     /// 画面表示用のラベル（G55）。保存値がちょうど種まきの既定ラベルなら現在の言語に訳し、
     /// それ以外（利用者が付けた名前・改名後の値）はそのまま返す。**保存・照合には使わない。**
     public static func displayLabel(for storedLabel: String) -> String {
-        seededLabels.contains(storedLabel) ? L10n.text(storedLabel) : storedLabel
+        L10nSeed.grantLabel(storedLabel)
     }
     public static func list(defaults: UserDefaults = .standard) -> [Grant] {
         guard let data = defaults.data(forKey: key),
