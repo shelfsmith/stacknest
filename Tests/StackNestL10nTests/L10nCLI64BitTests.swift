@@ -11,54 +11,40 @@ import Foundation
 /// および `Sources/StackNestCLI/Stacknest.swift` の呼び出し箇所）。まずその鍵のまま実行して赤にし、
 /// 修正（鍵自体を "...%lld)" へ変更）と同時にここも書き換えて緑にした。
 ///
-/// `L10n.format` は `String(format:locale:arguments:)` に `locale:` を渡すため、`%d` でも `%lld` でも
-/// 桁区切りのカンマが入る（例: "4,294,967,297"）。これは今回の修正と無関係な既存の Foundation の挙動
-/// （`%d`/`%lld` どちらでも同じ）なので、比較の際はカンマを取り除いてから数値として突き合わせる。
+/// `L10n.format`/`L10n.plural` は `locale: nil`（POSIX）で固定されている（G55 回帰修正、
+/// 別コミット）ので、桁区切りのカンマは入らない。ここでは正確な文字列一致で検証する。
 @Suite("CLI の書式指定子は 64bit 引数に対して %lld を使う（Codex レビュー P2）")
 struct L10nCLI64BitTests {
     /// Int32.max（2147483647）を超える書籍 ID。`%d` だと下位 32bit だけが読まれ「1」になる。
     private static let bigID = 4_294_967_297
 
-    private static func digitsAfter(_ marker: String, in s: String) -> String? {
-        guard let range = s.range(of: marker) else { return nil }
-        let rest = s[range.upperBound...]
-        let digits = rest.prefix { $0.isNumber || $0 == "," }
-        return String(digits).replacingOccurrences(of: ",", with: "")
-    }
-
     @Test("rm: 削除しました (id=...) が巨大 ID を切り詰めない（ja/en）")
     func removedMessageKeepsFullID() {
         L10nLang.$requestOverride.withValue(.ja) {
-            let s = L10n.format("削除しました (id=%lld)", Self.bigID)
-            #expect(Self.digitsAfter("id=", in: s) == "4294967297", "got: \(s)")
+            #expect(L10n.format("削除しました (id=%lld)", Self.bigID) == "削除しました (id=4294967297)")
         }
         L10nLang.$requestOverride.withValue(.en) {
-            let s = L10n.format("削除しました (id=%lld)", Self.bigID)
-            #expect(Self.digitsAfter("id=", in: s) == "4294967297", "got: \(s)")
+            #expect(L10n.format("削除しました (id=%lld)", Self.bigID) == "Removed (id=4294967297)")
         }
     }
 
     @Test("set: 更新しました (id=...) が巨大 ID を切り詰めない（ja/en）")
     func updatedMessageKeepsFullID() {
         L10nLang.$requestOverride.withValue(.ja) {
-            let s = L10n.format("更新しました (id=%lld)", Self.bigID)
-            #expect(Self.digitsAfter("id=", in: s) == "4294967297", "got: \(s)")
+            #expect(L10n.format("更新しました (id=%lld)", Self.bigID) == "更新しました (id=4294967297)")
         }
         L10nLang.$requestOverride.withValue(.en) {
-            let s = L10n.format("更新しました (id=%lld)", Self.bigID)
-            #expect(Self.digitsAfter("id=", in: s) == "4294967297", "got: \(s)")
+            #expect(L10n.format("更新しました (id=%lld)", Self.bigID) == "Updated (id=4294967297)")
         }
     }
 
     @Test("relink: 再リンクしました (id=...) が巨大 ID を切り詰めない（ja/en）")
     func relinkMessageKeepsFullID() {
         L10nLang.$requestOverride.withValue(.ja) {
-            let s = L10n.format("再リンクしました (id=%lld)", Self.bigID)
-            #expect(Self.digitsAfter("id=", in: s) == "4294967297", "got: \(s)")
+            #expect(L10n.format("再リンクしました (id=%lld)", Self.bigID) == "再リンクしました (id=4294967297)")
         }
         L10nLang.$requestOverride.withValue(.en) {
-            let s = L10n.format("再リンクしました (id=%lld)", Self.bigID)
-            #expect(Self.digitsAfter("id=", in: s) == "4294967297", "got: \(s)")
+            #expect(L10n.format("再リンクしました (id=%lld)", Self.bigID) == "Relinked (id=4294967297)")
         }
     }
 

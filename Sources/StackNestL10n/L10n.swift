@@ -27,7 +27,10 @@ public enum L10n {
     }
 
     static func format(_ ja: String, _ args: [any CVarArg], lang: L10nLang, table: [String: L10nEntry]) -> String {
-        String(format: text(ja, lang, table: table), locale: locale(lang), arguments: args)
+        // `locale: nil`（POSIX）で固定する。ロケール（ja_JP/en_US）を渡すと桁区切りのカンマが入り
+        // （例: id=1234 → "id=1,234"）、書籍 ID 等のコマンドへのコピペが壊れる（G55 回帰）。
+        // 単複の選択は `lang` で行うので、書式そのものにロケールは要らない。
+        String(format: text(ja, lang, table: table), locale: nil, arguments: args)
     }
 
     static func plural(_ ja: String, count: Int, _ args: any CVarArg..., lang: L10nLang, table: [String: L10nEntry]) -> String {
@@ -37,10 +40,9 @@ public enum L10n {
     static func plural(_ ja: String, count: Int, _ args: [any CVarArg], lang: L10nLang, table: [String: L10nEntry]) -> String {
         var pattern = ja
         if lang == .en, let e = table[ja] { pattern = e.enPlural.map { count == 1 ? $0.one : $0.other } ?? e.en }
-        return String(format: pattern, locale: locale(lang), arguments: args)
+        // `locale: nil`（POSIX）で固定する。理由は `format(_:_:lang:table:)` のコメント参照。
+        return String(format: pattern, locale: nil, arguments: args)
     }
-
-    private static func locale(_ lang: L10nLang) -> Locale { Locale(identifier: lang == .ja ? "ja_JP" : "en_US") }
 
     /// 書式指定子の多重集合（ソート済み）。位置指定 `%1$@` は `%@` として数える。`%%` は数えない。
     /// 引数の並び順までは検査できない（`formatSpecifierSequence(in:)` を使うこと）。後方互換のために残す。
