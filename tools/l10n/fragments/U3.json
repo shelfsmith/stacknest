@@ -87,7 +87,7 @@
     "en": "⚠ An admin token allows every operation, including changing settings, deleting files, and managing sharing tokens. Only give it to your own trusted devices."
   },
   "「%@」 のロックを解除": {
-    "en": "Remove the Lock on “%@”"
+    "en": "unlock “%@”"
   },
   "「%@」 の設定": {
     "en": "Settings for “%@”"
