@@ -42,7 +42,7 @@
     "en": "%lld updated"
   },
   "1ページ": {
-    "en": "Show"
+    "en": "Per Page"
   },
   "EPUB に題名があればそれを使います。既定ではファイル名から作った題名を使います。取り込むときにだけ効きます。": {
     "en": "Uses the EPUB's title when it has one. By default, a title built from the filename is used instead. This only affects new imports."
@@ -408,13 +408,13 @@
     "en": "The lock is removed."
   },
   "ロックを解除するには現在のパスワードを入力してください": {
-    "en": "Enter the current password to unlock this library"
+    "en": "Enter the current password to remove the lock"
   },
   "ロックを設定しました": {
     "en": "The lock is set."
   },
   "ロック解除": {
-    "en": "Unlock"
+    "en": "Remove Lock"
   },
   "ロック設定": {
     "en": "Lock Settings"
@@ -462,7 +462,7 @@
     "en": "Another maintenance task is running (%@)… %lld/%lld%@"
   },
   "件": {
-    "en": "per page"
+    "en": "items"
   },
   "保存": {
     "en": "Save"
@@ -471,7 +471,7 @@
     "en": "Generations to keep: %lld"
   },
   "候補 %lld / ハッシュ済 %lld / 未算出 %lld": {
-    "en": "%lld candidates, %lld hashed, %lld pending"
+    "en": "Candidates: %lld / Hashed: %lld / Pending: %lld"
   },
   "全 %lld 件": {
     "en": "%lld total"
@@ -552,7 +552,7 @@
     "en": "No problems were found."
   },
   "変更": {
-    "en": "Rename"
+    "en": "Change"
   },
   "完了: %lld 件検査 / 破損 %lld 件": {
     "en": "Completed: %lld checked / %lld damaged"
@@ -690,7 +690,7 @@
     "en": "The current password is wrong."
   },
   "現在ロック中です。解除するにはトグルを OFF にしてください。": {
-    "en": "This library is currently locked. Turn the toggle off to unlock it."
+    "en": "This library is currently locked. Turn the toggle off to remove the lock."
   },
   "画像が 1 枚も見つかりません": {
     "en": "No images were found."
@@ -822,10 +822,16 @@
     "en": "Couldn't get progress."
   },
   "選択した %lld 件のファイルをゴミ箱に移動しますか?": {
-    "en": "Move the %lld selected files to the Trash?"
+    "plural": {
+      "one": "Move the %lld selected file to the Trash?",
+      "other": "Move the %lld selected files to the Trash?"
+    }
   },
   "選択した %lld 件をライブラリから削除しますか?": {
-    "en": "Remove the %lld selected items from the library?"
+    "plural": {
+      "one": "Remove the %lld selected book from the library?",
+      "other": "Remove the %lld selected books from the library?"
+    }
   },
   "選択した書籍をダウンロード": {
     "en": "Download the selected books"
