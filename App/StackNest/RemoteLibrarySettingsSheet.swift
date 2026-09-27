@@ -727,7 +727,9 @@ struct RemoteLibrarySettingsSheet: View {
                         set: { if inBounds() { watchConfig?.folders[i].presetID = $0.isEmpty ? nil : $0 } }
                     )) {
                         Text("ライブラリ既定").tag("")
-                        ForEach(cfg.presets ?? [], id: \.id) { p in Text(p.name).tag(p.id) }
+                        ForEach(cfg.presets ?? [], id: \.id) { p in
+                            Text(FilenameFormatPreset.displayName(forStoredName: p.name)).tag(p.id)
+                        }
                     }.labelsHidden().frame(maxWidth: 240)
                 }
                 HStack {
@@ -854,10 +856,11 @@ struct RemoteLibrarySettingsSheet: View {
         }
     }
 
-    /// プリセット 1 件の Picker/一覧表示名（name 空白のみなら format で代替。ローカル displayName 相当）。
+    /// プリセット 1 件の Picker/一覧表示名（name 空白のみなら format で代替。ローカル `FilenameFormatPreset.displayName` 相当）。
+    /// G55: 種まきの既定名（`既定`）だけ現在の言語に訳す。保存値の `p.name` は変えない。
     private func presetDisplayName(_ p: FilenameFormatPresetDTO) -> String {
         let trimmed = p.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? (p.format ?? "") : p.name
+        return trimmed.isEmpty ? (p.format ?? "") : FilenameFormatPreset.displayName(forStoredName: p.name)
     }
 
     private func loadSelectedStagedPreset() {

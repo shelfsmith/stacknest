@@ -73,7 +73,7 @@ struct GrantManagementSection: View {
     private func grantRow(_ grant: Grant) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                Text(grant.label).fontWeight(.medium)
+                Text(grant.displayLabel).fontWeight(.medium)
                 tierBadge(grant.tier)
                 Spacer()
                 Text(GrantManagementLogic.scopeSummary(grant.scope))
@@ -277,7 +277,7 @@ struct GrantQRSheet: View {
     var body: some View {
         let addresses = NetworkInterfaces.addresses()
         VStack(alignment: .leading, spacing: 16) {
-            Text("共有トークンの QR: \(grant.label)").font(.headline)
+            Text("共有トークンの QR: \(grant.displayLabel)").font(.headline)
             if addresses.isEmpty {
                 Text("ネットワークアドレスが見つかりません。Wi-Fi / 有線 / Tailscale を確認してください。")
                     .font(.caption).foregroundStyle(.secondary)

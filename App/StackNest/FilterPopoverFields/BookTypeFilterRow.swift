@@ -48,6 +48,6 @@ struct BookTypeFilterRow: View {
     }
 
     private func label(_ type: Int) -> String {
-        settings?.bookTypeLabel(type) ?? BookTypeLabel.canonicalLabel(for: type)
+        settings?.bookTypeLabel(type) ?? BookTypeLabel.displayLabel(for: type)
     }
 }

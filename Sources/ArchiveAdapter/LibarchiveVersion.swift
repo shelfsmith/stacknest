@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import Carchive
+import StackNestL10n
 
 /// libarchive の「コンパイルに使ったヘッダ」と「実行時にリンクされるライブラリ」の版。
 ///
@@ -35,10 +36,9 @@ public enum LibarchiveVersion {
     /// このチェックの価値は「ずれを検出すること」ではなく
     /// **「次に何をすればよいか即座に分かること」**にある。
     public static var mismatchMessage: String {
-        """
-        libarchive のヘッダ（\(header)）と実行時ライブラリ（\(runtime)）の版が違います。
-        次を実行してヘッダを取得し直してください:
-          ./Scripts/fetch-libarchive-headers.sh
-        """
+        L10n.format(
+            "libarchive のヘッダ（%lld）と実行時ライブラリ（%lld）の版が違います。\n次を実行してヘッダを取得し直してください:\n  ./Scripts/fetch-libarchive-headers.sh",
+            header, runtime
+        )
     }
 }

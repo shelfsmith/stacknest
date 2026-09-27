@@ -33,7 +33,7 @@ struct BookTypePicker: View {
     ]
 
     private func typeLabel(_ type: Int) -> String {
-        settings?.bookTypeLabel(type) ?? BookTypeLabel.canonicalLabel(for: type)
+        settings?.bookTypeLabel(type) ?? BookTypeLabel.displayLabel(for: type)
     }
 
     var body: some View {

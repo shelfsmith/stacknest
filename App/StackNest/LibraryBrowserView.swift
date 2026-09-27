@@ -938,7 +938,7 @@ struct LibraryBrowserView: View {
     }
 
     private func typeLabel(_ id: Int) -> String {
-        appState.librarySettings?.bookTypeLabel(id) ?? BookTypeLabel.canonicalLabel(for: id)
+        appState.librarySettings?.bookTypeLabel(id) ?? BookTypeLabel.displayLabel(for: id)
     }
 
     /// Opens the rename sheet for the currently selected books.

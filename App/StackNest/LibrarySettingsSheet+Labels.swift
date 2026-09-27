@@ -19,8 +19,10 @@ extension LibrarySettingsSheet {
         StampField.allCases.map { (key: $0.dbColumn, canonical: $0.localizedTitle) }
     }
 
-    /// bookType の行（raw=0..5, canonical=正準）。
-    static var bookTypeLabelRows: [(raw: Int, canonical: String)] {
-        (0..<6).map { (raw: $0, canonical: BookTypeLabel.canonicalLabel(for: $0)) }
+    /// bookType の行（raw=0..5, canonical=正準＝`@type` に入る値, display=画面表示名）。
+    /// G55: 日本語 UI では canonical と display は同じ文字列。英語 UI では display（訳）を主表示にし、
+    /// canonical はファイル名に入る値の補足として LabelEditorView 側で見せる。
+    static var bookTypeLabelRows: [(raw: Int, canonical: String, display: String)] {
+        (0..<6).map { (raw: $0, canonical: BookTypeLabel.canonicalLabel(for: $0), display: BookTypeLabel.displayLabel(for: $0)) }
     }
 }

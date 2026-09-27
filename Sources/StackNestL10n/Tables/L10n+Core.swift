@@ -145,6 +145,10 @@ extension L10nTable {
         "次の巻を開けません（ファイルが見つかりません）": L10nEntry("Can't open the next volume (file not found)"),
         "前の巻を開けません（ファイルが見つかりません）": L10nEntry("Can't open the previous volume (file not found)"),
 
+        // MARK: - ArchiveAdapter/LibarchiveVersion.swift
+        "libarchive のヘッダ（%lld）と実行時ライブラリ（%lld）の版が違います。\n次を実行してヘッダを取得し直してください:\n  ./Scripts/fetch-libarchive-headers.sh":
+            L10nEntry("The libarchive header (%lld) and the runtime library (%lld) are different versions.\nRun this to re-fetch the headers:\n  ./Scripts/fetch-libarchive-headers.sh"),
+
         // MARK: - EPUBAdapter/EPUBAdapterError.swift
         "EPUB を開けません: %@": L10nEntry("Couldn't open the EPUB: %@"),
 

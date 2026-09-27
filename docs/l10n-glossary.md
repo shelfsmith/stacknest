@@ -165,3 +165,10 @@
 | 既定（プリセット名の種） | Default | 保存値は `既定` のまま。表示だけ `FilenameFormatPreset.displayName` で訳す |
 | (既定) 閲覧／(既定) 編集（グラントの種） | (Default) View／(Default) Edit | 保存値は日本語のまま。表示だけ `GrantStore.displayLabel(for:)` で訳す |
 | 厚い本 ほか 6 種（`@type` の値） | Thick Book ほか（上の表） | `canonicalLabel(for:)` はファイル名トークンなので日本語固定。表示は `BookTypeLabel.displayLabel(for:)` |
+
+## 追記（Task S2-A・段 2 の穴埋め）
+
+| 日本語 | 英訳 | 備考 |
+|---|---|---|
+| ファイル名では「%@」 | In filenames: “%@” | ラベル編集シートの本の種類行。英語 UI でのみ表示する補足キャプション（`@type` に入る正準名を明示）。日本語 UI では display==canonical のため出ない |
+| libarchive の版不一致メッセージ | The libarchive header (%lld) and the runtime library (%lld) are different versions. | `LibarchiveVersion.mismatchMessage`。改行込みの単一キー（`Sources/StackNestL10n/Tables/L10n+Core.swift`） |
