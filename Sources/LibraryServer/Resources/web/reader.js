@@ -150,7 +150,7 @@ export async function renderReader(uuid, bookId, query, deps) {
             location.hash = "#/libraries";
             return;
         }
-        // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+        // e.message は api.js が組む「HTTP nnn」（サーバの本文は読まない）か JS の例外文で、言語に依存しない。ここでは訳さない。
         toast(e.message || t("読み込みに失敗しました"));
         location.hash = backHash;
         return;

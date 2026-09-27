@@ -15,8 +15,15 @@ public struct FilenameFormatPreset: Identifiable, Codable, Sendable, Equatable {
     /// 移行・フォールバックで付ける既定プリセットの名前（保存値・G55 で不変）。
     public static let seededDefaultName = "既定"  // l10n:ignore stored preset name seed (language-independent); display via displayName
 
+    /// 言語に依存しない名前（name 空白のみなら format で代替）。API の DTO はこちらを送る
+    /// （G55: 表示用の訳はクライアント側が `displayName(forStoredName:)` で行う）。
+    public var storedOrFormatName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? format : name
+    }
+
     /// 一覧/Picker 表示名（name 空白のみなら format で代替）。
     /// G55: 名前がちょうど種まきの既定名なら現在の言語に訳す（保存値 `name` は変えない）。
+    /// **画面表示専用。** DTO・JSON には `storedOrFormatName` を使う。
     public var displayName: String {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return format }
         return Self.displayName(forStoredName: name)

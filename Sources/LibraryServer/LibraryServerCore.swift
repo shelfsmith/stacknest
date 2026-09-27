@@ -314,6 +314,8 @@ public struct LibraryServerCore: Sendable {
                 // Subscription プロパティを含む）を生かし続けてしまい、Subscription.deinit
                 // による unsubscribe が永久に起きない循環になる（型のドキュメント参照）。
                 let hub = self.eventHub
+                // G55: 下の Task は発火させたリクエストの L10nLang.requestOverride を引き継ぐ。イベントには
+                // 言語に依存しない値だけを載せ、ホスト向けの文言はリクエストのスコープの外で組むこと。
                 self.maintenanceEventSubscription = maintenanceEventFanout.subscribe(
                     onProgress: { [hub] lib, job, done, total in
                         Task { await hub.publish(.maintenanceProgress(library: lib, job: job, done: done, total: total)) }
@@ -329,6 +331,7 @@ public struct LibraryServerCore: Sendable {
             }
         } else {
             let eventHub = self.eventHub
+            // G55: 下の Task は発火させたリクエストの言語を引き継ぐ（上と同じ注意）。
             self.maintenanceRegistry = MaintenanceJobRegistry(
                 onProgress: { lib, job, done, total in
                     Task { await eventHub.publish(.maintenanceProgress(library: lib, job: job, done: done, total: total)) }
@@ -2355,7 +2358,8 @@ public struct LibraryServerCore: Sendable {
                              baseline: f.baseline,
                              subfolderMode: WatchedFolderDTO.SubfolderMode(rawValue: f.subfolderMode.rawValue) ?? .topLevelOnly)
         }
-        let presetDTOs = presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.displayName) }
+        // G55: 名前は保存値のまま送る（訳さない）。Accept-Language で JSON が変わらないように。
+        let presetDTOs = presets.map { FilenameFormatPresetDTO(id: $0.id, name: $0.storedOrFormatName) }
         return WatchConfigDTO(enabled: enabled, folders: folderDTOs, presets: presetDTOs)
     }
 }

@@ -301,7 +301,7 @@ async function route() {
             return;
         }
         render("StackNest", el("div", { class: "empty" }, t("エラーが発生しました。")));
-        // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+        // e.message は api.js が組む「HTTP nnn」（サーバの本文は読まない）か JS の例外文で、言語に依存しない。ここでは訳さない。
         toast(e.message || t("エラーが発生しました"), { actionLabel: t("再試行"), onAction: () => route() });
     }
 }
@@ -334,7 +334,7 @@ function renderPair() {
             } else if (e instanceof NetworkError) {
                 toast(t("サーバに接続できません"), { actionLabel: t("再試行"), onAction: () => form.requestSubmit() });
             } else {
-                // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+                // e.message は api.js が組む「HTTP nnn」（サーバの本文は読まない）か JS の例外文で、言語に依存しない。ここでは訳さない。
                 toast(e.message || t("接続に失敗しました"));
             }
         }
@@ -440,7 +440,7 @@ function promptUnlock(uuid) {
             if (e instanceof NetworkError) {
                 errorLine.textContent = t("サーバに接続できません");
             } else if (!(e instanceof UnauthorizedError)) {
-                // サーバから来た e.message は U6 が Accept-Language で訳す。ここで二重に訳さない。
+                // e.message は api.js が組む「HTTP nnn」（サーバの本文は読まない）か JS の例外文で、言語に依存しない。ここでは訳さない。
                 errorLine.textContent = e.message || t("解錠に失敗しました");
             }
             errorLine.hidden = false;

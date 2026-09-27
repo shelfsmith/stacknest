@@ -141,6 +141,8 @@ public actor MaintenanceJobRegistry {
         // status(library:) が start() 直後から running:true を返せるよう、Task 起動前に
         // 同期的に確定させる（コールバックを init で固定した理由と同じレース回避。上記コメント参照）。
         statuses[library] = JobStatus(job: job, done: 0, total: 0, startedAt: now())
+        // G55: この Task は起動したリクエストの L10nLang.requestOverride（Accept-Language）を引き継ぐ。
+        // ジョブの中でホスト向け（他のクライアント・ログ・通知）の文言を組まないこと（組むならリクエストの外で）。
         Task { [weak self] in
             guard let self else { return }
             let progress: @Sendable (Int, Int) -> Void = { done, total in
