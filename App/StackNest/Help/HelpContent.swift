@@ -32,7 +32,11 @@ enum HelpContent {
 
     static var heading: (title: String, subtitle: String) {
         switch L10nLang.current {
-        case .ja: ("StackNest ヘルプ", "操作リファレンス") // l10n:ignore help heading (per-language data)
+        // 1 行 1 リテラル（l10n:ignore は日本語リテラルが 1 つの行にだけ効く・G56）
+        case .ja: (
+            "StackNest ヘルプ",  // l10n:ignore help heading (per-language data)
+            "操作リファレンス"  // l10n:ignore help heading (per-language data)
+        )
         case .en: ("StackNest Help", "Reference")
         }
     }

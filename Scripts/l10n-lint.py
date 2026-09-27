@@ -8,7 +8,8 @@
   app-missing    .stringsdata の日本語キーが Localizable.xcstrings（＋--fragments）に en を持たない。
                  英語のドット区切りキー＋日本語の defaultValue（G55 S2-C）は、en に加えて ja の値が
                  defaultValue と一字一句同じであることも求める（ja が無いと日本語 UI にキーが出うる）
-  compare        日本語リテラルが比較の文脈にある（==, !=, hasPrefix( 等, case "…":）
+  compare        日本語リテラルが比較の文脈にある（==, !=, hasPrefix( 等, case "…":, ["…"].contains(）、
+                 または日本語を含む Swift の正規表現リテラル（/…/・#/…/#。正規表現は照合なので）
   specifier      キーと英訳の書式指定子が引数の順序どおりに一致しない（Web は {name} の集合）
   web-literal    web/*.js の日本語リテラルが t( の第 1 引数でない／index.html の日本語テキストに data-i18n が無い
   web-missing    t('…')・data-i18n="…" のキーが i18n-en.js に無い
@@ -16,15 +17,19 @@
 英訳が空、または日本語を含むものは「訳なし」として *-missing に数える。
 
 終了コード: 0 = 報告モード／違反なし、1 = --strict で違反あり（App の抽出が無い場合も。--no-app-checks で除外）、
-2 = 使い方の誤り（存在しない --paths、どの検査対象にも当たらない --paths）。
+2 = 使い方の誤り（存在しない --paths、どの検査対象にも当たらない --paths、Debug と Release が混ざった抽出物）。
 
 既定は報告モード（終了コード 0）。--strict で 1 件でもあれば終了コード 1。
 除外: コメント、ロガー呼び出し（logger. / os_log( / Logger( / console.）、`l10n:ignore` の付いた行
-（リテラルの開始行、またはその直前のコメントだけの行）、許可リスト（Scripts/l10n-allowlist.txt）のファイル。
+（リテラルの開始行、またはその直前のコメントだけの行。どちらも日本語リテラルが 1 つだけの行に限る。
+2 つ以上あると除外しない＝行を分ける・G56）、許可リスト（Scripts/l10n-allowlist.txt）のファイル。
+App の抽出物は位置（ファイルと行）で照合し、位置の無いものは同じファイルの中でだけ文字列で照合する。
+--stringsdata-root に Debug と Release の抽出物が混ざっていれば使い方の誤り（終了コード 2）。
 """
 
 import argparse
 import bisect
+from collections import Counter
 import fnmatch
 import json
 import re
@@ -86,7 +91,11 @@ JS_COMPARE_BEFORE_RE = re.compile(
     r"(?:===|!==|==|!=|\.startsWith\(|\.endsWith\(|\.includes\(|\.indexOf\()\s*$"
     r"|\bcase\s+$"
 )
-SWIFT_COMPARE_AFTER_RE = re.compile(r"^\s*(?:==|!=)")
+# `["上巻", "下巻"].contains(x)`: the literal sits in an array literal that is matched against (G56).
+SWIFT_COMPARE_AFTER_RE = re.compile(
+    r"^\s*(?:==|!=)"
+    r"|^(?:\s*,\s*" + PLACEHOLDER_RE + r")*\s*\]\s*\.(?:contains|firstIndex|lastIndex)\("
+)
 JS_COMPARE_AFTER_RE = re.compile(r"^\s*(?:===|!==|==|!=)")
 
 
@@ -109,6 +118,7 @@ class Literal:
     after: str = ""           # code after the literal
     callees: list = field(default_factory=list)  # enclosing call names, innermost first
     first_arg: bool = False   # the literal is the first argument of callees[0]
+    regex: bool = False       # a Swift regex literal (/…/ or #/…/#): always a comparison (G56)
 
 
 # ---------------------------------------------------------------------------
@@ -215,6 +225,11 @@ def _enclosing_calls(code: str, off: int) -> tuple[list[str], bool]:
 
 
 _SWIFT_OPEN_RE = re.compile(r'(#*)("""|")')
+# A regex literal: `#…#/` (extended, unambiguous) or a bare `/` not followed by whitespace, `/` or `*`.
+_SWIFT_REGEX_OPEN_RE = re.compile(r"(#+)/|()/(?![\s/*])")
+# Same idea as the JS scanner: after these a `/` starts a regex, otherwise it is a division.
+_SWIFT_REGEX_PREV = set("(,=:[!&|?{};") | {""}
+_SWIFT_REGEX_WORDS = {"return", "case", "in", "try", "await"}
 _SWIFT_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "0": "\0", "\\": "\\", '"': '"', "'": "'"}
 
 
@@ -241,6 +256,18 @@ class SwiftScanner(_Scanner):
                 buf.append(chunk)
                 pos += len(chunk)
 
+        def prev_token() -> str:
+            full = ("".join(buf[-8:]) + s[run:i]).rstrip()
+            if not full:
+                return ""
+            m = re.search(r"[A-Za-z_]\w*$", full)
+            if m:
+                return m.group(0)
+            # `x! / 2` is a force unwrap followed by a division, not a regex.
+            if full[-1] == "!" and len(full) > 1 and (full[-2].isalnum() or full[-2] in "_)]?!"):
+                return ")"
+            return full[-1]
+
         while i < n:
             c = s[i]
             if c == "/" and i + 1 < n and s[i + 1] == "/":
@@ -256,6 +283,18 @@ class SwiftScanner(_Scanner):
                 buf.append(" "); pos += 1
                 run = i
                 continue
+            if c == "/" or c == "#":
+                m = _SWIFT_REGEX_OPEN_RE.match(s, i)
+                if m and (m.group(1) or prev_token() in _SWIFT_REGEX_PREV
+                          or prev_token() in _SWIFT_REGEX_WORDS):
+                    found = self._regex(m.end(), len(m.group(1) or ""), i)
+                    if found is not None:
+                        flush(i)
+                        lit, i = found
+                        self._placeholder(buf, pos, lit, lits, ends)
+                        pos += len(buf[-1])
+                        run = i
+                        continue
             if c == '"' or c == "#":
                 m = _SWIFT_OPEN_RE.match(s, i)
                 if m and (c == '"' or m.group(1)):
@@ -281,6 +320,33 @@ class SwiftScanner(_Scanner):
         if not nested:
             self.top_code = code
         return n
+
+    def _regex(self, i: int, hashes: int, start: int):
+        """Read a regex literal body from `i` (just past the opening delimiter).
+
+        Returns (Literal, end) or None when there is no closing delimiter (then it was a division
+        or an operator, not a regex). A bare `/…/` ends at the line; `#/…/#` may span lines.
+        """
+        s, n = self.s, self.n
+        close = "/" + "#" * hashes
+        j = i
+        in_class = False
+        while j < n:
+            ch = s[j]
+            if ch == "\n" and not hashes:
+                return None
+            if ch == "\\":
+                j += 2
+                continue
+            if ch == "[":
+                in_class = True
+            elif ch == "]":
+                in_class = False
+            elif not in_class and s.startswith(close, j):
+                lit = Literal(text=s[i:j], line=self.line_of(start), offset=0, regex=True)
+                return lit, j + len(close)
+            j += 1
+        return None
 
     def _block_comment(self, i: int) -> int:
         s, n = self.s, self.n
@@ -793,7 +859,10 @@ def load_stringsdata(sd_root: Path, root: Path):
                 if isinstance(e, dict) and "key" in e:
                     line = (e.get("location") or {}).get("startingLine", 0)
                     value = e.get("value")
-                    out.append((tname, e["key"], src, int(line or 0), value if isinstance(value, str) else None))
+                    # A file without `source` keeps "" here (its path above is only the dedup key), so
+                    # its location-less entries still match by text in any file (G56).
+                    out.append((tname, e["key"], d.get("source") or "", int(line or 0),
+                                value if isinstance(value, str) else None))
     return out, app_emitted, mtimes
 
 
@@ -805,14 +874,22 @@ def _line_text(src_lines: list[str], line: int) -> str:
     return src_lines[line - 1] if 0 < line <= len(src_lines) else ""
 
 
-def _excluded(lit: Literal, src_lines: list[str]) -> bool:
+def ja_line_counts(lits) -> Counter:
+    """Line -> number of Japanese literals starting on it (for the one-literal rule of `l10n:ignore`)."""
+    return Counter(lit.line for lit in lits if has_ja(lit.text.replace(PH, "")))
+
+
+def _excluded(lit: Literal, src_lines: list[str], ja_counts=None) -> bool:
+    """`ja_counts` (see `ja_line_counts`): a mark only counts on a line with exactly one Japanese
+    literal; with two or more it is ambiguous which one is meant, so the line must be split (G56)."""
+    single = ja_counts is None or ja_counts.get(lit.line, 0) <= 1
     raw = _line_text(src_lines, lit.line)
-    if IGNORE_MARK in raw or LOG_LINE_RE.search(raw):
+    if (IGNORE_MARK in raw and single) or LOG_LINE_RE.search(raw):
         return True
     # A comment-only line directly above may carry the mark (for multi-line literals, where the
     # opening line cannot take a trailing comment).
     above = _line_text(src_lines, lit.line - 1).strip()
-    if above.startswith("//") and IGNORE_MARK in above:
+    if above.startswith("//") and IGNORE_MARK in above and single:
         return True
     return any(LOG_CALLEE_RE.search(c) for c in lit.callees)
 
@@ -836,11 +913,13 @@ def check_swift_sources(root, files, allow, sel, table_keys) -> list[Finding]:
             continue
         src = _read(f)
         lines = src.split("\n")
-        for lit in SwiftScanner(src).scan():
-            if not has_ja(lit.text.replace(PH, "")) or _excluded(lit, lines):
+        lits = SwiftScanner(src).scan()
+        counts = ja_line_counts(lits)
+        for lit in lits:
+            if not has_ja(lit.text.replace(PH, "")) or _excluded(lit, lines, counts):
                 continue
             shown = _short(lit.text.replace(PH, "\\(…)"))
-            if _is_compare(lit, SWIFT_COMPARE_BEFORE_RE, SWIFT_COMPARE_AFTER_RE):
+            if lit.regex or _is_compare(lit, SWIFT_COMPARE_BEFORE_RE, SWIFT_COMPARE_AFTER_RE):
                 out.append(Finding("compare", rel, lit.line, shown))
             elif lit.callees and lit.first_arg and SWIFT_L10N_CALLEE_RE.match(lit.callees[0]):
                 if lit.interpolated or lit.text not in table_keys:
@@ -858,29 +937,35 @@ def check_app(root, files, allow, sel, sd_entries, catalog, fragments, source_ja
     source_ja = source_ja or {}
     out = []
     # A literal counts as extracted when an entry sits at the same file and line with the same
-    # normalised text (entries carry `location.startingLine`); entries without a location match by text.
+    # normalised text (entries carry `location.startingLine`); entries without a location match by
+    # text within the same file only (G56: the same words extracted elsewhere say nothing about this
+    # literal). An entry whose source is unknown ("") still matches by text in any file.
     root_res = root.resolve()
     extracted_at: set = set()
-    extracted_any: set = set()
+    extracted_any: set = set()  # (source rel or "", normalised text)
     for _, k, src, line, value in sd_entries or []:
         # A `defaultValue:` literal is extracted as the entry's value, under a separate key.
+        srel = _source_rel(root_res, src)
         for text in (k, value) if value is not None else (k,):
             if line:
-                extracted_at.add((_source_rel(root_res, src), line, normalize_key(text)))
+                extracted_at.add((srel, line, normalize_key(text)))
             else:
-                extracted_any.add(normalize_key(text))
+                extracted_any.add((srel, normalize_key(text)))
     for f in files:
         rel = _rel(root, f)
         src = _read(f)
         lines = src.split("\n")
         allowed = allow.allows(rel) or not sel.includes(rel)
-        for lit in SwiftScanner(src).scan():
-            if allowed or not has_ja(lit.text.replace(PH, "")) or _excluded(lit, lines):
+        lits = SwiftScanner(src).scan()
+        counts = ja_line_counts(lits)
+        for lit in lits:
+            if allowed or not has_ja(lit.text.replace(PH, "")) or _excluded(lit, lines, counts):
                 continue
             shown = _short(lit.text.replace(PH, "\\(…)"))
-            if _is_compare(lit, SWIFT_COMPARE_BEFORE_RE, SWIFT_COMPARE_AFTER_RE):
+            if lit.regex or _is_compare(lit, SWIFT_COMPARE_BEFORE_RE, SWIFT_COMPARE_AFTER_RE):
                 out.append(Finding("compare", rel, lit.line, shown))
-            elif sd_entries is not None and lit.text not in extracted_any \
+            elif sd_entries is not None and (rel, lit.text) not in extracted_any \
+                    and ("", lit.text) not in extracted_any \
                     and (rel, lit.line, lit.text) not in extracted_at:
                 out.append(Finding("app-literal", rel, lit.line, shown))
     if sd_entries is None:
@@ -977,8 +1062,10 @@ def check_web(root, allow, sel, web_dict) -> list[Finding]:
             continue
         src = _read(f)
         lines = src.split("\n")
-        for lit in JSScanner(src).scan():
-            if not has_ja(lit.text.replace(PH, "")) or _excluded(lit, lines):
+        lits = JSScanner(src).scan()
+        counts = ja_line_counts(lits)
+        for lit in lits:
+            if not has_ja(lit.text.replace(PH, "")) or _excluded(lit, lines, counts):
                 continue
             shown = _short(lit.text.replace(PH, "${…}"))
             if _is_compare(lit, JS_COMPARE_BEFORE_RE, JS_COMPARE_AFTER_RE):
@@ -1068,6 +1155,8 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
             sd_root = Path(stringsdata_root) if stringsdata_root else root / DEFAULT_STRINGSDATA
             if not sd_root.is_absolute() and stringsdata_root:
                 sd_root = Path.cwd() / sd_root
+            if sd_root.is_dir():
+                _check_single_configuration(sd_root)
             sd_entries, has_sd, sd_mtimes = (load_stringsdata(sd_root, root) if sd_root.is_dir()
                                              else ([], False, {}))
             if not has_sd:
@@ -1087,6 +1176,20 @@ def run_full(root: Path, paths=None, fragments=None, stringsdata_root=None, warn
     return res
 
 
+def _check_single_configuration(sd_root: Path) -> None:
+    """UsageError when `sd_root` holds both Debug and Release extractions (G56).
+
+    Each build configuration extracts its own copy; mixing them lets a stale copy of one
+    configuration stand in for the other. Only the parts below `sd_root` are looked at.
+    """
+    configs: set[str] = set()
+    for f in sd_root.rglob("*.stringsdata"):
+        configs.update(p for p in f.relative_to(sd_root).parts[:-1] if p in ("Debug", "Release"))
+        if len(configs) == 2:
+            raise UsageError(f"--stringsdata-root mixes Debug and Release builds: {sd_root}; "
+                             f"pass …/StackNest.build/Debug")
+
+
 def _has_checked_ja_literal(src: str) -> bool:
     """True if `src` has at least one Japanese string literal that the lint would otherwise
     check (not `l10n:ignore`d, not inside a logging call). Comments never produce literals (the
@@ -1098,8 +1201,9 @@ def _has_checked_ja_literal(src: str) -> bool:
     not a leak, it is the expected state.
     """
     lines = src.split("\n")
-    return any(has_ja(lit.text.replace(PH, "")) and not _excluded(lit, lines)
-               for lit in SwiftScanner(src).scan())
+    lits = SwiftScanner(src).scan()
+    counts = ja_line_counts(lits)
+    return any(has_ja(lit.text.replace(PH, "")) and not _excluded(lit, lines, counts) for lit in lits)
 
 
 def check_stale(root, files, sd_mtimes, warn) -> list[Finding]:

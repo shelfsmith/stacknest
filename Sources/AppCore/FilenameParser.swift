@@ -46,7 +46,10 @@ public enum FilenameParser {
         let numeralPattern = #"([0-9０-９]+(?:[.．][0-9０-９]+)?|[〇零一二三四五六七八九十百千壱弐参肆伍陸柒捌玖拾佰仟]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹⅺⅻ]|[IVXLCDM]+|[αβγδεζηθικλμνξοπρστυφχψω])"#  // l10n:ignore parser lexicon (kanji/roman/greek numerals to match), not UI
 
         let patterns: [String] = [
-            #"第\s*"# + numeralPattern + #"\s*巻"#,      // 「第5巻」「第三巻」「第Ⅴ巻」「第0巻」「第零巻」  // l10n:ignore parser lexicon (volume-marker tokens), not UI
+            // 「第5巻」「第三巻」「第Ⅴ巻」「第0巻」「第零巻」（1 行 1 リテラル: l10n:ignore は 1 つの行にだけ効く）
+            #"第\s*"#  // l10n:ignore parser lexicon (volume-marker token), not UI
+                + numeralPattern
+                + #"\s*巻"#,  // l10n:ignore parser lexicon (volume-marker token), not UI
             #"[Vv]ol[\s.]*"# + numeralPattern,           // 「Vol.7」「Vol.Ⅴ」
             #"[Vv]olume\s*"# + numeralPattern,           // 「Volume 3」
             #"\("# + numeralPattern + #"\)$"#,           // 末尾の「(12)」「(壱)」

@@ -85,7 +85,12 @@ public enum BookTypeLabel {
     /// 正準ラベル（index = book_type 0..5）。ファイル名トークン `@type` の値（外部出力・逆引き）なので
     /// **言語に依らず日本語のまま**（G55）。画面に出すときは `displayLabel(for:)` を使う。
     public static let canonicalLabels: [String] = [
-        "厚い本", "薄い本", "本の一部", "画像セット", "テキスト", "ムービー"  // l10n:ignore @type filename token values (external output, language-independent); display via displayLabel(for:)
+        "厚い本",  // l10n:ignore @type filename token value (external output, language-independent); display via displayLabel(for:)
+        "薄い本",  // l10n:ignore @type filename token value (external output, language-independent); display via displayLabel(for:)
+        "本の一部",  // l10n:ignore @type filename token value (external output, language-independent); display via displayLabel(for:)
+        "画像セット",  // l10n:ignore @type filename token value (external output, language-independent); display via displayLabel(for:)
+        "テキスト",  // l10n:ignore @type filename token value (external output, language-independent); display via displayLabel(for:)
+        "ムービー"  // l10n:ignore @type filename token value (external output, language-independent); display via displayLabel(for:)
     ]
 
     static let labels: [Int: String] = Dictionary(

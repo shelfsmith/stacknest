@@ -101,6 +101,37 @@ class SwiftSources(unittest.TestCase):
         ]))
 
 
+    # G56-S1: blind spots (regex literals, array contains, one-literal ignores).
+    def test_g56_regex_literal_with_japanese_is_compare(self):
+        r = tree({"Sources/AppCore/A.swift": '''
+            let r = /第(\\d+)巻/
+            let s = #/上巻/#
+            let ok = /第(\\d+)巻/ // l10n:ignore parser for stored titles
+        ''', "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
+        self.assertEqual(kinds(r), ["compare", "compare"])
+
+    def test_g56_division_is_not_regex(self):
+        r = tree({"Sources/AppCore/A.swift": '''
+            let a = b / c / d
+            let t = L10n.text("上巻")
+        ''', "Sources/StackNestL10n/Tables/L10n+X.swift": '"上巻": L10nEntry("Vol. 1"),'})
+        self.assertEqual(kinds(r), [])
+
+    def test_g56_array_contains_is_compare(self):
+        r = tree({"Sources/AppCore/A.swift": '''
+            if ["上巻", "下巻"].contains(x) { }
+            if ["上巻"].firstIndex(of: x) != nil { }
+        ''', "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
+        self.assertEqual(kinds(r), ["compare", "compare", "compare"])
+
+    def test_g56_ignore_with_two_japanese_literals_is_void(self):
+        r = tree({"Sources/AppCore/A.swift": '''
+            let a = "上巻"; let b = "下巻" // l10n:ignore
+            let c = "中巻" // l10n:ignore single literal still ignored
+        ''', "Sources/StackNestL10n/Tables/L10n+X.swift": ""})
+        self.assertEqual(kinds(r), ["swift-literal", "swift-literal"])
+
+
 class Allowlist(unittest.TestCase):
     def test_allowlisted_file_is_skipped(self):
         r = tree({"Sources/AppCore/FilenameParser.swift": 'let t = ["上", "下"]\n', "Sources/StackNestL10n/Tables/L10n+X.swift": "",
@@ -110,7 +141,8 @@ class Allowlist(unittest.TestCase):
 
 class App(unittest.TestCase):
     def _app(self, src, keys, catalog):
-        sd = {"source": "x.swift", "tables": {"Localizable": [{"key": k} for k in keys]}, "version": 1}
+        # Location-less entries match within their own source file (G56), so name the real one.
+        sd = {"source": "App/StackNest/V.swift", "tables": {"Localizable": [{"key": k} for k in keys]}, "version": 1}
         return tree({
             "App/StackNest/V.swift": src,
             "App/StackNest/Localizable.xcstrings": json.dumps({"sourceLanguage": "ja", "strings": catalog, "version": "1.0"}, ensure_ascii=False),
@@ -136,6 +168,29 @@ class App(unittest.TestCase):
         frag = r / "tools/l10n/fragments/U1.json"; frag.parent.mkdir(parents=True, exist_ok=True)
         frag.write_text(json.dumps({"削除": {"en": "Delete"}}, ensure_ascii=False), encoding="utf-8")
         self.assertEqual(kinds(r, fragments=r / "tools/l10n/fragments"), [])
+
+    def test_g56_same_text_extracted_in_other_file_does_not_pass(self):
+        # B.swift の "閉じる" は抽出されていない。A.swift の位置無しの抽出物で合格にしない。
+        r = tree({"App/StackNest/A.swift": 'Text("閉じる")\n',
+                  "App/StackNest/B.swift": 'let x = "閉じる"\n',
+                  "App/StackNest/Localizable.xcstrings": json.dumps({"strings": {"閉じる": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Close"}}}}}})})
+        now = time.time() + 100
+        write_sd(r, "StackNest.build/Debug/A.stringsdata", "App/StackNest/A.swift", [("閉じる", 0)], now)  # 位置無し
+        write_sd(r, "StackNest.build/Debug/B.stringsdata", "App/StackNest/B.swift", [], now)
+        self.assertEqual(kinds(r), ["app-literal"])
+
+    def test_g56_location_less_entry_without_source_matches_by_text(self):
+        r = self._app('Text("閉じる")\n', [], {"閉じる": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Close"}}}}})
+        sd = r / "App/build/Build/Intermediates.noindex/x.stringsdata"
+        sd.write_text(json.dumps({"tables": {"Localizable": [{"key": "閉じる"}]}, "version": 1}, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(kinds(r), [])
+
+    def test_g56_mixed_debug_release_root_is_usage_error(self):
+        r = tree({"App/StackNest/A.swift": 'Text("閉じる")\n'})
+        now = time.time() + 100
+        write_sd(r, "StackNest.build/Debug/A.stringsdata", "App/StackNest/A.swift", [("閉じる", 1)], now)
+        write_sd(r, "StackNest.build/Release/A.stringsdata", "App/StackNest/A.swift", [("閉じる", 1)], now)
+        self.assertEqual(cli(r, "--strict")[0], 2)
 
 
 class AppDottedKeys(unittest.TestCase):
