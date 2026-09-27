@@ -74,6 +74,7 @@ struct RemoteLibrarySettingsSheet: View {
     @State private var stagedDefaultID: String = ""
     @State private var selectedPresetID: String = ""
     @State private var presetName: String = ""
+    @State private var presetNameOriginal: String = ""
     @State private var formatString: String = ""
     @State private var formatError: String? = nil
     @State private var samplePreview: [String] = []
@@ -865,14 +866,16 @@ struct RemoteLibrarySettingsSheet: View {
 
     private func loadSelectedStagedPreset() {
         guard let p = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
-        presetName = p.name
+        presetNameOriginal = p.name
+        presetName = SeededNameEditing.fieldText(stored: p.name, display: FilenameFormatPreset.displayName(forStoredName:))
         formatString = p.format ?? ""
         updatePresetPreview(formatString)
     }
 
     private func updateSelectedStagedPreset(name: String, format: String) {
         guard let i = stagedPresets.firstIndex(where: { $0.id == selectedPresetID }) else { return }
-        stagedPresets[i].name = name
+        stagedPresets[i].name = SeededNameEditing.storedValue(field: name, original: presetNameOriginal,
+                                                              display: FilenameFormatPreset.displayName(forStoredName:))
         stagedPresets[i].format = format
     }
 
@@ -885,7 +888,9 @@ struct RemoteLibrarySettingsSheet: View {
 
     private func duplicateStagedPreset() {
         guard let src = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
-        let p = FilenameFormatPresetDTO(id: UUID().uuidString, name: String(localized: "\(src.name) のコピー"), format: src.format ?? "")
+        let p = FilenameFormatPresetDTO(id: UUID().uuidString,
+                                         name: String(localized: "\(FilenameFormatPreset.displayName(forStoredName: src.name)) のコピー"),
+                                         format: src.format ?? "")
         stagedPresets.append(p)
         selectedPresetID = p.id
         loadSelectedStagedPreset()

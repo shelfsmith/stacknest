@@ -11,16 +11,6 @@
         }
       }
     },
-    " のコピー" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : " copy"
-          }
-        }
-      }
-    },
     "%@ → Finder %lld 件" : {
       "localizations" : {
         "en" : {

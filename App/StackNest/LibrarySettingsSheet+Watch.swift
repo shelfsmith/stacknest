@@ -83,7 +83,7 @@ extension LibrarySettingsSheet {
                 )) {
                     Text("ライブラリ既定").tag("")
                     ForEach(settings.filenameFormatPresets) { p in
-                        Text(p.name).tag(p.id)
+                        Text(p.displayName).tag(p.id)
                     }
                 }
                 .labelsHidden()

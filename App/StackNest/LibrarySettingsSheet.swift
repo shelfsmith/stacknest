@@ -38,6 +38,7 @@ struct LibrarySettingsSheet: View {
     @State private var stagedDefaultID: String = ""
     @State private var selectedPresetID: String = ""
     @State private var presetName: String = ""
+    @State private var presetNameOriginal: String = ""
 
     // Lock section state
     @State var lockToggleOn = false
@@ -527,13 +528,15 @@ struct LibrarySettingsSheet: View {
 
     private func loadSelectedPreset() {
         guard let p = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
-        presetName = p.name
+        presetNameOriginal = p.name
+        presetName = SeededNameEditing.fieldText(stored: p.name, display: FilenameFormatPreset.displayName(forStoredName:))
         formatString = p.format
         updatePreview(formatString)
     }
     private func updateSelectedPreset(name: String, format: String) {
         guard let i = stagedPresets.firstIndex(where: { $0.id == selectedPresetID }) else { return }
-        stagedPresets[i].name = name
+        stagedPresets[i].name = SeededNameEditing.storedValue(field: name, original: presetNameOriginal,
+                                                              display: FilenameFormatPreset.displayName(forStoredName:))
         stagedPresets[i].format = format
     }
     private func addPreset() {
@@ -544,7 +547,9 @@ struct LibrarySettingsSheet: View {
     }
     private func duplicatePreset() {
         guard let src = stagedPresets.first(where: { $0.id == selectedPresetID }) else { return }
-        let p = FilenameFormatPreset(id: UUID().uuidString, name: src.name + String(localized: " のコピー"), format: src.format)
+        let p = FilenameFormatPreset(id: UUID().uuidString,
+                                      name: String(localized: "\(FilenameFormatPreset.displayName(forStoredName: src.name)) のコピー"),
+                                      format: src.format)
         stagedPresets.append(p)
         selectedPresetID = p.id
         loadSelectedPreset()

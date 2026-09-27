@@ -157,6 +157,7 @@ struct GrantEditorSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var label: String = ""
+    @State private var labelOriginal: String = ""
     @State private var tier: AccessTier = .read
     @State private var scopeIsAll: Bool = true
     @State private var selectedUUIDs: Set<String> = []
@@ -231,7 +232,8 @@ struct GrantEditorSheet: View {
 
     private func loadForEdit() {
         guard case .edit(let g) = target else { return }
-        label = g.label
+        labelOriginal = g.label
+        label = SeededNameEditing.fieldText(stored: g.label, display: GrantStore.displayLabel(for:))
         tier = g.tier
         switch g.scope {
         case .all:
@@ -256,7 +258,7 @@ struct GrantEditorSheet: View {
             GrantStore.add(g)
         case .edit(let existing):
             var g = existing
-            g.label = trimmedLabel
+            g.label = SeededNameEditing.storedValue(field: trimmedLabel, original: labelOriginal, display: GrantStore.displayLabel(for:))
             g.tier = tier
             g.scope = scope
             GrantStore.update(g)
