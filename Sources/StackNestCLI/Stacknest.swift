@@ -58,7 +58,7 @@ extension ParsableCommand {
                 fputs(L10n.text("エラー: 対象が見つかりません（HTTP 404）。\n"), stderr)
                 code = 2
             case .http(let s):
-                fputs(L10n.format("エラー: サーバが HTTP %d を返しました。\n", s), stderr)
+                fputs(L10n.format("エラー: サーバが HTTP %lld を返しました。\n", s), stderr)
                 code = 2
             case .network:
                 fputs(L10n.text("エラー: サーバに接続できません。\nStackNest を起動し「ローカルアクセスを許可」が ON か確認してください（または --url / --token）。\n"), stderr)
@@ -145,7 +145,7 @@ struct Libraries: ParsableCommand {
             decoder.dateDecodingStrategy = .iso8601
             let libs = try decoder.decode([LibraryDTO].self, from: data)
             for lib in libs {
-                let count = L10n.plural("%d 冊", count: lib.bookCount, lib.bookCount)
+                let count = L10n.plural("%lld 冊", count: lib.bookCount, lib.bookCount)
                 let lockSuffix = lib.locked ? L10n.text(" [ロック]") : ""
                 print("\(lib.id)  \(lib.name)  (\(count))\(lockSuffix)")
             }
@@ -202,7 +202,7 @@ struct List: ParsableCommand {
             for book in page.items {
                 print("\(book.id)\t\(book.title)\t\(book.author ?? "")")
             }
-            print(L10n.format("--- 表示 %d / 計 %d 冊 ---", page.items.count, page.total))
+            print(L10n.format("--- 表示 %lld / 計 %lld 冊 ---", page.items.count, page.total))
         }
     }
 }
@@ -237,7 +237,7 @@ struct Add: ParsableCommand {
                 print(String(data: data, encoding: .utf8) ?? "")
             } else {
                 let ids = reply.addedIDs.map(String.init).joined(separator: ",")
-                print(L10n.plural("追加: %d 冊 (IDs: %@)", count: reply.addedIDs.count, reply.addedIDs.count, ids))
+                print(L10n.plural("追加: %lld 冊 (IDs: %@)", count: reply.addedIDs.count, reply.addedIDs.count, ids))
                 if !reply.alreadyPresent.isEmpty {
                     print(L10n.format("既存: %@", reply.alreadyPresent.joined(separator: ", ")))
                 }
@@ -275,10 +275,10 @@ struct Rm: ParsableCommand {
                 do {
                     try client.remove(uuid: lib.id, id: id, trash: trash)
                     if !common.json {
-                        print(L10n.format("削除しました (id=%d)", id))
+                        print(L10n.format("削除しました (id=%lld)", id))
                     }
                 } catch {
-                    fputs(L10n.format("エラー (id=%d): %@\n", id, "\(error)"), stderr)
+                    fputs(L10n.format("エラー (id=%lld): %@\n", id, "\(error)"), stderr)
                     failedIDs.append(id)
                 }
             }
@@ -356,7 +356,7 @@ struct Set: ParsableCommand {
             }
             try client.patch(uuid: lib.id, id: id, body: patch)
             if !common.json {
-                print(L10n.format("更新しました (id=%d)", id))
+                print(L10n.format("更新しました (id=%lld)", id))
             }
         }
     }
@@ -430,7 +430,7 @@ struct Facets: ParsableCommand {
             let decoder = JSONDecoder()
             if let values = try? decoder.decode([String].self, from: data) {
                 for v in values { print(v) }
-                print(L10n.plural("--- %d 件 ---", count: values.count, values.count))
+                print(L10n.plural("--- %lld 件 ---", count: values.count, values.count))
             } else {
                 // デコード失敗時は生データを表示
                 print(String(data: data, encoding: .utf8) ?? "")
@@ -490,7 +490,7 @@ struct Me: ParsableCommand {
             let scopeStr: String
             switch me.scope {
             case .all: scopeStr = L10n.text("all（全ライブラリ）")
-            case .libraries(let ids): scopeStr = L10n.plural("%d ライブラリ: %@", count: ids.count, ids.count, ids.joined(separator: ", "))
+            case .libraries(let ids): scopeStr = L10n.plural("%lld ライブラリ: %@", count: ids.count, ids.count, ids.joined(separator: ", "))
             }
             print("role: \(me.role.rawValue)\ntier: \(me.tier.rawValue)\nscope: \(scopeStr)")
         }
@@ -592,7 +592,7 @@ struct ShelfAddBooks: ParsableCommand {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
             try client.shelfBooksAdd(uuid: lib.id, id: id, bookIDs: bookIDs)
-            print(L10n.plural("追加しました (shelf=%lld, books=%d)", count: bookIDs.count, id, bookIDs.count))
+            print(L10n.plural("追加しました (shelf=%lld, books=%lld)", count: bookIDs.count, id, bookIDs.count))
         }
     }
 }
@@ -606,7 +606,7 @@ struct ShelfRemoveBooks: ParsableCommand {
             let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
             let lib = try resolveLibrary(client: client, libArg: common.library)
             try client.shelfBooksRemove(uuid: lib.id, id: id, bookIDs: bookIDs)
-            print(L10n.plural("除去しました (shelf=%lld, books=%d)", count: bookIDs.count, id, bookIDs.count))
+            print(L10n.plural("除去しました (shelf=%lld, books=%lld)", count: bookIDs.count, id, bookIDs.count))
         }
     }
 }
@@ -807,7 +807,7 @@ struct Relink: ParsableCommand {
     func run() throws { try mappingAPIErrors {
         let ep = try resolveEndpoint(common: common); let client = APIClient(endpoint: ep)
         let lib = try resolveLibrary(client: client, libArg: common.library)
-        try client.relink(uuid: lib.id, id: id, newPath: newPath); print(L10n.format("再リンクしました (id=%d)", id))
+        try client.relink(uuid: lib.id, id: id, newPath: newPath); print(L10n.format("再リンクしました (id=%lld)", id))
     } }
 }
 struct Dedup: ParsableCommand {
@@ -1099,7 +1099,7 @@ struct Stamp: ParsableCommand {
         let data = try client.stampApply(uuid: lib.id, body: body)
         if common.json { print(String(data: data, encoding: .utf8) ?? ""); return }
         let reply = try JSONDecoder().decode(StampApplyReply.self, from: data)
-        print(L10n.plural("更新: %d 冊", count: reply.updated, reply.updated))
+        print(L10n.plural("更新: %lld 冊", count: reply.updated, reply.updated))
     } }
 }
 
@@ -1219,7 +1219,7 @@ struct FinderTagsResync: ParsableCommand {
             let reply = try JSONDecoder().decode(FinderTagResyncReply.self, from: data)
             switch reply.status {
             case "started":
-                print(L10n.format("再照合しました（Finder → 庫 %d 件 / 庫 → Finder %d 件）", reply.updatedInLibrary, reply.updatedInFinder))
+                print(L10n.format("再照合しました（Finder → 庫 %lld 件 / 庫 → Finder %lld 件）", reply.updatedInLibrary, reply.updatedInFinder))
             case "noField":
                 print(L10n.text("同期する項目が選ばれていません（何もしていません）"))
             case "locked":
@@ -1235,7 +1235,7 @@ struct FinderTagsResync: ParsableCommand {
                 print(L10n.format("同期できなかったタグ: %@", reply.skippedTags.joined(separator: " / ")))
             }
             if !reply.skippedBooks.isEmpty {
-                print(L10n.plural("タグを読めなかった本: %d 冊", count: reply.skippedBooks.count, reply.skippedBooks.count))
+                print(L10n.plural("タグを読めなかった本: %lld 冊", count: reply.skippedBooks.count, reply.skippedBooks.count))
             }
             if !reply.indexingDisabledVolumes.isEmpty {
                 print(L10n.format("Spotlight 索引が無効: %@", reply.indexingDisabledVolumes.joined(separator: L10n.text("・"))))
@@ -1318,10 +1318,10 @@ struct RenameFiles: ParsableCommand {
                     }
                 }
                 if reply.applied {
-                    print(L10n.format("改名しました: %d 件 / 見送り %d 件", reply.renamed, reply.skipped))
+                    print(L10n.format("改名しました: %lld 件 / 見送り %lld 件", reply.renamed, reply.skipped))
                 } else {
                     let planned = reply.rows.filter { $0.status == "ok" }.count
-                    print(L10n.plural("計画のみ（--apply を付けると実行します）: 改名 %d 件予定", count: planned, planned))
+                    print(L10n.plural("計画のみ（--apply を付けると実行します）: 改名 %lld 件予定", count: planned, planned))
                 }
                 if !reply.missingIDs.isEmpty {
                     print(L10n.format("庫に無い ID: %@", reply.missingIDs.map(String.init).joined(separator: ", ")))
