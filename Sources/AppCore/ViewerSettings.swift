@@ -48,10 +48,19 @@ public final class ViewerSettings {
     private let epubViewerAppPathKey = "epubViewerAppPath"
     private let pageTurnStyleKey = "pageTurnStyle"
     private let showsEPUBFolioKey = "showsEPUBFolio"
-    private let epubFontFamilyKey = "epubFontFamily"
+    /// G56 の旧キー。移行元としてのみ `init` で読む（移行後は消す）。
+    private let legacyEPUBFontFamilyKey = "epubFontFamily"
+    private let epubJapaneseFontFamilyKey = "epubJapaneseFontFamily"
+    private let epubLatinFontFamilyKey = "epubLatinFontFamily"
     private let epubLightPaletteKey = "epubLightPalette"
     private let epubDarkPaletteKey = "epubDarkPalette"
     private let epubForcesReadableColorsKey = "epubForcesReadableColors"
+    private let epubLightCustomBackgroundKey = "epubLightCustomBackground"
+    private let epubLightCustomTextKey = "epubLightCustomText"
+    private let epubDarkCustomBackgroundKey = "epubDarkCustomBackground"
+    private let epubDarkCustomTextKey = "epubDarkCustomText"
+    private let epubHorizontalWheelTurnsPagesKey = "epubHorizontalWheelTurnsPages"
+    private let epubReversesHorizontalWheelTurnKey = "epubReversesHorizontalWheelTurn"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -203,11 +212,22 @@ public final class ViewerSettings {
         }
     }
 
-    /// G56-S3: EPUB の書体（フォントのファミリー名）。nil ＝本の指定に従う。機械に無い書体は窓の側で nil 扱いにする（保存値は残す）。
-    public var epubFontFamily: String? {
+    /// G57: EPUB の和文書体（フォントのファミリー名）。nil ＝本の指定に従う。機械に無い書体は窓の側で nil
+    /// 扱いにする（保存値は残す）。G56 の単一書体キー（`epubFontFamily`）はここへ移行する（`init` 参照）。
+    public var epubJapaneseFontFamily: String? {
         didSet {
-            if let epubFontFamily { defaults.set(epubFontFamily, forKey: epubFontFamilyKey) }
-            else { defaults.removeObject(forKey: epubFontFamilyKey) }
+            if let epubJapaneseFontFamily { defaults.set(epubJapaneseFontFamily, forKey: epubJapaneseFontFamilyKey) }
+            else { defaults.removeObject(forKey: epubJapaneseFontFamilyKey) }
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G57: EPUB の欧文書体。nil ＝本の指定に従う（片方だけ指定すると、もう片方は既定の書体になる。
+    /// §1.2 の CSS 側の制約）。
+    public var epubLatinFontFamily: String? {
+        didSet {
+            if let epubLatinFontFamily { defaults.set(epubLatinFontFamily, forKey: epubLatinFontFamilyKey) }
+            else { defaults.removeObject(forKey: epubLatinFontFamilyKey) }
             NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
         }
     }
@@ -236,10 +256,78 @@ public final class ViewerSettings {
         }
     }
 
+    /// G57: ライトのカスタム背景色・文字色（`#RRGGBB`）。`epubLightPalette == .custom` のときに使う。
+    /// 未設定（nil）のまま画面で「カスタム」を選んだ直後は `ensureCustomColors(dark:)` で埋める。
+    public var epubLightCustomColors: EPUBPaletteColors? {
+        didSet {
+            persistCustomColors(epubLightCustomColors, backgroundKey: epubLightCustomBackgroundKey, textKey: epubLightCustomTextKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G57: ダークのカスタム背景色・文字色。`epubDarkPalette == .custom` のときに使う。
+    public var epubDarkCustomColors: EPUBPaletteColors? {
+        didSet {
+            persistCustomColors(epubDarkCustomColors, backgroundKey: epubDarkCustomBackgroundKey, textKey: epubDarkCustomTextKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G57: 横方向のスクロール／トラックパッドの横振れでページを送るか（既定 true）。
+    public var epubHorizontalWheelTurnsPages: Bool {
+        didSet {
+            defaults.set(epubHorizontalWheelTurnsPages, forKey: epubHorizontalWheelTurnsPagesKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G57: 横方向のページ送りの向きを反対にするか（既定 false）。`epubHorizontalWheelTurnsPages` が
+    /// false のときは画面側で灰色にする（このプロパティ自体は独立して保存する）。
+    public var epubReversesHorizontalWheelTurn: Bool {
+        didSet {
+            defaults.set(epubReversesHorizontalWheelTurn, forKey: epubReversesHorizontalWheelTurnKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G57: 画面が「カスタム」を選んだ直後に呼ぶ。カスタムの色が未設定なら、その時点のプリセットの色
+    /// （標準や `.custom` 自身で色が無いときは `EPUBWashiDefaultColors`）で埋める。既に値があれば変えない。
+    public func ensureCustomColors(dark: Bool) {
+        if dark {
+            guard epubDarkCustomColors == nil else { return }
+            epubDarkCustomColors = epubDarkPalette.colors ?? EPUBWashiDefaultColors.dark
+        } else {
+            guard epubLightCustomColors == nil else { return }
+            epubLightCustomColors = epubLightPalette.colors ?? EPUBWashiDefaultColors.light
+        }
+    }
+
     /// G56-S3: 窓が reader へ渡す見た目の一式。
     public var epubAppearance: EPUBAppearanceValue {
         EPUBAppearanceValue(theme: epubTheme, lightPalette: epubLightPalette, darkPalette: epubDarkPalette,
-                            japaneseFontFamily: epubFontFamily, forcesReadableColors: epubForcesReadableColors)
+                            lightCustom: epubLightCustomColors, darkCustom: epubDarkCustomColors,
+                            japaneseFontFamily: epubJapaneseFontFamily, latinFontFamily: epubLatinFontFamily,
+                            forcesReadableColors: epubForcesReadableColors)
+    }
+
+    /// `#RRGGBB` の背景・文字の 2 キーへ書く（nil なら両方消す）。
+    private func persistCustomColors(_ colors: EPUBPaletteColors?, backgroundKey: String, textKey: String) {
+        if let colors {
+            defaults.set(colors.background.hexString, forKey: backgroundKey)
+            defaults.set(colors.text.hexString, forKey: textKey)
+        } else {
+            defaults.removeObject(forKey: backgroundKey)
+            defaults.removeObject(forKey: textKey)
+        }
+    }
+
+    /// `#RRGGBB` の背景・文字の 2 キーを読む。片方でも欠けている／壊れていれば nil（標準の見た目に倒す）。
+    private static func loadCustomColors(from defaults: UserDefaults, backgroundKey: String, textKey: String) -> EPUBPaletteColors? {
+        guard let backgroundHex = defaults.string(forKey: backgroundKey), let background = EPUBRGB(hexString: backgroundHex),
+              let textHex = defaults.string(forKey: textKey), let text = EPUBRGB(hexString: textHex) else {
+            return nil
+        }
+        return EPUBPaletteColors(background: background, text: text)
     }
 
     /// G54-S3: ページ送りの演出（画像ビューアと EPUB の両方に効く・既定は演出なし）。
@@ -410,13 +498,34 @@ public final class ViewerSettings {
         // 壊れた値や未知の値はシステムに倒す（epubFontScale が範囲外を既定へ戻すのと同じ考え方）。
         self.epubTheme = defaults.string(forKey: epubThemeKey)
             .flatMap(EPUBReaderThemeValue.init(rawValue:)) ?? .system
-        // G56-S3: 空文字・非文字列は「本の指定」に、未知の値は標準に倒す。
-        self.epubFontFamily = defaults.string(forKey: epubFontFamilyKey).flatMap { $0.isEmpty ? nil : $0 }
+        // G57: G56 の単一書体キーからの移行。和文のキーがまだ無く、旧キーに空でない値があるときだけ、
+        // 和文へ写して旧キーを消す（和文のキーが既にあれば上書きしない）。
+        if defaults.object(forKey: epubJapaneseFontFamilyKey) == nil,
+           let legacy = defaults.string(forKey: legacyEPUBFontFamilyKey), !legacy.isEmpty {
+            defaults.set(legacy, forKey: epubJapaneseFontFamilyKey)
+            defaults.removeObject(forKey: legacyEPUBFontFamilyKey)
+        }
+        // G56-S3/G57: 空文字・非文字列は「本の指定」に倒す。
+        self.epubJapaneseFontFamily = defaults.string(forKey: epubJapaneseFontFamilyKey).flatMap { $0.isEmpty ? nil : $0 }
+        self.epubLatinFontFamily = defaults.string(forKey: epubLatinFontFamilyKey).flatMap { $0.isEmpty ? nil : $0 }
         self.epubLightPalette = defaults.string(forKey: epubLightPaletteKey)
             .flatMap(EPUBLightPalette.init(rawValue:)) ?? .standard
         self.epubDarkPalette = defaults.string(forKey: epubDarkPaletteKey)
             .flatMap(EPUBDarkPalette.init(rawValue:)) ?? .standard
         self.epubForcesReadableColors = defaults.bool(forKey: epubForcesReadableColorsKey)
+        // G57: 壊れた／片方欠けの #RRGGBB は nil（標準の見た目）に倒す。
+        self.epubLightCustomColors = Self.loadCustomColors(
+            from: defaults, backgroundKey: epubLightCustomBackgroundKey, textKey: epubLightCustomTextKey)
+        self.epubDarkCustomColors = Self.loadCustomColors(
+            from: defaults, backgroundKey: epubDarkCustomBackgroundKey, textKey: epubDarkCustomTextKey)
+        // G57: キー不在で true（既定は「送る」）。
+        if defaults.object(forKey: epubHorizontalWheelTurnsPagesKey) == nil {
+            self.epubHorizontalWheelTurnsPages = true
+        } else {
+            self.epubHorizontalWheelTurnsPages = defaults.bool(forKey: epubHorizontalWheelTurnsPagesKey)
+        }
+        // キー不在で false（defaults.bool の既定と一致）。
+        self.epubReversesHorizontalWheelTurn = defaults.bool(forKey: epubReversesHorizontalWheelTurnKey)
         // G54-S3: 壊れた値や未知の値は演出なしに倒す。`PageTurnStyleValue.off` と型を明示する。
         self.pageTurnStyle = defaults.string(forKey: pageTurnStyleKey)
             .flatMap(PageTurnStyleValue.init(rawValue:)) ?? PageTurnStyleValue.off

@@ -29,8 +29,8 @@ struct BuiltInViewerSettingsForm: View {
     /// 判定は求めておいた候補の集合で行う（Picker の tag も候補だけなので、これと一致させる）。
     private var fontSelection: Binding<String?> {
         let families = Set(fontCandidates.map(\.family))
-        return Binding(get: { EPUBFontCandidates.effectiveFamily(settings.epubFontFamily, installed: families) },
-                       set: { settings.epubFontFamily = $0 })
+        return Binding(get: { EPUBFontCandidates.effectiveFamily(settings.epubJapaneseFontFamily, installed: families) },
+                       set: { settings.epubJapaneseFontFamily = $0 })
     }
 
     var body: some View {
