@@ -52,6 +52,7 @@ struct WashiAppearanceTests {
     @Test func userCSSCarriesFontsAndForcedColor() {
         let host = WashiReaderHost()
         host.systemIsDark = { false }
+        host.resolveLatinFaces = { _ in [] }   // 字体が引けない経路（書体名の並び）。別名の経路は WashiLatinFaceTests
         let custom = EPUBPaletteColors(background: EPUBRGB(hex: 0xFFFFFF), text: EPUBRGB(hex: 0x333333))
         host.applyAppearance(EPUBAppearanceValue(theme: .light, lightPalette: .custom, lightCustom: custom,
                                                  japaneseFontFamily: "YuMincho", latinFontFamily: "Georgia",

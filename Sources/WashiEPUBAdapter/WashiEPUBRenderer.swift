@@ -304,6 +304,39 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         return self.hostView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
+    /// 欧文の書体名から、その字体（PostScript 名・太さ・斜体）を引く。テストで差し替える。
+    /// 既定は `NSFontManager` に入っている字体。引けなければ空（CSS は書体名の並びに戻る）。
+    lazy var resolveLatinFaces: @MainActor (String) -> [EPUBFontFace] = { family in
+        Self.latinFaces(fromMembers: NSFontManager.shared.availableMembers(ofFontFamily: family) ?? [])
+    }
+
+    /// `availableMembers(ofFontFamily:)` の各項目（[PostScript 名, 字体名, 太さ 0–15, traits]）を字体に写す。
+    /// 形の崩れた項目は捨てる。
+    nonisolated static func latinFaces(fromMembers members: [[Any]]) -> [EPUBFontFace] {
+        members.compactMap { m in
+            guard m.count >= 4, let ps = m[0] as? String, !ps.isEmpty,
+                  let weight = (m[2] as? NSNumber)?.intValue,
+                  let traits = (m[3] as? NSNumber)?.uintValue else { return nil }
+            let italic = traits & NSFontTraitMask.italicFontMask.rawValue != 0
+            return EPUBFontFace(postScriptName: ps, weight: cssWeight(appKitWeight: weight), italic: italic)
+        }
+    }
+
+    /// `NSFontManager` の太さ（0–15。5 が標準、9 が太字）を CSS の太さ（100–900）に写す。
+    nonisolated static func cssWeight(appKitWeight w: Int) -> Int {
+        switch w {
+        case ...2: return 100
+        case 3: return 200
+        case 4: return 300
+        case 5: return 400
+        case 6: return 500
+        case 7...8: return 600
+        case 9...10: return 700
+        case 11...12: return 800
+        default: return 900
+        }
+    }
+
     func applyAppearance(_ appearance: EPUBAppearanceValue) {
         self.appearance = appearance
         var next = reader.settings
@@ -318,7 +351,9 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // G57: 書体・強制文字色は Washi の `fontFamilyOverride`（和文のみ・単一書体）ではなく、
         // 和文/欧文の両方と強制色をまとめて表せる `userCSS` で渡す。
         next.fontFamilyOverride = nil
-        next.userCSS = EPUBAppearanceCSS.make(appearance, systemIsDark: systemIsDark())
+        // 欧文の書体はラテン文字の範囲に限る（日本語の約物・かな・漢字は和文の書体へ落とす）。
+        let latinFaces = appearance.latinFontFamily.flatMap { $0.isEmpty ? nil : resolveLatinFaces($0) } ?? []
+        next.userCSS = EPUBAppearanceCSS.make(appearance, systemIsDark: systemIsDark(), latinFaces: latinFaces)
         next.forcesReadableColors = appearance.forcesReadableColors
         guard next != reader.settings else { return }   // 同値で再ページ割りを起こさない
         if next.userCSS != reader.settings.userCSS { captureRelandTarget() }
