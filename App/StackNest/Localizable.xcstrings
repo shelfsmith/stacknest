@@ -630,62 +630,12 @@
         }
       }
     },
-    "EPUB のノンブルを表示" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show EPUB Page Numbers"
-          }
-        }
-      }
-    },
-    "EPUB の書体" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "EPUB Typeface"
-          }
-        }
-      }
-    },
-    "EPUB の背景（ダーク）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "EPUB Background (Dark)"
-          }
-        }
-      }
-    },
-    "EPUB の背景（ライト）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "EPUB Background (Light)"
-          }
-        }
-      }
-    },
     "EPUB の解析と表示" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "EPUB parsing and display"
-          }
-        }
-      }
-    },
-    "EPUB の配色" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "EPUB Color Theme"
           }
         }
       }
@@ -2123,6 +2073,16 @@
         }
       }
     },
+    "その他…" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Other…"
+          }
+        }
+      }
+    },
     "である" : {
       "localizations" : {
         "en" : {
@@ -2179,6 +2139,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Get Started"
+          }
+        }
+      }
+    },
+    "もう一方の書体は、本の指定ではなく既定の書体になります。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The other typeface uses the default font, not the book's."
           }
         }
       }
@@ -2389,6 +2359,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open Source Software"
+          }
+        }
+      }
+    },
+    "カスタム" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom"
           }
         }
       }
@@ -3227,6 +3207,16 @@
         }
       }
     },
+    "トラックパッドの左右のスワイプやマウスの横スクロールでページを送ります。縦方向のスクロールでは常にページが送られます。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Swipe left or right on a trackpad, or scroll sideways with a mouse, to turn pages. Vertical scrolling always turns pages."
+          }
+        }
+      }
+    },
     "トークン" : {
       "localizations" : {
         "en" : {
@@ -3303,6 +3293,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "No network address was found. Check Wi-Fi / wired / Tailscale."
+          }
+        }
+      }
+    },
+    "ノンブルを表示" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Page Numbers"
           }
         }
       }
@@ -3466,6 +3466,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Open in Viewer"
+          }
+        }
+      }
+    },
+    "ビューア共通" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All Viewers"
           }
         }
       }
@@ -5495,22 +5505,12 @@
         }
       }
     },
-    "全画面で開く（EPUB）" : {
+    "全画面で開く" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Open Full Screen (EPUB)"
-          }
-        }
-      }
-    },
-    "全画面で開く（画像）" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Open Full Screen (Images)"
+            "value" : "Open Full Screen"
           }
         }
       }
@@ -6352,6 +6352,16 @@
         }
       }
     },
+    "和文の書体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Japanese Typeface"
+          }
+        }
+      }
+    },
     "問題は見つかりませんでした" : {
       "localizations" : {
         "en" : {
@@ -6783,6 +6793,26 @@
         }
       }
     },
+    "文字と背景の色が近く、読みにくい組み合わせです。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The text and background colors are too similar to read comfortably."
+          }
+        }
+      }
+    },
+    "文字色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text Color"
+          }
+        }
+      }
+    },
     "新しい %@ を追加" : {
       "localizations" : {
         "en" : {
@@ -7062,6 +7092,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Edit Days…"
+          }
+        }
+      }
+    },
+    "日本語の文字が無いため、かな・漢字は既定の書体になります。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This font has no Japanese characters, so kana and kanji use the default font."
           }
         }
       }
@@ -7697,6 +7737,26 @@
         }
       }
     },
+    "横方向のスクロールでページを送る" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Pages with Horizontal Scrolling"
+          }
+        }
+      }
+    },
+    "横方向の向きを反対にする" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reverse Horizontal Direction"
+          }
+        }
+      }
+    },
     "機械に入っている書体だけを表示します。" : {
       "localizations" : {
         "en" : {
@@ -7793,6 +7853,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Next →"
+          }
+        }
+      }
+    },
+    "欧文の書体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latin Typeface"
           }
         }
       }
@@ -8031,12 +8101,22 @@
         }
       }
     },
-    "画像ビューアと EPUB の両方に効きます。キーを押し続けたときと「視差効果を減らす」が有効なときは省きます。" : {
+    "画像ビューア" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Applies to both the image viewer and EPUB. Skipped while holding down a key, or when “Reduce Motion” is enabled."
+            "value" : "Image Viewer"
+          }
+        }
+      }
+    },
+    "画像ビューアと電子書籍ビューアの両方に効きます。キーを押し続けたときと「視差効果を減らす」が有効なときは省きます。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Applies to both the image viewer and the e-book viewer. Skipped while holding down a key, or when “Reduce Motion” is enabled."
           }
         }
       }
@@ -8421,6 +8501,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "You don't have edit permission."
+          }
+        }
+      }
+    },
+    "背景色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background Color"
+          }
+        }
+      }
+    },
+    "背景（ダーク）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background (Dark)"
+          }
+        }
+      }
+    },
+    "背景（ライト）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Background (Light)"
           }
         }
       }
@@ -9178,6 +9288,16 @@
         }
       }
     },
+    "配色" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Color Theme"
+          }
+        }
+      }
+    },
     "重複の検出結果" : {
       "localizations" : {
         "en" : {
@@ -9367,6 +9487,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "E-Book"
+          }
+        }
+      }
+    },
+    "電子書籍ビューア" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "E-Book Viewer"
           }
         }
       }

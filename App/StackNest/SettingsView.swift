@@ -308,8 +308,15 @@ struct SettingsView: View {
             // MARK: - Tab 4: 内蔵ビューア（G54-S1: 「表示」から設定を移し、キー割り当てもここへ畳んだ。
             // リモート/オフラインでも内蔵ビューアが必ず使われるため、外部ビューア選択時もグレーアウトしない。）
             Form {
-                Section("内蔵ビューア") {
-                    BuiltInViewerSettingsForm(settings: settings)
+                // G57: 効き先ごとに 3 節（ビューア共通・画像ビューア・電子書籍ビューア）に分けた。
+                Section("ビューア共通") {
+                    ViewerCommonSettingsForm(settings: settings)
+                }
+                Section("画像ビューア") {
+                    ImageViewerSettingsForm(settings: settings)
+                }
+                Section("電子書籍ビューア") {
+                    EbookViewerSettingsForm(settings: settings)
                 }
                 Section("キー割り当て") {
                     KeyBindingsSettingsView(enabled: true, onHeightChange: { keyHeightRevision &+= 1 })
@@ -332,10 +339,14 @@ struct SettingsView: View {
             // contentRevision: 同じタブ内で中身の高さが変わったとき updateNSView を再発火させる版数。
             //   一般タブ: ローカルコントロールのトグルでセクションが増減する。
             //   内蔵ビューアタブ（G54-S1）: キー割り当ての折りたたみ開閉で高さが変わる。
+            //     G57: 電子書籍ビューアの背景を「カスタム」にすると色の行が出入りする（下位 2 ビット）。
             contentRevision: {
                 switch settingsTab {
                 case 0: return ServerPreferences.localAutomationEnabled() ? 1 : 0
-                case 3: return keyHeightRevision
+                case 3:
+                    return keyHeightRevision &* 4
+                        &+ (settings.epubLightPalette == .custom ? 1 : 0)
+                        &+ (settings.epubDarkPalette == .custom ? 2 : 0)
                 default: return 0
                 }
             }()

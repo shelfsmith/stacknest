@@ -114,7 +114,16 @@ struct FirstRunWizardView: View {
             Text("あとから設定画面でも変更できます。")
                 .font(.caption).foregroundStyle(.secondary)
             Form {
-                BuiltInViewerSettingsForm(settings: settings)
+                // G57: 設定の窓と同じ 3 節。
+                Section("ビューア共通") {
+                    ViewerCommonSettingsForm(settings: settings)
+                }
+                Section("画像ビューア") {
+                    ImageViewerSettingsForm(settings: settings)
+                }
+                Section("電子書籍ビューア") {
+                    EbookViewerSettingsForm(settings: settings)
+                }
             }
             .formStyle(.grouped)
         }

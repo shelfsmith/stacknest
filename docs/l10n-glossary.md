@@ -104,14 +104,20 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | キー操作・キー割り当て | Key Bindings | |
 | ページ送りの演出 | Page Turn Effect | |
 | ノンブル | Page Number | |
-| 全画面で開く | Open in Full Screen | |
+| 全画面で開く | Open Full Screen | 画像ビューア・電子書籍ビューアの節に同じ名前で置く（G57。カタログは以前から Open Full Screen だったので表に合わせた） |
 | 次の巻へ／先頭へ／本を閉じる | Next Volume／To the Beginning／Close the Book | Web の巻末ダイアログ |
 | ルーペの形・大きさ | Circle／Square、Small／Medium／Large | |
 | キー操作のセクション | Navigation／Zoom／Spread & Slideshow／Volume Navigation／Other | |
 | アーカイブ／画像／フォルダ／動画／テキスト | Archive／Image／Folder／Video／Text | `BookCategory`（ビューア選択の分類。本の種類ラベルとは別語彙） |
-| 電子書籍 | E-Book | EPUB 用外部ビューア未設定時の表示名。複数形 E-Books (EPUB) |
+| 電子書籍 | E-Book | 文中は e-book。EPUB 用外部ビューア未設定時の表示名。複数形 E-Books (EPUB)。「EPUB」は形式そのものを指すときだけ使う（G57） |
+| ビューア共通／画像ビューア／電子書籍ビューア | All Viewers／Image Viewer／E-Book Viewer | 設定 ▸ 内蔵ビューアの節の見出し（G57） |
+| 和文（の書体） | Japanese (Typeface) | 和文の書体 = Japanese Typeface（G57） |
+| 欧文（の書体） | Latin (Typeface) | 欧文の書体 = Latin Typeface（G57）。Western・Roman は使わない |
 | 書体 | Typeface | EPUB の書体設定（G56-S3）。フォント本体の名前（`displayName`）は訳さない |
 | 生成り | Cream | EPUB のライト背景の選択肢（G56-S3） |
+| カスタム（背景） | Custom | 背景の選択肢。色は 背景色 = Background Color・文字色 = Text Color（G57） |
+| 配色 | Color Theme | システムに合わせる／ライト／ダーク（G54-S2b。G57 で「EPUB の」を外した） |
+| 横方向のスクロールでページを送る／横方向の向きを反対にする | Turn Pages with Horizontal Scrolling／Reverse Horizontal Direction | G57 |
 | 読みやすさを優先 | Prefer Readability | 「本の配色より読みやすさを優先」＝ Prefer Readability over Book Colors（G56-S3） |
 
 ### 2.3 ファイル操作・取り込み・監視
