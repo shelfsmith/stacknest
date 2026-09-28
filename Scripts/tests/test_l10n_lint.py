@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """l10n-lint のテスト（標準ライブラリのみ）。"""
-import contextlib, importlib.util, io, json, os, pathlib, tempfile, textwrap, time, unittest
+import contextlib, importlib.util, io, json, os, pathlib, tempfile, textwrap, time, tokenize, unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("lint", ROOT / "Scripts" / "l10n-lint.py")
@@ -560,7 +560,10 @@ class Mcp(unittest.TestCase):
 
     def test_g56_fstring_with_interpolation_is_flagged(self):
         r = tree({"mcp-stacknest/server.py": 'name = "x"\ny = f"一覧: {name}が見つかりません"\n'})
-        self.assertEqual(kinds(r, app_checks=False), ["mcp-literal", "mcp-literal"])
+        # 3.12+ (PEP 701) splits the text around the placeholder into two FSTRING_MIDDLE tokens;
+        # 3.9-3.11 (macOS's /usr/bin/python3 is 3.9) return the whole f-string as one STRING token.
+        expected = 2 if hasattr(tokenize, "FSTRING_MIDDLE") else 1
+        self.assertEqual(kinds(r, app_checks=False), ["mcp-literal"] * expected)
 
     def test_g56_fstring_with_ignore_mark_is_excluded(self):
         r = tree({"mcp-stacknest/server.py": 'y = f"一覧を返す"  # l10n:ignore\n'})
