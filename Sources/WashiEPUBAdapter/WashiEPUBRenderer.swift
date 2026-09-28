@@ -52,6 +52,16 @@ final class WashiHostView: NSView {
         attemptPendingLoad()
     }
 
+    /// G56: 大きさの変化をホストへ知らせる（開いた直後の全画面化で文を保つ）。
+    override func setFrameSize(_ newSize: NSSize) {
+        let oldSize = frame.size
+        super.setFrameSize(newSize)
+        guard newSize != oldSize,
+              oldSize.width > 0, oldSize.height > 0,
+              newSize.width > 0, newSize.height > 0 else { return }
+        host?.hostViewDidResize()
+    }
+
     override func layout() {
         super.layout()
         syncReaderFrame()
@@ -139,13 +149,32 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     var now: @MainActor () -> Date = { Date() }
 
     /// 組版が変わる変更の直前に呼ぶ。最後に出した位置にアンカーがあれば、それを戻り先に控える。
+    /// 復元の保護が張られている間（まだ動いていない）は、保護のアンカーを優先する。続けて変えたとき、
+    /// 1 回目の再ページ割りの報告は保護の鍵が外れてアンカー無しで出るため、lastPublished には文が無い。
     func captureRelandTarget() {
         guard hasPerformedInitialLoad, relandTarget == nil,
-              let anchor = lastPublished, anchor.textOffset != nil else { return }
+              let anchor = restoredAnchor?.anchor ?? lastPublished,
+              anchor.textOffset != nil else { return }
         relandTarget = (anchor, now().addingTimeInterval(Self.relandDeadline))
     }
 
+    /// `WashiHostView` の大きさが変わった（0 と同じ大きさは除く）。復元の保護が張られている間
+    /// （開いた直後の全画面化など、利用者がまだ動いていない）だけ戻り先を控え、次の再ページ割りの報告で
+    /// 保存した文へ戻す。動いた後の大きさの変化（読書中のドラッグ）は対象外（spec §2.4）。
+    func hostViewDidResize() {
+        guard restoredAnchor != nil else { return }
+        captureRelandTarget()
+    }
+
     private func cancelReland() { relandTarget = nil }
+
+    /// 利用者の移動（ページ送り・本の端・全体ページ）。控えを捨て、復元の保護も外す
+    /// （保護が残ると、移動の後の大きさの変化や報告で古い文へ引き戻しうる）。
+    /// `go(to:)` は自分の引数で保護を張り直すので、これを使わない。
+    private func userDidMove() {
+        relandTarget = nil
+        restoredAnchor = nil
+    }
 
     /// 報告が anchor と同じ項目か（spine が同じで、idref が両方あれば一致）。
     private static func isSameItem(_ locator: EPUBLocator, as anchor: EPUBLocator) -> Bool {
@@ -236,8 +265,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         }
         reader.go(to: mapped)
     }
-    func goForward() { cancelReland(); reader.goForward() }
-    func goBackward() { cancelReland(); reader.goBackward() }
+    func goForward() { userDidMove(); reader.goForward() }
+    func goBackward() { userDidMove(); reader.goBackward() }
 
     // MARK: G56-S3 — 見た目
 
@@ -286,11 +315,11 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     // MARK: G51 — 契約の追加分（Washi の公開 API へ委譲）
 
-    func goToBookStart() { cancelReland(); reader.goToBookStart() }
-    func goToBookEnd() { cancelReland(); reader.goToBookEnd() }
+    func goToBookStart() { userDidMove(); reader.goToBookStart() }
+    func goToBookEnd() { userDidMove(); reader.goToBookEnd() }
     /// Washi が RTL を見て goForward/goBackward に解く（G48-2 の native 経路と同じ）。
-    func pageLeft() { cancelReland(); reader.turnPageLeft() }
-    func pageRight() { cancelReland(); reader.turnPageRight() }
+    func pageLeft() { userDidMove(); reader.turnPageLeft() }
+    func pageRight() { userDidMove(); reader.turnPageRight() }
 
     var columnMode: EPUBColumnModeValue {
         get {
@@ -320,7 +349,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reader.currentGlobalPageRange.map { ($0.lowerBound - 1)...($0.upperBound - 1) }
     }
     func go(toGlobalPage page: Int) {
-        cancelReland()
+        userDidMove()
         guard let locator = reader.censusLocator(forGlobalPage: page) else { return }
         reader.go(to: locator)
     }

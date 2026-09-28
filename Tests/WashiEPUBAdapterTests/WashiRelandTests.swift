@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import AppKit
 import Foundation
 import Testing
 import WashiCore
@@ -185,5 +186,98 @@ struct WashiRelandTests {
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "c2"),
                         pageInItem: 5, pageCountInItem: 11)
         #expect(navs().isEmpty)
+    }
+
+    // MARK: G56 最終レビューの修正
+
+    /// 続けて変えたとき（着地の報告の前に 2 回目）も、同じ文へ戻る。
+    @Test func rapidSecondChangeKeepsTheSentence() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.2
+        // 1 回目の再ページ割り → 戻る（保護を張り直し、報告自体は保護の鍵が外れてアンカー無しで出る）
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "c2"),
+                        pageInItem: 5, pageCountInItem: 11)
+        #expect(navs().count == 1)
+        // 着地の報告の前に 2 回目の変更
+        host.fontScale = 1.4
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.44, idref: "c2"),
+                        pageInItem: 6, pageCountInItem: 13)
+        #expect(navs().count == 2)
+        #expect(navs().map(\.textOffset) == [400, 400])
+        #expect(navs().last?.idref == "c2")
+    }
+
+    /// 全画面で開く: 復元の保護が張られている（まだ動いていない）間の大きさの変化は、同じ文へ戻す。
+    @Test func resizeWhileGuardedRelands() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.view.setFrameSize(NSSize(width: 800, height: 600))
+        host.view.setFrameSize(NSSize(width: 1440, height: 900))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.41, idref: "c2"),
+                        pageInItem: 2, pageCountInItem: 5)
+        #expect(navs().count == 1)
+        #expect(navs().first?.textOffset == 400)
+    }
+
+    /// 同じ大きさ・0 の大きさでは控えない。
+    @Test func unchangedOrZeroSizeDoesNotCapture() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.view.setFrameSize(NSSize(width: 800, height: 600))
+        host.view.setFrameSize(NSSize(width: 800, height: 600))
+        host.view.setFrameSize(.zero)
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.41, idref: "c2"),
+                        pageInItem: 2, pageCountInItem: 5)
+        #expect(navs().isEmpty)
+    }
+
+    /// 利用者が動いた後の大きさの変化（読書中のドラッグ）は対象外（spec §2.4）。
+    @Test func resizeAfterUserMoveDoesNotReland() {
+        for move in [0, 1, 2, 3, 4, 5, 6] {
+            let clock = Clock()
+            let (host, navs) = makeLoadedHost(clock: clock)
+            host.view.setFrameSize(NSSize(width: 800, height: 600))
+            switch move {
+            case 0: host.goForward()
+            case 1: host.goBackward()
+            case 2: host.pageLeft()
+            case 3: host.pageRight()
+            case 4: host.goToBookStart()
+            case 5: host.goToBookEnd()
+            default: host.go(toGlobalPage: 3)
+            }
+            host.view.setFrameSize(NSSize(width: 1440, height: 900))
+            host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.41, idref: "c2"),
+                            pageInItem: 2, pageCountInItem: 5)
+            #expect(navs().isEmpty, "move \(move)")
+        }
+    }
+
+    /// 報告で保護が外れた（動いた）後の大きさの変化も対象外。
+    @Test func resizeAfterReportedMoveDoesNotReland() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.6, idref: "c2"),
+                        pageInItem: 4, pageCountInItem: 7)
+        host.view.setFrameSize(NSSize(width: 800, height: 600))
+        host.view.setFrameSize(NSSize(width: 1440, height: 900))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.55, idref: "c2"),
+                        pageInItem: 2, pageCountInItem: 5)
+        #expect(navs().isEmpty)
+    }
+
+    /// load 前の大きさの変化では控えない。
+    @Test func resizeBeforeLoadDoesNotReland() {
+        let host = WashiReaderHost()
+        var navs: [EPUBLocator] = []
+        host.navigateReader = { navs.append($0) }
+        host.fetchAnchoredLocator = { EPUBLocator(spineIndex: 0) }
+        host.go(to: EPUBLocatorValue(spine: 2, progress: 0.5, cfi: "washi:t=400;idref=c2", engine: "washi"))
+        host.view.setFrameSize(NSSize(width: 800, height: 600))
+        host.view.setFrameSize(NSSize(width: 1440, height: 900))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.5, idref: "c2"),
+                        pageInItem: 2, pageCountInItem: 5)
+        #expect(navs.isEmpty)
     }
 }
