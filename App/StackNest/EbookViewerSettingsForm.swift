@@ -36,14 +36,14 @@ struct EbookViewerSettingsForm: View {
             }
 
             // G57: 和文と欧文の書体。候補は機械にあるものだけ。保存値が機械に無いときは「本の指定」に見せる（保存値は残す）。
-            fontPicker("和文の書体", candidates: japaneseCandidates, value: $settings.epubJapaneseFontFamily)
+            fontPicker("和文の書体", slot: .japanese, candidates: japaneseCandidates, value: $settings.epubJapaneseFontFamily)
                 .help("機械に入っている書体だけを表示します。")
             if let family = effective(settings.epubJapaneseFontFamily),
                !EPUBFontCandidates.hasJapaneseGlyphs(family: family) {
                 note("日本語の文字が無いため、かな・漢字は既定の書体になります。")
             }
 
-            fontPicker("欧文の書体", candidates: latinCandidates, value: $settings.epubLatinFontFamily)
+            fontPicker("欧文の書体", slot: .latin, candidates: latinCandidates, value: $settings.epubLatinFontFamily)
                 .help("機械に入っている書体だけを表示します。")
             // 片方だけ指定したときの見え方（spec §1.2）。和文だけなら英数字も和文の書体、欧文だけなら
             // かな・漢字は既定の書体（本の書体を CSS から参照し直せないため）。
@@ -106,7 +106,21 @@ struct EbookViewerSettingsForm: View {
         EPUBFontCandidates.effectiveFamily(stored, installed: installedFamilies)
     }
 
-    private func fontPicker(_ title: LocalizedStringKey, candidates: [EPUBFontCandidate],
+    /// 書体 Picker のスロット（和文／欧文）。fix (2026-09-29): 2 つの `fontPicker` 呼び出しが
+    /// どちらも `.id(fontPanelRevision)` という**同じ**明示 id を使っていたため、`Form` が
+    /// 兄弟ビューを同一視し、後勝ちで欧文 Picker が和文 Picker の位置にも重ねて描画され、
+    /// 設定画面の両方の欄が欧文 Picker になっていた（和文 Picker が消える）。
+    enum FontSlot: String {
+        case japanese, latin
+    }
+
+    /// `fontPicker` の `.id(...)` に渡す値。スロットで別ビューだと分からせつつ、
+    /// revision が変われば（「その他…」選択後の作り直しのため）id も変わる。
+    static func fontPickerID(slot: FontSlot, revision: Int) -> String {
+        "\(slot.rawValue)-\(revision)"
+    }
+
+    private func fontPicker(_ title: LocalizedStringKey, slot: FontSlot, candidates: [EPUBFontCandidate],
                             value: Binding<String?>) -> some View {
         let families = Set(candidates.map(\.family))
         // 候補に無い保存値（フォントパネルで選んだもの）が機械にあれば、先頭に足して見せる
@@ -131,7 +145,7 @@ struct EbookViewerSettingsForm: View {
             Divider()
             Text("その他…").tag(Optional(Self.otherTag))
         }
-        .id(fontPanelRevision)
+        .id(Self.fontPickerID(slot: slot, revision: fontPanelRevision))
     }
 
     // MARK: - 背景（カスタムの色）
