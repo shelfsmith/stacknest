@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 import AppKit
+import CoreText
 
 /// G56-S3: EPUB の書体の候補 1 つ。`family` は保存値と Washi へ渡す CSS のファミリー名。
 struct EPUBFontCandidate: Identifiable, Equatable {
@@ -8,10 +9,10 @@ struct EPUBFontCandidate: Identifiable, Equatable {
     var id: String { family }
 }
 
-/// G56-S3: macOS に標準で入る（またはダウンロードで入る）和文書体から、機械にあるものだけを候補にする。
+/// G56-S3/G57: macOS に標準で入る（またはダウンロードで入る）和文・欧文書体から、機械にあるものだけを候補にする。
 enum EPUBFontCandidates {
     /// 表示順。2026-09-28 に母艦（macOS 26.6.2）で実在を確認したファミリー名。
-    static let preferredFamilies = [
+    static let preferredJapaneseFamilies = [
         "Hiragino Mincho ProN", "Hiragino Sans", "Hiragino Maru Gothic ProN",
         "YuMincho", "YuGothic",
         "Toppan Bunkyu Mincho", "Toppan Bunkyu Gothic",
@@ -19,13 +20,19 @@ enum EPUBFontCandidates {
         "BIZ UDMincho", "BIZ UDGothic",
     ]
 
-    static func available(installed: Set<String>, localizedName: (String) -> String) -> [EPUBFontCandidate] {
-        preferredFamilies.filter(installed.contains).map { EPUBFontCandidate(family: $0, displayName: localizedName($0)) }
+    /// G57: 欧文の書体候補。表示順。2026-09-28 に母艦で実在を確認（`Iowan Old Style` は無いため外した）。
+    static let preferredLatinFamilies = [
+        "Baskerville", "Georgia", "Hoefler Text", "Palatino",
+        "Charter", "Times New Roman", "Helvetica Neue", "Avenir Next",
+    ]
+
+    static func available(_ preferred: [String], installed: Set<String>, localizedName: (String) -> String) -> [EPUBFontCandidate] {
+        preferred.filter(installed.contains).map { EPUBFontCandidate(family: $0, displayName: localizedName($0)) }
     }
 
-    static func availableOnThisMac() -> [EPUBFontCandidate] {
+    static func availableOnThisMac(_ preferred: [String]) -> [EPUBFontCandidate] {
         let fm = NSFontManager.shared
-        return available(installed: Set(fm.availableFontFamilies),
+        return available(preferred, installed: Set(fm.availableFontFamilies),
                          localizedName: { fm.localizedName(forFamily: $0, face: nil) })
     }
 
@@ -37,5 +44,21 @@ enum EPUBFontCandidates {
 
     static func effectiveFamilyOnThisMac(_ stored: String?) -> String? {
         effectiveFamily(stored, installed: Set(NSFontManager.shared.availableFontFamilies))
+    }
+
+    /// G57: 「あ」と「漢」の両方の字形を持つか。名前で作れず別の書体に置き換わったときは false。
+    static func hasJapaneseGlyphs(family: String) -> Bool {
+        let font = CTFontCreateWithName(family as CFString, 14, nil)
+        guard (CTFontCopyFamilyName(font) as String) == family else { return false }
+
+        let characters: [UniChar] = Array("あ漢".utf16) // l10n:ignore（字形の判定用の固定文字。画面には出さない）
+        var glyphs = [CGGlyph](repeating: 0, count: characters.count)
+        CTFontGetGlyphsForCharacters(font, characters, &glyphs, characters.count)
+        return glyphs.allSatisfy { $0 != 0 }
+    }
+
+    /// G57: フォントパネルで選んだ書体・候補外の書体の表示名（`NSFontManager.localizedName(forFamily:face:)`）。
+    static func displayName(family: String) -> String {
+        NSFontManager.shared.localizedName(forFamily: family, face: nil)
     }
 }

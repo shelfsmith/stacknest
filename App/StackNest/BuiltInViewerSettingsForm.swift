@@ -66,7 +66,7 @@ struct BuiltInViewerSettingsForm: View {
             }
             .help("機械に入っている書体だけを表示します。")
             .onAppear {
-                if fontCandidates.isEmpty { fontCandidates = EPUBFontCandidates.availableOnThisMac() }
+                if fontCandidates.isEmpty { fontCandidates = EPUBFontCandidates.availableOnThisMac(EPUBFontCandidates.preferredJapaneseFamilies) }
             }
 
             Picker("EPUB の背景（ライト）", selection: $settings.epubLightPalette) {
