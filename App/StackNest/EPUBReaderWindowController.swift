@@ -190,7 +190,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         ) { [weak self] _ in
             Task { @MainActor in self?.bindings = ViewerKeyBindings.load() }
         }
-        // G54-S3: 演出とノンブルを reader に入れ、設定の変更も開いている窓に届ける。
+        // G54-S3 / G56-S3: 演出・ノンブル・見た目を reader に入れ、設定の変更も開いている窓に届ける。
         // 通知は `ViewerSettings`（@MainActor）の didSet から同期に投げられるので、queue: nil で同期に受ける。
         // （最初の適用は `wire` の中で済んでいる）
         presentationObserver = NotificationCenter.default.addObserver(
@@ -617,19 +617,19 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         applyPresentationSettings()
     }
 
-    /// G54-S3c: 文字倍率と配色を reader に当てる（以前は所有者 3 か所が同じことを書いていた）。
-    /// 復元の代入を先にし、変更ハンドラの設置を後にする（復元自体が保存を起こさないように・G48-2 smoke fix と同じ）。
-    /// 配色は当てた時点の設定を 1 回だけ渡す（開いている窓には反映しない・G54-S2b）。
+    /// G54-S3c: 文字倍率を reader に当てる。復元の代入を先にし、変更ハンドラの設置を後にする（G48-2 smoke fix と同じ）。
     private func applyTextSettings(to reader: any EPUBReaderViewing) {
         reader.fontScale = settings.epubFontScale
         reader.onFontScaleChange = { [weak self] scale in self?.settings.epubFontScale = scale }
-        reader.applyAppearance(settings.epubAppearance)
     }
 
-    /// 演出とノンブルを reader に入れる（init と設定変更の通知から）。
+    /// 演出・ノンブル・見た目（G56-S3: 配色・背景・書体・読みやすさ優先）を reader に入れる（init・差し替え・設定変更の通知から）。
     private func applyPresentationSettings() {
         reader.pageTurnStyle = settings.pageTurnStyle
         reader.showsFolio = settings.showsEPUBFolio
+        var appearance = settings.epubAppearance
+        appearance.fontFamily = EPUBFontCandidates.effectiveFamilyOnThisMac(appearance.fontFamily)
+        reader.applyAppearance(appearance)
     }
 
     /// 位置の変化・計測の完了で HUD の中身を作り直す。

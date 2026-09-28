@@ -89,4 +89,24 @@ struct EPUBReaderWindowPresentationTests {
         #expect(r.calls == ["go(toGlobalPage:50)"])
         #expect(c.lastHUDNote == nil)
     }
+
+    /// G56-S3: 見た目は開いたときと設定の変更のたびに入れ直す（配色も。G54-S2b では開いている窓に効かなかった）。
+    @Test func appearanceIsAppliedAtOpenAndOnChange() {
+        let s = freshSettings()
+        s.epubLightPalette = .sepia
+        let (c, r) = make(settings: s)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        #expect(r.appearances.last?.lightPalette == .sepia)
+        s.epubDarkPalette = .navy
+        #expect(r.appearances.last?.darkPalette == .navy)
+        s.epubTheme = .dark
+        #expect(r.appearances.last?.theme == .dark)
+        s.epubForcesReadableColors = true
+        #expect(r.appearances.last?.forcesReadableColors == true)
+        s.epubFontFamily = "No Such Font 12345"
+        #expect(r.appearances.last?.fontFamily == nil)   // 機械に無い書体は本の指定に
+        s.epubFontFamily = "Hiragino Sans"
+        #expect(r.appearances.last?.fontFamily == "Hiragino Sans")
+        withExtendedLifetime(c) {}
+    }
 }
