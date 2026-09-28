@@ -48,6 +48,10 @@ public final class ViewerSettings {
     private let epubViewerAppPathKey = "epubViewerAppPath"
     private let pageTurnStyleKey = "pageTurnStyle"
     private let showsEPUBFolioKey = "showsEPUBFolio"
+    private let epubFontFamilyKey = "epubFontFamily"
+    private let epubLightPaletteKey = "epubLightPalette"
+    private let epubDarkPaletteKey = "epubDarkPalette"
+    private let epubForcesReadableColorsKey = "epubForcesReadableColors"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -191,10 +195,51 @@ public final class ViewerSettings {
     }
 
     /// G54-S2b: EPUB の配色（既定はシステムの外観に従う）。
-    /// 契約側（`EPUBReaderViewing.setTheme`）と Washi への変換は既に通っているので、ここは値を持つだけ。
-    /// **開いている窓には反映しない**（契約に変更を通知する仕組みが無く、レンダラを作った直後にだけ渡す）。
+    /// G56-S3: 変わったら開いている EPUB の窓へ知らせる（以前は開いている窓に反映しなかった）。
     public var epubTheme: EPUBReaderThemeValue {
-        didSet { defaults.set(epubTheme.rawValue, forKey: epubThemeKey) }
+        didSet {
+            defaults.set(epubTheme.rawValue, forKey: epubThemeKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G56-S3: EPUB の書体（フォントのファミリー名）。nil ＝本の指定に従う。機械に無い書体は窓の側で nil 扱いにする（保存値は残す）。
+    public var epubFontFamily: String? {
+        didSet {
+            if let epubFontFamily { defaults.set(epubFontFamily, forKey: epubFontFamilyKey) }
+            else { defaults.removeObject(forKey: epubFontFamilyKey) }
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G56-S3: ライトのときの背景（と文字色）の組。
+    public var epubLightPalette: EPUBLightPalette {
+        didSet {
+            defaults.set(epubLightPalette.rawValue, forKey: epubLightPaletteKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G56-S3: ダークのときの背景（と文字色）の組。
+    public var epubDarkPalette: EPUBDarkPalette {
+        didSet {
+            defaults.set(epubDarkPalette.rawValue, forKey: epubDarkPaletteKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G56-S3: 本の配色より読みやすさを優先する（既定 false ＝本の配色を尊重）。
+    public var epubForcesReadableColors: Bool {
+        didSet {
+            defaults.set(epubForcesReadableColors, forKey: epubForcesReadableColorsKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G56-S3: 窓が reader へ渡す見た目の一式。
+    public var epubAppearance: EPUBAppearanceValue {
+        EPUBAppearanceValue(theme: epubTheme, lightPalette: epubLightPalette, darkPalette: epubDarkPalette,
+                            fontFamily: epubFontFamily, forcesReadableColors: epubForcesReadableColors)
     }
 
     /// G54-S3: ページ送りの演出（画像ビューアと EPUB の両方に効く・既定は演出なし）。
@@ -365,6 +410,13 @@ public final class ViewerSettings {
         // 壊れた値や未知の値はシステムに倒す（epubFontScale が範囲外を既定へ戻すのと同じ考え方）。
         self.epubTheme = defaults.string(forKey: epubThemeKey)
             .flatMap(EPUBReaderThemeValue.init(rawValue:)) ?? .system
+        // G56-S3: 空文字・非文字列は「本の指定」に、未知の値は標準に倒す。
+        self.epubFontFamily = defaults.string(forKey: epubFontFamilyKey).flatMap { $0.isEmpty ? nil : $0 }
+        self.epubLightPalette = defaults.string(forKey: epubLightPaletteKey)
+            .flatMap(EPUBLightPalette.init(rawValue:)) ?? .standard
+        self.epubDarkPalette = defaults.string(forKey: epubDarkPaletteKey)
+            .flatMap(EPUBDarkPalette.init(rawValue:)) ?? .standard
+        self.epubForcesReadableColors = defaults.bool(forKey: epubForcesReadableColorsKey)
         // G54-S3: 壊れた値や未知の値は演出なしに倒す。`PageTurnStyleValue.off` と型を明示する。
         self.pageTurnStyle = defaults.string(forKey: pageTurnStyleKey)
             .flatMap(PageTurnStyleValue.init(rawValue:)) ?? PageTurnStyleValue.off
@@ -408,7 +460,8 @@ public extension Notification.Name {
     static let viewerLoupeAppearanceChanged =
         Notification.Name("app.shelfsmith.stacknest.viewerLoupeAppearanceChanged")
 
-    /// G54-S3: EPUB の窓の見せ方（ページ送りの演出・ノンブル）が変わった。開いている EPUB の窓が reader へ入れ直す。
+    /// G54-S3: EPUB の窓の見せ方（ページ送りの演出・ノンブル。G56-S3 で配色・書体・背景も）が変わった。
+    /// 開いている EPUB の窓が reader へ入れ直す。
     static let viewerEPUBPresentationChanged =
         Notification.Name("app.shelfsmith.stacknest.viewerEPUBPresentationChanged")
 }
