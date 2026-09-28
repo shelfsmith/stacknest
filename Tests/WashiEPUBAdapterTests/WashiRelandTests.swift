@@ -280,4 +280,59 @@ struct WashiRelandTests {
                         pageInItem: 2, pageCountInItem: 5)
         #expect(navs.isEmpty)
     }
+
+    // MARK: G56 Codex レビュー（P2）— Washi が内部で処理する入力でも控えを捨てる
+
+    private static let click = EPUBClickEvent(x: 0.95, y: 0.5, locationInView: CGPoint(x: 760, y: 300),
+                                              button: 0, shift: false, option: false, control: false, command: false)
+    private static let link = EPUBInternalLink(href: "c2.xhtml#n1", containerPath: "OEBPS/c2.xhtml", fragment: "n1",
+                                               targetSpineIndex: 2, epubType: nil, role: nil, isNoteReference: false,
+                                               hasBacklink: false, targetEpubType: nil, anchorRect: nil)
+
+    /// 再ページ割りの待ちの間にページ面をクリック（端タップのページ送り）したら、次の報告で戻らない。
+    @Test func clickDuringRepaginationCancelsReland() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.4
+        let handled = host.readerView(host.reader, didClick: Self.click)
+        #expect(handled == false)   // Washi の既定（端タップのページ送り）を残す
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.6, idref: "c2"),
+                        pageInItem: 6, pageCountInItem: 11)
+        #expect(navs().isEmpty)
+    }
+
+    /// 同じ章の中のリンクを辿ったら、次の報告で戻らない。
+    @Test func internalLinkDuringRepaginationCancelsReland() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.4
+        let follows = host.readerView(host.reader, shouldFollowInternalLink: Self.link)
+        #expect(follows == true)   // 既定どおり辿る
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.8, idref: "c2"),
+                        pageInItem: 8, pageCountInItem: 11)
+        #expect(navs().isEmpty)
+    }
+
+    /// ホイール（トラックパッド）でページが送られたら、次の報告で戻らない。
+    @Test func wheelDuringRepaginationCancelsReland() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.4
+        host.userDidScrollWheel()
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.6, idref: "c2"),
+                        pageInItem: 6, pageCountInItem: 11)
+        #expect(navs().isEmpty)
+    }
+
+    /// ページを送らないホイールでは復元の保護を外さない（同じ鍵の報告は復元のアンカーを保つ）。
+    @Test func wheelWithoutCaptureKeepsRestoredGuard() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.userDidScrollWheel()
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.5, idref: "c2"),
+                        pageInItem: 3, pageCountInItem: 7)
+        #expect(navs().isEmpty)
+        #expect(host.lastPublished?.textOffset == 400)
+        #expect(host.lastPublished?.idref == "c2")
+    }
 }

@@ -48,6 +48,7 @@ final class WashiHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        host?.hostViewDidChangeWindow()
         syncReaderFrame()
         attemptPendingLoad()
     }
@@ -168,6 +169,31 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     private func cancelReland() { relandTarget = nil }
 
+    // MARK: G56 Codex レビュー — Washi が内部で処理する入力（端タップ・リンク・ホイール）
+
+    /// ホイール／トラックパッドの入力が本の面に来た（ページが送られたかは問わない）。控えだけを捨てる。
+    /// Washi はホイールでのページ送りを内部で処理して host のメソッドを通らないため、再ページ割りの待ちの間に
+    /// 送られた報告が先に来ると、控えた古い文へ引き戻してしまう。復元の保護は外さない — ページを送らない
+    /// ホイール（量子化の閾値未満）で保護が外れると、開いて閉じただけで文が進行率に格下げされる。
+    /// 実際にページが送られれば、報告の鍵が変わって保護は外れる。
+    func userDidScrollWheel() { cancelReland() }
+
+    /// 窓内のローカルモニタ（ホイール・スワイプ）。イベントは消費しない。
+    private let wheelMonitor = LocalEventMonitor()
+
+    /// `WashiHostView` が窓に載った／外れた。
+    func hostViewDidChangeWindow() {
+        guard hostView.window != nil else { wheelMonitor.uninstall(); return }
+        wheelMonitor.install(matching: [.scrollWheel, .swipe]) { [weak self] event in
+            MainActor.assumeIsolated {
+                guard let self, let window = self.hostView.window, event.window === window else { return }
+                let location = self.hostView.convert(event.locationInWindow, from: nil)
+                guard self.hostView.bounds.contains(location) else { return }
+                self.userDidScrollWheel()
+            }
+        }
+    }
+
     /// 利用者の移動（ページ送り・本の端・全体ページ）。控えを捨て、復元の保護も外す
     /// （保護が残ると、移動の後の大きさの変化や報告で古い文へ引き戻しうる）。
     /// `go(to:)` は自分の引数で保護を張り直すので、これを使わない。
@@ -234,6 +260,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reportGeneration += 1
         restoredAnchor = nil
         relandTarget = nil
+        wheelMonitor.uninstall()
         onLocatorChange = nil
         onFontScaleChange = nil
         onKeyEvent = nil
@@ -477,6 +504,20 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         onFontScaleChange?(scale)
     }
 
+    /// ページ面のクリック（端タップのページ送りを含む）。Washi が内部で処理するので、控えだけを捨てる。
+    /// 既定の動作（端タップ）は残す（false）。
+    func readerView(_ view: EPUBReaderView, didClick event: EPUBClickEvent) -> Bool {
+        cancelReland()
+        return false
+    }
+
+    /// 本の中のリンク（同じ章を含む）。控えだけを捨て、既定どおり辿る。
+    /// 別の位置へ着地すれば報告の鍵が変わり、復元の保護は外れる。
+    func readerView(_ view: EPUBReaderView, shouldFollowInternalLink link: EPUBInternalLink) -> Bool {
+        cancelReland()
+        return true
+    }
+
     /// G51: 判定はしない。窓の `onKeyEvent` に渡し、その戻り値（消費したか）をそのまま返す。
     func readerView(_ view: EPUBReaderView, didReceiveNativeKey event: NSEvent) -> Bool {
         onKeyEvent?(event) ?? false
@@ -496,4 +537,25 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     func readerViewDidUpdatePageCensus(_ view: EPUBReaderView) {
         onPageCensusChange?()
     }
+}
+
+/// `NSEvent` のローカルモニタの token を握る。deinit でも外す（host が tearDown を経ずに解放されても残さない）。
+/// モニタは本の窓に限らずアプリ全体のイベントを見るので、handler 側で窓と位置を絞る。イベントは消費しない。
+private final class LocalEventMonitor {
+    private var token: Any?
+
+    func install(matching mask: NSEvent.EventTypeMask, handler: @escaping (NSEvent) -> Void) {
+        guard token == nil else { return }
+        token = NSEvent.addLocalMonitorForEvents(matching: mask) { event in
+            handler(event)
+            return event
+        }
+    }
+
+    func uninstall() {
+        if let token { NSEvent.removeMonitor(token) }
+        token = nil
+    }
+
+    deinit { uninstall() }
 }
