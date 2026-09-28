@@ -21,13 +21,16 @@ struct BuiltInViewerSettingsForm: View {
     @State private var tabSkipPageCountInput: String = ""
     @FocusState private var tabSkipFieldFocused: Bool
 
-    /// G56-S3: EPUB の書体候補（機械に入っているものだけ）。
-    private let fontCandidates = EPUBFontCandidates.availableOnThisMac()
+    /// G56-S3: EPUB の書体候補（機械に入っているものだけ）。フォームが現れたときに 1 回だけ求める
+    /// （View の init や body の評価のたびに NSFontManager へ問い合わせない）。
+    @State private var fontCandidates: [EPUBFontCandidate] = []
 
     /// 保存値が候補に無いときは「本の指定に従う」（nil）に見せる。保存値そのものは消さない。
+    /// 判定は求めておいた候補の集合で行う（Picker の tag も候補だけなので、これと一致させる）。
     private var fontSelection: Binding<String?> {
-        Binding(get: { EPUBFontCandidates.effectiveFamilyOnThisMac(settings.epubFontFamily) },
-                set: { settings.epubFontFamily = $0 })
+        let families = Set(fontCandidates.map(\.family))
+        return Binding(get: { EPUBFontCandidates.effectiveFamily(settings.epubFontFamily, installed: families) },
+                       set: { settings.epubFontFamily = $0 })
     }
 
     var body: some View {
@@ -62,6 +65,9 @@ struct BuiltInViewerSettingsForm: View {
                 }
             }
             .help("機械に入っている書体だけを表示します。")
+            .onAppear {
+                if fontCandidates.isEmpty { fontCandidates = EPUBFontCandidates.availableOnThisMac() }
+            }
 
             Picker("EPUB の背景（ライト）", selection: $settings.epubLightPalette) {
                 Text("標準").tag(EPUBLightPalette.standard)
