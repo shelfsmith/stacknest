@@ -192,7 +192,6 @@ struct EbookViewerSettingsForm: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// `EPUBRGB`（sRGB 0...1）→ SwiftUI の `Color`。
     /// 書体を片方だけ指定したときの注記の種類。
     enum OneSidedTypefaceNote: Equatable {
         case japaneseOnly, latinOnly
@@ -214,6 +213,7 @@ struct EbookViewerSettingsForm: View {
         }
     }
 
+    /// `EPUBRGB`（sRGB 0...1）→ SwiftUI の `Color`。
     static func color(_ rgb: EPUBRGB) -> Color {
         Color(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: 1)
     }

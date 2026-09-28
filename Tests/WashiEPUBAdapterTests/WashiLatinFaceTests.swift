@@ -32,6 +32,70 @@ struct WashiLatinFaceTests {
         ])
     }
 
+    private static func member(_ ps: String, _ face: String, _ w: Int, _ traits: Int) -> [Any] {
+        [ps, face, NSNumber(value: w), NSNumber(value: traits)]
+    }
+
+    /// 同じ (太さ, 斜体) の字体が 2 つあると WebKit は後の方を使う。幅違い（Condensed など）を捨て、
+    /// 残りは最初の字体（ファミリーの正規の並び）を採る。実機（2026-09-28）の並びをそのまま写した。
+    @Test func helveticaNeueSkipsCondensedAndKeepsFirst() {
+        let m = Self.member
+        let members: [[Any]] = [
+            m("HelveticaNeue", "Regular", 5, 0x0), m("HelveticaNeue-Italic", "Italic", 5, 0x1),
+            m("HelveticaNeue-UltraLight", "UltraLight", 2, 0x0), m("HelveticaNeue-UltraLightItalic", "UltraLight Italic", 2, 0x1),
+            m("HelveticaNeue-Thin", "Thin", 3, 0x10000), m("HelveticaNeue-ThinItalic", "Thin Italic", 3, 0x10001),
+            m("HelveticaNeue-Light", "Light", 3, 0x0), m("HelveticaNeue-LightItalic", "Light Italic", 3, 0x1),
+            m("HelveticaNeue-Medium", "Medium", 6, 0x0), m("HelveticaNeue-MediumItalic", "Medium Italic", 6, 0x1),
+            m("HelveticaNeue-Bold", "Bold", 9, 0x2), m("HelveticaNeue-BoldItalic", "Bold Italic", 9, 0x3),
+            m("HelveticaNeue-CondensedBold", "Condensed Bold", 9, 0x42),
+            m("HelveticaNeue-CondensedBlack", "Condensed Black", 11, 0x42),
+        ]
+        let faces = WashiReaderHost.latinFaces(fromMembers: members)
+        Self.expectUniqueAndUncondensed(faces)
+        #expect(faces.first { $0.weight == 700 && !$0.italic }?.postScriptName == "HelveticaNeue-Bold")
+        #expect(faces.first { $0.weight == 400 && !$0.italic }?.postScriptName == "HelveticaNeue")
+        #expect(!faces.contains { $0.weight == 800 })   // Condensed Black しか無い太さは出さない
+    }
+
+    @Test func futuraSkipsCondensedMedium() {
+        let m = Self.member
+        let members: [[Any]] = [
+            m("Futura-Medium", "Medium", 6, 0x0), m("Futura-MediumItalic", "Medium Italic", 6, 0x1),
+            m("Futura-Bold", "Bold", 9, 0x2),
+            m("Futura-CondensedMedium", "Condensed Medium", 6, 0x40),
+            m("Futura-CondensedExtraBold", "Condensed ExtraBold", 11, 0x42),
+        ]
+        let faces = WashiReaderHost.latinFaces(fromMembers: members)
+        Self.expectUniqueAndUncondensed(faces)
+        #expect(faces.map(\.postScriptName) == ["Futura-Medium", "Futura-MediumItalic", "Futura-Bold"])
+    }
+
+    @Test func hoeflerTextKeepsRegularOverOrnaments() {
+        let m = Self.member
+        let members: [[Any]] = [
+            m("HoeflerText-Regular", "Regular", 5, 0x0), m("HoeflerText-Ornaments", "Ornaments", 5, 0x0),
+            m("HoeflerText-Italic", "Italic", 5, 0x1),
+            m("HoeflerText-Black", "Black", 9, 0x2), m("HoeflerText-BlackItalic", "Black Italic", 9, 0x3),
+        ]
+        let faces = WashiReaderHost.latinFaces(fromMembers: members)
+        Self.expectUniqueAndUncondensed(faces)
+        #expect(faces.map(\.postScriptName) == ["HoeflerText-Regular", "HoeflerText-Italic",
+                                                "HoeflerText-Black", "HoeflerText-BlackItalic"])
+    }
+
+    @Test func otherWidthTraitsAreSkipped() {
+        let m = Self.member
+        for trait in [0x10, 0x20, 0x40, 0x200] {   // narrow / expanded / condensed / compressed
+            #expect(WashiReaderHost.latinFaces(fromMembers: [m("X-Wide", "Wide", 5, trait)]).isEmpty, "traits \(trait)")
+        }
+    }
+
+    private static func expectUniqueAndUncondensed(_ faces: [EPUBFontFace]) {
+        #expect(!faces.contains { $0.postScriptName.contains("Condensed") })
+        let keys = faces.map { "\($0.weight)-\($0.italic)" }
+        #expect(Set(keys).count == keys.count, "\(keys)")
+    }
+
     @Test func applyAppearanceUsesResolvedFaces() {
         let host = WashiReaderHost()
         host.systemIsDark = { false }

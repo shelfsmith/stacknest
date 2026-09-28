@@ -310,15 +310,27 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         Self.latinFaces(fromMembers: NSFontManager.shared.availableMembers(ofFontFamily: family) ?? [])
     }
 
+    /// 幅違いの字体の traits（narrow・expanded・condensed・compressed）。
+    nonisolated static let widthTraits: UInt = NSFontTraitMask.narrowFontMask.rawValue
+        | NSFontTraitMask.expandedFontMask.rawValue
+        | NSFontTraitMask.condensedFontMask.rawValue
+        | NSFontTraitMask.compressedFontMask.rawValue
+
     /// `availableMembers(ofFontFamily:)` の各項目（[PostScript 名, 字体名, 太さ 0–15, traits]）を字体に写す。
-    /// 形の崩れた項目は捨てる。
+    /// 形の崩れた項目と幅違い（Condensed など）は捨てる。同じ (CSS の太さ, 斜体) が重なるときは最初の
+    /// 字体（ファミリーの正規の並び）を採る。`@font-face` の記述子が同じだと WebKit は後の方を使うため、
+    /// 重ねると Bold が Condensed Bold に、Regular が Ornaments に化ける。
     nonisolated static func latinFaces(fromMembers members: [[Any]]) -> [EPUBFontFace] {
-        members.compactMap { m in
+        var seen = Set<[Int]>()
+        return members.compactMap { m in
             guard m.count >= 4, let ps = m[0] as? String, !ps.isEmpty,
                   let weight = (m[2] as? NSNumber)?.intValue,
-                  let traits = (m[3] as? NSNumber)?.uintValue else { return nil }
+                  let traits = (m[3] as? NSNumber)?.uintValue,
+                  traits & widthTraits == 0 else { return nil }
             let italic = traits & NSFontTraitMask.italicFontMask.rawValue != 0
-            return EPUBFontFace(postScriptName: ps, weight: cssWeight(appKitWeight: weight), italic: italic)
+            let face = EPUBFontFace(postScriptName: ps, weight: cssWeight(appKitWeight: weight), italic: italic)
+            guard seen.insert([face.weight, italic ? 1 : 0]).inserted else { return nil }
+            return face
         }
     }
 
