@@ -61,6 +61,17 @@ struct SettingsFormsTests {
         #expect(custom > plain, "カスタムの色の行と注意の分だけ高くなる")
     }
 
+    @Test("片方だけ書体を指定したときの注記は、どちらを指定したかで書き分ける")
+    func oneSidedTypefaceNote() {
+        typealias F = EbookViewerSettingsForm
+        #expect(F.oneSidedTypefaceNote(japanese: "YuMincho", latin: nil) == .japaneseOnly)
+        #expect(F.oneSidedTypefaceNote(japanese: nil, latin: "Georgia") == .latinOnly)
+        #expect(F.oneSidedTypefaceNote(japanese: "YuMincho", latin: "Georgia") == nil)
+        #expect(F.oneSidedTypefaceNote(japanese: nil, latin: nil) == nil)
+        #expect(F.OneSidedTypefaceNote.japaneseOnly.text == "英数字も和文の書体で描かれます。")
+        #expect(F.OneSidedTypefaceNote.latinOnly.text == "かな・漢字は既定の書体になります。")
+    }
+
     @Test("Color と EPUBRGB の変換は往復で値を保つ")
     func colorRoundTrip() throws {
         let original = EPUBRGB(hex: 0x1C2433)

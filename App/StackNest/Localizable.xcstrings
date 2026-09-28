@@ -1670,6 +1670,16 @@
         }
       }
     },
+    "かな・漢字は既定の書体になります。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kana and kanji use the default typeface."
+          }
+        }
+      }
+    },
     "が次と等しい" : {
       "localizations" : {
         "en" : {
@@ -2139,16 +2149,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Get Started"
-          }
-        }
-      }
-    },
-    "もう一方の書体は、本の指定ではなく既定の書体になります。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The other typeface uses the default font, not the book's."
           }
         }
       }
@@ -8591,6 +8591,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enable Auto-Add"
+          }
+        }
+      }
+    },
+    "英数字も和文の書体で描かれます。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Latin letters are also drawn in the Japanese typeface."
           }
         }
       }

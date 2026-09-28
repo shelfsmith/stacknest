@@ -45,9 +45,11 @@ struct EbookViewerSettingsForm: View {
 
             fontPicker("欧文の書体", candidates: latinCandidates, value: $settings.epubLatinFontFamily)
                 .help("機械に入っている書体だけを表示します。")
-            // 片方だけ指定すると、もう片方は本の指定ではなく既定の書体になる（spec §1.2 の CSS 側の制約）。
-            if (effective(settings.epubJapaneseFontFamily) == nil) != (effective(settings.epubLatinFontFamily) == nil) {
-                note("もう一方の書体は、本の指定ではなく既定の書体になります。")
+            // 片方だけ指定したときの見え方（spec §1.2）。和文だけなら英数字も和文の書体、欧文だけなら
+            // かな・漢字は既定の書体（本の書体を CSS から参照し直せないため）。
+            if let oneSided = Self.oneSidedTypefaceNote(japanese: effective(settings.epubJapaneseFontFamily),
+                                                        latin: effective(settings.epubLatinFontFamily)) {
+                note(oneSided.text)
             }
 
             Picker("背景（ライト）", selection: lightPaletteSelection) {
@@ -191,6 +193,27 @@ struct EbookViewerSettingsForm: View {
     }
 
     /// `EPUBRGB`（sRGB 0...1）→ SwiftUI の `Color`。
+    /// 書体を片方だけ指定したときの注記の種類。
+    enum OneSidedTypefaceNote: Equatable {
+        case japaneseOnly, latinOnly
+
+        var text: LocalizedStringKey {
+            switch self {
+            case .japaneseOnly: "英数字も和文の書体で描かれます。"
+            case .latinOnly: "かな・漢字は既定の書体になります。"
+            }
+        }
+    }
+
+    /// 実際に効く和文・欧文の書体から、出す注記を決める（両方・どちらも無しなら nil）。
+    static func oneSidedTypefaceNote(japanese: String?, latin: String?) -> OneSidedTypefaceNote? {
+        switch (japanese != nil, latin != nil) {
+        case (true, false): .japaneseOnly
+        case (false, true): .latinOnly
+        default: nil
+        }
+    }
+
     static func color(_ rgb: EPUBRGB) -> Color {
         Color(.sRGB, red: rgb.r, green: rgb.g, blue: rgb.b, opacity: 1)
     }
