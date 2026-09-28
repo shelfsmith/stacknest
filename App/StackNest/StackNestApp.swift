@@ -488,6 +488,21 @@ enum LibraryWindowCloseLogic {
     static func shouldCloseHostWindowDirectly(hostWindow: NSWindow?) -> Bool {
         hostWindow != nil
     }
+
+    /// dup-window fix follow-up (2026-09-29, Critical regression): `hostWindow.close()` fires
+    /// `NSWindow.willCloseNotification` → `handleWindowWillClose`, which reads
+    /// `w.stacknestBundleURL`（`WindowAccessor` が窓のマウント時に**無条件で**セットする）
+    /// and, when set, (a) sweeps every `AppState.activeInstances` sharing that path and calls
+    /// `markUnlocked(hash: nil)`（施錠状態を落とす）, and (b) `UserDefaultsKeys.removeOpenLibrary(url)`。
+    /// この2つは「実際にその庫を開けていた窓」が閉じたときは正しいが、一度も庫を開けていない窓
+    /// （重複登録で弾かれた窓・ロック競合キャンセルの窓）が閉じるときに走ると、**同じ path を
+    /// 開いている別の（本物の）窓**を誤って再施錠したり open-library 集合から外してしまう
+    /// （前回の fix で `dismiss()` → `hostWindow.close()` に変え、確実に閉じるようになったことで
+    /// この誤爆が顕在化した）。庫を開けていない窓を閉じる前は `stacknestBundleURL` を外し、
+    /// `handleWindowWillClose` を no-op にする。
+    static func shouldDetachBundleURLBeforeClose(openedBundle: Bool) -> Bool {
+        !openedBundle
+    }
 }
 
 // MARK: - LibraryWindowContainer
@@ -749,8 +764,18 @@ struct LibraryWindowContainer: View {
 
     /// dup-window fix (2026-09-29): `openBundleIfNeeded()` が窓を畳みたいときの共通経路。
     /// 判定自体は `LibraryWindowCloseLogic.shouldCloseHostWindowDirectly` に切り出してある。
+    ///
+    /// `openedBundle`（既定 true）: この窓が実際に庫を開けていたか。false のとき（重複登録で
+    /// 弾かれた窓・ロック競合キャンセルの窓）は、閉じる前に `hostWindow.stacknestBundleURL` を
+    /// 外し、`handleWindowWillClose` が同じ path の**別の**本物の窓を誤って再施錠・open-library
+    /// 集合から除去するのを防ぐ（`LibraryWindowCloseLogic.shouldDetachBundleURLBeforeClose` 参照。
+    /// Critical regression fix: 前回 `dismiss()` → `hostWindow.close()` に変えて確実に閉じるように
+    /// なったことで、この誤爆が顕在化した）。
     @MainActor
-    private func closeThisWindow() {
+    private func closeThisWindow(openedBundle: Bool = true) {
+        if LibraryWindowCloseLogic.shouldDetachBundleURLBeforeClose(openedBundle: openedBundle) {
+            hostWindow?.stacknestBundleURL = nil
+        }
         if LibraryWindowCloseLogic.shouldCloseHostWindowDirectly(hostWindow: hostWindow) {
             hostWindow?.close()
         } else {
@@ -763,8 +788,8 @@ struct LibraryWindowContainer: View {
 
         // Check if this URL is already open in another window
         if !OpenLibraryRegistry.shared.register(bundleURL) {
-            // Already open; close this window
-            closeThisWindow()
+            // Already open; close this window（この窓自身は一度も庫を開けていない）
+            closeThisWindow(openedBundle: false)
             return
         }
 
@@ -777,7 +802,8 @@ struct LibraryWindowContainer: View {
                 LibraryOpenLockManager.shared.forceAcquire(bundleURL: bundleURL)
             } else {
                 OpenLibraryRegistry.shared.unregister(bundleURL)
-                closeThisWindow()
+                // この窓もまだ庫を開けていない（acquire で弾かれてキャンセルした）。
+                closeThisWindow(openedBundle: false)
                 return
             }
         }
@@ -801,7 +827,13 @@ struct LibraryWindowContainer: View {
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
             OpenLibraryRegistry.shared.unregister(bundleURL)
             if case LibraryOpenError.cancelledByUser = error {
-                closeThisWindow()   // ユーザーが破損ダイアログで「閉じる/やめる」を選んだ。静かに閉じる。
+                // ユーザーが破損ダイアログで「閉じる/やめる」を選んだ。静かに閉じる。
+                // openedBundle は既定の true のまま（detach しない）: この窓の `state` は
+                // openBundle() が投げた時点で finishOpening() 未到達＝ activeInstances に
+                // 一度も登録されておらず、直前の unregister(bundleURL) でこの窓自身の
+                // レジストリ枠も解放済みなので、他の本物の窓が同じ path を持つことはない
+                // （sweep も removeOpenLibrary も、この窓に限っては安全な no-op）。
+                closeThisWindow()
             } else {
                 self.error = error
             }
