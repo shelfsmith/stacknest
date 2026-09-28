@@ -308,24 +308,38 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reportGeneration += 1
         let generation = reportGeneration
         var reported = locator
+        var guarded = false
         if var guardState = restoredAnchor {
             let key = LandingKey(spine: locator.spineIndex, progress: locator.progression)
             if guardState.landing == nil {
-                guardState.landing = key
-                restoredAnchor = guardState
+                // 着地は復元先と同じ spine（idref が両方あれば一致）の報告にだけ結ぶ。
+                // Washi の移動が途中で戻った等で別の章の報告が先に来たら、保護を外す
+                // （古い textOffset と idref を別の章へ付けると、次回は違う章で開いてしまう）。
+                let anchor = guardState.anchor
+                let sameSpine = locator.spineIndex == anchor.spineIndex
+                let idrefMatches = anchor.idref == nil || locator.idref == nil || anchor.idref == locator.idref
+                if sameSpine && idrefMatches {
+                    guardState.landing = key
+                    restoredAnchor = guardState
+                }
             }
             if guardState.landing == key {
                 reported.textOffset = guardState.anchor.textOffset
                 reported.idref = guardState.anchor.idref ?? reported.idref
+                guarded = true
             } else {
                 restoredAnchor = nil
             }
         }
         publish(reported)
+        // 保護中の報告は補完しない。補完はページ先頭の文を返すので、復元した文より前へ
+        // ずれ、開いて閉じるたびに保存位置が後退する（spec §2.3: 動くまで復元のアンカーを保つ）。
+        guard !guarded else { return }
+        let fetch = fetchAnchoredLocator          // await の間 self を強参照で握らない
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            let anchored = await self.fetchAnchoredLocator()
-            guard generation == self.reportGeneration,
+            let anchored = await fetch()
+            guard let self,
+                  generation == self.reportGeneration,
                   anchored.spineIndex == locator.spineIndex,
                   let offset = anchored.textOffset else { return }
             var enriched = locator            // 報告の spine/progress を保つ（持続の門は spine/progress で比べる）

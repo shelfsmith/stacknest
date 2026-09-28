@@ -8,10 +8,20 @@ import EPUBAdapter
 @Suite("G56-S2: 位置の報告へのアンカーの補完")
 @MainActor
 struct WashiTextAnchorPersistTests {
-    /// 補完の返りを手で進めるための門。
+    /// 補完の返りを手で進めるための門。補完の呼び出しごとに continuation を積む。
     final class AnchorGate {
-        var continuation: CheckedContinuation<EPUBLocator, Never>?
-        func resume(_ l: EPUBLocator) { continuation?.resume(returning: l); continuation = nil }
+        var pending: [CheckedContinuation<EPUBLocator, Never>] = []
+        /// いちばん新しい補完を返す。
+        func resume(_ l: EPUBLocator) {
+            guard !pending.isEmpty else { return }
+            pending.removeLast().resume(returning: l)
+        }
+        /// 残りをすべて返す（テストの後始末。continuation を放置しない）。
+        func resumeAll(_ l: EPUBLocator = EPUBLocator(spineIndex: 0)) {
+            let all = pending
+            pending = []
+            all.forEach { $0.resume(returning: l) }
+        }
     }
 
     private func makeHost(gate: AnchorGate) -> (WashiReaderHost, () -> [EPUBLocatorValue]) {
@@ -19,7 +29,7 @@ struct WashiTextAnchorPersistTests {
         var reports: [EPUBLocatorValue] = []
         host.onLocatorChange = { reports.append($0) }
         host.fetchAnchoredLocator = {
-            await withCheckedContinuation { gate.continuation = $0 }
+            await withCheckedContinuation { gate.pending.append($0) }
         }
         return (host, { reports })
     }
@@ -39,6 +49,7 @@ struct WashiTextAnchorPersistTests {
         await drain()
         #expect(reports().last == EPUBLocatorValue(spine: 3, progress: 0.4, cfi: "washi:t=900;idref=c3", engine: "washi"))
         #expect(host.locator == reports().last)
+        gate.resumeAll()
     }
 
     @Test func staleAnchorIsDropped() async {
@@ -47,16 +58,17 @@ struct WashiTextAnchorPersistTests {
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 3, progression: 0.4, idref: "c3"),
                         pageInItem: 2, pageCountInItem: 6)
         await drain()
-        let first = gate.continuation
-        gate.continuation = nil
+        let first = gate.pending.removeFirst()
         // 補完が返る前に次の報告
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 3, progression: 0.6, idref: "c3"),
                         pageInItem: 3, pageCountInItem: 6)
         await drain()
-        first?.resume(returning: EPUBLocator(spineIndex: 3, progression: 0.4, idref: "c3", textOffset: 900))
+        first.resume(returning: EPUBLocator(spineIndex: 3, progression: 0.4, idref: "c3", textOffset: 900))
         await drain()
         #expect(reports().allSatisfy { $0.cfi == nil })
         #expect(reports().last?.progress == 0.6)
+        gate.resumeAll()
+        await drain()
     }
 
     @Test func anchorWithoutOffsetIsNotRepublished() async {
@@ -67,6 +79,7 @@ struct WashiTextAnchorPersistTests {
         gate.resume(EPUBLocator(spineIndex: 0, progression: 0))   // 画像だけのページ等
         await drain()
         #expect(reports().count == 1)
+        gate.resumeAll()
     }
 
     @Test func restoredAnchorSurvivesLandingUntilMove() async {
@@ -85,7 +98,61 @@ struct WashiTextAnchorPersistTests {
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 5, progression: 0.6, idref: "c5"),
                         pageInItem: 2, pageCountInItem: 4)
         #expect(reports().last?.cfi == nil)
-        gate.continuation = nil
+        gate.resumeAll()
+        await drain()
+    }
+
+    /// 着地の補完はページ先頭の文を返す。これで復元した文が前へずれてはいけない
+    /// （開いて閉じるたびに保存位置が後退する）。動いた後は補完が普通に効く。
+    @Test func enrichmentDoesNotDowngradeRestoredAnchor() async {
+        let gate = AnchorGate()
+        let (host, reports) = makeHost(gate: gate)
+        host.go(to: EPUBLocatorValue(spine: 5, progress: 0.3, cfi: "washi:t=77;idref=c5", engine: "washi"))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 5, progression: 0.31, idref: "c5"),
+                        pageInItem: 1, pageCountInItem: 4)
+        await drain()
+        gate.resume(EPUBLocator(spineIndex: 5, progression: 0.31, idref: "c5", textOffset: 50))
+        await drain()
+        #expect(reports().last?.cfi == "washi:t=77;idref=c5")
+        #expect(host.locator?.cfi == "washi:t=77;idref=c5")
+        // 動いた後は補完が効く
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 5, progression: 0.6, idref: "c5"),
+                        pageInItem: 2, pageCountInItem: 4)
+        await drain()
+        #expect(reports().last?.cfi == nil)
+        gate.resume(EPUBLocator(spineIndex: 5, progression: 0.6, idref: "c5", textOffset: 120))
+        await drain()
+        #expect(reports().last == EPUBLocatorValue(spine: 5, progress: 0.6, cfi: "washi:t=120;idref=c5", engine: "washi"))
+        gate.resumeAll()
+        await drain()
+    }
+
+    /// 復元先へ着かず別の章の報告が先に来たら、古いアンカーをその章へ付けない。
+    @Test func landingOnAnotherSpineDropsTheGuard() async {
+        let gate = AnchorGate()
+        let (host, reports) = makeHost(gate: gate)
+        host.go(to: EPUBLocatorValue(spine: 5, progress: 0.3, cfi: "washi:t=77;idref=c5", engine: "washi"))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.1, idref: "c2"),
+                        pageInItem: 0, pageCountInItem: 3)
+        #expect(reports().last?.cfi == nil)
+        // 保護は外れている: 後から復元先に来ても復元のアンカーは付かない
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 5, progression: 0.31, idref: "c5"),
+                        pageInItem: 1, pageCountInItem: 4)
+        #expect(reports().last?.cfi == nil)
+        gate.resumeAll()
+        await drain()
+    }
+
+    /// spine 番号が同じでも idref が食い違えば別の章とみなす。
+    @Test func landingWithDifferentIdrefDropsTheGuard() async {
+        let gate = AnchorGate()
+        let (host, reports) = makeHost(gate: gate)
+        host.go(to: EPUBLocatorValue(spine: 5, progress: 0.3, cfi: "washi:t=77;idref=c5", engine: "washi"))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 5, progression: 0.31, idref: "other"),
+                        pageInItem: 1, pageCountInItem: 4)
+        #expect(reports().last?.cfi == nil)
+        gate.resumeAll()
+        await drain()
     }
 
     @Test func tearDownCancelsPendingAnchor() async {
@@ -93,12 +160,13 @@ struct WashiTextAnchorPersistTests {
         let host = WashiReaderHost()
         var count = 0
         host.onLocatorChange = { _ in count += 1 }
-        host.fetchAnchoredLocator = { await withCheckedContinuation { gate.continuation = $0 } }
+        host.fetchAnchoredLocator = { await withCheckedContinuation { gate.pending.append($0) } }
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.2), pageInItem: 0, pageCountInItem: 2)
         await drain()
         host.tearDown()
         gate.resume(EPUBLocator(spineIndex: 1, progression: 0.2, textOffset: 5))
         await drain()
         #expect(count == 1)
+        gate.resumeAll()
     }
 }
