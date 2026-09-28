@@ -40,7 +40,7 @@ struct EPUBReaderWindowPresentationTests {
         let (c, r) = make(settings: s)
         defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(r.fontScale == 1.4)
-        #expect(r.themes == [.dark])
+        #expect(r.appearances.map(\.theme) == [.dark])
         r.onFontScaleChange?(1.7)
         #expect(s.epubFontScale == 1.7)
         withExtendedLifetime(c) {}

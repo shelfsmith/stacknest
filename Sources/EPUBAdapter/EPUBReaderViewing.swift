@@ -17,7 +17,9 @@ public protocol EPUBReaderViewing: AnyObject {
     func go(to locator: EPUBLocatorValue)
     func goForward()
     func goBackward()
-    func setTheme(_ theme: EPUBReaderThemeValue)
+    /// G56-S3: 見た目（配色・背景と文字の色・書体・読みやすさ優先）をまとめて当てる。開いている間に何度呼んでもよい。
+    /// 書体が変わるときは、実装側が表示中の文を保つ（G56-S2）。
+    func applyAppearance(_ appearance: EPUBAppearanceValue)
     /// フォント倍率（実装側の許容範囲へクランプして反映。Washi は 0.5...3.0）。
     var fontScale: Double { get set }
     /// フォント倍率がキー操作等で変わったら呼ばれる（永続化に使う）。

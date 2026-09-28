@@ -623,7 +623,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     private func applyTextSettings(to reader: any EPUBReaderViewing) {
         reader.fontScale = settings.epubFontScale
         reader.onFontScaleChange = { [weak self] scale in self?.settings.epubFontScale = scale }
-        reader.setTheme(settings.epubTheme)
+        reader.applyAppearance(settings.epubAppearance)
     }
 
     /// 演出とノンブルを reader に入れる（init と設定変更の通知から）。

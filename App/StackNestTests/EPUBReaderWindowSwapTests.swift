@@ -136,7 +136,7 @@ struct EPUBReaderWindowSwapTests {
         c.perform(.nextVolume)
         await waitUntil { c.book.id == 2 }
         #expect(new.fontScale == 1.4)
-        #expect(new.themes == [.dark])
+        #expect(new.appearances.map(\.theme) == [.dark])
         #expect(new.pageTurnStyle == .off)     // 偽物の初期値は .slide / true。窓が設定を入れたことを見る
         #expect(new.showsFolio == false)
     }

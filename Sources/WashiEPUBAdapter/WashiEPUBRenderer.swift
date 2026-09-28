@@ -58,6 +58,12 @@ final class WashiHostView: NSView {
         attemptPendingLoad()
     }
 
+    /// G56-S3: システムの外観（ライト／ダーク）が変わったら、`theme == .system` のパレットを入れ替える。
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        host?.refreshAppearanceForSystemChange()
+    }
+
     /// `readerView` を `autoresizingMask` 任せにしない。親（`self`）が frame `.zero` の間に
     /// 追加された subview は、AppKit の autoresizing 比例計算（旧サイズに対する新旧比）が
     /// 0 除算になり、親が実寸になっても 0×0 のまま取り残されることがある（既知の落とし穴）。
@@ -226,13 +232,36 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     }
     func goForward() { cancelReland(); reader.goForward() }
     func goBackward() { cancelReland(); reader.goBackward() }
-    func setTheme(_ theme: EPUBReaderThemeValue) {
-        switch theme {
-        case .system: reader.settings.theme = .system
-        case .light:  reader.settings.theme = .light
-        case .dark:   reader.settings.theme = .dark
-        }
+
+    // MARK: G56-S3 — 見た目
+
+    private(set) var appearance = EPUBAppearanceValue()
+    /// 窓の実際の外観がダークか。テストで差し替える。
+    lazy var systemIsDark: @MainActor () -> Bool = { [weak self] in
+        guard let self else { return false }
+        return self.hostView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
+
+    func applyAppearance(_ appearance: EPUBAppearanceValue) {
+        self.appearance = appearance
+        var next = reader.settings
+        switch appearance.theme {
+        case .system: next.theme = .system
+        case .light:  next.theme = .light
+        case .dark:   next.theme = .dark
+        }
+        let colors = appearance.resolvedColors(systemIsDark: systemIsDark())
+        next.backgroundColor = colors.background.map { EPUBRGBAColor(r: $0.r, g: $0.g, b: $0.b) }
+        next.textColor = colors.text.map { EPUBRGBAColor(r: $0.r, g: $0.g, b: $0.b) }
+        next.fontFamilyOverride = appearance.fontFamily
+        next.forcesReadableColors = appearance.forcesReadableColors
+        guard next != reader.settings else { return }   // 同値で再ページ割りを起こさない
+        if next.fontFamilyOverride != reader.settings.fontFamilyOverride { captureRelandTarget() }
+        reader.settings = next
+    }
+
+    /// システムの外観が変わった（`theme == .system` のパレットを入れ替える）。
+    func refreshAppearanceForSystemChange() { applyAppearance(appearance) }
 
     /// フォント倍率。Washi 側の許容範囲（`EPUBReaderView.fontScaleRange` = 0.5...3.0）へクランプする。
     /// 直接代入は delegate の `didChangeFontScale` を発火させない（Washi 自身がピンチ／
