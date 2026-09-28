@@ -101,6 +101,12 @@ struct StackNestApp: App {
         L10nLang.bootstrap(preferredLocalizations: preferredLocalizations)
     }
 
+    /// dup-window fix (2026-09-29): 庫ウィンドウの `.handlesExternalEvents(matching:)` に渡す集合。
+    /// 空でなければならない — このアプリは URL スキームを登録しておらず、外部起動は常に
+    /// AppDelegate → URLOpener 経由の `openWindow(value:)` で行う（詳細は宣言側のコメント）。
+    /// テスト（`LibraryWindowDupOpenFixTests`）がこれが空集合のままであることを縛る。
+    static let libraryWindowExternalEventMatchers: Set<String> = []
+
     var body: some Scene {
         // Hidden bridge window — always spawns at launch, captures openWindow, decides Title spawn.
         // Declared FIRST so it gets initial spawn priority before other scenes.
@@ -125,7 +131,15 @@ struct StackNestApp: App {
                 LibraryWindowContainer(bundleURL: url)
             }
         }
-        .handlesExternalEvents(matching: Set(["library"]))
+        // dup-window fix (2026-09-29): 外部イベントの一致集合は空でなければならない。
+        // このアプリは URL スキームを一切登録しておらず、庫を開く経路は常に
+        // AppDelegate.application(_:open:) → URLOpener.shared.enqueue → openWindow(value:) を
+        // 経由する。以前は `Set(["library"])` を渡していたが、SwiftUI はこれを
+        // **URL 文字列の部分一致**として扱うため、パスに "library" を含む .stacknest
+        // （例: `…/g48-epub-library/EPUBTest.stacknest`）を Finder のドラッグ&ドロップ／
+        // ダブルクリック／`open` で開くと、SwiftUI 自身がこの WindowGroup 経由でもう1つ
+        // library ウィンドウを生成し、上記の正規経路と合わせて二重に開いていた。
+        .handlesExternalEvents(matching: Self.libraryWindowExternalEventMatchers)
 
         // Phase 4.2b-1: リモートライブラリウィンドウ — RemoteLibraryRef-bound。
         WindowGroup(for: RemoteLibraryRef.self) { $ref in
@@ -460,6 +474,22 @@ private final class WindowFrameObserver: NSObject {
     }
 }
 
+// MARK: - LibraryWindowCloseLogic
+
+/// dup-window fix (2026-09-29): 「捕捉済みの `hostWindow` を直接 close() するか、
+/// SwiftUI 環境の `dismiss()` にフォールバックするか」の決定だけを純関数として切り出す。
+/// `LibraryWindowContainer.openBundleIfNeeded()` は重複登録・ロック競合キャンセル・
+/// 破損ダイアログキャンセルの 3 経路で `dismiss()` を呼んでいたが、この WindowGroup の
+/// `dismiss()` は必ずしも窓を閉じない（実測: dup-window バグでスピナー付きの窓が残る）。
+/// `hostWindow` を捕捉済みならそれを直接 close() する方が確実（Q3-2-v3 の cancel 経路と同じ判断）。
+/// 実 NSWindow を作る副作用側は App テストでは検証できない（IntegrityWindowLogic と同じ理由）ため、
+/// ここでは「どちらを選ぶか」の判定だけを切り出してテストする。
+enum LibraryWindowCloseLogic {
+    static func shouldCloseHostWindowDirectly(hostWindow: NSWindow?) -> Bool {
+        hostWindow != nil
+    }
+}
+
 // MARK: - LibraryWindowContainer
 
 /// Container for a library window bound to a specific bundle URL.
@@ -717,13 +747,24 @@ struct LibraryWindowContainer: View {
         return appState?.librarySettings?.resolvedName(fallback: fallback) ?? fallback
     }
 
+    /// dup-window fix (2026-09-29): `openBundleIfNeeded()` が窓を畳みたいときの共通経路。
+    /// 判定自体は `LibraryWindowCloseLogic.shouldCloseHostWindowDirectly` に切り出してある。
+    @MainActor
+    private func closeThisWindow() {
+        if LibraryWindowCloseLogic.shouldCloseHostWindowDirectly(hostWindow: hostWindow) {
+            hostWindow?.close()
+        } else {
+            dismiss()
+        }
+    }
+
     private func openBundleIfNeeded() async {
         guard let bundleURL = bundleURL else { return }
 
         // Check if this URL is already open in another window
         if !OpenLibraryRegistry.shared.register(bundleURL) {
             // Already open; close this window
-            dismiss()
+            closeThisWindow()
             return
         }
 
@@ -736,7 +777,7 @@ struct LibraryWindowContainer: View {
                 LibraryOpenLockManager.shared.forceAcquire(bundleURL: bundleURL)
             } else {
                 OpenLibraryRegistry.shared.unregister(bundleURL)
-                dismiss()
+                closeThisWindow()
                 return
             }
         }
@@ -760,7 +801,7 @@ struct LibraryWindowContainer: View {
             LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
             OpenLibraryRegistry.shared.unregister(bundleURL)
             if case LibraryOpenError.cancelledByUser = error {
-                dismiss()   // ユーザーが破損ダイアログで「閉じる/やめる」を選んだ。静かに閉じる。
+                closeThisWindow()   // ユーザーが破損ダイアログで「閉じる/やめる」を選んだ。静かに閉じる。
             } else {
                 self.error = error
             }
