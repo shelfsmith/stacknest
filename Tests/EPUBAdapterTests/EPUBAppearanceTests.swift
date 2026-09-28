@@ -56,7 +56,32 @@ struct EPUBAppearanceTests {
     }
 
     @Test func rawValuesAreStable() {
-        #expect(EPUBLightPalette.allCases.map(\.rawValue) == ["standard", "cream", "sepia"])
-        #expect(EPUBDarkPalette.allCases.map(\.rawValue) == ["standard", "charcoal", "navy"])
+        #expect(EPUBLightPalette.allCases.map(\.rawValue) == ["standard", "cream", "sepia", "custom"])
+        #expect(EPUBDarkPalette.allCases.map(\.rawValue) == ["standard", "charcoal", "navy", "custom"])
+    }
+
+    @Test func hexRoundTrip() {
+        #expect(EPUBRGB(hex: 0x1A2B3C).hexString == "#1A2B3C")
+        #expect(EPUBRGB(hexString: "#1a2b3c") == EPUBRGB(hex: 0x1A2B3C))
+        #expect(EPUBRGB(hexString: "1A2B3C") == nil)
+        #expect(EPUBRGB(hexString: "#12345") == nil)
+        #expect(EPUBRGB(hexString: "#GGGGGG") == nil)
+    }
+    @Test func customPaletteResolves() {
+        let custom = EPUBPaletteColors(background: EPUBRGB(hex: 0x223344), text: EPUBRGB(hex: 0xEEEEEE))
+        let a = EPUBAppearanceValue(theme: .dark, darkPalette: .custom, darkCustom: custom)
+        let c = a.resolvedColors(systemIsDark: false)
+        #expect(c.background == custom.background && c.text == custom.text)
+        var forced = a; forced.forcesReadableColors = true
+        #expect(forced.resolvedColors(systemIsDark: false).text == nil)
+        #expect(forced.forcedTextColor(systemIsDark: false) == custom.text)
+        let missing = EPUBAppearanceValue(theme: .dark, darkPalette: .custom)
+        #expect(missing.resolvedColors(systemIsDark: false).background == nil)
+        #expect(missing.forcedTextColor(systemIsDark: false) == nil)
+    }
+    @Test func washiDefaultColors() {
+        #expect(EPUBWashiDefaultColors.light.background.hexString == "#FFFFFF")
+        #expect(EPUBWashiDefaultColors.dark.background.hexString == "#1A1A1C")
+        #expect(EPUBWashiDefaultColors.dark.text.hexString == "#D5D5D0")
     }
 }

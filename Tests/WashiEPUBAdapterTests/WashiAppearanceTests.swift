@@ -23,7 +23,7 @@ struct WashiAppearanceTests {
         let host = WashiReaderHost()
         host.systemIsDark = { false }
         host.applyAppearance(EPUBAppearanceValue(theme: .light, lightPalette: .sepia, darkPalette: .navy,
-                                                 fontFamily: "YuMincho", forcesReadableColors: false))
+                                                 japaneseFontFamily: "YuMincho", forcesReadableColors: false))
         let s = host.reader.settings
         #expect(s.theme == .light)
         #expect(s.backgroundColor == EPUBRGBAColor(r: 0xF4 / 255.0, g: 0xEC / 255.0, b: 0xD8 / 255.0))
@@ -56,14 +56,14 @@ struct WashiAppearanceTests {
         host.go(to: EPUBLocatorValue(spine: 1, progress: 0.5, cfi: "washi:t=10;idref=c1", engine: "washi"))
         navs.removeAll()
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.5, idref: "c1"), pageInItem: 1, pageCountInItem: 3)
-        host.applyAppearance(EPUBAppearanceValue(fontFamily: "YuGothic"))
+        host.applyAppearance(EPUBAppearanceValue(japaneseFontFamily: "YuGothic"))
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.4, idref: "c1"), pageInItem: 1, pageCountInItem: 4)
         #expect(navs.count == 1)
         // 戻った先の着地の報告: 復元の保護で t=10 のアンカーが lastPublished に載る（控えられる状態にする）
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.45, idref: "c1"), pageInItem: 1, pageCountInItem: 4)
         #expect(host.lastPublished?.textOffset == 10)
         // 色だけの変更では控えない（控えていれば、次の同じ spine の報告で戻る）
-        host.applyAppearance(EPUBAppearanceValue(lightPalette: .cream, fontFamily: "YuGothic"))
+        host.applyAppearance(EPUBAppearanceValue(lightPalette: .cream, japaneseFontFamily: "YuGothic"))
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.5, idref: "c1"), pageInItem: 2, pageCountInItem: 4)
         #expect(navs.count == 1)
     }

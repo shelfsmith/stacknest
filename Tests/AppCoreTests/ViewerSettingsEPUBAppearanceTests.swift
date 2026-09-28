@@ -33,7 +33,7 @@ struct ViewerSettingsEPUBAppearanceTests {
         s.epubTheme = .dark
         let r = ViewerSettings(defaults: d)
         #expect(r.epubAppearance == EPUBAppearanceValue(theme: .dark, lightPalette: .sepia, darkPalette: .navy,
-                                                        fontFamily: "Hiragino Mincho ProN", forcesReadableColors: true))
+                                                        japaneseFontFamily: "Hiragino Mincho ProN", forcesReadableColors: true))
         r.epubFontFamily = nil
         #expect(d.object(forKey: "epubFontFamily") == nil)
         #expect(ViewerSettings(defaults: d).epubFontFamily == nil)

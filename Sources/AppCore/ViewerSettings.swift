@@ -239,7 +239,7 @@ public final class ViewerSettings {
     /// G56-S3: 窓が reader へ渡す見た目の一式。
     public var epubAppearance: EPUBAppearanceValue {
         EPUBAppearanceValue(theme: epubTheme, lightPalette: epubLightPalette, darkPalette: epubDarkPalette,
-                            fontFamily: epubFontFamily, forcesReadableColors: epubForcesReadableColors)
+                            japaneseFontFamily: epubFontFamily, forcesReadableColors: epubForcesReadableColors)
     }
 
     /// G54-S3: ページ送りの演出（画像ビューアと EPUB の両方に効く・既定は演出なし）。

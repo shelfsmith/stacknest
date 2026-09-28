@@ -104,9 +104,9 @@ struct EPUBReaderWindowPresentationTests {
         s.epubForcesReadableColors = true
         #expect(r.appearances.last?.forcesReadableColors == true)
         s.epubFontFamily = "No Such Font 12345"
-        #expect(r.appearances.last?.fontFamily == nil)   // 機械に無い書体は本の指定に
+        #expect(r.appearances.last?.japaneseFontFamily == nil)   // 機械に無い書体は本の指定に
         s.epubFontFamily = "Hiragino Sans"
-        #expect(r.appearances.last?.fontFamily == "Hiragino Sans")
+        #expect(r.appearances.last?.japaneseFontFamily == "Hiragino Sans")
         withExtendedLifetime(c) {}
     }
 }

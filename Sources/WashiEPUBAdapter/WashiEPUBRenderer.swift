@@ -315,7 +315,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         let colors = appearance.resolvedColors(systemIsDark: systemIsDark())
         next.backgroundColor = colors.background.map { EPUBRGBAColor(r: $0.r, g: $0.g, b: $0.b) }
         next.textColor = colors.text.map { EPUBRGBAColor(r: $0.r, g: $0.g, b: $0.b) }
-        next.fontFamilyOverride = appearance.fontFamily
+        next.fontFamilyOverride = appearance.japaneseFontFamily
         next.forcesReadableColors = appearance.forcesReadableColors
         guard next != reader.settings else { return }   // 同値で再ページ割りを起こさない
         if next.fontFamilyOverride != reader.settings.fontFamilyOverride { captureRelandTarget() }

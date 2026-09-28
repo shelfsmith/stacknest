@@ -628,7 +628,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         reader.pageTurnStyle = settings.pageTurnStyle
         reader.showsFolio = settings.showsEPUBFolio
         var appearance = settings.epubAppearance
-        appearance.fontFamily = EPUBFontCandidates.effectiveFamilyOnThisMac(appearance.fontFamily)
+        appearance.japaneseFontFamily = EPUBFontCandidates.effectiveFamilyOnThisMac(appearance.japaneseFontFamily)
         reader.applyAppearance(appearance)
     }
 
