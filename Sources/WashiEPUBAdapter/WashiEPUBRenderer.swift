@@ -315,11 +315,32 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         let colors = appearance.resolvedColors(systemIsDark: systemIsDark())
         next.backgroundColor = colors.background.map { EPUBRGBAColor(r: $0.r, g: $0.g, b: $0.b) }
         next.textColor = colors.text.map { EPUBRGBAColor(r: $0.r, g: $0.g, b: $0.b) }
-        next.fontFamilyOverride = appearance.japaneseFontFamily
+        // G57: 書体・強制文字色は Washi の `fontFamilyOverride`（和文のみ・単一書体）ではなく、
+        // 和文/欧文の両方と強制色をまとめて表せる `userCSS` で渡す。
+        next.fontFamilyOverride = nil
+        next.userCSS = EPUBAppearanceCSS.make(appearance, systemIsDark: systemIsDark())
         next.forcesReadableColors = appearance.forcesReadableColors
         guard next != reader.settings else { return }   // 同値で再ページ割りを起こさない
-        if next.fontFamilyOverride != reader.settings.fontFamilyOverride { captureRelandTarget() }
+        if next.userCSS != reader.settings.userCSS { captureRelandTarget() }
         reader.settings = next
+    }
+
+    // MARK: G57 — 横方向のホイールでのページ送り
+
+    var horizontalWheelTurnsPages: Bool {
+        get { reader.settings.horizontalWheelTurnsPages }
+        set {
+            guard reader.settings.horizontalWheelTurnsPages != newValue else { return }
+            reader.settings.horizontalWheelTurnsPages = newValue
+        }
+    }
+
+    var reversesHorizontalWheelTurn: Bool {
+        get { reader.settings.reversesHorizontalWheelTurn }
+        set {
+            guard reader.settings.reversesHorizontalWheelTurn != newValue else { return }
+            reader.settings.reversesHorizontalWheelTurn = newValue
+        }
     }
 
     /// システムの外観が変わった（`theme == .system` のパレットを入れ替える）。

@@ -91,6 +91,7 @@ struct EPUBReaderWindowPresentationTests {
     }
 
     /// G56-S3: 見た目は開いたときと設定の変更のたびに入れ直す（配色も。G54-S2b では開いている窓に効かなかった）。
+    /// G57: 和文書体・ホイールの 2 設定も開いた時点で入ること（`FakeEPUBReader` はアプリの既定と逆の値で始まる）。
     @Test func appearanceIsAppliedAtOpenAndOnChange() {
         let s = freshSettings()
         s.epubLightPalette = .sepia
@@ -107,6 +108,25 @@ struct EPUBReaderWindowPresentationTests {
         #expect(r.appearances.last?.japaneseFontFamily == nil)   // 機械に無い書体は本の指定に
         s.epubJapaneseFontFamily = "Hiragino Sans"
         #expect(r.appearances.last?.japaneseFontFamily == "Hiragino Sans")
+        // G57: アプリの既定（true / false）が開いた時点で reader へ入る（Fake は false / true で始まる）。
+        #expect(r.horizontalWheelTurnsPages == true)
+        #expect(r.reversesHorizontalWheelTurn == false)
+        s.epubHorizontalWheelTurnsPages = false
+        #expect(r.horizontalWheelTurnsPages == false)
+        s.epubReversesHorizontalWheelTurn = true
+        #expect(r.reversesHorizontalWheelTurn == true)
+        withExtendedLifetime(c) {}
+    }
+
+    /// G57: 欧文書体も和文と同じ経路（`EPUBFontCandidates.effectiveFamilyOnThisMac`）で入る。
+    @Test func latinFontFamilyIsAppliedAtOpenAndOnChange() {
+        let s = freshSettings()
+        let (c, r) = make(settings: s)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        s.epubLatinFontFamily = "No Such Latin Font 12345"
+        #expect(r.appearances.last?.latinFontFamily == nil)   // 機械に無い書体は本の指定に
+        s.epubLatinFontFamily = "Georgia"
+        #expect(r.appearances.last?.latinFontFamily == "Georgia")
         withExtendedLifetime(c) {}
     }
 }

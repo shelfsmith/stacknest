@@ -22,6 +22,9 @@ final class FakeEPUBReader: EPUBReaderViewing {
     var isRightToLeft: Bool = false
     var currentGlobalPageRange: ClosedRange<Int>?
     var onPageCensusChange: (() -> Void)?
+    // G57: 初期値はアプリの既定（true / false）と逆にしておく。窓が設定を入れたことをテストで検出するため。
+    var horizontalWheelTurnsPages: Bool = false
+    var reversesHorizontalWheelTurn: Bool = true
     /// G54-S3c／G56-S3: 当てられた見た目（窓が倍率と見た目をまとめて当てるため、`calls` とは分けて記録する。
     /// `calls` に積むと、キー操作の順序を照合する既存テストが全部ずれる）。
     var appearances: [EPUBAppearanceValue] = []
