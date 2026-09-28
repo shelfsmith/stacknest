@@ -92,7 +92,7 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 
 日付フィルタ（`DateFilterRow`）の方向 Picker も同じ訳（以内 → Within、以前 → Older Than）。英語では Picker が数値の前に来る（Within [7] days）。
 
-### 2.2 ビューア・EPUB
+### 2.2 ビューア・電子書籍
 
 | 日本語 | 英訳 | 備考 |
 |---|---|---|
@@ -109,7 +109,7 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | ルーペの形・大きさ | Circle／Square、Small／Medium／Large | |
 | キー操作のセクション | Navigation／Zoom／Spread & Slideshow／Volume Navigation／Other | |
 | アーカイブ／画像／フォルダ／動画／テキスト | Archive／Image／Folder／Video／Text | `BookCategory`（ビューア選択の分類。本の種類ラベルとは別語彙） |
-| 電子書籍 | E-Book | 文中は e-book。EPUB 用外部ビューア未設定時の表示名。複数形 E-Books (EPUB)。「EPUB」は形式そのものを指すときだけ使う（G57） |
+| 電子書籍 | E-Book | 見出しは E-Book、文中は e-book。EPUB 用外部ビューア未設定時の表示名。複数形 E-Books (EPUB)。「EPUB」は形式そのものを指すときだけ使う（G57）。画面・エラー・ヘルプの「EPUB」は G57 Task 6 でこの規則に統一した（ファイルの中のメタデータ・ライセンスの技術名・形式の併記・外部ビューアの形式別指定は残した） |
 | ビューア共通／画像ビューア／電子書籍ビューア | All Viewers／Image Viewer／E-Book Viewer | 設定 ▸ 内蔵ビューアの節の見出し（G57） |
 | 和文（の書体） | Japanese (Typeface) | 和文の書体 = Japanese Typeface（G57） |
 | 欧文（の書体） | Latin (Typeface) | 欧文の書体 = Latin Typeface（G57）。Western・Roman は使わない |

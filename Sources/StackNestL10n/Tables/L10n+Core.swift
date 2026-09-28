@@ -153,7 +153,7 @@ extension L10nTable {
             L10nEntry("The libarchive header (%lld) and the runtime library (%lld) are different versions.\nRun this to re-fetch the headers:\n  ./Scripts/fetch-libarchive-headers.sh"),
 
         // MARK: - EPUBAdapter/EPUBAdapterError.swift
-        "EPUB を開けません: %@": L10nEntry("Couldn't open the EPUB: %@"),
+        "電子書籍を開けません: %@": L10nEntry("Couldn't open the e-book: %@"),
 
         // MARK: - LibraryServer/LibraryServerCore.swift
         "mode は unchecked/all/damaged のいずれかです（受信: %@）":

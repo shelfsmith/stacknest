@@ -11,7 +11,7 @@ public enum EPUBAdapterError: Error, Equatable, Sendable, LocalizedError {
     /// 「予期しないエラー: … error 0.」）に落ち、`cannotOpen` が持つ理由が消えてしまう。
     public var errorDescription: String? {
         switch self {
-        case .cannotOpen(let reason): return L10n.format("EPUB を開けません: %@", reason)
+        case .cannotOpen(let reason): return L10n.format("電子書籍を開けません: %@", reason)
         }
     }
 }

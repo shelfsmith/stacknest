@@ -650,12 +650,12 @@
         }
       }
     },
-    "EPUB リーダーが使えません" : {
+    "電子書籍リーダーが使えません" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The EPUB reader isn't available."
+            "value" : "The e-book reader isn't available."
           }
         }
       }
@@ -1577,12 +1577,12 @@
         }
       }
     },
-    "あとから 設定 ▸ 表示 で、画像と EPUB を別々に選び直せます。" : {
+    "あとから 設定 ▸ 表示 で、画像と電子書籍を別々に選び直せます。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "You can change this separately for images and EPUB later in Settings ▸ View."
+            "value" : "You can change this separately for images and e-books later in Settings ▸ View."
           }
         }
       }
@@ -5645,12 +5645,12 @@
         }
       }
     },
-    "内蔵ビューアは、アーカイブ・画像・フォルダ内の画像・PDF と EPUB に適用されます。動画とテキスト（txt・md・rtf）は常に外部ビューアで開きます。" : {
+    "内蔵ビューアは、アーカイブ・画像・フォルダ内の画像・PDF と電子書籍（EPUB）に適用されます。動画とテキスト（txt・md・rtf）は常に外部ビューアで開きます。" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The built-in viewer applies to archives, images, image folders, PDF, and EPUB. Video and text files (txt, md, rtf) always open in an external viewer."
+            "value" : "The built-in viewer applies to archives, images, image folders, PDF, and e-books (EPUB). Video and text files (txt, md, rtf) always open in an external viewer."
           }
         }
       }
@@ -7596,12 +7596,12 @@
         }
       }
     },
-    "本を開けませんでした（EPUB の取得に失敗）" : {
+    "本を開けませんでした（電子書籍の取得に失敗）" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Couldn't open the book (couldn't get the EPUB)."
+            "value" : "Couldn't open the book (couldn't get the e-book)."
           }
         }
       }

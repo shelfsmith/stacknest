@@ -2144,10 +2144,10 @@ final class RemoteLibraryState {
             ViewerWindowRegistry.shared.finishOpen(identity, controller: controller)
             controller.present()
         } catch RemoteEPUBPrepareError.noRenderer {
-            errorText = String(localized: "EPUB リーダーが使えません")
+            errorText = String(localized: "電子書籍リーダーが使えません")
             ViewerWindowRegistry.shared.cancelOpen(identity)
         } catch RemoteEPUBPrepareError.downloadFailed {
-            errorText = String(localized: "本を開けませんでした（EPUB の取得に失敗）")
+            errorText = String(localized: "本を開けませんでした（電子書籍の取得に失敗）")
             ViewerWindowRegistry.shared.cancelOpen(identity)
         } catch {
             Self.epubLog.warning("openRemoteEPUBReader: makeReaderView failed bookID=\(book.id, privacy: .public)")

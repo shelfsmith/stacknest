@@ -84,7 +84,7 @@ struct FirstRunWizardView: View {
             .pickerStyle(.radioGroup)
             .labelsHidden()
 
-            Text("あとから 設定 ▸ 表示 で、画像と EPUB を別々に選び直せます。")
+            Text("あとから 設定 ▸ 表示 で、画像と電子書籍を別々に選び直せます。")
                 .font(.caption).foregroundStyle(.secondary)
 
             if flow.viewerChoice == .external {
@@ -103,7 +103,7 @@ struct FirstRunWizardView: View {
                 .padding(.leading, 20)
             }
 
-            Text("内蔵ビューアは、アーカイブ・画像・フォルダ内の画像・PDF と EPUB に適用されます。動画とテキスト（txt・md・rtf）は常に外部ビューアで開きます。")
+            Text("内蔵ビューアは、アーカイブ・画像・フォルダ内の画像・PDF と電子書籍（EPUB）に適用されます。動画とテキスト（txt・md・rtf）は常に外部ビューアで開きます。")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
