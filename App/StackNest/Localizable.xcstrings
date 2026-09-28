@@ -640,6 +640,36 @@
         }
       }
     },
+    "EPUB の書体" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUB Typeface"
+          }
+        }
+      }
+    },
+    "EPUB の背景（ダーク）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUB Background (Dark)"
+          }
+        }
+      }
+    },
+    "EPUB の背景（ライト）" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "EPUB Background (Light)"
+          }
+        }
+      }
+    },
     "EPUB の解析と表示" : {
       "localizations" : {
         "en" : {
@@ -2942,6 +2972,16 @@
         }
       }
     },
+    "セピア" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sepia"
+          }
+        }
+      }
+    },
     "タイトル" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -3081,6 +3121,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Dark"
+          }
+        }
+      }
+    },
+    "チャコール" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Charcoal"
           }
         }
       }
@@ -7395,6 +7445,16 @@
         }
       }
     },
+    "本が指定した文字色や背景色を無視して、選んだ配色で表示します。囲み記事などの配色が失われることがあります。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignores the text and background colors set by the book and uses the colors you chose. Some styling, such as sidebars, may be lost."
+          }
+        }
+      }
+    },
     "本のデータを復元できませんでした" : {
       "localizations" : {
         "en" : {
@@ -7416,6 +7476,16 @@
         }
       }
     },
+    "本の指定に従う" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Book's Own"
+          }
+        }
+      }
+    },
     "本の種類を自動分類" : {
       "localizations" : {
         "en" : {
@@ -7432,6 +7502,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Automatically Classify Book Types"
+          }
+        }
+      }
+    },
+    "本の配色より読みやすさを優先" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prefer Readability over Book Colors"
           }
         }
       }
@@ -7587,6 +7667,16 @@
         }
       }
     },
+    "標準" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Standard"
+          }
+        }
+      }
+    },
     "権限" : {
       "localizations" : {
         "en" : {
@@ -7603,6 +7693,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Permissions can't be checked. Click “Refresh.”"
+          }
+        }
+      }
+    },
+    "機械に入っている書体だけを表示します。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only fonts installed on this Mac are listed."
           }
         }
       }
@@ -7876,6 +7976,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Re-enter the current password to enable biometric authentication"
+          }
+        }
+      }
+    },
+    "生成り" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cream"
           }
         }
       }
@@ -8201,6 +8311,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Administrator (local control, full access)"
+          }
+        }
+      }
+    },
+    "紺" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navy"
           }
         }
       }

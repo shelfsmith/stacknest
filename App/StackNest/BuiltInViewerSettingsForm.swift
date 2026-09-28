@@ -21,6 +21,15 @@ struct BuiltInViewerSettingsForm: View {
     @State private var tabSkipPageCountInput: String = ""
     @FocusState private var tabSkipFieldFocused: Bool
 
+    /// G56-S3: EPUB の書体候補（機械に入っているものだけ）。
+    private let fontCandidates = EPUBFontCandidates.availableOnThisMac()
+
+    /// 保存値が候補に無いときは「本の指定に従う」（nil）に見せる。保存値そのものは消さない。
+    private var fontSelection: Binding<String?> {
+        Binding(get: { EPUBFontCandidates.effectiveFamilyOnThisMac(settings.epubFontFamily) },
+                set: { settings.epubFontFamily = $0 })
+    }
+
     var body: some View {
         Group {
             // ページ方向（既定）
@@ -44,6 +53,30 @@ struct BuiltInViewerSettingsForm: View {
                 Text("ライト").tag(EPUBReaderThemeValue.light)
                 Text("ダーク").tag(EPUBReaderThemeValue.dark)
             }
+
+            // G56-S3: 書体（機械にある候補だけ）。保存値が機械に無いときは「本の指定」に見せる（保存値は残す）。
+            Picker("EPUB の書体", selection: fontSelection) {
+                Text("本の指定に従う").tag(String?.none)
+                ForEach(fontCandidates) { c in
+                    Text(c.displayName).tag(Optional(c.family))
+                }
+            }
+            .help("機械に入っている書体だけを表示します。")
+
+            Picker("EPUB の背景（ライト）", selection: $settings.epubLightPalette) {
+                Text("標準").tag(EPUBLightPalette.standard)
+                Text("生成り").tag(EPUBLightPalette.cream)
+                Text("セピア").tag(EPUBLightPalette.sepia)
+            }
+
+            Picker("EPUB の背景（ダーク）", selection: $settings.epubDarkPalette) {
+                Text("標準").tag(EPUBDarkPalette.standard)
+                Text("チャコール").tag(EPUBDarkPalette.charcoal)
+                Text("紺").tag(EPUBDarkPalette.navy)
+            }
+
+            Toggle("本の配色より読みやすさを優先", isOn: $settings.epubForcesReadableColors)
+                .help("本が指定した文字色や背景色を無視して、選んだ配色で表示します。囲み記事などの配色が失われることがあります。")
 
             // G54-S3: ページ送りの演出（画像ビューアと EPUB の両方に効く）。
             Picker("ページ送りの演出", selection: $settings.pageTurnStyle) {

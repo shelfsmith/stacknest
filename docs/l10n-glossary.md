@@ -110,6 +110,9 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | キー操作のセクション | Navigation／Zoom／Spread & Slideshow／Volume Navigation／Other | |
 | アーカイブ／画像／フォルダ／動画／テキスト | Archive／Image／Folder／Video／Text | `BookCategory`（ビューア選択の分類。本の種類ラベルとは別語彙） |
 | 電子書籍 | E-Book | EPUB 用外部ビューア未設定時の表示名。複数形 E-Books (EPUB) |
+| 書体 | Typeface | EPUB の書体設定（G56-S3）。フォント本体の名前（`displayName`）は訳さない |
+| 生成り | Cream | EPUB のライト背景の選択肢（G56-S3） |
+| 読みやすさを優先 | Prefer Readability | 「本の配色より読みやすさを優先」＝ Prefer Readability over Book Colors（G56-S3） |
 
 ### 2.3 ファイル操作・取り込み・監視
 
