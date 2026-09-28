@@ -15,6 +15,8 @@ defaultValue と同じ日本語を必ず書く。`ja` と `en` の両方の loca
 終了コード 2 で止まる。`--check` は書き込まず、変更が必要なら終了コード 1 を返す。
 標準ライブラリのみ。
 """
+from __future__ import annotations   # `str | None` on Python 3.9 (macOS /usr/bin/python3)
+
 import argparse
 import copy
 import json
