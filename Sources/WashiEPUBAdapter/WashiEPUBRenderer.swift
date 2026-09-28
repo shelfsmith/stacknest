@@ -147,6 +147,12 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     private func cancelReland() { relandTarget = nil }
 
+    /// 報告が anchor と同じ項目か（spine が同じで、idref が両方あれば一致）。
+    private static func isSameItem(_ locator: EPUBLocator, as anchor: EPUBLocator) -> Bool {
+        locator.spineIndex == anchor.spineIndex
+            && (anchor.idref == nil || locator.idref == nil || anchor.idref == locator.idref)
+    }
+
     /// テスト専用: 窓に載せずに「初回 load 済み」にする（load 自体は行わない）。
     func markLoadedForTesting() {
         hasPerformedInitialLoad = true
@@ -322,9 +328,14 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reader.publication?.readingOrder.count ?? pendingLoad?.publication.readingOrder.count
     }
 
-    /// 範囲の端で変化が無いときは Washi が報告を出さないので、控えは期限切れで消える。
+    /// Washi と同じ計算（範囲へクランプし、差が 0.001 以下なら変えない）で、実際に変わるときだけ控える。
+    /// 範囲の端で変化が無いと Washi は報告を出さないので、控えると無関係な次の報告（利用者の
+    /// ページ送りなど）で文へ引き戻してしまう。
     func adjustFontScale(by delta: Double) {
-        captureRelandTarget()
+        let range = EPUBReaderView.fontScaleRange
+        let current = reader.settings.fontScale
+        let target = min(range.upperBound, max(range.lowerBound, current + delta))
+        if abs(target - current) > 0.001 { captureRelandTarget() }
         reader.adjustFontScale(by: delta)
     }
     /// 直接代入は Washi の `didChangeFontScale` を発火しないので、変化があれば自分で流す。
@@ -380,10 +391,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
                 // 着地は復元先と同じ spine（idref が両方あれば一致）の報告にだけ結ぶ。
                 // Washi の移動が途中で戻った等で別の章の報告が先に来たら、保護を外す
                 // （古い textOffset と idref を別の章へ付けると、次回は違う章で開いてしまう）。
-                let anchor = guardState.anchor
-                let sameSpine = locator.spineIndex == anchor.spineIndex
-                let idrefMatches = anchor.idref == nil || locator.idref == nil || anchor.idref == locator.idref
-                if sameSpine && idrefMatches {
+                if Self.isSameItem(locator, as: guardState.anchor) {
                     guardState.landing = key
                     restoredAnchor = guardState
                 }
@@ -400,9 +408,10 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // G56-S2: 設定変更の後の最初の報告（再ページ割り）なら、控えた文へ戻る。
         // 保護中の報告（下の早期 return）でも必ず通るよう、publish の直後に置く。
         // 戻るときは補完しない（すぐ着地の報告が来て上書きし、その報告は復元の保護で文を保つ）。
+        // 戻るのは控えと同じ項目の報告のときだけ。別の章の報告（競合）なら戻らずに控えを捨てる。
         if let target = relandTarget {
             relandTarget = nil
-            if now() <= target.deadline {
+            if now() <= target.deadline, Self.isSameItem(locator, as: target.anchor) {
                 armRestoredAnchor(target.anchor)
                 navigateReader(target.anchor)
                 return

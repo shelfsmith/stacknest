@@ -107,4 +107,83 @@ struct WashiRelandTests {
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 0, progression: 0), pageInItem: 0, pageCountInItem: 1)
         #expect(navs.isEmpty)
     }
+
+    // MARK: G56-S2 — Task 9 レビューの追補（controller Ruling 6）
+
+    /// 控えた後に別の spine の報告が来たら（競合）、戻らずに控えを捨てる。
+    @Test func otherSpineReportDropsTarget() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.4
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 4, progression: 0.1, idref: "c4"),
+                        pageInItem: 0, pageCountInItem: 6)
+        #expect(navs().isEmpty)
+        // 控えは捨てられている: 後から元の spine の報告が来ても戻らない
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "c2"),
+                        pageInItem: 5, pageCountInItem: 11)
+        #expect(navs().isEmpty)
+    }
+
+    /// 同じ spine でも idref が両方あって食い違えば戻らない。
+    @Test func idrefMismatchDropsTarget() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.4
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "other"),
+                        pageInItem: 5, pageCountInItem: 11)
+        #expect(navs().isEmpty)
+    }
+
+    /// 上限で adjustFontScale(by: +) しても Washi は変えない（報告も出ない）ので、控えない。
+    @Test func adjustAtUpperLimitDoesNotCapture() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.reader.settings.fontScale = EPUBReaderView.fontScaleRange.upperBound
+        host.adjustFontScale(by: 0.1)
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.6, idref: "c2"),
+                        pageInItem: 4, pageCountInItem: 7)
+        #expect(navs().isEmpty)
+    }
+
+    /// 範囲の内側なら adjustFontScale は控える（上の否定の対照）。
+    @Test func adjustInsideRangeCaptures() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.adjustFontScale(by: 0.1)
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "c2"),
+                        pageInItem: 5, pageCountInItem: 11)
+        #expect(navs().count == 1)
+    }
+
+    /// 戻る報告と着地の報告は補完（JS 往復）を呼ばない。利用者が動いた後の報告は呼ぶ（対照）。
+    @Test func relandingReportDoesNotFetch() async {
+        final class Counter { var n = 0 }
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        let counter = Counter()
+        host.fetchAnchoredLocator = { counter.n += 1; return EPUBLocator(spineIndex: 0) }
+        host.fontScale = 1.4
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "c2"),
+                        pageInItem: 5, pageCountInItem: 11)
+        #expect(navs().count == 1)
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.5, idref: "c2"),
+                        pageInItem: 5, pageCountInItem: 11)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(counter.n == 0)
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.6, idref: "c2"),
+                        pageInItem: 6, pageCountInItem: 11)
+        for _ in 0..<10 { await Task.yield() }
+        #expect(counter.n == 1)
+    }
+
+    /// tearDown は控えを消す。
+    @Test func tearDownClearsTarget() {
+        let clock = Clock()
+        let (host, navs) = makeLoadedHost(clock: clock)
+        host.fontScale = 1.4
+        host.tearDown()
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 2, progression: 0.47, idref: "c2"),
+                        pageInItem: 5, pageCountInItem: 11)
+        #expect(navs().isEmpty)
+    }
 }
