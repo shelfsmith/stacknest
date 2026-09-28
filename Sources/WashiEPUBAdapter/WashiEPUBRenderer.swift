@@ -123,6 +123,30 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         restoredAnchor = RestoredAnchor(anchor: l, landing: nil)
     }
 
+    // MARK: G56-S2 — 設定変更の後に同じ文へ戻る
+
+    /// 戻り先を控えてから、次の位置の報告まで待つ上限（再ページ割りが報告を出さなかったときの安全弁）。
+    static let relandDeadline: TimeInterval = 2.0
+    private var relandTarget: (anchor: EPUBLocator, deadline: Date)?
+    /// テストで差し替える。既定は Washi へそのまま渡す。
+    lazy var navigateReader: @MainActor (EPUBLocator) -> Void = { [weak self] in self?.reader.go(to: $0) }
+    var now: @MainActor () -> Date = { Date() }
+
+    /// 組版が変わる変更の直前に呼ぶ。最後に出した位置にアンカーがあれば、それを戻り先に控える。
+    func captureRelandTarget() {
+        guard hasPerformedInitialLoad, relandTarget == nil,
+              let anchor = lastPublished, anchor.textOffset != nil else { return }
+        relandTarget = (anchor, now().addingTimeInterval(Self.relandDeadline))
+    }
+
+    private func cancelReland() { relandTarget = nil }
+
+    /// テスト専用: 窓に載せずに「初回 load 済み」にする（load 自体は行わない）。
+    func markLoadedForTesting() {
+        hasPerformedInitialLoad = true
+        pendingLoad = nil
+    }
+
     /// `makeReaderView` が open 済みの publication を置いておく場所。窓に載って実寸が
     /// 決まるまでは load() を呼ばない（G48-2 smoke: 白紙表紙の修正）。
     private var pendingLoad: (publication: EPUBPublication, locator: EPUBLocator?)?
@@ -168,6 +192,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         // 走っている補完を無効にする。
         reportGeneration += 1
         restoredAnchor = nil
+        relandTarget = nil
         onLocatorChange = nil
         onFontScaleChange = nil
         onKeyEvent = nil
@@ -183,6 +208,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     }
 
     func go(to locator: EPUBLocatorValue) {
+        cancelReland()
         let mapped = WashiLocatorMapping.toWashi(locator)
         // G56-S2: 保護は load 前の分岐より前に張る（pending の差し替えでも着地で効く）。
         armRestoredAnchor(mapped)
@@ -198,8 +224,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         }
         reader.go(to: mapped)
     }
-    func goForward() { reader.goForward() }
-    func goBackward() { reader.goBackward() }
+    func goForward() { cancelReland(); reader.goForward() }
+    func goBackward() { cancelReland(); reader.goBackward() }
     func setTheme(_ theme: EPUBReaderThemeValue) {
         switch theme {
         case .system: reader.settings.theme = .system
@@ -216,17 +242,20 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         get { reader.settings.fontScale }
         set {
             let range = EPUBReaderView.fontScaleRange
-            reader.settings.fontScale = min(range.upperBound, max(range.lowerBound, newValue))
+            let clamped = min(range.upperBound, max(range.lowerBound, newValue))
+            guard reader.settings.fontScale != clamped else { return }   // 同値なら再ページ割りも控えも起こさない
+            captureRelandTarget()
+            reader.settings.fontScale = clamped
         }
     }
 
     // MARK: G51 — 契約の追加分（Washi の公開 API へ委譲）
 
-    func goToBookStart() { reader.goToBookStart() }
-    func goToBookEnd() { reader.goToBookEnd() }
+    func goToBookStart() { cancelReland(); reader.goToBookStart() }
+    func goToBookEnd() { cancelReland(); reader.goToBookEnd() }
     /// Washi が RTL を見て goForward/goBackward に解く（G48-2 の native 経路と同じ）。
-    func pageLeft() { reader.turnPageLeft() }
-    func pageRight() { reader.turnPageRight() }
+    func pageLeft() { cancelReland(); reader.turnPageLeft() }
+    func pageRight() { cancelReland(); reader.turnPageRight() }
 
     var columnMode: EPUBColumnModeValue {
         get {
@@ -244,6 +273,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             case .double: mapped = .double
             }
             guard reader.settings.columnMode != mapped else { return }   // 同値再代入で再ページ割りを起こさない
+            captureRelandTarget()
             reader.settings.columnMode = mapped
         }
     }
@@ -255,6 +285,7 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reader.currentGlobalPageRange.map { ($0.lowerBound - 1)...($0.upperBound - 1) }
     }
     func go(toGlobalPage page: Int) {
+        cancelReland()
         guard let locator = reader.censusLocator(forGlobalPage: page) else { return }
         reader.go(to: locator)
     }
@@ -262,10 +293,15 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         reader.publication?.readingOrder.count ?? pendingLoad?.publication.readingOrder.count
     }
 
-    func adjustFontScale(by delta: Double) { reader.adjustFontScale(by: delta) }
+    /// 範囲の端で変化が無いときは Washi が報告を出さないので、控えは期限切れで消える。
+    func adjustFontScale(by delta: Double) {
+        captureRelandTarget()
+        reader.adjustFontScale(by: delta)
+    }
     /// 直接代入は Washi の `didChangeFontScale` を発火しないので、変化があれば自分で流す。
     func resetFontScale() {
         guard reader.settings.fontScale != 1.0 else { return }
+        captureRelandTarget()
         reader.settings.fontScale = 1.0
         onFontScaleChange?(1.0)
     }
@@ -332,6 +368,17 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
             }
         }
         publish(reported)
+        // G56-S2: 設定変更の後の最初の報告（再ページ割り）なら、控えた文へ戻る。
+        // 保護中の報告（下の早期 return）でも必ず通るよう、publish の直後に置く。
+        // 戻るときは補完しない（すぐ着地の報告が来て上書きし、その報告は復元の保護で文を保つ）。
+        if let target = relandTarget {
+            relandTarget = nil
+            if now() <= target.deadline {
+                armRestoredAnchor(target.anchor)
+                navigateReader(target.anchor)
+                return
+            }
+        }
         // 保護中の報告は補完しない。補完はページ先頭の文を返すので、復元した文より前へ
         // ずれ、開いて閉じるたびに保存位置が後退する（spec §2.3: 動くまで復元のアンカーを保つ）。
         guard !guarded else { return }
@@ -358,6 +405,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     /// フォント倍率がピンチ／`adjustFontScale(by:)`（キー操作含む）で変わったら、
     /// 永続化のため `onFontScaleChange` に流す。
     func readerView(_ view: EPUBReaderView, didChangeFontScale scale: Double) {
+        // ピンチの経路: 通知は変更の後だが、再ページ割りは非同期なので lastPublished はまだ変更前の文。
+        captureRelandTarget()
         onFontScaleChange?(scale)
     }
 
