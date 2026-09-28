@@ -50,8 +50,8 @@
   "EPUB の題名を使う": {
     "en": "Use the EPUB Title"
   },
-  "EPUB リーダーが使えません": {
-    "en": "The EPUB reader isn't available."
+  "電子書籍リーダーが使えません": {
+    "en": "The e-book reader isn't available."
   },
   "Finder で表示": {
     "en": "Reveal in Finder"
@@ -653,8 +653,8 @@
   "本を開けませんでした（0ページ）": {
     "en": "Couldn't open the book (0 pages)."
   },
-  "本を開けませんでした（EPUB の取得に失敗）": {
-    "en": "Couldn't open the book (couldn't get the EPUB)."
+  "本を開けませんでした（電子書籍の取得に失敗）": {
+    "en": "Couldn't open the book (couldn't get the e-book)."
   },
   "検査が実行されませんでした": {
     "en": "The check wasn't run."
