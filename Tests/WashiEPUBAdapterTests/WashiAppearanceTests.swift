@@ -59,9 +59,12 @@ struct WashiAppearanceTests {
         host.applyAppearance(EPUBAppearanceValue(fontFamily: "YuGothic"))
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.4, idref: "c1"), pageInItem: 1, pageCountInItem: 4)
         #expect(navs.count == 1)
-        // 色だけの変更では控えない
-        host.applyAppearance(EPUBAppearanceValue(lightPalette: .cream, fontFamily: "YuGothic"))
+        // 戻った先の着地の報告: 復元の保護で t=10 のアンカーが lastPublished に載る（控えられる状態にする）
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.45, idref: "c1"), pageInItem: 1, pageCountInItem: 4)
+        #expect(host.lastPublished?.textOffset == 10)
+        // 色だけの変更では控えない（控えていれば、次の同じ spine の報告で戻る）
+        host.applyAppearance(EPUBAppearanceValue(lightPalette: .cream, fontFamily: "YuGothic"))
+        host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.5, idref: "c1"), pageInItem: 2, pageCountInItem: 4)
         #expect(navs.count == 1)
     }
 }
