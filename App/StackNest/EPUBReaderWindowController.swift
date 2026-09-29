@@ -361,7 +361,7 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
     /// （割合ジャンプのような章単位の代替はしない＝ページ数の指定に章は対応しないため）。
     private func skipPages(_ delta: Int) {
         guard let count = reader.globalPageCount, let range = reader.currentGlobalPageRange,
-              let page = EPUBPageSkip.targetPage(currentStart: range.lowerBound, by: delta, pageCount: count) else {
+              let page = EPUBPageSkip.targetPage(currentRange: range, by: delta, pageCount: count) else {
             hudNote(String(localized: "計測中のためページ数では移動できません"))
             return
         }

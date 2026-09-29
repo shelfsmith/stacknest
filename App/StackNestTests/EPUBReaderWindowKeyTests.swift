@@ -111,6 +111,30 @@ struct EPUBReaderWindowKeyTests {
                             "go(toGlobalPage:199)", "go(toGlobalPage:0)"])
     }
 
+    /// G57（Codex P2）: 見開きで「Tab スキップのページ数」が 1 のとき、Washi が見開きの開始へ丸めても
+    /// 繰り返し押すたびに次の見開きへ進む・戻る（右側のページを指して同じ見開きに留まらない）。
+    @Test func repeatedSingleSkipsAdvanceThroughSpreads() {
+        let settings = freshSettings()
+        settings.tabSkipPageCount = 1
+        let (c, r) = make(settings: settings)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        r.globalPageCount = 200
+        r.currentGlobalPageRange = 40...41
+        // Washi の丸め（飛び先を含む見開き＝偶数始まり）を模して、押すたびに表示範囲を更新する。
+        func settle() {
+            guard let last = r.calls.last, let n = Int(last.dropFirst("go(toGlobalPage:".count).dropLast()) else { return }
+            let start = n - n % 2
+            r.currentGlobalPageRange = start...(start + 1)
+        }
+        _ = c.handleKey(key(48)); settle()
+        _ = c.handleKey(key(48)); settle()
+        _ = c.handleKey(key(48, shift: true)); settle()
+        _ = c.handleKey(key(48, shift: true)); settle()
+        #expect(r.calls == ["go(toGlobalPage:42)", "go(toGlobalPage:44)",
+                            "go(toGlobalPage:43)", "go(toGlobalPage:41)"])
+        #expect(r.currentGlobalPageRange == 40...41)
+    }
+
     /// G57: 計測前は動かさず、ノートで知らせる（章単位の代替はしない）。
     @Test func tabSkipBeforeCensusShowsNoteAndStays() {
         let (c, r) = make()
