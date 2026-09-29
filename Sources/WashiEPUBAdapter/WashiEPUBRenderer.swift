@@ -9,6 +9,11 @@ import os
 /// 個人情報（パス・題名）は出さない — サイズ・spine index・エラー型のみ。
 private let epubReaderLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "EPUBReader")
 
+// G57-DIAG: 一時的な診断（smoke v1 の 4-1 NG＝横方向 OFF でもマウスの横スクロールでページが送られる）。
+// 原因が確定したら、この Logger と `G57-DIAG` の印の付いた箇所をすべて外す。挙動は変えない。
+// 取り出し: `log show --last 10m --predicate 'subsystem == "app.shelfsmith.stacknest" AND category == "WheelDiag"'`
+private let wheelDiagLog = Logger(subsystem: "app.shelfsmith.stacknest", category: "WheelDiag")   // G57-DIAG
+
 public struct WashiEPUBRenderer: EPUBRendering {
     public init() {}
 
@@ -189,8 +194,22 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
                 guard let self, let window = self.hostView.window, event.window === window else { return }
                 let location = self.hostView.convert(event.locationInWindow, from: nil)
                 guard self.hostView.bounds.contains(location) else { return }
+                self.logWheelDiag(event)   // G57-DIAG
                 self.userDidScrollWheel()
             }
+        }
+    }
+
+    // G57-DIAG: ホイール／スワイプの各イベントと、そのときの横方向の 2 設定を記録する（挙動は変えない）。
+    // `scrollingDelta*`・`hasPreciseScrollingDeltas`・`phase`・`momentumPhase` は scrollWheel でだけ読む
+    // （他の型で読むと AppKit が例外を投げうる）。swipe は `deltaX/Y` を記録する。
+    private func logWheelDiag(_ event: NSEvent) {   // G57-DIAG
+        let horizontal = reader.settings.horizontalWheelTurnsPages
+        let reversed = reader.settings.reversesHorizontalWheelTurn
+        if event.type == .scrollWheel {
+            wheelDiagLog.notice("wheel dx=\(event.scrollingDeltaX, privacy: .public) dy=\(event.scrollingDeltaY, privacy: .public) precise=\(event.hasPreciseScrollingDeltas, privacy: .public) phase=\(event.phase.rawValue, privacy: .public) momentum=\(event.momentumPhase.rawValue, privacy: .public) hTurns=\(horizontal, privacy: .public) hReversed=\(reversed, privacy: .public)")
+        } else {
+            wheelDiagLog.notice("event type=\(event.type.rawValue, privacy: .public) dx=\(event.deltaX, privacy: .public) dy=\(event.deltaY, privacy: .public) hTurns=\(horizontal, privacy: .public) hReversed=\(reversed, privacy: .public)")
         }
     }
 
@@ -505,6 +524,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     // MARK: EPUBReaderViewDelegate
     func readerView(_ view: EPUBReaderView, didMoveTo locator: EPUBLocator, pageInItem: Int, pageCountInItem: Int) {
+        // G57-DIAG: ページが実際に動いたか（ホイールの記録と時刻で突き合わせる）。
+        wheelDiagLog.notice("didMoveTo spine=\(locator.spineIndex, privacy: .public) progression=\(locator.progression, privacy: .public) pageInItem=\(pageInItem, privacy: .public)/\(pageCountInItem, privacy: .public)")   // G57-DIAG
         reportGeneration += 1
         let generation = reportGeneration
         var reported = locator
