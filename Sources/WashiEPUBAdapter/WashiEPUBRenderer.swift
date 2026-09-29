@@ -224,6 +224,10 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         super.init()
         hostView.host = self
         reader.delegate = self
+        // G57（Codex P2）: 「コントラストを上げる」の切り替えで強制文字色の CSS を当て直す。tearDown で外す。
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(accessibilityDisplayOptionsDidChange(_:)),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         // G51（spec §3.1・Washi 前提）: キーは窓（EPUBReaderWindowController）が共有の割り当て表で扱う。
         // - native monitor（forwardsKeyEventsNatively）で WebView より先に NSEvent を受け、`onKeyEvent` へ渡す。
         // - JS 既定ナビ（矢印・Space・PageUp/Down・Home/End）は止める。表が唯一の権威になるため
@@ -261,6 +265,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         restoredAnchor = nil
         relandTarget = nil
         wheelMonitor.uninstall()
+        NSWorkspace.shared.notificationCenter.removeObserver(
+            self, name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
         onLocatorChange = nil
         onFontScaleChange = nil
         onKeyEvent = nil
@@ -302,6 +308,12 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
     lazy var systemIsDark: @MainActor () -> Bool = { [weak self] in
         guard let self else { return false }
         return self.hostView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
+    /// システムの「コントラストを上げる」が ON か。テストで差し替える。
+    /// Washi は ON のとき背景と文字を純白／純黒に固定するので、強制文字色の CSS を外す判断に使う。
+    lazy var increaseContrast: @MainActor () -> Bool = {
+        NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
     }
 
     /// 欧文の書体名から、その字体（PostScript 名・太さ・斜体）を引く。テストで差し替える。
@@ -365,7 +377,8 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         next.fontFamilyOverride = nil
         // 欧文の書体はラテン文字の範囲に限る（日本語の約物・かな・漢字は和文の書体へ落とす）。
         let latinFaces = appearance.latinFontFamily.flatMap { $0.isEmpty ? nil : resolveLatinFaces($0) } ?? []
-        next.userCSS = EPUBAppearanceCSS.make(appearance, systemIsDark: systemIsDark(), latinFaces: latinFaces)
+        next.userCSS = EPUBAppearanceCSS.make(appearance, systemIsDark: systemIsDark(), latinFaces: latinFaces,
+                                              increaseContrast: increaseContrast())
         next.forcesReadableColors = appearance.forcesReadableColors
         guard next != reader.settings else { return }   // 同値で再ページ割りを起こさない
         if next.userCSS != reader.settings.userCSS { captureRelandTarget() }
@@ -392,6 +405,12 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
 
     /// システムの外観が変わった（`theme == .system` のパレットを入れ替える）。
     func refreshAppearanceForSystemChange() { applyAppearance(appearance) }
+
+    /// G57（Codex P2）: アクセシビリティの表示設定（コントラストを上げる）が変わった。
+    /// 強制文字色の CSS の有無が変わるので当て直す。`NSWorkspace.shared.notificationCenter` から呼ばれる。
+    @objc func accessibilityDisplayOptionsDidChange(_ note: Notification) {
+        refreshAppearanceForSystemChange()
+    }
 
     /// フォント倍率。Washi 側の許容範囲（`EPUBReaderView.fontScaleRange` = 0.5...3.0）へクランプする。
     /// 直接代入は delegate の `didChangeFontScale` を発火させない（Washi 自身がピンチ／

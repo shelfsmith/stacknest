@@ -37,6 +37,18 @@ struct EPUBAppearanceCSSTests {
         var preset = on; preset.darkPalette = .navy
         #expect(EPUBAppearanceCSS.make(preset, systemIsDark: false) == nil)
     }
+    /// G57（Codex P2）: 「コントラストを上げる」の間は強制文字色を出さない（書体は出す）。
+    @Test func increaseContrastOmitsForcedColor() {
+        let custom = EPUBPaletteColors(background: EPUBRGB(hex: 0xFFFFFF), text: EPUBRGB(hex: 0xFFFFFF))
+        let a = EPUBAppearanceValue(theme: .light, lightPalette: .custom, lightCustom: custom,
+                                    japaneseFontFamily: "YuMincho", forcesReadableColors: true)
+        let css = EPUBAppearanceCSS.make(a, systemIsDark: false, increaseContrast: true)
+        #expect(css?.contains("font-family") == true)
+        #expect(css?.contains("color:") == false)
+        var colorOnly = a; colorOnly.japaneseFontFamily = nil
+        #expect(EPUBAppearanceCSS.make(colorOnly, systemIsDark: false, increaseContrast: true) == nil)
+        #expect(EPUBAppearanceCSS.make(colorOnly, systemIsDark: false, increaseContrast: false)?.contains("color: #FFFFFF") == true)
+    }
     @Test func fontThenColor() {
         let custom = EPUBPaletteColors(background: EPUBRGB(hex: 0xFFFFFF), text: EPUBRGB(hex: 0x333333))
         let a = EPUBAppearanceValue(theme: .light, lightPalette: .custom, lightCustom: custom,

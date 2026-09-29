@@ -30,8 +30,11 @@ public enum EPUBAppearanceCSS {
     /// （`@font-face`→書体→色の順）。
     /// - Parameter latinFaces: 欧文の書体の字体。空でなければ、欧文の書体を `@font-face` の別名にして
     ///   ラテン文字の範囲だけに効かせる。空なら書体名をそのまま並べる（従来どおり）。
+    /// - Parameter increaseContrast: システムの「コントラストを上げる」が ON。Washi は背景を純白／純黒に
+    ///   固定し文字色も純黒／純白にするので、強制文字色の規則は出さない（書体は効かせる）。
+    ///   出すと Washi の文字色を上書きして白地に白字になりうる（Codex G57 P2）。
     public static func make(_ a: EPUBAppearanceValue, systemIsDark: Bool,
-                            latinFaces: [EPUBFontFace] = []) -> String? {
+                            latinFaces: [EPUBFontFace] = [], increaseContrast: Bool = false) -> String? {
         var rules: [String] = []
         let hasLatin = !(a.latinFontFamily ?? "").isEmpty
         let useAlias = hasLatin && !latinFaces.isEmpty
@@ -41,7 +44,7 @@ public enum EPUBAppearanceCSS {
         if let fontRule = fontFamilyRule(a, latinAlias: useAlias) {
             rules.append(fontRule)
         }
-        if let color = a.forcedTextColor(systemIsDark: systemIsDark) {
+        if !increaseContrast, let color = a.forcedTextColor(systemIsDark: systemIsDark) {
             rules.append("\(forcedColorSelector) { color: \(color.hexString) !important; }")
         }
         return rules.isEmpty ? nil : rules.joined(separator: "\n")

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+import AppKit
 import Testing
 import WashiCore
 import Washi
@@ -42,6 +43,7 @@ struct WashiAppearanceTests {
         let host = WashiReaderHost()
         var dark = false
         host.systemIsDark = { dark }
+        host.increaseContrast = { false }
         host.applyAppearance(EPUBAppearanceValue(theme: .system, lightPalette: .cream, darkPalette: .charcoal))
         #expect(host.reader.settings.backgroundColor == EPUBRGBAColor(r: 0xF7 / 255.0, g: 0xF1 / 255.0, b: 0xE3 / 255.0))
         dark = true
@@ -52,6 +54,7 @@ struct WashiAppearanceTests {
     @Test func userCSSCarriesFontsAndForcedColor() {
         let host = WashiReaderHost()
         host.systemIsDark = { false }
+        host.increaseContrast = { false }   // 実機の「コントラストを上げる」に依存しない
         host.resolveLatinFaces = { _ in [] }   // 字体が引けない経路（書体名の並び）。別名の経路は WashiLatinFaceTests
         let custom = EPUBPaletteColors(background: EPUBRGB(hex: 0xFFFFFF), text: EPUBRGB(hex: 0x333333))
         host.applyAppearance(EPUBAppearanceValue(theme: .light, lightPalette: .custom, lightCustom: custom,
@@ -69,6 +72,7 @@ struct WashiAppearanceTests {
         let host = WashiReaderHost()
         var dark = false
         host.systemIsDark = { dark }
+        host.increaseContrast = { false }
         var navs: [EPUBLocator] = []
         host.navigateReader = { navs.append($0) }
         host.fetchAnchoredLocator = { EPUBLocator(spineIndex: 0) }
@@ -112,6 +116,45 @@ struct WashiAppearanceTests {
         host.readerView(host.reader, didMoveTo: EPUBLocator(spineIndex: 1, progression: 0.4, idref: "c1"), pageInItem: 1, pageCountInItem: 4)
         #expect(navCount() == 1)
     }
+    /// G57（Codex P2）: 「コントラストを上げる」の間は Washi が背景と文字を純白／純黒に固定するので、
+    /// 強制文字色の CSS は出さない（白地に白字を避ける）。書体は効かせる。
+    @Test func increaseContrastDropsForcedColorButKeepsFonts() {
+        let host = WashiReaderHost()
+        host.systemIsDark = { true }
+        host.increaseContrast = { true }
+        host.resolveLatinFaces = { _ in [] }
+        let d = EPUBPaletteColors(background: EPUBRGB(hex: 0x000000), text: EPUBRGB(hex: 0xFFFFFF))
+        host.applyAppearance(EPUBAppearanceValue(theme: .dark, darkPalette: .custom, darkCustom: d,
+                                                 japaneseFontFamily: "YuMincho", forcesReadableColors: true))
+        let css = host.reader.settings.userCSS ?? ""
+        #expect(css.contains("\"YuMincho\", serif"))
+        #expect(!css.contains("color: #"))
+    }
+
+    /// 設定の切り替え（`accessibilityDisplayOptionsDidChangeNotification`）で当て直し、tearDown 後は聞かない。
+    @Test func accessibilityDisplayChangeReappliesUntilTornDown() {
+        let host = WashiReaderHost()
+        host.systemIsDark = { false }
+        var contrast = false
+        var asked = 0
+        host.increaseContrast = { asked += 1; return contrast }
+        let l = EPUBPaletteColors(background: EPUBRGB(hex: 0xFFFFFF), text: EPUBRGB(hex: 0x111111))
+        host.applyAppearance(EPUBAppearanceValue(theme: .light, lightPalette: .custom, lightCustom: l,
+                                                 forcesReadableColors: true))
+        #expect(host.reader.settings.userCSS?.contains("color: #111111") == true)
+        let center = NSWorkspace.shared.notificationCenter
+        contrast = true
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(host.reader.settings.userCSS == nil)
+        contrast = false
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(host.reader.settings.userCSS?.contains("color: #111111") == true)
+        host.tearDown()
+        let before = asked
+        center.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        #expect(asked == before)
+    }
+
     @Test func wheelSettingsMap() {
         let host = WashiReaderHost()
         host.horizontalWheelTurnsPages = false
