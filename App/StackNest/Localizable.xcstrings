@@ -3297,16 +3297,6 @@
         }
       }
     },
-    "ノンブルを表示" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Show Page Numbers"
-          }
-        }
-      }
-    },
     "ハッシュ計算中… %lld/%lld" : {
       "localizations" : {
         "en" : {
@@ -8361,6 +8351,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Leave blank to use the default label."
+          }
+        }
+      }
+    },
+    "章ごとのページ番号を表示" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show Page Numbers per Chapter"
           }
         }
       }

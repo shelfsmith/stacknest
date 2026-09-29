@@ -103,7 +103,7 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | 続きから／最初から | Resume／Start Over | App の再開ダイアログ・Web の巻送りダイアログ共通。問いは Resume reading? |
 | キー操作・キー割り当て | Key Bindings | |
 | ページ送りの演出 | Page Turn Effect | |
-| ノンブル | Page Number | |
+| ノンブル | Page Number | 設定の名前は「章ごとのページ番号を表示」＝ Show Page Numbers per Chapter（G57。「ノンブル」は画面に出さない） |
 | 全画面で開く | Open Full Screen | 画像ビューア・電子書籍ビューアの節に同じ名前で置く（G57。カタログは以前から Open Full Screen だったので表に合わせた） |
 | 次の巻へ／先頭へ／本を閉じる | Next Volume／To the Beginning／Close the Book | Web の巻末ダイアログ |
 | ルーペの形・大きさ | Circle／Square、Small／Medium／Large | |
