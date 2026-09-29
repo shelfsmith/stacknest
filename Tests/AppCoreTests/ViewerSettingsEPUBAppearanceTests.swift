@@ -69,7 +69,20 @@ struct ViewerSettingsEPUBAppearanceTests {
         let d = freshDefaults()
         d.set("YuMincho", forKey: "epubFontFamily")
         d.set("Hiragino Sans", forKey: "epubJapaneseFontFamily")
-        #expect(ViewerSettings(defaults: d).epubJapaneseFontFamily == "Hiragino Sans")
+        let s = ViewerSettings(defaults: d)
+        #expect(s.epubJapaneseFontFamily == "Hiragino Sans")
+        // 旧キーは和文キーが既にあっても消す（残すと「本の指定」を選んだ後に蘇る）。
+        #expect(d.object(forKey: "epubFontFamily") == nil)
+        s.epubJapaneseFontFamily = nil
+        #expect(d.object(forKey: "epubJapaneseFontFamily") == nil)
+        #expect(ViewerSettings(defaults: d).epubJapaneseFontFamily == nil)
+    }
+
+    @Test func removesEmptyLegacyFontFamily() {
+        let d = freshDefaults()
+        d.set("", forKey: "epubFontFamily")
+        #expect(ViewerSettings(defaults: d).epubJapaneseFontFamily == nil)
+        #expect(d.object(forKey: "epubFontFamily") == nil)
     }
 
     @Test func customColorsPersistAndBrokenFallsBack() {

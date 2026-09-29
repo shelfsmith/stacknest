@@ -498,11 +498,14 @@ public final class ViewerSettings {
         // 壊れた値や未知の値はシステムに倒す（epubFontScale が範囲外を既定へ戻すのと同じ考え方）。
         self.epubTheme = defaults.string(forKey: epubThemeKey)
             .flatMap(EPUBReaderThemeValue.init(rawValue:)) ?? .system
-        // G57: G56 の単一書体キーからの移行。和文のキーがまだ無く、旧キーに空でない値があるときだけ、
-        // 和文へ写して旧キーを消す（和文のキーが既にあれば上書きしない）。
-        if defaults.object(forKey: epubJapaneseFontFamilyKey) == nil,
-           let legacy = defaults.string(forKey: legacyEPUBFontFamilyKey), !legacy.isEmpty {
-            defaults.set(legacy, forKey: epubJapaneseFontFamilyKey)
+        // G57: G56 の単一書体キーからの移行。旧キーがあれば必ず消す。和文のキーがまだ無く、旧キーに
+        // 空でない値があるときだけ和文へ写す（和文のキーが既にあれば上書きしない）。
+        // 旧キーを残すと、後で「本の指定」（和文キーの削除）を選んだ次の起動で旧値が蘇る（Codex G57）。
+        if defaults.object(forKey: legacyEPUBFontFamilyKey) != nil {
+            if defaults.object(forKey: epubJapaneseFontFamilyKey) == nil,
+               let legacy = defaults.string(forKey: legacyEPUBFontFamilyKey), !legacy.isEmpty {
+                defaults.set(legacy, forKey: epubJapaneseFontFamilyKey)
+            }
             defaults.removeObject(forKey: legacyEPUBFontFamilyKey)
         }
         // G56-S3/G57: 空文字・非文字列は「本の指定」に倒す。
