@@ -10,14 +10,15 @@ struct ViewerActionEPUBSupportTests {
                                 .jumpToPercent0, .jumpToPercent50, .jumpToPercent90,
                                 .zoomIn, .zoomOut, .fitToWindow,
                                 .toggleSpread, .toggleAutoAdvance, .nextVolume, .prevVolume,
-                                .toggleFullScreen, .close, .showHelp] {
+                                .toggleFullScreen, .close, .showHelp,
+                                .skipForward, .skipBackward] {   // G57: Tab スキップも電子書籍で効く
             #expect(s.contains(a), "\(a) は EPUB で扱う")
         }
     }
     @Test func excludesImageOnlyActions() {
         let s = ViewerAction.epubSupported
         for a: ViewerAction in [.toggleLoupe, .toggleCoverOffset, .cyclePageLayout, .cycleEndOfBookBehavior,
-                                .togglePageDirection, .skipForward, .skipBackward] {
+                                .togglePageDirection] {
             #expect(!s.contains(a), "\(a) は EPUB で扱わない")
         }
     }

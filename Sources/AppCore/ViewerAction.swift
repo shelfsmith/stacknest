@@ -365,5 +365,6 @@ public extension ViewerAction {
         .toggleAutoAdvance,                        // 自動送り（Q4）
         .nextVolume, .prevVolume,                  // 巻送り（Q4）
         .toggleFullScreen, .close, .showHelp,
+        .skipForward, .skipBackward,               // G57: Tab スキップ（本全体のページ。計測前は動かない）
     ]
 }

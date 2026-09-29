@@ -8889,6 +8889,16 @@
         }
       }
     },
+    "計測中のためページ数では移動できません" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Can't skip by pages while measuring."
+          }
+        }
+      }
+    },
     "計測中のため章単位で移動" : {
       "localizations" : {
         "en" : {

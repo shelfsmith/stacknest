@@ -18,10 +18,21 @@ struct EPUBReaderWindowKeyTests {
                                 windowNumber: 0, context: nil, characters: chars,
                                 charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode)!
     }
-    private func make() -> (EPUBReaderWindowController, FakeEPUBReader) {
+    /// 専用の suite（実ユーザーの設定に依存しない）。見開きの既定は OFF にしておく
+    /// （G57 で開くときに `columnMode` が決まるようになったため。`d` の切り替えを `.auto` から確かめる）。
+    private func freshSettings() -> ViewerSettings {
+        let name = "g51-epub-keys-\(UUID().uuidString)"
+        let ud = UserDefaults(suiteName: name)!
+        ud.removePersistentDomain(forName: name)
+        let s = ViewerSettings(defaults: ud)
+        s.spreadByDefault = false
+        return s
+    }
+    private func make(settings: ViewerSettings? = nil) -> (EPUBReaderWindowController, FakeEPUBReader) {
         let reader = FakeEPUBReader()
         let book = BookRow.g51Fixture(id: EPUBTestWindowID.fresh(), title: "t")
-        let c = EPUBReaderWindowController(book: book, reader: reader, persist: { _ in })
+        let c = EPUBReaderWindowController(book: book, reader: reader, settings: settings ?? freshSettings(),
+                                           persist: { _ in })
         c.bindings = .defaults   // UserDefaults に依存しない
         return (c, reader)
     }
@@ -79,8 +90,35 @@ struct EPUBReaderWindowKeyTests {
         let (c, r) = make()
         defer { EPUBTestWindowID.clearFrame(c.book.id) }
         #expect(c.handleKey(key(37, chars: "l")) == false)   // toggleLoupe: EPUB では無視 → 上へ
-        #expect(c.handleKey(key(48)) == false)               // Tab（skipForward）: 無視
         #expect(r.calls.isEmpty)
+    }
+
+    /// G57: Tab／⇧Tab は「Tab スキップのページ数」だけ本全体のページを進める・戻す（先頭・末尾で止める）。
+    @Test func tabSkipsByGlobalPagesAfterCensus() {
+        let settings = freshSettings()
+        settings.tabSkipPageCount = 10
+        let (c, r) = make(settings: settings)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        r.globalPageCount = 200
+        r.currentGlobalPageRange = 40...41                   // 見開きでも基点は開始ページ
+        #expect(c.handleKey(key(48)) == true)                // Tab → skipForward
+        #expect(c.handleKey(key(48, shift: true)) == true)   // ⇧Tab → skipBackward
+        r.currentGlobalPageRange = 195...196
+        _ = c.handleKey(key(48))
+        r.currentGlobalPageRange = 3...3
+        _ = c.handleKey(key(48, shift: true))
+        #expect(r.calls == ["go(toGlobalPage:50)", "go(toGlobalPage:30)",
+                            "go(toGlobalPage:199)", "go(toGlobalPage:0)"])
+    }
+
+    /// G57: 計測前は動かさず、ノートで知らせる（章単位の代替はしない）。
+    @Test func tabSkipBeforeCensusShowsNoteAndStays() {
+        let (c, r) = make()
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        r.spineItemCount = 10
+        #expect(c.handleKey(key(48)) == true)
+        #expect(r.calls.isEmpty)
+        #expect(c.lastHUDNote == "計測中のためページ数では移動できません")
     }
 
     @Test func unboundKeyIsNotConsumed() {

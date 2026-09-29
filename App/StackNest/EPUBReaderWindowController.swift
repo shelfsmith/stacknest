@@ -333,8 +333,10 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         case .jumpToPercent70: jumpToPercent(0.7)
         case .jumpToPercent80: jumpToPercent(0.8)
         case .jumpToPercent90: jumpToPercent(0.9)
+        case .skipForward:     skipPages(settings.tabSkipPageCount)
+        case .skipBackward:    skipPages(-settings.tabSkipPageCount)
         case .toggleCoverOffset, .cyclePageLayout, .cycleEndOfBookBehavior, .togglePageDirection,
-             .skipForward, .skipBackward, .toggleLoupe:
+             .toggleLoupe:
             break   // `epubSupported` に無い。handleKey が弾くのでここには来ない
         }
         // G54-S3: 画像ビューアと同じく、送り系のアクションで HUD を出す。
@@ -350,6 +352,18 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
             reader.go(to: EPUBLocatorValue(spine: spine, progress: 0, cfi: nil, engine: nil))
             hudNote(String(localized: "計測中のため章単位で移動"))
         }
+    }
+
+    /// G57: Tab／⇧Tab。本全体のページで `delta` だけ動かす（先頭・末尾で止める）。
+    /// 全体ページ数の計測（census）が済むまでは動かさず、そのことをノートで示す
+    /// （割合ジャンプのような章単位の代替はしない＝ページ数の指定に章は対応しないため）。
+    private func skipPages(_ delta: Int) {
+        guard let count = reader.globalPageCount, let range = reader.currentGlobalPageRange,
+              let page = EPUBPageSkip.targetPage(currentStart: range.lowerBound, by: delta, pageCount: count) else {
+            hudNote(String(localized: "計測中のためページ数では移動できません"))
+            return
+        }
+        reader.go(toGlobalPage: page)
     }
 
     // MARK: - G51 自動送り
