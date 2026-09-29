@@ -468,4 +468,21 @@ struct EPUBReaderWindowSwapTests {
         #expect(EPUBReaderWindowController.firstResponderCandidate(in: root) === leaf)
         #expect(EPUBReaderWindowController.firstResponderCandidate(in: NSView()) == nil)
     }
+
+    /// G57: 巻送りで差し替えた巻も「見開きを既定で表示」で開く（前の巻で `d` を押した状態は引き継がない）。
+    @Test func swappedInBookFollowsSpreadDefault() async {
+        let s = freshSettings()
+        s.spreadByDefault = true
+        let (c, old, _, _) = make(settings: s)
+        let firstID = c.book.id
+        defer { c.window?.close(); EPUBTestWindowID.clearFrame(firstID) }
+        c.perform(.toggleSpread)
+        #expect(old.columnMode == .single)
+        let (next, new, _) = prepared()
+        new.columnMode = .single
+        c.resolveSibling = { _, _ in .swapIn(next) }
+        c.perform(.nextVolume)
+        await waitUntil { c.book.id == 2 }
+        #expect(new.columnMode == .double)
+    }
 }

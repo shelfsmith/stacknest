@@ -129,4 +129,44 @@ struct EPUBReaderWindowPresentationTests {
         #expect(r.appearances.last?.latinFontFamily == "Georgia")
         withExtendedLifetime(c) {}
     }
+
+    // MARK: G57 — 見開きの既定（ビューア共通の「見開きを既定で表示」）
+
+    /// ON なら見開き（`.double`）で開く。偽物の初期値は `.single` にして、窓が入れたことを検出する。
+    @Test func spreadByDefaultOnOpensAsDouble() {
+        let s = freshSettings()
+        s.spreadByDefault = true
+        let reader = FakeEPUBReader()
+        reader.columnMode = .single
+        let c = EPUBReaderWindowController(book: .g51Fixture(id: EPUBTestWindowID.fresh(), title: "t"), reader: reader,
+                                           settings: s, persist: { _ in })
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        #expect(reader.columnMode == .double)
+    }
+
+    /// OFF なら今までどおり窓の幅で自動（`.auto`）。
+    @Test func spreadByDefaultOffOpensAsAuto() {
+        let s = freshSettings()
+        s.spreadByDefault = false
+        let reader = FakeEPUBReader()
+        reader.columnMode = .single
+        let c = EPUBReaderWindowController(book: .g51Fixture(id: EPUBTestWindowID.fresh(), title: "t"), reader: reader,
+                                           settings: s, persist: { _ in })
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        #expect(reader.columnMode == .auto)
+    }
+
+    /// 開いている窓には反映しない（`d` で切り替えた状態を、設定の変更通知で戻さない）。
+    @Test func spreadDefaultIsNotReappliedToOpenWindow() {
+        let s = freshSettings()
+        s.spreadByDefault = true
+        let (c, r) = make(settings: s)
+        defer { EPUBTestWindowID.clearFrame(c.book.id) }
+        c.perform(.toggleSpread)
+        #expect(r.columnMode == .single)
+        s.spreadByDefault = false
+        s.pageTurnStyle = .fade           // 見せ方の変更通知（applyPresentationSettings）も走らせる
+        #expect(r.columnMode == .single)
+        withExtendedLifetime(c) {}
+    }
 }

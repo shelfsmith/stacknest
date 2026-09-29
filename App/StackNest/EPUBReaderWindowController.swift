@@ -157,6 +157,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         // G51: 全画面（緑ボタン・toggleFullScreen）を許可する。
         window.collectionBehavior.insert(.fullScreenPrimary)
 
+        // G57: 見開きの既定。窓に載せる（＝Washi が読み込む）前に決める。
+        reader.columnMode = Self.initialColumnMode(settings)
         // G51: reader.view の上にヘルプ／HUD を重ねるため、容れ物に入れる。
         container.autoresizesSubviews = true
         reader.view.autoresizingMask = [.width, .height]
@@ -366,6 +368,13 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         reader.go(toGlobalPage: page)
     }
 
+    /// G57: 開くときの見開き。「見開きを既定で表示」が ON なら見開き、OFF なら窓の幅で自動。
+    /// 電子書籍の見開きは本ごとに保存しない（`d` はその窓の間だけ）ので、開くたびにこれで決める。
+    /// 設定の変更通知では当て直さない（開いている窓には反映しない＝画像ビューアと同じく開くときの既定）。
+    static func initialColumnMode(_ settings: ViewerSettings) -> EPUBColumnModeValue {
+        settings.spreadByDefault ? .double : .auto
+    }
+
     // MARK: - G51 自動送り
 
     private func stopAutoAdvance() {
@@ -467,6 +476,8 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         suppressResumeDialog = false        // 巻送りでも読みかけなら訊く（spec §4.2）
         didShowResumeDialog = false
         // 5) 新しい reader を古いのと同じ位置（ヘルプ・HUD の下）へ入れ、コールバックと表示設定を当てる。
+        // G57: 見開きの既定は窓に載せる前に（前の巻で `d` を押した状態は引き継がない）。
+        next.reader.columnMode = Self.initialColumnMode(settings)
         next.reader.view.autoresizingMask = [.width, .height]
         next.reader.view.frame = container.bounds
         container.addSubview(next.reader.view, positioned: .below, relativeTo: helpOverlayHosting)
