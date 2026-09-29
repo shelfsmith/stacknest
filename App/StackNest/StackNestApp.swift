@@ -505,6 +505,43 @@ enum LibraryWindowCloseLogic {
     }
 }
 
+// MARK: - LibraryWindowOwnership
+
+/// Codex G57 P1 (2026-09-29): 庫の窓（`LibraryWindowContainer`）が**自分で取った**ものだけを手放すための記録。
+///
+/// 重複登録で弾かれた窓も、閉じると SwiftUI が `onDisappear` を走らせる。以前はそこで無条件に
+/// `LibraryOpenLockManager.release` と `OpenLibraryRegistry.unregister` を容れ物の URL で呼んでいたため、
+/// 本物の窓の登録を消し、別 Mac 向けのロックまで外していた（庫は開いたまま）。ロックはプロセスの
+/// instanceUUID で持つので、同じプロセスの別の窓からの release でも本物の窓のロックが外れる。
+///
+/// 取ったとき（`register` 成功・ロック取得）だけ印を付け、手放すときは印の付いたものだけを返して印を消す。
+/// どの後始末の経路（onDisappear・URL 差し替え・解錠のキャンセル・競合のキャンセル・開けなかったとき）も
+/// これを通るので、二重に手放すこともない。
+struct LibraryWindowOwnership: Equatable {
+    /// `OpenLibraryRegistry.register` が成功した（この窓が URL の持ち主）。
+    private(set) var ownsRegistration = false
+    /// ロックを取った（`.acquired` または強制取得）。`.unprotected` はロックを持たない。
+    private(set) var ownsLock = false
+
+    /// 手放すべきもの。
+    struct Release: Equatable {
+        var releaseLock: Bool
+        var unregister: Bool
+        static let nothing = Release(releaseLock: false, unregister: false)
+    }
+
+    mutating func didRegister() { ownsRegistration = true }
+    mutating func didAcquireLock() { ownsLock = true }
+
+    /// 持っているものを返し、記録を空にする（2 回目以降は `.nothing`）。
+    mutating func relinquish() -> Release {
+        let release = Release(releaseLock: ownsLock, unregister: ownsRegistration)
+        ownsLock = false
+        ownsRegistration = false
+        return release
+    }
+}
+
 // MARK: - LibraryWindowContainer
 
 /// Container for a library window bound to a specific bundle URL.
@@ -520,6 +557,8 @@ struct LibraryWindowContainer: View {
     /// （G27c で解錠 UI を .sheet からウィンドウ内描画へ移した後も、直接参照経由の
     /// close は変える理由が無いため踏襲）。
     @State private var hostWindow: NSWindow?
+    /// Codex G57 P1: この窓が取った登録・ロック。後始末はこれに載っているものだけを手放す。
+    @State private var ownership = LibraryWindowOwnership()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
 
@@ -569,17 +608,20 @@ struct LibraryWindowContainer: View {
                     // contentView は ProgressView に落ちるため、幽霊解錠画面は生じない。
                     // （G25b-1r では旧 @State 変数も併せて落としていたが、G25c で廃止したため不要になった。）
                     appState = nil
-                    LibraryOpenLockManager.shared.release(bundleURL: oldURL)
-                    OpenLibraryRegistry.shared.unregister(oldURL)
-                    UserDefaultsKeys.removeOpenLibrary(oldURL)   // C-④a: 窓再利用時は旧庫を集合から外す
+                    // Codex G57 P1: 旧庫の URL を持っていた（登録に成功した）窓だけが、開いている庫の
+                    // 集合から外す。持っていない窓が外すと、同じ庫を開いている本物の窓の分を消す。
+                    if ownership.ownsRegistration {
+                        UserDefaultsKeys.removeOpenLibrary(oldURL)   // C-④a: 窓再利用時は旧庫を集合から外す
+                    }
+                    releaseOwned(oldURL)
                 }
                 Task { await openBundleIfNeeded() }
             }
             .onDisappear {
                 if let url = bundleURL {
                     appState?.closeBundle()
-                    LibraryOpenLockManager.shared.release(bundleURL: url)
-                    OpenLibraryRegistry.shared.unregister(url)
+                    // Codex G57 P1: 重複で弾かれた窓は何も持っていないので、本物の窓の登録・ロックに触れない。
+                    releaseOwned(url)
                 }
             }
             .task {
@@ -629,8 +671,7 @@ struct LibraryWindowContainer: View {
                     },
                     onCancel: {
                         if let url = bundleURL {
-                            LibraryOpenLockManager.shared.release(bundleURL: url)
-                            OpenLibraryRegistry.shared.unregister(url)
+                            releaseOwned(url)
                         }
                         // G27c: インライン化により NSApp.keyWindow は常にこの host window を
                         // 指すが、既存の直接参照経由の close は変えずに踏襲する。
@@ -783,25 +824,39 @@ struct LibraryWindowContainer: View {
         }
     }
 
+    /// Codex G57 P1: この窓が取った登録・ロックだけを手放す（取っていなければ何もしない・二重に手放さない）。
+    @MainActor
+    private func releaseOwned(_ url: URL) {
+        let release = ownership.relinquish()
+        if release.releaseLock { LibraryOpenLockManager.shared.release(bundleURL: url) }
+        if release.unregister { OpenLibraryRegistry.shared.unregister(url) }
+    }
+
     private func openBundleIfNeeded() async {
         guard let bundleURL = bundleURL else { return }
 
         // Check if this URL is already open in another window
         if !OpenLibraryRegistry.shared.register(bundleURL) {
-            // Already open; close this window（この窓自身は一度も庫を開けていない）
+            // Already open; close this window（この窓自身は一度も庫を開けていない）。
+            // ownership は空のままなので、閉じたときの onDisappear は本物の窓の登録・ロックに触れない。
             closeThisWindow(openedBundle: false)
             return
         }
+        ownership.didRegister()
 
         // Phase 2.6d: cross-Mac lock. Acquire before opening the SQLite DB.
         switch LibraryOpenLockManager.shared.acquire(bundleURL: bundleURL) {
-        case .acquired, .unprotected:
-            break
+        case .acquired:
+            ownership.didAcquireLock()
+        case .unprotected:
+            break   // ロックを持たない（手放すものも無い）
         case .conflict(let info):
             if Self.confirmForceOpen(bundleName: bundleURL.deletingPathExtension().lastPathComponent, holder: info) {
                 LibraryOpenLockManager.shared.forceAcquire(bundleURL: bundleURL)
+                ownership.didAcquireLock()
             } else {
-                OpenLibraryRegistry.shared.unregister(bundleURL)
+                // 登録だけを手放す（ロックは取っていない）。閉じたときの onDisappear は何もしない。
+                releaseOwned(bundleURL)
                 // この窓もまだ庫を開けていない（acquire で弾かれてキャンセルした）。
                 closeThisWindow(openedBundle: false)
                 return
@@ -824,8 +879,7 @@ struct LibraryWindowContainer: View {
             // ここで表示用のフラグを別に持つ必要はない（施錠の有無は librarySettings が正）。
             state.markUnlocked(hash: nil)
         } catch {
-            LibraryOpenLockManager.shared.release(bundleURL: bundleURL)
-            OpenLibraryRegistry.shared.unregister(bundleURL)
+            releaseOwned(bundleURL)
             if case LibraryOpenError.cancelledByUser = error {
                 // ユーザーが破損ダイアログで「閉じる/やめる」を選んだ。静かに閉じる。
                 // openedBundle は既定の true のまま（detach しない）: この窓の `state` は

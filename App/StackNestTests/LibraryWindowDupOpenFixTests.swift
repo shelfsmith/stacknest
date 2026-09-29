@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 import Testing
 import AppKit
+import Foundation
+import AppCore
 @testable import StackNest
 
 /// dup-window fix (2026-09-29) の純関数テスト。
@@ -95,5 +97,62 @@ struct LibraryWindowDupOpenFixTests {
             window.stacknestBundleURL = nil
         }
         #expect(window.stacknestBundleURL == url)
+    }
+
+    // MARK: - LibraryWindowOwnership（Codex G57 P1, 2026-09-29）
+    //
+    // 重複登録で弾かれた窓が閉じると、SwiftUI は容れ物の onDisappear を走らせる。以前はそこで無条件に
+    // ロックの release と登録の unregister を容れ物の URL で呼び、本物の窓の登録と別 Mac 向けのロックを
+    // 外していた。後始末は「この窓が取ったもの」だけを手放す。
+
+    @Test("重複で弾かれた窓（登録に失敗）は何も手放さない")
+    func duplicateWindowNeverOwnedReleasesNothing() {
+        var ownership = LibraryWindowOwnership()   // register が false → didRegister を呼ばない
+        #expect(ownership.relinquish() == .nothing)
+    }
+
+    @Test("持ち主の窓は登録とロックの両方を手放し、2 回目は何も手放さない")
+    func ownerReleasesBothOnce() {
+        var ownership = LibraryWindowOwnership()
+        ownership.didRegister()
+        ownership.didAcquireLock()
+        #expect(ownership.relinquish() == .init(releaseLock: true, unregister: true))
+        #expect(ownership.relinquish() == .nothing)   // onCancel の後の onDisappear など
+    }
+
+    @Test("ロック競合のキャンセルは登録だけを手放し、閉じたときの onDisappear は二重に手放さない")
+    func lockConflictCancelReleasesRegistrationOnlyOnce() {
+        var ownership = LibraryWindowOwnership()
+        ownership.didRegister()                         // 競合でロックは取れていない
+        #expect(ownership.relinquish() == .init(releaseLock: false, unregister: true))
+        #expect(ownership.relinquish() == .nothing)     // onDisappear
+    }
+
+    @Test("ロックを持たない（unprotected）持ち主は登録だけを手放す")
+    func unprotectedOwnerReleasesRegistrationOnly() {
+        var ownership = LibraryWindowOwnership()
+        ownership.didRegister()
+        #expect(ownership.ownsLock == false)
+        #expect(ownership.relinquish() == .init(releaseLock: false, unregister: true))
+    }
+
+    /// 実際の `OpenLibraryRegistry` に対し、容れ物と同じ順序（register → 重複の後始末）で適用して、
+    /// 本物の窓の登録が残ることを確かめる。
+    @Test("重複の窓の後始末をしても、本物の窓の登録は残る")
+    func duplicateCleanupKeepsRealRegistration() {
+        let url = URL(fileURLWithPath: "/tmp/codex-g57-p1-\(UUID().uuidString)/Test.stacknest")
+        let registry = OpenLibraryRegistry.shared
+        defer { registry.unregister(url) }
+        var real = LibraryWindowOwnership()
+        if registry.register(url) { real.didRegister() }
+        var duplicate = LibraryWindowOwnership()
+        if registry.register(url) { duplicate.didRegister() }
+        #expect(real.ownsRegistration && !duplicate.ownsRegistration)
+        // 重複の窓が閉じる（onDisappear）
+        if duplicate.relinquish().unregister { registry.unregister(url) }
+        #expect(registry.contains(url))
+        // 本物の窓が閉じる
+        if real.relinquish().unregister { registry.unregister(url) }
+        #expect(!registry.contains(url))
     }
 }
