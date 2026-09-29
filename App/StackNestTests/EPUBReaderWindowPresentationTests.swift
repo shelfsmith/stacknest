@@ -144,16 +144,16 @@ struct EPUBReaderWindowPresentationTests {
         #expect(reader.columnMode == .double)
     }
 
-    /// OFF なら今までどおり窓の幅で自動（`.auto`）。
-    @Test func spreadByDefaultOffOpensAsAuto() {
+    /// OFF なら単ページ（`.single`）で開く（画像ビューアと同じく OFF は常に単ページ）。
+    @Test func spreadByDefaultOffOpensAsSingle() {
         let s = freshSettings()
         s.spreadByDefault = false
         let reader = FakeEPUBReader()
-        reader.columnMode = .single
+        reader.columnMode = .double
         let c = EPUBReaderWindowController(book: .g51Fixture(id: EPUBTestWindowID.fresh(), title: "t"), reader: reader,
                                            settings: s, persist: { _ in })
         defer { EPUBTestWindowID.clearFrame(c.book.id) }
-        #expect(reader.columnMode == .auto)
+        #expect(reader.columnMode == .single)
     }
 
     /// 開いている窓には反映しない（`d` で切り替えた状態を、設定の変更通知で戻さない）。

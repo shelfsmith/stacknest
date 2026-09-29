@@ -368,11 +368,12 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         reader.go(toGlobalPage: page)
     }
 
-    /// G57: 開くときの見開き。「見開きを既定で表示」が ON なら見開き、OFF なら窓の幅で自動。
+    /// G57: 開くときの見開き。「見開きを既定で表示」が ON なら見開き、OFF なら単ページ
+    /// （画像ビューアと同じく OFF は常に単ページで開く。`d` で見開きへ切り替えられる）。
     /// 電子書籍の見開きは本ごとに保存しない（`d` はその窓の間だけ）ので、開くたびにこれで決める。
     /// 設定の変更通知では当て直さない（開いている窓には反映しない＝画像ビューアと同じく開くときの既定）。
     static func initialColumnMode(_ settings: ViewerSettings) -> EPUBColumnModeValue {
-        settings.spreadByDefault ? .double : .auto
+        settings.spreadByDefault ? .double : .single
     }
 
     // MARK: - G51 自動送り

@@ -19,7 +19,7 @@ struct EPUBReaderWindowKeyTests {
                                 charactersIgnoringModifiers: chars, isARepeat: false, keyCode: keyCode)!
     }
     /// 専用の suite（実ユーザーの設定に依存しない）。見開きの既定は OFF にしておく
-    /// （G57 で開くときに `columnMode` が決まるようになったため。`d` の切り替えを `.auto` から確かめる）。
+    /// （G57 で開くときに `columnMode` が決まるようになったため。OFF は単ページ〔`.single`〕で開く）。
     private func freshSettings() -> ViewerSettings {
         let name = "g51-epub-keys-\(UUID().uuidString)"
         let ud = UserDefaults(suiteName: name)!
@@ -138,7 +138,7 @@ struct EPUBReaderWindowKeyTests {
         #expect(c.handleKey(key(2, chars: "d", command: true)) == false)    // ⌘D = menu, not toggleSpread
         #expect(c.handleKey(key(13, command: true)) == true)                // ⌘W stays (chord-mapped close)
         #expect(r.calls.isEmpty)
-        #expect(r.columnMode == .auto)
+        #expect(r.columnMode == .single)
     }
 
     @Test func rebindingIsHonored() {
