@@ -79,7 +79,6 @@ struct EbookViewerSettingsForm: View {
             // G57: 画面の名前は「ノンブル」ではなく「章ごとのページ番号」（smoke v1 の指摘）。
             Toggle("章ごとのページ番号を表示", isOn: $settings.showsEPUBFolio)
                 .help("各ページの下余白に章ごとのページ番号を出します。本全体の位置は下端の進捗表示で分かります。")
-
         }
         .onAppear {
             if installedFamilies.isEmpty { installedFamilies = Set(NSFontManager.shared.availableFontFamilies) }
