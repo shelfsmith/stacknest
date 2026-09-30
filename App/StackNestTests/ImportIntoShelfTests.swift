@@ -50,7 +50,7 @@ struct ImportIntoShelfTests {
         #expect(try shelfBookIDs(db, shelfID) == [2, 3])
     }
 
-    /// ★ 平木氏の判断（2026-09-26）: 既にライブラリにある本のファイルをドロップしたときも、
+    /// ★ 作者の判断（2026-09-26）: 既にライブラリにある本のファイルをドロップしたときも、
     /// シェルフに入れるつもりの操作なのでシェルフへ入れる。
     @Test("登録済みの本（alreadyPresent）もシェルフに入る")
     func addsAlreadyPresentBooks() throws {

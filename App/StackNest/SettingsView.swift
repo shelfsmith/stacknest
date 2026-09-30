@@ -514,7 +514,7 @@ struct SettingsWindowFixedSize: NSViewRepresentable {
     private let heightPadding: CGFloat
     private let tabBarPadding: CGFloat
     /// G54-S1: 窓の高さの上限を「その画面で使える高さ」の何割にするか。
-    /// 画面いっぱいに広がると圧迫感があるので余裕を残す（平木氏の判断で 0.85）。
+    /// 画面いっぱいに広がると圧迫感があるので余裕を残す（作者の判断で 0.85）。
     private let maxHeightScreenFraction: CGFloat = 0.85
     /// 現在のタブ index。値が変わると SwiftUI が updateNSView を再呼び出しし、
     /// アクティブタブの高さへ追従できる (この struct が値を読まなくても、

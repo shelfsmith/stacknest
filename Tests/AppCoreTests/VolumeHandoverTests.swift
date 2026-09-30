@@ -3,7 +3,7 @@ import Testing
 import Foundation
 @testable import AppCore
 
-/// G54-S3e（spec §2.1-2〜4・平木氏の判断）: 次の巻のファイルが**無いときだけ**窓に留まる。
+/// G54-S3e（spec §2.1-2〜4・作者の判断）: 次の巻のファイルが**無いときだけ**窓に留まる。
 /// 読む権限が無い（TCC）ときは今のまま引き渡す（許可のダイアログを出さないと直せないため）。
 @Suite("G54-S3e: 巻送りの引き渡しの事前確認")
 struct VolumeHandoverTests {
