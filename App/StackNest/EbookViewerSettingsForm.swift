@@ -80,11 +80,6 @@ struct EbookViewerSettingsForm: View {
             Toggle("章ごとのページ番号を表示", isOn: $settings.showsEPUBFolio)
                 .help("各ページの下余白に章ごとのページ番号を出します。本全体の位置は下端の進捗表示で分かります。")
 
-            // G57: 横方向のスクロール（トラックパッドの左右のスワイプ・マウスの横スクロール）でのページ送り。
-            Toggle("横方向のスクロールでページを送る", isOn: $settings.horizontalWheelTurnsPages)
-                .help("トラックパッドの左右のスワイプやマウスの横スクロールでページを送ります。縦方向のスクロールでは常にページが送られます。")
-            Toggle("横方向の向きを反対にする", isOn: $settings.reversesHorizontalWheelTurn)
-                .disabled(!settings.horizontalWheelTurnsPages)
         }
         .onAppear {
             if installedFamilies.isEmpty { installedFamilies = Set(NSFontManager.shared.availableFontFamilies) }

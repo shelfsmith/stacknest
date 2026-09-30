@@ -35,6 +35,15 @@ struct ViewerCommonSettingsForm: View {
             // 見開きを既定で表示。画像は本ごとの設定が無い本に、電子書籍は開くたびに適用（G57 で共通へ移した）。
             Toggle("見開きを既定で表示", isOn: $settings.spreadByDefault)
 
+            // G59: ホイール／トラックパッドのスクロールでのページ送り（画像ビューアと電子書籍の両方）。
+            Toggle("スクロールでページを送る", isOn: $settings.wheelTurnsPages)
+                .help("ホイールやトラックパッドのスクロールでページを送ります。画像ビューアと電子書籍の両方に効きます。")
+            Toggle("横方向のスクロールでページを送る", isOn: $settings.horizontalWheelTurnsPages)
+                .help("トラックパッドの左右のスワイプやマウスの横スクロールでもページを送ります。")
+                .disabled(!settings.wheelTurnsPages)
+            Toggle("横スクロールでの送りの向きを反対にする", isOn: $settings.reversesHorizontalWheelTurn)
+                .disabled(!settings.wheelTurnsPages || !settings.horizontalWheelTurnsPages)
+
             // Tab／⇧Tab で飛ぶページ数。電子書籍は本全体のページで数える（G57 で共通へ移した）。
             HStack {
                 Text("Tab スキップのページ数")

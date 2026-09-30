@@ -3207,16 +3207,6 @@
         }
       }
     },
-    "トラックパッドの左右のスワイプやマウスの横スクロールでページを送ります。縦方向のスクロールでは常にページが送られます。" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Swipe left or right on a trackpad, or scroll sideways with a mouse, to turn pages. Vertical scrolling always turns pages."
-          }
-        }
-      }
-    },
     "トークン" : {
       "localizations" : {
         "en" : {
@@ -7737,16 +7727,6 @@
         }
       }
     },
-    "横方向の向きを反対にする" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reverse Horizontal Direction"
-          }
-        }
-      }
-    },
     "機械に入っている書体だけを表示します。" : {
       "localizations" : {
         "en" : {
@@ -9567,6 +9547,46 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "+ Add"
+          }
+        }
+      }
+    },
+    "スクロールでページを送る" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Pages by Scrolling"
+          }
+        }
+      }
+    },
+    "ホイールやトラックパッドのスクロールでページを送ります。画像ビューアと電子書籍の両方に効きます。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn pages by scrolling with a mouse wheel or trackpad. Applies to both the image viewer and the e-book viewer."
+          }
+        }
+      }
+    },
+    "トラックパッドの左右のスワイプやマウスの横スクロールでもページを送ります。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also turn pages by swiping left or right on a trackpad or scrolling sideways with a mouse."
+          }
+        }
+      }
+    },
+    "横スクロールでの送りの向きを反対にする" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reverse Horizontal Scroll Direction"
           }
         }
       }

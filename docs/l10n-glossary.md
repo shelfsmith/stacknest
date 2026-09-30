@@ -117,7 +117,8 @@ App の文字列カタログは **1 つの日本語キーに 1 つの英訳**し
 | 生成り | Cream | EPUB のライト背景の選択肢（G56-S3） |
 | カスタム（背景） | Custom | 背景の選択肢。色は 背景色 = Background Color・文字色 = Text Color（G57） |
 | 配色 | Color Theme | システムに合わせる／ライト／ダーク（G54-S2b。G57 で「EPUB の」を外した） |
-| 横方向のスクロールでページを送る／横方向の向きを反対にする | Turn Pages with Horizontal Scrolling／Reverse Horizontal Direction | G57 |
+| 横方向のスクロールでページを送る／横スクロールでの送りの向きを反対にする | Turn Pages with Horizontal Scrolling／Reverse Horizontal Scroll Direction | G57・G59 で改名 |
+| スクロールでページを送る | Turn Pages by Scrolling | G59 |
 | 読みやすさを優先 | Prefer Readability | 「本の配色より読みやすさを優先」＝ Prefer Readability over Book Colors（G56-S3） |
 
 ### 2.3 ファイル操作・取り込み・監視
