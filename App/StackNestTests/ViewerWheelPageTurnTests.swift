@@ -114,6 +114,9 @@ struct ViewerWheelPageTurnTests {
     }
 
     @Test func canvasForwardsOnlyAtFitWithLoupeOff() {
+        // The loupe-on step runs the real branch, which writes the shared loupe magnification.
+        let savedMagnification = ViewerSettings.shared.loupeMagnification
+        defer { ViewerSettings.shared.loupeMagnification = savedMagnification }
         let canvas = ViewerCanvasView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         var forwarded = 0
         canvas.onWheelPageTurn = { _ in forwarded += 1 }
