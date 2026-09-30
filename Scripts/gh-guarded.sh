@@ -14,4 +14,31 @@ if [ "$ACTUAL" != "$EXPECTED" ]; then
   echo "gh-guarded: run 'gh auth switch --user $EXPECTED' and retry." >&2
   exit 1
 fi
-exec gh "$@"
+# 2026-10-01: 投稿の本文・タイトルに個人識別子（実名など）が無いことを確かめてから投稿する。
+# 引数すべてと、--body-file / -F で渡したファイルの中身を検査する（- は標準入力を一時ファイルに受ける）。
+CHECK="$(cd "$(dirname "$0")" && pwd)/check-private-identifiers.sh"
+TEXT="$(mktemp -t gh-guarded-text)"
+STDIN_BODY=""
+trap 'rm -f "$TEXT" ${STDIN_BODY:+"$STDIN_BODY"}' EXIT
+printf '%s\n' "$@" > "$TEXT"
+ARGS=()
+expect_file=0
+for a in "$@"; do
+  if [ "$expect_file" -eq 1 ]; then
+    expect_file=0
+    if [ "$a" = "-" ]; then
+      STDIN_BODY="$(mktemp -t gh-guarded-body)"
+      cat > "$STDIN_BODY"
+      a="$STDIN_BODY"
+    fi
+    cat "$a" >> "$TEXT"
+  else
+    case "$a" in
+      --body-file|-F) expect_file=1 ;;
+      --body-file=*) cat "${a#--body-file=}" >> "$TEXT" ;;
+    esac
+  fi
+  ARGS+=("$a")
+done
+"$CHECK" text "$TEXT" || { echo "gh-guarded: refusing to post: gh $1 ${2:-}" >&2; exit 1; }
+exec gh "${ARGS[@]}"

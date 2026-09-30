@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# 公開の場（この repo・上流 Washi への push と Issue/PR）に個人識別子を出さないための検査。
+# 2026-10-01: 実名がコードのコメントに入ったまま main に push されていた事故を受けて機械化した。
+#
+# 検査する語の一覧はリポジトリの外に置く（中身そのものが識別子なので、ここには書かない）:
+#   ${STACKNEST_PRIVATE_IDENTIFIERS_FILE:-$HOME/.config/stacknest/private-identifiers}
+#   1 行 1 つの拡張正規表現・大文字小文字を区別しない・# で始まる行と空行は無視。
+# 一覧が無い・空のときは失敗する（見落とすより止まる方を選ぶ）。
+#
+# 使い方:
+#   check-private-identifiers.sh pre-push          pre-push フックの標準入力（ref の組）を読み、
+#                                                  push する各コミットのファイル全体と、新しい
+#                                                  コミットのメッセージ・作成者を検査する
+#   check-private-identifiers.sh tree <rev>        <rev> のファイル全体を検査する
+#   check-private-identifiers.sh text [file...]    ファイル（無ければ標準入力）の文面を検査する
+# 見つかったら該当箇所を出して終了コード 1。見つからなければ 0。
+set -euo pipefail
+
+LIST="${STACKNEST_PRIVATE_IDENTIFIERS_FILE:-$HOME/.config/stacknest/private-identifiers}"
+ZERO="0000000000000000000000000000000000000000"
+
+fail() { echo "private-identifiers: $*" >&2; exit 1; }
+
+[ -r "$LIST" ] || fail "identifier list not found: $LIST (refusing; create it before pushing or posting)"
+PATTERNS="$(mktemp -t private-identifiers)"
+trap 'rm -f "$PATTERNS"' EXIT
+grep -v -E '^[[:space:]]*(#|$)' "$LIST" > "$PATTERNS" || true
+[ -s "$PATTERNS" ] || fail "identifier list is empty: $LIST (refusing)"
+
+found=0
+
+# <rev> のファイル全体（バイナリは除く）
+check_tree() {
+    local rev="$1" rc=0
+    git grep -I -n -i -E -f "$PATTERNS" "$rev" -- . >&2 || rc=$?
+    case "$rc" in
+    0) echo "private-identifiers: personal identifier found in the files of $rev" >&2; found=1 ;;
+    1) ;;                                              # 一致なし
+    *) fail "git grep failed on $rev (exit $rc)" ;;    # 一致なしと取り違えない
+    esac
+}
+
+# 範囲内の各コミットのメッセージと作成者・コミッタ
+check_commits() {
+    local log hits
+    log="$(git log --format='commit %h%n%an <%ae>%n%cn <%ce>%n%B' "$@")" || fail "git log failed: $*"
+    hits="$(printf '%s\n' "$log" | grep -n -i -E -f "$PATTERNS" || true)"
+    if [ -n "$hits" ]; then
+        echo "$hits" >&2
+        echo "private-identifiers: personal identifier found in commit messages or authors" >&2
+        found=1
+    fi
+}
+
+case "${1:-}" in
+pre-push)
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        [ "$local_sha" = "$ZERO" ] && continue          # ref の削除は検査しない
+        check_tree "$local_sha"
+        if [ "$remote_sha" = "$ZERO" ]; then
+            check_commits "$local_sha" --not --remotes  # 新しい ref: どの remote にも無いコミット
+        else
+            check_commits "$remote_sha..$local_sha"
+        fi
+    done
+    ;;
+tree)
+    [ -n "${2:-}" ] || fail "usage: $0 tree <rev>"
+    check_tree "$2"
+    ;;
+text)
+    shift
+    rc=0
+    if [ "$#" -eq 0 ]; then                            # bash 3.2 は set -u で空の "$@" を嫌う
+        grep -n -i -E -f "$PATTERNS" >&2 || rc=$?
+    else
+        grep -n -i -E -f "$PATTERNS" "$@" >&2 || rc=$?
+    fi
+    case "$rc" in
+    0) echo "private-identifiers: personal identifier found in the text" >&2; found=1 ;;
+    1) ;;
+    *) fail "could not read the text (grep exit $rc)" ;;
+    esac
+    ;;
+*)
+    fail "usage: $0 pre-push | tree <rev> | text [file...]"
+    ;;
+esac
+
+if [ "$found" -ne 0 ]; then
+    echo "private-identifiers: refused. Remove the identifiers above and retry." >&2
+    exit 1
+fi
+exit 0

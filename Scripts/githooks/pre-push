@@ -8,4 +8,6 @@ if [ "$ACTUAL" != "$EXPECTED" ]; then
   echo "pre-push: active gh account is '${ACTUAL:-none}', expected '$EXPECTED'. Push refused." >&2
   exit 1
 fi
-exit 0
+# 2026-10-01: 個人識別子（実名など）を push しない。push する各コミットのファイル全体と、
+# 新しいコミットのメッセージ・作成者を検査する（標準入力の ref の組をそのまま渡す）。
+exec "$(git rev-parse --show-toplevel)/Scripts/check-private-identifiers.sh" pre-push
