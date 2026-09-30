@@ -103,6 +103,34 @@ struct ViewerWheelPageTurnTests {
         noHorizontal.close()
     }
 
+    /// 拡大中のパン・ルーペの倍率に使ったスクロールの慣性は、フィット表示に戻っても送りに化けない
+    /// （拡大中にパン → 慣性の途中でキー送り → `fitToWindow` → 残りの慣性がフィット表示に届く）。
+    @Test func activityOutsideFitKeepsTheGestureLatched() async {
+        let c = await make()
+        for i in 0..<10 {   // パン（または倍率）の 1 ジェスチャ
+            c.noteWheelActivity(deltaX: 0, deltaY: -12, hasPreciseDeltas: true,
+                                timestamp: 100 + Double(i) * 0.016)
+        }
+        swipe(c, dy: -12, start: 100.2)   // 途切れずに続く慣性がフィット表示に届く
+        try? await Task.sleep(for: .milliseconds(100))
+        #expect(c.currentPageForTesting == 4, "同じジェスチャの慣性では送らない")
+
+        swipe(c, dy: -12, start: 101)     // 0.25 秒以上空いた新しいジェスチャは送る
+        await waitUntil { !c.hasPendingDisplay }
+        #expect(c.currentPageForTesting == 5)
+        c.close()
+    }
+
+    @Test func activityIsIgnoredWhenWheelPagingIsOff() async {
+        let c = await make(wheel: false)
+        c.noteWheelActivity(deltaX: 0, deltaY: -12, hasPreciseDeltas: true, timestamp: 100)
+        c.wheelSettingsProvider = { (true, true, false) }
+        swipe(c, dy: -12, start: 100.1)
+        await waitUntil { !c.hasPendingDisplay }
+        #expect(c.currentPageForTesting == 5, "OFF の間の動きは記録しない")
+        c.close()
+    }
+
     // MARK: キャンバス — フィット表示・ルーペ OFF のときだけ送りに回す
 
     private func scrollEvent(dy: Int32) -> NSEvent {
@@ -132,5 +160,39 @@ struct ViewerWheelPageTurnTests {
         canvas.zoomIn()
         canvas.scrollWheel(with: scrollEvent(dy: -12))
         #expect(forwarded == 1, "拡大中はパンに使う")
+    }
+
+    @Test func canvasReportsActivityOutsideFit() {
+        // The loupe-on steps run the real branch, which writes the shared loupe magnification.
+        let savedMagnification = ViewerSettings.shared.loupeMagnification
+        defer { ViewerSettings.shared.loupeMagnification = savedMagnification }
+        let canvas = ViewerCanvasView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        var forwarded = 0
+        var activity = 0
+        canvas.onWheelPageTurn = { _ in forwarded += 1 }
+        canvas.onWheelActivity = { _ in activity += 1 }
+
+        canvas.scrollWheel(with: scrollEvent(dy: -12))
+        #expect(forwarded == 1 && activity == 0, "フィット表示・ルーペ OFF は送りだけに回す")
+
+        canvas.loupeEnabled = true
+        canvas.scrollWheel(with: scrollEvent(dy: -12))
+        #expect(forwarded == 1 && activity == 1, "ルーペ ON は動きとして知らせる")
+        canvas.loupeEnabled = false
+
+        canvas.zoomIn()
+        canvas.scrollWheel(with: scrollEvent(dy: -12))
+        #expect(forwarded == 1 && activity == 2, "拡大中のパンも動きとして知らせる")
+
+        // 上限に張り付いて倍率が変わらないときも知らせる（新しい canvas は保存値から始まる）
+        ViewerSettings.shared.loupeMagnification = Double(LoupeMagnification.range.upperBound)
+        let pinned = ViewerCanvasView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        var pinnedActivity = 0
+        pinned.onWheelPageTurn = { _ in forwarded += 1 }
+        pinned.onWheelActivity = { _ in pinnedActivity += 1 }
+        pinned.loupeEnabled = true
+        pinned.scrollWheel(with: scrollEvent(dy: 12))   // 拡大の向き = 上限の先
+        #expect(pinned.currentLoupeMagnification == LoupeMagnification.range.upperBound)
+        #expect(forwarded == 1 && pinnedActivity == 1, "倍率が上下限でも知らせる")
     }
 }

@@ -125,6 +125,10 @@ final class ViewerCanvasView: NSView {
     /// G59: フィット表示でルーペが OFF のときのホイール／トラックパッドのスクロール。
     /// controller がページ送りの判定に回す（拡大中はパン、ルーペ ON は倍率のまま）。
     var onWheelPageTurn: ((NSEvent) -> Void)?
+    /// G59: 送りに回さなかったスクロール（拡大中のパン・ルーペの倍率）。controller はこれで
+    /// 「手が動いている」ことだけを記録し、同じジェスチャの慣性がフィット表示に戻った後に
+    /// 新しいジェスチャとして送りに化けないようにする（ページ送り → `fitToWindow` の直後など）。
+    var onWheelActivity: ((NSEvent) -> Void)?
 
     /// G18 C4: ズーム操作（±キー/ピンチ＝ `applyZoom` 経由）で `zoomFactor` が実際に変わるたびに
     /// 呼ばれる。パン（`scrollWheel`/`mouseDragged`）や、ページ送りのたびに `setImages` が呼ぶ
@@ -379,6 +383,8 @@ final class ViewerCanvasView: NSView {
         // フィット表示では下の既存経路が `guard isZoomed` で何もしないので、ルーペの主戦場での
         // 衝突は無い。重なるのは「ズーム中かつルーペ ON」だけで、そこでもドラッグのパンは生きている。
         if loupeEnabled {
+            // G59: 倍率が上下限に張り付いていても、手が動いていることは知らせる。
+            onWheelActivity?(event)
             let next = LoupeMagnification.stepped(
                 from: currentLoupeMagnification,
                 scrollDeltaY: event.scrollingDeltaY,
@@ -403,6 +409,7 @@ final class ViewerCanvasView: NSView {
             onWheelPageTurn?(event)
             return
         }
+        onWheelActivity?(event)   // G59
         offset.width  += event.scrollingDeltaX
         offset.height -= event.scrollingDeltaY
         clampOffsetForCurrentScale()

@@ -336,6 +336,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                 deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
                 hasPreciseDeltas: event.hasPreciseScrollingDeltas, timestamp: event.timestamp)
         }
+        // G59: パン・ルーペの倍率に使ったスクロールも判定に知らせる（慣性で送りに化けないため）。
+        canvas.onWheelActivity = { [weak self] event in
+            self?.noteWheelActivity(
+                deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+                hasPreciseDeltas: event.hasPreciseScrollingDeltas, timestamp: event.timestamp)
+        }
         // G18 C4: ズーム操作のたびにデバウンス付き再デコード判定をスケジュールする。
         canvas.onZoomChanged = { [weak self] _ in self?.scheduleZoomRedecodeCheck() }
         // G40: 倍率を変えたら、現在値を HUD に出し、高解像度の再デコードを予約する
@@ -1005,6 +1011,17 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                                              reversesHorizontal: settings.reversed)
         else { return }
         perform(action)
+    }
+
+    /// G59: 送りに使わなかったスクロール（拡大中のパン・ルーペの倍率）を判定に知らせる。
+    /// 送りはせず「手が動いている」ことだけを記録する。これが無いと判定の最終時刻が古いままになり、
+    /// 拡大中にパン → 慣性の途中でキー送り（`setImages` → `fitToWindow` でフィット表示に戻る）→
+    /// 残りの慣性がフィット表示に届いて新しいジェスチャ扱いになり、もう 1 ページ送ってしまう
+    /// （慣性の途中でルーペを OFF にしたときも同じ）。設定 OFF の間は判定を使わないので何もしない。
+    func noteWheelActivity(deltaX: Double, deltaY: Double, hasPreciseDeltas: Bool, timestamp: TimeInterval) {
+        guard wheelSettingsProvider().turnsPages else { return }
+        _ = wheelGesture.consume(deltaX: deltaX, deltaY: deltaY, hasPreciseDeltas: hasPreciseDeltas,
+                                 timestamp: timestamp, isBusy: true)
     }
 
     func perform(_ action: ViewerAction) {
