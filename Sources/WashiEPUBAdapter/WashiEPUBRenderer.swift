@@ -403,6 +403,14 @@ final class WashiReaderHost: NSObject, EPUBReaderViewing, EPUBReaderViewDelegate
         }
     }
 
+    var wheelTurnsPages: Bool {
+        get { reader.settings.wheelTurnsPages }
+        set {
+            guard reader.settings.wheelTurnsPages != newValue else { return }
+            reader.settings.wheelTurnsPages = newValue
+        }
+    }
+
     /// システムの外観が変わった（`theme == .system` のパレットを入れ替える）。
     func refreshAppearanceForSystemChange() { applyAppearance(appearance) }
 

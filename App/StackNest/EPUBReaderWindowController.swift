@@ -657,8 +657,9 @@ final class EPUBReaderWindowController: NSWindowController, NSWindowDelegate, Vi
         appearance.japaneseFontFamily = EPUBFontCandidates.effectiveFamilyOnThisMac(appearance.japaneseFontFamily)
         appearance.latinFontFamily = EPUBFontCandidates.effectiveFamilyOnThisMac(appearance.latinFontFamily)
         reader.applyAppearance(appearance)
-        reader.horizontalWheelTurnsPages = settings.epubHorizontalWheelTurnsPages
-        reader.reversesHorizontalWheelTurn = settings.epubReversesHorizontalWheelTurn
+        reader.horizontalWheelTurnsPages = settings.horizontalWheelTurnsPages
+        reader.reversesHorizontalWheelTurn = settings.reversesHorizontalWheelTurn
+        reader.wheelTurnsPages = settings.wheelTurnsPages
     }
 
     /// 位置の変化・計測の完了で HUD の中身を作り直す。

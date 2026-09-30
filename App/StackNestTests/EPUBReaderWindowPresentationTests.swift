@@ -111,10 +111,14 @@ struct EPUBReaderWindowPresentationTests {
         // G57: アプリの既定（true / false）が開いた時点で reader へ入る（Fake は false / true で始まる）。
         #expect(r.horizontalWheelTurnsPages == true)
         #expect(r.reversesHorizontalWheelTurn == false)
-        s.epubHorizontalWheelTurnsPages = false
+        s.horizontalWheelTurnsPages = false
         #expect(r.horizontalWheelTurnsPages == false)
-        s.epubReversesHorizontalWheelTurn = true
+        s.reversesHorizontalWheelTurn = true
         #expect(r.reversesHorizontalWheelTurn == true)
+        // G59: 「スクロールでページを送る」も開いた時点で入り（Fake は false で始まる）、変更が届く。
+        #expect(r.wheelTurnsPages == true)
+        s.wheelTurnsPages = false
+        #expect(r.wheelTurnsPages == false)
         withExtendedLifetime(c) {}
     }
 

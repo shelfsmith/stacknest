@@ -79,6 +79,11 @@ public protocol EPUBReaderViewing: AnyObject {
     /// 横方向のホイールでのページ送りの向きを反対にするか（`horizontalWheelTurnsPages` が false のときは無効）。
     var reversesHorizontalWheelTurn: Bool { get set }
 
+    // MARK: G59 — ホイールでのページ送りのオン・オフ
+
+    /// ホイール／トラックパッドのスクロールでページを送るか（false なら縦横とも送らない）。
+    var wheelTurnsPages: Bool { get set }
+
     // MARK: G54-S3c — 窓から外す
 
     /// 巻送りで窓から外すときに呼ぶ。コールバックを外し、本の資源（WebView など）と

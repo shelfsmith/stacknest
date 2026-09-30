@@ -161,5 +161,7 @@ struct WashiAppearanceTests {
         host.reversesHorizontalWheelTurn = true
         #expect(host.reader.settings.horizontalWheelTurnsPages == false)
         #expect(host.reader.settings.reversesHorizontalWheelTurn == true)
+        host.wheelTurnsPages = false
+        #expect(host.reader.settings.wheelTurnsPages == false)
     }
 }

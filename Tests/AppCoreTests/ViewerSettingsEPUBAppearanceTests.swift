@@ -112,12 +112,28 @@ struct ViewerSettingsEPUBAppearanceTests {
     @Test func wheelDefaultsAndPersist() {
         let d = freshDefaults()
         let s = ViewerSettings(defaults: d)
-        #expect(s.epubHorizontalWheelTurnsPages == true)
-        #expect(s.epubReversesHorizontalWheelTurn == false)
-        s.epubHorizontalWheelTurnsPages = false
-        s.epubReversesHorizontalWheelTurn = true
+        #expect(s.wheelTurnsPages == true)
+        #expect(s.horizontalWheelTurnsPages == true)
+        #expect(s.reversesHorizontalWheelTurn == false)
+        s.wheelTurnsPages = false
+        s.horizontalWheelTurnsPages = false
+        s.reversesHorizontalWheelTurn = true
         let r = ViewerSettings(defaults: d)
-        #expect(r.epubHorizontalWheelTurnsPages == false && r.epubReversesHorizontalWheelTurn == true)
+        #expect(r.wheelTurnsPages == false)
+        #expect(r.horizontalWheelTurnsPages == false && r.reversesHorizontalWheelTurn == true)
+    }
+
+    /// G59: 横方向の 2 設定は名前を変えたが、保存のキーは G57 のまま（今の値を引き継ぐ）。
+    @Test func horizontalWheelSettingsKeepTheirG57Keys() {
+        let d = freshDefaults()
+        d.set(false, forKey: "epubHorizontalWheelTurnsPages")
+        d.set(true, forKey: "epubReversesHorizontalWheelTurn")
+        let s = ViewerSettings(defaults: d)
+        #expect(s.horizontalWheelTurnsPages == false)
+        #expect(s.reversesHorizontalWheelTurn == true)
+        #expect(d.object(forKey: "wheelTurnsPages") == nil, "新設のキーは書くまで無い")
+        s.wheelTurnsPages = false
+        #expect(d.object(forKey: "wheelTurnsPages") as? Bool == false)
     }
 
     @Test func changesPostPresentationNotification() {
@@ -133,8 +149,9 @@ struct ViewerSettingsEPUBAppearanceTests {
         s.epubLightCustomColors = EPUBPaletteColors(background: EPUBRGB(hex: 0x111111), text: EPUBRGB(hex: 0xEEEEEE))
         s.epubDarkCustomColors = EPUBPaletteColors(background: EPUBRGB(hex: 0x102030), text: EPUBRGB(hex: 0xE0E0E0))
         s.epubForcesReadableColors = true
-        s.epubHorizontalWheelTurnsPages = false
-        s.epubReversesHorizontalWheelTurn = true
-        #expect(count == 10)
+        s.horizontalWheelTurnsPages = false
+        s.reversesHorizontalWheelTurn = true
+        s.wheelTurnsPages = false
+        #expect(count == 11)
     }
 }

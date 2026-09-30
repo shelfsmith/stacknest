@@ -61,6 +61,7 @@ public final class ViewerSettings {
     private let epubDarkCustomTextKey = "epubDarkCustomText"
     private let epubHorizontalWheelTurnsPagesKey = "epubHorizontalWheelTurnsPages"
     private let epubReversesHorizontalWheelTurnKey = "epubReversesHorizontalWheelTurn"
+    private let wheelTurnsPagesKey = "wheelTurnsPages"
 
     /// Phase 2.5g: 新規追加 book の bookType 自動分類を有効化するか (default true)。
     public var autoClassifyEnabled: Bool {
@@ -273,19 +274,30 @@ public final class ViewerSettings {
         }
     }
 
-    /// G57: 横方向のスクロール／トラックパッドの横振れでページを送るか（既定 true）。
-    public var epubHorizontalWheelTurnsPages: Bool {
+    /// G59: ホイール／トラックパッドのスクロールでページを送るか（既定 true）。画像ビューアと
+    /// 電子書籍の両方に効く（ビューア共通）。false のときは横方向の 2 設定も効かない。
+    public var wheelTurnsPages: Bool {
         didSet {
-            defaults.set(epubHorizontalWheelTurnsPages, forKey: epubHorizontalWheelTurnsPagesKey)
+            defaults.set(wheelTurnsPages, forKey: wheelTurnsPagesKey)
             NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
         }
     }
 
-    /// G57: 横方向のページ送りの向きを反対にするか（既定 false）。`epubHorizontalWheelTurnsPages` が
-    /// false のときは画面側で灰色にする（このプロパティ自体は独立して保存する）。
-    public var epubReversesHorizontalWheelTurn: Bool {
+    /// G57: 横方向のスクロール／トラックパッドの横振れでページを送るか（既定 true）。
+    /// G59: 画像ビューアにも効く共通の設定にした（保存のキーは G57 のまま）。
+    public var horizontalWheelTurnsPages: Bool {
         didSet {
-            defaults.set(epubReversesHorizontalWheelTurn, forKey: epubReversesHorizontalWheelTurnKey)
+            defaults.set(horizontalWheelTurnsPages, forKey: epubHorizontalWheelTurnsPagesKey)
+            NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
+        }
+    }
+
+    /// G57: 横方向のページ送りの向きを反対にするか（既定 false）。`horizontalWheelTurnsPages` が
+    /// false のときは画面側で灰色にする（このプロパティ自体は独立して保存する）。
+    /// G59: 画像ビューアにも効く共通の設定にした（保存のキーは G57 のまま）。
+    public var reversesHorizontalWheelTurn: Bool {
+        didSet {
+            defaults.set(reversesHorizontalWheelTurn, forKey: epubReversesHorizontalWheelTurnKey)
             NotificationCenter.default.post(name: .viewerEPUBPresentationChanged, object: nil)
         }
     }
@@ -521,14 +533,20 @@ public final class ViewerSettings {
             from: defaults, backgroundKey: epubLightCustomBackgroundKey, textKey: epubLightCustomTextKey)
         self.epubDarkCustomColors = Self.loadCustomColors(
             from: defaults, backgroundKey: epubDarkCustomBackgroundKey, textKey: epubDarkCustomTextKey)
-        // G57: キー不在で true（既定は「送る」）。
+        // G57: キー不在で true（既定は「送る」）。G59 で名前だけ改めた（キーは同じ）。
         if defaults.object(forKey: epubHorizontalWheelTurnsPagesKey) == nil {
-            self.epubHorizontalWheelTurnsPages = true
+            self.horizontalWheelTurnsPages = true
         } else {
-            self.epubHorizontalWheelTurnsPages = defaults.bool(forKey: epubHorizontalWheelTurnsPagesKey)
+            self.horizontalWheelTurnsPages = defaults.bool(forKey: epubHorizontalWheelTurnsPagesKey)
         }
         // キー不在で false（defaults.bool の既定と一致）。
-        self.epubReversesHorizontalWheelTurn = defaults.bool(forKey: epubReversesHorizontalWheelTurnKey)
+        self.reversesHorizontalWheelTurn = defaults.bool(forKey: epubReversesHorizontalWheelTurnKey)
+        // G59: キー不在で true（既定は「送る」）。
+        if defaults.object(forKey: wheelTurnsPagesKey) == nil {
+            self.wheelTurnsPages = true
+        } else {
+            self.wheelTurnsPages = defaults.bool(forKey: wheelTurnsPagesKey)
+        }
         // G54-S3: 壊れた値や未知の値は演出なしに倒す。`PageTurnStyleValue.off` と型を明示する。
         self.pageTurnStyle = defaults.string(forKey: pageTurnStyleKey)
             .flatMap(PageTurnStyleValue.init(rawValue:)) ?? PageTurnStyleValue.off
