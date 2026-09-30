@@ -122,6 +122,9 @@ final class ViewerCanvasView: NSView {
 
     /// 左右ゾーン単クリック送り。leftHalf=true なら画面左半分クリック。controller が方向解釈。
     var onZoneClick: ((_ leftHalf: Bool) -> Void)?
+    /// G59: フィット表示でルーペが OFF のときのホイール／トラックパッドのスクロール。
+    /// controller がページ送りの判定に回す（拡大中はパン、ルーペ ON は倍率のまま）。
+    var onWheelPageTurn: ((NSEvent) -> Void)?
 
     /// G18 C4: ズーム操作（±キー/ピンチ＝ `applyZoom` 経由）で `zoomFactor` が実際に変わるたびに
     /// 呼ばれる。パン（`scrollWheel`/`mouseDragged`）や、ページ送りのたびに `setImages` が呼ぶ
@@ -396,7 +399,10 @@ final class ViewerCanvasView: NSView {
             }
             return
         }
-        guard isZoomed else { return }
+        guard isZoomed else {
+            onWheelPageTurn?(event)
+            return
+        }
         offset.width  += event.scrollingDeltaX
         offset.height -= event.scrollingDeltaY
         clampOffsetForCurrentScale()

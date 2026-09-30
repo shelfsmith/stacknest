@@ -232,6 +232,13 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
     var pageTurnAnimator: any PageTurnAnimating = PageTurnOverlay()
     /// 設定・「視差効果を減らす」・時計の読み口（テストで差し替える）。
     var pageTurnStyleProvider: @MainActor () -> PageTurnStyleValue = { ViewerSettings.shared.pageTurnStyle }
+    /// G59: ホイールでのページ送りの設定（テストで差し替える）。
+    var wheelSettingsProvider: @MainActor () -> (turnsPages: Bool, horizontal: Bool, reversed: Bool) = {
+        let s = ViewerSettings.shared
+        return (s.wheelTurnsPages, s.horizontalWheelTurnsPages, s.reversesHorizontalWheelTurn)
+    }
+    /// G59: ホイール／トラックパッドの「1 ジェスチャ = 1 ページ」の判定（電子書籍と同じ規則）。
+    private var wheelGesture = WheelPageTurnGesture()
     var reduceMotionProvider: @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     var now: @MainActor () -> Date = { Date() }
     /// 直近の隣への送りの時刻（演出したかどうかに関わらず更新する。Washi と同じ）。
@@ -323,6 +330,12 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
 
         canvas.translatesAutoresizingMaskIntoConstraints = false
         canvas.onZoneClick = { [weak self] leftHalf in self?.handleZoneClick(leftHalf: leftHalf) }
+        // G59: フィット表示のホイール／トラックパッドでページを送る。
+        canvas.onWheelPageTurn = { [weak self] event in
+            self?.handleWheelPageTurn(
+                deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+                hasPreciseDeltas: event.hasPreciseScrollingDeltas, timestamp: event.timestamp)
+        }
         // G18 C4: ズーム操作のたびにデバウンス付き再デコード判定をスケジュールする。
         canvas.onZoomChanged = { [weak self] _ in self?.scheduleZoomRedecodeCheck() }
         // G40: 倍率を変えたら、現在値を HUD に出し、高解像度の再デコードを予約する
@@ -980,6 +993,20 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
         return true
     }
 
+    /// G59: ホイール／トラックパッドのイベントを判定し、送るならキー操作と同じ `perform` に流す
+    /// （見開き・本の終わりの挙動・スライドショーの停止・HUD がキーと同じになる）。
+    func handleWheelPageTurn(deltaX: Double, deltaY: Double, hasPreciseDeltas: Bool, timestamp: TimeInterval) {
+        let settings = wheelSettingsProvider()
+        guard settings.turnsPages else { return }
+        guard let turn = wheelGesture.consume(
+            deltaX: deltaX, deltaY: deltaY, hasPreciseDeltas: hasPreciseDeltas,
+            timestamp: timestamp, isBusy: isSwapping),
+              let action = turn.viewerAction(horizontalTurnsPages: settings.horizontal,
+                                             reversesHorizontal: settings.reversed)
+        else { return }
+        perform(action)
+    }
+
     func perform(_ action: ViewerAction) {
         // 巻スワップ中（await content.pageCount 中）は古い model に対する全入力を無視する。
         guard !isSwapping else { return }
@@ -1189,6 +1216,9 @@ final class ViewerWindowController: NSWindowController, NSWindowDelegate {
                             direction: VolumeSwapDirection, noVolumeNote: String) {
         guard !isSwapping else { return }
         isSwapping = true
+        // G59: 巻の切り替えを始めたら、0.25 秒静かになるまでホイールで送らない
+        // （前の巻から続く慣性で、次の巻のページを送らないため）。
+        wheelGesture.latch(at: ProcessInfo.processInfo.systemUptime)
         // G19 案P review Critical fix: 巻スワップに入る＝旧巻の「現ページ表示待ち」は無効になる。
         // isDisplayPending を必ずここでクリアする。さもないと、旧巻の loadCurrentPage が miss で
         // pending=true のまま巻スワップが「隣巻なし/0ページ」で早期 return した場合、旧 in-flight Task も
