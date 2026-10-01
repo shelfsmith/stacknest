@@ -9,8 +9,8 @@
 #
 # 使い方:
 #   check-private-identifiers.sh pre-push          pre-push フックの標準入力（ref の組）を読み、
-#                                                  push する各コミットのファイル全体と、新しい
-#                                                  コミットのメッセージ・作成者を検査する
+#                                                  push する先端のファイル全体・新しいコミットで
+#                                                  足された行とファイル名・メッセージ・作成者を検査する
 #   check-private-identifiers.sh tree <rev>        <rev> のファイル全体を検査する
 #   check-private-identifiers.sh text [file...]    ファイル（無ければ標準入力）の文面を検査する
 # 見つかったら該当箇所を出して終了コード 1。見つからなければ 0。
@@ -40,6 +40,20 @@ check_tree() {
     esac
 }
 
+# 範囲内の各コミットで足された行とファイル名（途中のコミットで入れて後で消した識別子も公開されるため。
+# 消した行は見ない — 見ると、識別子を消すコミットそのものが止まる）
+check_patches() {
+    local patch hits
+    patch="$(git log -p --no-color --no-ext-diff --format='commit %h' "$@")" || fail "git log -p failed: $*"
+    hits="$(printf '%s\n' "$patch" | grep -E '^(commit |\+\+\+ |rename to |copy to )|^\+' \
+        | grep -v -E '^\+\+\+ /dev/null' | grep -i -E -f "$PATTERNS" || true)"
+    if [ -n "$hits" ]; then
+        echo "$hits" >&2
+        echo "private-identifiers: personal identifier added by an outgoing commit (even if removed later)" >&2
+        found=1
+    fi
+}
+
 # 範囲内の各コミットのメッセージと作成者・コミッタ
 check_commits() {
     local log hits
@@ -58,10 +72,12 @@ pre-push)
         [ "$local_sha" = "$ZERO" ] && continue          # ref の削除は検査しない
         check_tree "$local_sha"
         if [ "$remote_sha" = "$ZERO" ]; then
-            check_commits "$local_sha" --not --remotes  # 新しい ref: どの remote にも無いコミット
+            set -- "$local_sha" --not --remotes          # 新しい ref: どの remote にも無いコミット
         else
-            check_commits "$remote_sha..$local_sha"
+            set -- "$remote_sha..$local_sha"
         fi
+        check_commits "$@"
+        check_patches "$@"
     done
     ;;
 tree)
