@@ -56,6 +56,17 @@ resolve_input() {
   cat "$INPUT" >> "$TEXT"
 }
 
+# gh api の -F / --field の「キー=値」。gh と同じく、最初の "=" の直後が "@" のときだけ値をファイルとして
+# 読む（値の途中の "=@" はそのままの文字列）。結果を FIELD に入れる
+expand_field() {
+  local key="${1%%=*}" value="${1#*=}"
+  FIELD="$1"
+  case "$1" in *=*) ;; *) return 0 ;; esac
+  case "$value" in
+    @*) resolve_input "${value#@}"; FIELD="$key=@$INPUT" ;;
+  esac
+}
+
 ARGS=()
 expect=""                                          # 次の引数の扱い: input（本文のファイル）/ field（gh api の -F）
 for a in "$@"; do
@@ -65,7 +76,7 @@ for a in "$@"; do
       resolve_input "$a"; a="$INPUT" ;;
     field)                                         # gh api -F key=value: 値が @パスのときだけファイル
       expect=""
-      case "$a" in *=@*) resolve_input "${a#*=@}"; a="${a%%=@*}=@$INPUT" ;; esac ;;
+      expand_field "$a"; a="$FIELD" ;;
     *)
       case "$a" in
         --body-file|--notes-file|--input) expect=input ;;
@@ -73,8 +84,8 @@ for a in "$@"; do
         --field) expect=field ;;
         --body-file=*|--notes-file=*|--input=*)
           resolve_input "${a#*=}"; a="${a%%=*}=$INPUT" ;;
-        --field=*=@*)                              # --field=key=@path
-          resolve_input "${a#*=@}"; a="${a%%=@*}=@$INPUT" ;;
+        --field=*)                                 # --field=key=value
+          expand_field "${a#--field=}"; a="--field=$FIELD" ;;
         *)
           [ -f "$a" ] && cat "$a" >> "$TEXT" ;;    # gist のファイルなど（-f/--raw-field の値はそのまま）
       esac ;;

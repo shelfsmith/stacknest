@@ -47,7 +47,8 @@ check_patches() {
     local patch hits
     patch="$(git log -p --diff-merges=first-parent --no-color --no-ext-diff --format='commit %h' "$@")" \
         || fail "git log -p failed: $*"
-    hits="$(printf '%s\n' "$patch" | grep -E '^(commit |\+)' | grep -v -E '^\+\+\+ ' \
+    # 足された行だけを、行頭の "+" を外して照合する（^ や $ で固定した検査語も当たるように）
+    hits="$(printf '%s\n' "$patch" | grep -E '^\+' | grep -v -E '^\+\+\+ ' | sed 's/^+//' \
         | grep -i -E -f "$PATTERNS" || true)"
     if [ -n "$hits" ]; then
         echo "$hits" >&2
@@ -73,7 +74,8 @@ check_paths() {
 # 範囲内の各コミットのメッセージと作成者・コミッタ
 check_commits() {
     local log hits
-    log="$(git log --format='commit %h%n%an <%ae>%n%cn <%ce>%n%B' "$@")" || fail "git log failed: $*"
+    # 名前・メール・本文の各行をそのまま 1 行ずつ照合する（^ や $ で固定した検査語も当たるように）
+    log="$(git log --format='%an%n%ae%n%cn%n%ce%n%B' "$@")" || fail "git log failed: $*"
     hits="$(printf '%s\n' "$log" | grep -n -i -E -f "$PATTERNS" || true)"
     if [ -n "$hits" ]; then
         echo "$hits" >&2
