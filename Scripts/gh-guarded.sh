@@ -53,7 +53,7 @@ resolve_input() {
   else
     refuse "body input not found: $src"
   fi
-  cat "$INPUT" >> "$TEXT"
+  cat "$INPUT" >> "$TEXT"; echo >> "$TEXT"       # 本文どうしをつなげない（^ $ の検査語のため）
 }
 
 # gh api の -F / --field の「キー=値」。gh と同じく、最初の "=" の直後が "@" のときだけ値をファイルとして
@@ -87,7 +87,7 @@ for a in "$@"; do
         --field=*)                                 # --field=key=value
           expand_field "${a#--field=}"; a="--field=$FIELD" ;;
         *)
-          [ -f "$a" ] && cat "$a" >> "$TEXT" ;;    # gist のファイルなど（-f/--raw-field の値はそのまま）
+          [ -f "$a" ] && { cat "$a" >> "$TEXT"; echo >> "$TEXT"; } ;;    # gist のファイルなど（-f/--raw-field の値はそのまま）
       esac ;;
   esac
   ARGS+=("$a")

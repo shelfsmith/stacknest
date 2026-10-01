@@ -47,8 +47,11 @@ check_patches() {
     local patch hits
     patch="$(git log -p --diff-merges=first-parent --no-color --no-ext-diff --format='commit %h' "$@")" \
         || fail "git log -p failed: $*"
-    # 足された行だけを、行頭の "+" を外して照合する（^ や $ で固定した検査語も当たるように）
-    hits="$(printf '%s\n' "$patch" | grep -E '^\+' | grep -v -E '^\+\+\+ ' | sed 's/^+//' \
+    # 足された行だけを、行頭の "+" を外して照合する（^ や $ で固定した検査語も当たるように）。
+    # 見出しの "+++ b/…" と、"++ " で始まる足した行（パッチでは "+++ " になる）を取り違えないよう、
+    # "@@" の区切りの中だけを見る
+    hits="$(printf '%s\n' "$patch" \
+        | awk '/^diff --git /{h=0; next} /^@@/{h=1; next} h && /^\+/{print substr($0, 2)}' \
         | grep -i -E -f "$PATTERNS" || true)"
     if [ -n "$hits" ]; then
         echo "$hits" >&2
