@@ -40,16 +40,32 @@ check_tree() {
     esac
 }
 
-# 範囲内の各コミットで足された行とファイル名（途中のコミットで入れて後で消した識別子も公開されるため。
-# 消した行は見ない — 見ると、識別子を消すコミットそのものが止まる）
+# 範囲内の各コミットで足された行（途中のコミットで入れて後で消した識別子も公開されるため。
+# 消した行は見ない — 見ると、識別子を消すコミットそのものが止まる）。マージのコミットは第 1 親との
+# 差分として見る（衝突の解消の中で入った行も拾う）
 check_patches() {
     local patch hits
-    patch="$(git log -p --no-color --no-ext-diff --format='commit %h' "$@")" || fail "git log -p failed: $*"
-    hits="$(printf '%s\n' "$patch" | grep -E '^(commit |\+\+\+ |rename to |copy to )|^\+' \
-        | grep -v -E '^\+\+\+ /dev/null' | grep -i -E -f "$PATTERNS" || true)"
+    patch="$(git log -p --diff-merges=first-parent --no-color --no-ext-diff --format='commit %h' "$@")" \
+        || fail "git log -p failed: $*"
+    hits="$(printf '%s\n' "$patch" | grep -E '^(commit |\+)' | grep -v -E '^\+\+\+ ' \
+        | grep -i -E -f "$PATTERNS" || true)"
     if [ -n "$hits" ]; then
         echo "$hits" >&2
         echo "private-identifiers: personal identifier added by an outgoing commit (even if removed later)" >&2
+        found=1
+    fi
+}
+
+# 範囲内の各コミットで足した・名前を変えた・写したファイルの名前（中身の無いファイルやバイナリは
+# パッチの見出しに名前が出ないので、名前の一覧として別に見る。-z で非 ASCII の名前の引用を避ける）
+check_paths() {
+    local names hits
+    names="$(git log --diff-merges=first-parent --format= --name-only -z --diff-filter=ACR "$@" | tr '\0' '\n')" \
+        || fail "git log --name-only failed: $*"
+    hits="$(printf '%s\n' "$names" | grep -i -E -f "$PATTERNS" || true)"
+    if [ -n "$hits" ]; then
+        echo "$hits" >&2
+        echo "private-identifiers: personal identifier in a file name added by an outgoing commit" >&2
         found=1
     fi
 }
@@ -78,6 +94,7 @@ pre-push)
         fi
         check_commits "$@"
         check_patches "$@"
+        check_paths "$@"
     done
     ;;
 tree)

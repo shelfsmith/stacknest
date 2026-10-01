@@ -18,7 +18,7 @@ fi
 # 検査するもの:
 #   - 引数すべて（--title / --body / -f などの直接の値）
 #   - 本文を取る指定の中身: --body-file / --notes-file / --input（区切りの形も = の形も）、gh api 以外の -F、
-#     「キー=@パス」の値（gh api の -F key=@file）。通常のファイルならそのまま読み、"-"（標準入力）や
+#     gh api の -F / --field の「キー=@パス」の値（-f / --raw-field の値はそのままの文字列なので読まない）。通常のファイルならそのまま読み、"-"（標準入力）や
 #     パイプ（<(...)）などは一度一時ファイルに受けてから検査し、gh にはその一時ファイルを渡す。
 #     読めない指定は止める（検査を素通りさせない）
 #   - それ以外で既存の通常のファイルを指す引数（gist のファイルなど）
@@ -57,26 +57,31 @@ resolve_input() {
 }
 
 ARGS=()
-expect_input=0
+expect=""                                          # 次の引数の扱い: input（本文のファイル）/ field（gh api の -F）
 for a in "$@"; do
-  if [ "$expect_input" -eq 1 ]; then                # 本文を取るオプションの次の引数
-    expect_input=0
-    resolve_input "$a"; a="$INPUT"
-  else
-    case "$a" in
-      --body-file|--notes-file|--input) expect_input=1 ;;
-      -F) [ "$SUB" != "api" ] && expect_input=1 ;;
-      --body-file=*|--notes-file=*|--input=*)
-        resolve_input "${a#*=}"; a="${a%%=*}=$INPUT" ;;
-      *=@*)                                          # gh api -F key=@path / --field=key=@path
-        resolve_input "${a#*=@}"; a="${a%%=@*}=@$INPUT" ;;
-      *)
-        [ -f "$a" ] && cat "$a" >> "$TEXT" ;;        # gist のファイルなど
-    esac
-  fi
+  case "$expect" in
+    input)
+      expect=""
+      resolve_input "$a"; a="$INPUT" ;;
+    field)                                         # gh api -F key=value: 値が @パスのときだけファイル
+      expect=""
+      case "$a" in *=@*) resolve_input "${a#*=@}"; a="${a%%=@*}=@$INPUT" ;; esac ;;
+    *)
+      case "$a" in
+        --body-file|--notes-file|--input) expect=input ;;
+        -F) if [ "$SUB" = "api" ]; then expect=field; else expect=input; fi ;;
+        --field) expect=field ;;
+        --body-file=*|--notes-file=*|--input=*)
+          resolve_input "${a#*=}"; a="${a%%=*}=$INPUT" ;;
+        --field=*=@*)                              # --field=key=@path
+          resolve_input "${a#*=@}"; a="${a%%=@*}=@$INPUT" ;;
+        *)
+          [ -f "$a" ] && cat "$a" >> "$TEXT" ;;    # gist のファイルなど（-f/--raw-field の値はそのまま）
+      esac ;;
+  esac
   ARGS+=("$a")
 done
-[ "$expect_input" -eq 0 ] || refuse "missing value for the last option"
+[ -z "$expect" ] || refuse "missing value for the last option"
 "$CHECK" text "$TEXT" || refuse "refusing to post: gh $1 ${2:-}"
 # exec で置き換えると後片付け（trap）が走らないので、gh を呼んでから終了コードを返す
 rc=0
