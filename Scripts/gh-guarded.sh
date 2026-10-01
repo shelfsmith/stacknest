@@ -26,9 +26,11 @@ fi
 if [ "$#" -eq 0 ]; then exec gh; fi
 CHECK="$(cd "$(dirname "$0")" && pwd)/check-private-identifiers.sh"
 TEXT="$(mktemp -t gh-guarded-text)"
-TEMPS=""
+TEMPS=()
 STDIN_BODY=""
-cleanup() { rm -f "$TEXT"; for f in $TEMPS; do rm -f "$f"; done; return 0; }
+# 一時ファイルは配列で持ち、引用付きで消す（TMPDIR に空白があっても別のファイルを消さない）。
+# bash 3.2 は set -u で空の配列の展開を嫌うので ${a[@]+...} の形にする
+cleanup() { rm -f "$TEXT"; local f; for f in ${TEMPS[@]+"${TEMPS[@]}"}; do rm -f "$f"; done; return 0; }
 trap cleanup EXIT
 printf '%s\n' "$@" > "$TEXT"
 SUB="$1"
@@ -40,14 +42,14 @@ resolve_input() {
   local src="$1" tmp
   if [ "$src" = "-" ]; then
     if [ -z "$STDIN_BODY" ]; then
-      STDIN_BODY="$(mktemp -t gh-guarded-body)"; TEMPS="$TEMPS $STDIN_BODY"
+      STDIN_BODY="$(mktemp -t gh-guarded-body)"; TEMPS+=("$STDIN_BODY")
       cat > "$STDIN_BODY"
     fi
     INPUT="$STDIN_BODY"
   elif [ -f "$src" ]; then
     INPUT="$src"
   elif [ -e "$src" ]; then                         # パイプ・/dev/fd など: 中身を受けてから渡す
-    tmp="$(mktemp -t gh-guarded-body)"; TEMPS="$TEMPS $tmp"
+    tmp="$(mktemp -t gh-guarded-body)"; TEMPS+=("$tmp")
     cat "$src" > "$tmp" || refuse "cannot read body input: $src"
     INPUT="$tmp"
   else
