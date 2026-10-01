@@ -17,54 +17,67 @@ fi
 # 2026-10-01: 投稿の本文・タイトルに個人識別子（実名など）が無いことを確かめてから投稿する。
 # 検査するもの:
 #   - 引数すべて（--title / --body / -f などの直接の値）
-#   - 引数が指すファイルの中身。引数そのもの・「キー=値」の値・「@パス」の形（gh api の -F key=@file）の
-#     どれかが既存のファイルなら読む（--body-file・--notes-file・--input・gist のファイルなど、渡し方を問わない）
-#   - 標準入力の本文（ファイル指定の位置の "-"、または "@-"）。一時ファイルに受けてから検査し、gh にはその
-#     一時ファイルを渡す
+#   - 本文を取る指定の中身: --body-file / --notes-file / --input（区切りの形も = の形も）、gh api 以外の -F、
+#     「キー=@パス」の値（gh api の -F key=@file）。通常のファイルならそのまま読み、"-"（標準入力）や
+#     パイプ（<(...)）などは一度一時ファイルに受けてから検査し、gh にはその一時ファイルを渡す。
+#     読めない指定は止める（検査を素通りさせない）
+#   - それ以外で既存の通常のファイルを指す引数（gist のファイルなど）
 # gh api の -F は「キー=値」の指定で、本文のファイル名ではない（値が @パスのときだけファイル）。
 if [ "$#" -eq 0 ]; then exec gh; fi
 CHECK="$(cd "$(dirname "$0")" && pwd)/check-private-identifiers.sh"
 TEXT="$(mktemp -t gh-guarded-text)"
+TEMPS=""
 STDIN_BODY=""
-cleanup() { rm -f "$TEXT"; [ -n "$STDIN_BODY" ] && rm -f "$STDIN_BODY"; return 0; }
+cleanup() { rm -f "$TEXT"; for f in $TEMPS; do rm -f "$f"; done; return 0; }
 trap cleanup EXIT
 printf '%s\n' "$@" > "$TEXT"
 SUB="$1"
-# 標準入力を一度だけ一時ファイル STDIN_BODY に受ける（2 回目以降は同じファイル）。
-# $(...) の中で呼ぶとサブシェルになり STDIN_BODY が残らない（後片付けから漏れる）ので、直接呼ぶ
-capture_stdin() {
-  if [ -z "$STDIN_BODY" ]; then
-    STDIN_BODY="$(mktemp -t gh-guarded-body)"
-    cat > "$STDIN_BODY"
+refuse() { echo "gh-guarded: $*" >&2; exit 1; }
+
+# 本文の指定 $1 を検査できる通常のファイルにし、そのパスを INPUT に入れる（$(...) で呼ばない —
+# サブシェルでは一時ファイルの記録が残らない）。
+resolve_input() {
+  local src="$1" tmp
+  if [ "$src" = "-" ]; then
+    if [ -z "$STDIN_BODY" ]; then
+      STDIN_BODY="$(mktemp -t gh-guarded-body)"; TEMPS="$TEMPS $STDIN_BODY"
+      cat > "$STDIN_BODY"
+    fi
+    INPUT="$STDIN_BODY"
+  elif [ -f "$src" ]; then
+    INPUT="$src"
+  elif [ -e "$src" ]; then                         # パイプ・/dev/fd など: 中身を受けてから渡す
+    tmp="$(mktemp -t gh-guarded-body)"; TEMPS="$TEMPS $tmp"
+    cat "$src" > "$tmp" || refuse "cannot read body input: $src"
+    INPUT="$tmp"
+  else
+    refuse "body input not found: $src"
   fi
+  cat "$INPUT" >> "$TEXT"
 }
-# 既存のファイルなら中身を検査対象に足す
-add_file() { [ -f "$1" ] && cat "$1" >> "$TEXT"; return 0; }
+
 ARGS=()
-prev=""
+expect_input=0
 for a in "$@"; do
-  # ファイルを取るオプションの直後の "-" は標準入力（gh api の -F は除く）
-  if [ "$a" = "-" ]; then
-    case "$prev" in
-      --body-file|--notes-file|--input) capture_stdin; a="$STDIN_BODY" ;;
-      -F) if [ "$SUB" != "api" ]; then capture_stdin; a="$STDIN_BODY"; fi ;;
+  if [ "$expect_input" -eq 1 ]; then                # 本文を取るオプションの次の引数
+    expect_input=0
+    resolve_input "$a"; a="$INPUT"
+  else
+    case "$a" in
+      --body-file|--notes-file|--input) expect_input=1 ;;
+      -F) [ "$SUB" != "api" ] && expect_input=1 ;;
+      --body-file=*|--notes-file=*|--input=*)
+        resolve_input "${a#*=}"; a="${a%%=*}=$INPUT" ;;
+      *=@*)                                          # gh api -F key=@path / --field=key=@path
+        resolve_input "${a#*=@}"; a="${a%%=@*}=@$INPUT" ;;
+      *)
+        [ -f "$a" ] && cat "$a" >> "$TEXT" ;;        # gist のファイルなど
     esac
   fi
-  case "$a" in
-    *=@-) capture_stdin; a="${a%@-}@$STDIN_BODY" ;;   # gh api -F key=@- （標準入力）
-  esac
-  add_file "$a"
-  case "$a" in
-    *=*)
-      v="${a#*=}"
-      add_file "$v"
-      case "$v" in @*) add_file "${v#@}" ;; esac
-      ;;
-  esac
   ARGS+=("$a")
-  prev="$a"
 done
-"$CHECK" text "$TEXT" || { echo "gh-guarded: refusing to post: gh $1 ${2:-}" >&2; exit 1; }
+[ "$expect_input" -eq 0 ] || refuse "missing value for the last option"
+"$CHECK" text "$TEXT" || refuse "refusing to post: gh $1 ${2:-}"
 # exec で置き換えると後片付け（trap）が走らないので、gh を呼んでから終了コードを返す
 rc=0
 gh "${ARGS[@]}" || rc=$?
