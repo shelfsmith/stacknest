@@ -1,5 +1,5 @@
 {
-  "originHash" : "7307f614672470822ebc4e8693d49cfd6af9e88c659e7662859ed844561d967d",
+  "originHash" : "cf2cba9e347b33ebc4e6798f09c71ef2a2e0a6aab365ee12ca1ccceb0c275549",
   "pins" : [
     {
       "identity" : "async-http-client",
@@ -240,7 +240,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/shunnag/Washi",
       "state" : {
-        "revision" : "100d500edba5242f6a92c20f62fefcb68f7ecf1a"
+        "revision" : "c15738f0203c4d03c14a49b03776ca1d411c7068"
       }
     }
   ],
