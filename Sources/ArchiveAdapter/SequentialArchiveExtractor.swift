@@ -15,6 +15,17 @@ import Carchive
 /// セッション通じてアーカイブを **1 パス** で読み、各エントリの抽出は高々 1 回。通過済みエントリは
 /// 常にキャッシュ済みなので後方参照でも再オープン不要。
 ///
+/// **遠くへ飛んだときは、途中のページを取り出さない**（`pageOrder` を渡したとき）。外部ビューアは保存位置
+/// （参照ファイルの開くページ）からいきなり始めるので、先頭から 1 パスで全部を取り出すと、最初の 1 枚が
+/// 「途中の全ページの伸長と temp への書き込み」を待つ（200 ページ・182 MB の無圧縮 zip の 190 ページ目で約 260 ms、
+/// 先頭のページは約 13 ms。NAS・圧縮した書庫ではさらに延びる）。目的のページの並びで `skipWindow` 枚より手前の
+/// ページは読み飛ばして記録だけ残し（`skipped` ＝カーソルより後ろにある取り出していないページ）、後でそのページを
+/// 頼まれたら、そのときだけ頭から開き直し、目的のページまで通過するページを全部取り出す。開き直すとカーソルは頭へ
+/// 戻るので、読み飛ばしの記録は消える（残りのページはまたカーソルより前にある）。開き直しは「カーソルより後ろの
+/// 取り出していないページ」を頼まれたときだけで、開き直した後に前へ順に読むときや、取り出したページへ戻るときには起きない。
+/// 読み飛ばすのは、読み飛ばしが位置を移すだけで済む形式（zip と、圧縮していない tar）のときだけ（`skipIsCheap`）。
+/// 7z・rar のソリッドや gzip の tar では、読み飛ばしにも伸長が要るので速くならず、戻ったときの開き直しの分だけ遅くなる。
+///
 /// - actor で全アクセスを直列化（libarchive のハンドルは 1 本の cursor 状態を持つため）。
 ///   ビュー側の複数プリフェッチ Task が同時に呼んでも、順方向の 1 パスに集約される。
 /// - 実行は actor executor（協調スレッドプール＝メインスレッド外）で走り、GUI を塞がない。
@@ -32,6 +43,14 @@ public actor SequentialArchiveExtractor {
     /// G64: gzip で包んだ tar を読んでよいか（足したアーカイブの拡張子のときだけ true）。
     private let allowsCompressedTar: Bool
     private var walkBudget: TarWalkBudget?
+    /// ページの並び（`listImageEntries` の順）でのそのページの位置。nil なら読み飛ばさない（従来どおり全部取り出す）。
+    private let pageIndex: [String: Int]?
+    /// 目的のページより手前で、取り出して残すページの枚数（後ろへめくる・見開きの相方・先読みの分）。
+    static let skipWindow = 8
+    /// 読み飛ばしたページ（カーソルはもう先にある）。頼まれたら頭から開き直して取り出す。開き直すと消す（`resetHandle`）。
+    private var skipped = Set<String>()
+    /// この書庫の形式で、読み飛ばしが位置を移すだけで済むか（最初のヘッダを読んだ後に決める。形式は開き直しても変わらない）。
+    private var skipIsCheap: Bool?
 
     /// libarchive ハンドル。アクセスは actor が直列化する（deinit の解放のためだけ
     /// nonisolated(unsafe)＝実アクセスは全て actor 上なので安全）。
@@ -41,10 +60,18 @@ public actor SequentialArchiveExtractor {
     /// 抽出済みエントリ名 → temp ファイル URL。
     private var extracted: [String: URL] = [:]
 
+    /// - Parameter pageOrder: ページの並び（`listImageEntries` の順）。渡すと、遠くへ飛んだときに手前のページを
+    ///   取り出さない（型コメント）。nil なら従来どおり通過したページを全部取り出す。
     public init(url: URL, imageNames: Set<String>, maxEntryBytes: Int = ArchiveEntrySizeLimit.maxEntryBytes,
-                walkLimits: TarWalkLimits = .standard, allowsCompressedTar: Bool = false) {
+                walkLimits: TarWalkLimits = .standard, allowsCompressedTar: Bool = false, pageOrder: [String]? = nil) {
         self.url = url
         self.imageNames = imageNames
+        self.pageIndex = pageOrder.map { names in
+            var table: [String: Int] = [:]
+            table.reserveCapacity(names.count)
+            for (index, name) in names.enumerated() where table[name] == nil { table[name] = index }
+            return table
+        }
         self.maxEntryBytes = maxEntryBytes
         self.walkLimits = walkLimits
         self.allowsCompressedTar = allowsCompressedTar
@@ -79,8 +106,12 @@ public actor SequentialArchiveExtractor {
         if let fileURL = extracted[name] {
             return try Data(contentsOf: fileURL)
         }
+        // 読み飛ばしたページ: カーソルはもう先にある。頭から開き直し、従来どおり通過するページを全部取り出す
+        // （戻る読み方で開き直しを繰り返さない ―― 型コメント）。読み取りエラーの再試行・EOF の再走査は下の通常の道と同じ。
+        let wasSkipped = skipped.contains(name)
+        if wasSkipped { resetHandle() }
         do {
-            if let data = try streamForward(to: name) { return data }
+            if let data = try streamForward(to: name, extractsAll: wasSkipped) { return data }
         } catch is CancellationError {
             throw CancellationError()          // カーソル有効のまま（次要求が続きから進める）
         } catch ArchiveAdapterError.archiveUnreadable(let u, let reason)
@@ -89,22 +120,31 @@ public actor SequentialArchiveExtractor {
             throw ArchiveAdapterError.archiveUnreadable(u, reason: reason)
         } catch {
             resetHandle()                      // 破損等: ハンドルを捨てる
-            if let data = try? streamForward(to: name) { return data }  // 再オープンして 1 回だけ再試行
+            // 再オープンして 1 回だけ再試行。読み飛ばしは同じ決まりで(遠くのページを頼まれたのなら、やり直しでも手前は取り出さない。
+            // 2 回目のレビュー L-1: 以前は全部取り出していた)。
+            if let data = try? streamForward(to: name, extractsAll: wasSkipped) { return data }
             throw error
         }
         // EOF まで見つからず: ファイル差し替え等を想定して 1 回だけ再オープン再走査。
         resetHandle()
-        if let data = try streamForward(to: name) { return data }
+        if let data = try streamForward(to: name, extractsAll: wasSkipped) { return data }
         throw ArchiveAdapterError.noImageEntry(url)
     }
+
+    /// 試験用: 取り出して temp に置いたページの数と、読み飛ばしたページの数。
+    var extractedCountForTesting: Int { extracted.count }
+    var skippedCountForTesting: Int { skipped.count }
 
     // MARK: - private
 
     /// 現在の cursor から物理順に前方ストリームし、`name` を見つけたらそのデータを返す。
     /// EOF まで見つからなければ nil。読み取りエラーは throw。既抽出エントリは再抽出せずスキップ
     /// （再オープン後の重複抽出＝temp リークを防ぐ）。
-    private func streamForward(to name: String) throws -> Data? {
+    /// `extractsAll` が false なら、目的のページの並びで `skipWindow` 枚より手前のページは取り出さずに読み飛ばす。
+    private func streamForward(to name: String, extractsAll: Bool = false) throws -> Data? {
         try openIfNeeded()
+        // 読み飛ばしてよいページの位置の上限（これより手前は取り出さない）。並びを知らない・目的が並びに無いなら読み飛ばさない。
+        let skipBelow: Int? = extractsAll ? nil : pageIndex?[name].map { $0 - Self.skipWindow }
         while !atEOF {
             try Task.checkCancellation()
             var entry: OpaquePointer?
@@ -131,13 +171,32 @@ public actor SequentialArchiveExtractor {
             guard imageNames.contains(entryName) else {
                 archive_read_data_skip(archive); continue
             }
+            // 目的のページから遠い手前のページは取り出さない（型コメント）。読み飛ばしが安い形式のときだけ。
+            if let skipBelow, entryName != name, let index = pageIndex?[entryName], index < skipBelow,
+               let archive, isSkipCheap(archive) {
+                archive_read_data_skip(archive)
+                skipped.insert(entryName)
+                continue
+            }
             let data = try readCurrentEntryData(entry: entry)
             let fileURL = tempDir.appendingPathComponent(UUID().uuidString)
             try data.write(to: fileURL, options: .atomic)
             extracted[entryName] = fileURL
+            skipped.remove(entryName)
             if entryName == name { return data }
         }
         return nil
+    }
+
+    /// 読み飛ばしが位置を移すだけで済む形式か: zip（`archive_read_open_filename` は位置を移せるので、伸長せずに次の
+    /// エントリへ移る）と、フィルタの無い tar。ヘッダを読んだ後に呼ぶ（形式とフィルタはそこで決まる）。
+    private func isSkipCheap(_ archive: OpaquePointer) -> Bool {
+        if let skipIsCheap { return skipIsCheap }
+        let format = archive_format(archive) & ARCHIVE_FORMAT_BASE_MASK
+        let cheap = (format == ARCHIVE_FORMAT_ZIP || format == ARCHIVE_FORMAT_TAR)
+            && archive_filter_code(archive, 0) == ARCHIVE_FILTER_NONE
+        skipIsCheap = cheap
+        return cheap
     }
 
     /// libarchive ハンドルを解放し、次回 `openIfNeeded()` で頭から開き直せる状態に戻す。
@@ -147,6 +206,8 @@ public actor SequentialArchiveExtractor {
         archive = nil
         opened = false
         atEOF = false
+        // カーソルが頭へ戻るので、読み飛ばしたページはどれもまたカーソルより前にある（通常の前方ストリームで届く）。
+        skipped.removeAll()
     }
 
     private func openIfNeeded() throws {

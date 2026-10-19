@@ -209,7 +209,7 @@ public actor ArchiveBookContent: BookContent {
             // リーダーへ集約する（深いページでも一定コスト・矢印長押しのスムーズさを担保）。
             if seqExtractor == nil {
                 seqExtractor = SequentialArchiveExtractor(url: url, imageNames: Set(names),
-                                                       allowsCompressedTar: allowsCompressedTar)
+                                                       allowsCompressedTar: allowsCompressedTar, pageOrder: names)
             }
             return try await seqExtractor!.data(forName: names[page])
         }
