@@ -9,6 +9,11 @@ public protocol ProgressReporter: Sendable {
     func reportProgress(processed: Int, total: Int)
 }
 
+/// `ProgressReporter` の別名。macOS 27 の SDK の Foundation が同じ名前の型（`Foundation.ProgressReporter`）を持つので、
+/// Foundation と LibraryStore の両方を取り込むファイルでは `ProgressReporter` が曖昧になり、コンパイルできない。
+/// モジュール名で修飾しようにも、モジュールと同じ名前の `enum LibraryStore` が修飾を飲む。外からはこの別名で書く。
+public typealias LibraryProgressReporter = ProgressReporter
+
 /// A closure that extracts series and volume from a title (and optional filename).
 /// Mirrors `FilenameParser.parse(title:filename:)` but avoids a circular module dependency:
 /// `LibraryStore` → `AppCore` would be circular since `AppCore` depends on `LibraryStore`.

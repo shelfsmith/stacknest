@@ -51,7 +51,7 @@ public struct ImportCommand: ParsableCommand {
             let parsed = FilenameParser.parse(title: title, filename: filename)
             return (series: parsed.series, volume: parsed.volume)
         })
-        let reporter: ProgressReporter? = quiet ? nil : CLIProgressReporter()
+        let reporter: (any LibraryProgressReporter)? = quiet ? nil : CLIProgressReporter()
         let summary = try importer.run(document: doc, sourceURL: xmlURL, sourceMTime: xmlMTime, progress: reporter)
 
         if !quiet {
@@ -68,7 +68,7 @@ public struct ImportCommand: ParsableCommand {
     }
 }
 
-final class CLIProgressReporter: ProgressReporter, @unchecked Sendable {
+final class CLIProgressReporter: LibraryProgressReporter, @unchecked Sendable {
     private var lastPercent: Int = -1
 
     func reportProgress(processed: Int, total: Int) {

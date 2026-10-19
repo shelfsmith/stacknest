@@ -48,7 +48,7 @@ struct LibraryImporterTests {
 
     @Test("Reports progress for every book processed")
     func reportsProgress() throws {
-        final class Counter: ProgressReporter, @unchecked Sendable {
+        final class Counter: LibraryProgressReporter, @unchecked Sendable {
             var count = 0
             func reportProgress(processed: Int, total: Int) { count += 1 }
         }

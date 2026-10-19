@@ -50,7 +50,7 @@ public enum LibraryBundleCreator {
     public static func createFromStackroomXML(
         xmlURL: URL,
         into bundleURL: URL,
-        progress: ProgressReporter? = nil
+        progress: (any LibraryProgressReporter)? = nil
     ) throws -> LibraryBundle {
         // Create the empty bundle first
         let bundle = try createEmpty(at: bundleURL)
