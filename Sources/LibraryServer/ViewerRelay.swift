@@ -247,17 +247,21 @@ enum ViewerRelayForwarder {
 
     /// 取り次ぐ URL と要求を部品から組み直す（ビューアの要求をそのまま流さない）。
     /// - `remotePath` はルートごとの固定の文字列か `pages/<Int>`。
-    /// - クエリは正の整数の `maxw` だけを渡す（ほかのクエリ・数でない値・0 以下は落とす）。
+    /// - クエリは正の整数の `maxw` と、manifest の `pageNames=1`（外部ビューアのページの名前）だけを渡す
+    ///   （ほかのクエリ・数でない値・0 以下・ほかの道の `pageNames` は落とす）。
     /// - ヘッダは許可リスト: `Authorization`（リモートの鍵に付け替え）・`X-StackNest-Viewer`（整えてから）・
     ///   `If-None-Match`・POST の `Content-Type`。`Cookie`・`Range`・`X-Library-Token` などは渡さない。
     static func makeRemoteRequest(_ target: ViewerRelayTarget, remotePath: String, request: Request,
                                   body: ByteBuffer?) -> URLRequest? {
         guard var components = URLComponents(string: target.remoteBookURL + "/" + remotePath) else { return nil }
+        var items: [URLQueryItem] = []
         if let maxw = request.uri.queryParameters.get("maxw", as: Int.self), maxw > 0 {
-            components.queryItems = [URLQueryItem(name: "maxw", value: String(maxw))]
-        } else {
-            components.queryItems = nil
+            items.append(URLQueryItem(name: "maxw", value: String(maxw)))
         }
+        if remotePath == "manifest", request.uri.queryParameters.get("pageNames") == "1" {
+            items.append(URLQueryItem(name: "pageNames", value: "1"))
+        }
+        components.queryItems = items.isEmpty ? nil : items
         guard let url = components.url else { return nil }
         var outgoing = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         outgoing.httpMethod = request.method.rawValue

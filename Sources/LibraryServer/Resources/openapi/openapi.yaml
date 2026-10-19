@@ -633,6 +633,10 @@ components:
           description: format が epub のときの読書位置（未保存ならキー省略）。POST /epub-progress と同じ形
           allOf:
             - $ref: '#/components/schemas/EPUBLocatorDTO'
+        pageNames:
+          type: array
+          items: { type: string }
+          description: ページの名前（pages/{n} の番号の順。書庫は書庫の中のパス・フォルダはファイル名・画像 1 枚の本はそのファイル名）。`?pageNames=1` を付けた要求にだけ付ける。PDF・EPUB などページに名前の無い本と、古いサーバはキー省略
 
     AddBooksRequestDTO:
       type: object
@@ -3566,6 +3570,12 @@ paths:
           required: true
           schema:
             type: integer
+        - name: pageNames
+          in: query
+          schema:
+            type: string
+            enum: ['1']
+          description: '`1` ならページの名前（`pageNames`）を付ける（外部ビューア向け。ほかの値・省略なら付けない）'
       responses:
         '200':
           description: 書籍マニフェスト
@@ -3817,6 +3827,12 @@ paths:
           schema:
             type: string
           description: 中継の ID（参照ファイルの `book` の最後の階層）
+        - name: pageNames
+          in: query
+          schema:
+            type: string
+            enum: ['1']
+          description: '`1` ならリモートへもそのまま頼む（ページの名前。ほかのクエリは取り次がない）'
       responses:
         '200':
           description: リモートの書籍マニフェスト

@@ -1980,6 +1980,9 @@ public struct LibraryServerCore: Sendable {
                     etag: etag,
                     epubLocator: locator)
             }
+            // 外部ビューアが `?pageNames=1` で頼んだときだけ、ページの名前を付ける（`ManifestDTO.pageNames`）。
+            // 一覧は pageCount と同じ content の同じ走査の結果なので、数と番号の対応がずれない。
+            let pageNames = request.uri.queryParameters.get("pageNames") == "1" ? await content.pageNames : nil
             let overrides = (try? lib.db.loadViewerState(bookID: row.id))?.overrides ?? [:]
             let pageOverrides: [String: Int]? = overrides.isEmpty
                 ? nil
@@ -1990,7 +1993,8 @@ public struct LibraryServerCore: Sendable {
                 format: formatString(BookCategory.classify(path: row.path ?? "", userExtensions: userExtensions)),
                 etag: etag,
                 pageOverrides: pageOverrides,
-                damageNote: await content.damageNote
+                damageNote: await content.damageNote,
+                pageNames: pageNames.flatMap { $0.count == pageCount ? $0 : nil }
             )
         }
         // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。

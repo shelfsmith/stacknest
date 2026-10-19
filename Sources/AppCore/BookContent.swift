@@ -12,10 +12,14 @@ public protocol BookContent: Sendable {
     /// 破損等で全ページを読み取れなかったときにユーザーへ出す注意文。正常なら nil。
     /// **既定は nil**（下の extension）なので、打ち切りが起こり得ない実装は何もしなくてよい。
     var damageNote: String? { get async }
+    /// ページの名前（`imageData(at:)` の番号の順。書庫は書庫の中のパス、フォルダはファイル名）。外部ビューアの
+    /// manifest（`?pageNames=1`）が使う。PDF・EPUB などページに名前が無い本は nil（**既定は nil**）。数は `pageCount` と同じ。
+    var pageNames: [String]? { get async }
 }
 
 public extension BookContent {
     var damageNote: String? { get async { nil } }
+    var pageNames: [String]? { get async { nil } }
 }
 
 /// BookContent 生成・取得のエラー。
@@ -157,6 +161,14 @@ public actor ArchiveBookContent: BookContent {
         }
     }
 
+    /// 画像のエントリの名前（`pageCount` と同じ一覧）。画像が 1 つも無く zip の中の PDF で読む本は nil。
+    public var pageNames: [String]? {
+        get async {
+            guard let names = try? await loadEntries(), !names.isEmpty else { return nil }
+            return names
+        }
+    }
+
     private var pdfDataTask: Task<Data?, Error>?
 
     /// 画像エントリ 0 件のときのみ、zip 内 PDF を一時ファイルへ展開して開く。
@@ -246,6 +258,11 @@ public actor FolderBookContent: BookContent {
         get async throws { try await loadEntries().count }
     }
 
+    /// フォルダの直下の画像のファイル名（`pageCount` と同じ一覧）。
+    public var pageNames: [String]? {
+        get async { try? await loadEntries() }
+    }
+
     public func imageData(at page: Int) async throws -> Data {
         let names = try await loadEntries()
         guard page >= 0, page < names.count else {
@@ -262,6 +279,9 @@ public struct SingleImageBookContent: BookContent {
     public init(url: URL) { self.url = url }
 
     public var pageCount: Int { get async throws { 1 } }
+
+    /// 画像 1 枚の本のページの名前は、そのファイル名。
+    public var pageNames: [String]? { get async { [url.lastPathComponent] } }
 
     public func imageData(at page: Int) async throws -> Data {
         guard page == 0 else { throw BookContentError.pageOutOfRange(page) }

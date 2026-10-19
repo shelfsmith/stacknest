@@ -283,10 +283,14 @@ public struct ManifestDTO: Codable, Sendable {
     public let damageNote: String?
     /// G48-3: テキスト EPUB（format == "epub"）の読書位置。**nil ならキー自体を省略する**（後方互換）。
     public let epubLocator: EPUBLocatorDTO?
+    /// ページの名前（`pages/{n}` の番号の順。書庫は書庫の中のパス、フォルダはファイル名）。外部ビューアが
+    /// `?pageNames=1` で頼んだときだけ付ける（ページ数に比例して大きいので、Web やリモートの manifest には付けない）。
+    /// **nil ならキー自体を省略する**（後方互換。PDF・EPUB などページに名前の無い本も nil）。
+    public let pageNames: [String]?
 
     public init(pageCount: Int, direction: String, format: String, etag: String,
                 pageOverrides: [String: Int]? = nil, damageNote: String? = nil,
-                epubLocator: EPUBLocatorDTO? = nil) {
+                epubLocator: EPUBLocatorDTO? = nil, pageNames: [String]? = nil) {
         self.pageCount = pageCount
         self.direction = direction
         self.format = format
@@ -294,6 +298,7 @@ public struct ManifestDTO: Codable, Sendable {
         self.pageOverrides = pageOverrides
         self.damageNote = damageNote
         self.epubLocator = epubLocator
+        self.pageNames = pageNames
     }
 }
 
