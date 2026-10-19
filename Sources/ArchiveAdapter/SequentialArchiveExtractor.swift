@@ -40,6 +40,21 @@ public actor SequentialArchiveExtractor {
     private var atEOF = false
     /// 抽出済みエントリ名 → temp ファイル URL。
     private var extracted: [String: URL] = [:]
+    /// 中身を読めなかったエントリ（CRC の不一致・伸長の失敗・1 エントリの上限超え）。以後の前方ストリームでは取り出さずに
+    /// 読み飛ばす（`archive_read_data_skip`）。頼まれたときだけ、そのページの失敗として改めて読む（読めたら外す ―― NAS の
+    /// 一時的な読み取りの失敗で、読めるページを読めないままにしない）。
+    private var unreadable = Set<String>()
+    /// 読めないエントリを越えるための開き直しの上限（1 回の `data(forName:)` の中で）。開き直すのはハンドルが使えなく
+    /// なったとき（`ARCHIVE_FATAL`）だけで、壊れたエントリが多い書庫で開き直しを際限なく繰り返さないため。
+    static let maxBadEntryReopens = 4
+    /// `readCurrentEntryData` が最後に失敗したときの `archive_read_data` の値（負の状態）。自前の上限で断ったときは nil。
+    private var lastDataStatus: Int?
+
+    /// 目的でないエントリの中身を読めなかった（`streamForward` の中だけで使う）。
+    private struct EntryUnreadable: Error {
+        let name: String
+        let underlying: any Error
+    }
 
     public init(url: URL, imageNames: Set<String>, maxEntryBytes: Int = ArchiveEntrySizeLimit.maxEntryBytes,
                 walkLimits: TarWalkLimits = .standard, allowsCompressedTar: Bool = false) {
@@ -74,13 +89,22 @@ public actor SequentialArchiveExtractor {
     ///   **エントリ境界で保持したまま** 抜ける（カーソルは有効＝次要求が続きから進める。破棄しない）。
     /// - **読み取りエラー**: ハンドルを捨てて 1 回だけ再オープン再試行（破損エントリ以降が本全体で
     ///   全滅するのを防ぎ、旧 stateless の per-page 独立性を回復）。
+    /// - **目的でないエントリの中身が読めない**（CRC の不一致など。一覧はヘッダしか読まないので、一覧では見えない）:
+    ///   そのエントリを `unreadable` に記録し、その場で（ハンドルが使えなくなったときは開き直して）先へ進む。以後そのエントリは
+    ///   読み飛ばす。以前は、壊れたエントリを
+    ///   通るたびに失敗して、それより後の未取得のページがどれも読めなかった（HTTP では 500）。壊れたページそのものは失敗のまま。
     /// - **EOF まで未発見**: 外部でファイルが差し替わった等に備え 1 回だけ再オープンして再走査。
     public func data(forName name: String) throws -> Data {
         if let fileURL = extracted[name] {
             return try Data(contentsOf: fileURL)
         }
+        // 前に中身を読めなかったページ: カーソルはもうその先にあるので、先に頭から開き直す（そのままだと EOF まで残りを
+        // 全部取り出してから開き直していた）。開き直して読んでも失敗なら、もう一度は開き直さない（同じ失敗を繰り返すだけ）。
+        var badEntryReopens = 0
+        let reopenedFirst = unreadable.contains(name)
+        if reopenedFirst { resetHandle() }
         do {
-            if let data = try streamForward(to: name) { return data }
+            if let data = try streamForwardPastBadEntries(to: name, reopens: &badEntryReopens) { return data }
         } catch is CancellationError {
             throw CancellationError()          // カーソル有効のまま（次要求が続きから進める）
         } catch ArchiveAdapterError.archiveUnreadable(let u, let reason)
@@ -88,17 +112,41 @@ public actor SequentialArchiveExtractor {
             // G64: 上限超過は何度やっても同じ。ハンドルを捨てて再試行すると上限までの歩きを繰り返すだけなので、そのまま投げる。
             throw ArchiveAdapterError.archiveUnreadable(u, reason: reason)
         } catch {
+            if reopenedFirst { throw error }
             resetHandle()                      // 破損等: ハンドルを捨てる
-            if let data = try? streamForward(to: name) { return data }  // 再オープンして 1 回だけ再試行
+            if let data = try? streamForwardPastBadEntries(to: name, reopens: &badEntryReopens) { return data }  // 再オープンして 1 回だけ再試行
             throw error
         }
         // EOF まで見つからず: ファイル差し替え等を想定して 1 回だけ再オープン再走査。
         resetHandle()
-        if let data = try streamForward(to: name) { return data }
+        if let data = try streamForwardPastBadEntries(to: name, reopens: &badEntryReopens) { return data }
         throw ArchiveAdapterError.noImageEntry(url)
     }
 
+    /// 試験用: 取り出して temp に置いたページの数と、ハンドルを開き直した回数。
+    var extractedCountForTesting: Int { extracted.count }
+    private(set) var resetCountForTesting = 0
+
     // MARK: - private
+
+    /// `streamForward` を、目的でないエントリの中身が読めずにハンドルが使えなくなったら（`ARCHIVE_FATAL`）、開き直して
+    /// 続けて試す（`maxBadEntryReopens` 回まで）。開き直しても、読めないエントリは読み飛ばすので伸長しない（zip は位置を
+    /// 移すだけ）。ハンドルがまだ使えるとき（警告・そのエントリだけの失敗・自前の上限）は `streamForward` がその場で先へ進む。
+    /// `reopens` は 1 回の `data(forName:)` の中で数える(再試行・EOF の再走査をまたいで共有する。2 回目のレビュー L-2: 以前は呼ぶたびに
+    /// 数え直し、1 回の頼みで開き直しが最大 10 回 ―― tar では歩く量の上限の 10 倍 ―― になりえた)。
+    private func streamForwardPastBadEntries(to name: String, reopens: inout Int) throws -> Data? {
+        while true {
+            do {
+                return try streamForward(to: name)
+            } catch let bad as EntryUnreadable {
+                unreadable.insert(bad.name)
+                guard reopens < Self.maxBadEntryReopens else { throw bad.underlying }
+                reopens += 1
+                // libarchive のハンドルは中身の読み取りに失敗すると使えないことがある（FATAL）ので、捨てて開き直す。
+                resetHandle()
+            }
+        }
+    }
 
     /// 現在の cursor から物理順に前方ストリームし、`name` を見つけたらそのデータを返す。
     /// EOF まで見つからなければ nil。読み取りエラーは throw。既抽出エントリは再抽出せずスキップ
@@ -131,7 +179,27 @@ public actor SequentialArchiveExtractor {
             guard imageNames.contains(entryName) else {
                 archive_read_data_skip(archive); continue
             }
-            let data = try readCurrentEntryData(entry: entry)
+            // 前に中身を読めなかったエントリは、目的でなければ読み飛ばす（目的なら、そのページの失敗として改めて読む）。
+            if entryName != name, unreadable.contains(entryName) {
+                archive_read_data_skip(archive); continue
+            }
+            let data: Data
+            do {
+                data = try readCurrentEntryData(entry: entry)
+            } catch ArchiveAdapterError.archiveUnreadable(let u, let reason)
+                        where reason == TarWalkBudget.exceededReason || reason == TarWalkBudget.overrunReason {
+                // G64: tar を歩く量の上限は書庫全体の話。エントリを越えても同じなので、そのまま投げる。
+                throw ArchiveAdapterError.archiveUnreadable(u, reason: reason)
+            } catch {
+                unreadable.insert(entryName)
+                // 目的のページそのものは失敗として返す（次に頼まれたら頭から開き直して読む ―― `data(forName:)`）。
+                guard entryName != name else { throw error }
+                // ハンドルが使えなくなったときだけ開き直す（`streamForwardPastBadEntries`）。それ以外は、このエントリの
+                // 残りを次のヘッダの読みが飛ばすので、その場で先へ進む（開き直すと、そこまでの読み飛ばしをやり直す）。
+                if lastDataStatus == Int(ARCHIVE_FATAL) { throw EntryUnreadable(name: entryName, underlying: error) }
+                continue
+            }
+            unreadable.remove(entryName)
             let fileURL = tempDir.appendingPathComponent(UUID().uuidString)
             try data.write(to: fileURL, options: .atomic)
             extracted[entryName] = fileURL
@@ -143,6 +211,7 @@ public actor SequentialArchiveExtractor {
     /// libarchive ハンドルを解放し、次回 `openIfNeeded()` で頭から開き直せる状態に戻す。
     /// 抽出済み temp キャッシュ（`extracted`）は保持する（再オープンで再抽出しないため）。
     private func resetHandle() {
+        resetCountForTesting += 1
         if let archive { archive_read_free(archive) }
         archive = nil
         opened = false
@@ -178,6 +247,7 @@ public actor SequentialArchiveExtractor {
     private func readCurrentEntryData(entry: OpaquePointer) throws -> Data {
         // G64: tar は出てきた量を申告サイズでも縛る（既存の上限に加えて。zip 系は nil＝今のまま）。
         let producedLimit = archive.flatMap { TarWalkBudget.producedLimit($0, entry: entry) }
+        lastDataStatus = nil
         var out = Data()
         let bufSize = 256 * 1024
         var buf = [UInt8](repeating: 0, count: bufSize)
@@ -186,6 +256,7 @@ public actor SequentialArchiveExtractor {
                 archive_read_data(archive, raw.baseAddress, bufSize)
             }
             if n < 0 {
+                lastDataStatus = n
                 throw ArchiveAdapterError.archiveUnreadable(url, reason: errorMessage())
             }
             if n == 0 { break }

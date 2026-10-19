@@ -85,4 +85,76 @@ struct SequentialArchiveExtractorTests {
         let data = try await ext.data(forName: "p1.png")
         #expect(data.count > 0)
     }
+
+    /// 無圧縮の zip（`/usr/bin/zip -0`）を作り、`corrupt` のエントリの中身の 1 バイトを書き換える（CRC が合わなくなる）。
+    private static func makeZipWithBadEntry(pages count: Int, corrupt: Int, in directory: URL) throws -> (url: URL, names: [String]) {
+        try makeZipWithBadEntries(pages: count, corrupt: [corrupt], in: directory)
+    }
+
+    private static func makeZipWithBadEntries(pages count: Int, corrupt: Set<Int>, in directory: URL) throws -> (url: URL, names: [String]) {
+        let source = directory.appendingPathComponent("src", isDirectory: true)
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        let names = (1...count).map { String(format: "%03d.png", $0) }
+        for name in names { try Data(String(repeating: "page:\(name);", count: 20).utf8).write(to: source.appendingPathComponent(name)) }
+        let zip = directory.appendingPathComponent("book.zip")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+        process.currentDirectoryURL = source
+        process.arguments = ["-q", "-0", zip.path] + names
+        try process.run()
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0)
+        // ローカルヘッダを先頭から辿り、corrupt 番目（1 始まり）のエントリの中身の真ん中を書き換える。
+        var bytes = [UInt8](try Data(contentsOf: zip))
+        func u16(_ at: Int) -> Int { Int(bytes[at]) | Int(bytes[at + 1]) << 8 }
+        func u32(_ at: Int) -> Int { u16(at) | u16(at + 2) << 16 }
+        var offset = 0
+        for index in 1...count {
+            try #require(u32(offset) == 0x0403_4B50)
+            let size = u32(offset + 18), nameLength = u16(offset + 26), extraLength = u16(offset + 28)
+            let dataStart = offset + 30 + nameLength + extraLength
+            if corrupt.contains(index) { bytes[dataStart + size / 2] ^= 0xFF }
+            offset = dataStart + size
+        }
+        try Data(bytes).write(to: zip)
+        return (zip, names)
+    }
+
+    @Test("途中のエントリの中身が壊れていても、それより後のページは読める（壊れたページだけが失敗する）")
+    func laterPagesSurviveABadEntry() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("seq-bad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (zip, names) = try Self.makeZipWithBadEntry(pages: 6, corrupt: 3, in: dir)
+        let ext = SequentialArchiveExtractor(url: zip, imageNames: Set(names))
+        let page5 = try await ext.data(forName: "005.png")
+        #expect(page5 == Data(String(repeating: "page:005.png;", count: 20).utf8))
+        #expect(try await ext.data(forName: "001.png") == Data(String(repeating: "page:001.png;", count: 20).utf8))
+        await #expect(throws: ArchiveAdapterError.self) { _ = try await ext.data(forName: "003.png") }
+        #expect(try await ext.data(forName: "006.png") == Data(String(repeating: "page:006.png;", count: 20).utf8))
+    }
+
+    private static func page(_ name: String) -> Data { Data(String(repeating: "page:\(name);", count: 20).utf8) }
+
+    @Test("壊れたエントリはその場で読み飛ばして先へ進み（開き直さない）、壊れたページを頼み直すと、残りを取り出さずに頭から開き直す")
+    func badEntriesAreSkippedInPlaceAndRetriedFromTheStart() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("seq-bad-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let (zip, names) = try Self.makeZipWithBadEntries(pages: 10, corrupt: [3, 5], in: dir)
+        let ext = SequentialArchiveExtractor(url: zip, imageNames: Set(names))
+        #expect(try await ext.data(forName: "007.png") == Self.page("007.png"))
+        #expect(await ext.resetCountForTesting == 0, "CRC の不一致はハンドルを壊さないので、開き直さない")
+        #expect(await ext.extractedCountForTesting == 5)
+        // 壊れたページ: 1 回目は頭から読み直して（カーソルの先にあるので）失敗、そこで止まり残りは取り出さない。
+        await #expect(throws: ArchiveAdapterError.self) { _ = try await ext.data(forName: "003.png") }
+        #expect(await ext.resetCountForTesting == 1)
+        #expect(await ext.extractedCountForTesting == 5)
+        // もう一度頼んでも、開き直しは 1 回だけ（同じ失敗を 2 度は繰り返さない）。
+        await #expect(throws: ArchiveAdapterError.self) { _ = try await ext.data(forName: "003.png") }
+        #expect(await ext.resetCountForTesting == 2)
+        // 後のページは読める。
+        #expect(try await ext.data(forName: "010.png") == Self.page("010.png"))
+        #expect(try await ext.data(forName: "004.png") == Self.page("004.png"))
+    }
 }
