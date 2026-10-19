@@ -633,6 +633,10 @@ components:
           description: format が epub のときの読書位置（未保存ならキー省略）。POST /epub-progress と同じ形
           allOf:
             - $ref: '#/components/schemas/EPUBLocatorDTO'
+        bookIdentity:
+          type: string
+          pattern: '^[A-Za-z0-9._~:-]{1,128}$'
+          description: 外部ビューアが本ごとの記録の鍵に使う本の同一性。同じライブラリの同じ本なら、改題・付け直し・再起動・中継を通しても同じ値（消して取り込み直した本は別の値）。中身を読み取らず等しいかだけを比べる。古いサーバはキー省略
 
     AddBooksRequestDTO:
       type: object

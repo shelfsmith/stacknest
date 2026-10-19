@@ -283,10 +283,13 @@ public struct ManifestDTO: Codable, Sendable {
     public let damageNote: String?
     /// G48-3: テキスト EPUB（format == "epub"）の読書位置。**nil ならキー自体を省略する**（後方互換）。
     public let epubLocator: EPUBLocatorDTO?
+    /// 外部ビューアに見せる本の同一性（`ViewerBookIdentity`）。同じライブラリの同じ本なら、改題・付け直し・再起動・
+    /// 中継を通しても同じ値。**nil ならキー自体を省略する**（後方互換。古いサーバは付けない）。
+    public let bookIdentity: String?
 
     public init(pageCount: Int, direction: String, format: String, etag: String,
                 pageOverrides: [String: Int]? = nil, damageNote: String? = nil,
-                epubLocator: EPUBLocatorDTO? = nil) {
+                epubLocator: EPUBLocatorDTO? = nil, bookIdentity: String? = nil) {
         self.pageCount = pageCount
         self.direction = direction
         self.format = format
@@ -294,6 +297,7 @@ public struct ManifestDTO: Codable, Sendable {
         self.pageOverrides = pageOverrides
         self.damageNote = damageNote
         self.epubLocator = epubLocator
+        self.bookIdentity = bookIdentity
     }
 }
 
