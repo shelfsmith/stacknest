@@ -64,6 +64,13 @@ public struct ReferenceViewer: Sendable, Equatable {
     /// 参照ファイルの `version` に書く版（`ViewerSupportDeclaration.chosenFormatVersion`）。
     public let formatVersion: Int
 
+    /// 同じアプリで同じ版を書くか（複数の本を 1 回の `open` にまとめる単位）。アプリの場所は書き方の違い
+    /// （末尾の `/`・`.` や `..`）を揃えて比べる（`==` は宣言の中身まで比べ、URL の書き方の違いで別のビューアになる）。
+    public func isSameApp(as other: ReferenceViewer) -> Bool {
+        formatVersion == other.formatVersion
+            && appURL.standardizedFileURL.path == other.appURL.standardizedFileURL.path
+    }
+
     /// 宣言を読み、対応していれば返す（未対応・読めないなら nil）。
     public static func resolve(appURL: URL) -> ReferenceViewer? {
         guard let declaration = ViewerSupportDeclaration.read(appURL: appURL),

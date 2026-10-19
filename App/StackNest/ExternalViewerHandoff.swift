@@ -97,32 +97,65 @@ struct ExternalViewerHandoff {
         case unknown
     }
 
+    /// 渡す前に用意した 1 冊（鍵を出し、参照ファイルの中身を組んだところまで）。書き出しと起動は `deliver` がまとめて行う。
+    struct PreparedHandoff {
+        let reference: StackNestBookReference
+        let origin: BookReferenceStore.Origin
+        let libraryUUID: String
+        let bookID: Int
+        /// 使われたかの確かめ方（nil なら確かめない・v2 のサーバ）。
+        let readUse: (@Sendable () async -> UseOutcome)?
+        let onNotUsed: @MainActor @Sendable (String) -> Void
+        let onUsed: @MainActor @Sendable () -> Void
+        var cancelsOnClose = false
+        var onCheckStarted: @MainActor (Task<Void, Never>, _ cancelsOnClose: Bool) -> Void = { _, _ in }
+        /// 渡す直前の確かめ直し（渡せないなら理由）。用意から渡すまでに、ほかの本の用意を待つ間が空くので、その間の施錠・
+        /// 127.0.0.1 の口の停止をここで見る（`prepareLocal` が用意の最後に見るのと同じ条件）。
+        var recheck: @MainActor () -> Failure? = { nil }
+    }
+
     /// ローカルの書庫の本。127.0.0.1 の口で使えるトークンを手元で出す（HTTP を通さない・spec §5.2）。
     /// グラントに結び付けない（`issuedByGrantID` は nil）。本人の Mac の中だけの口なので。
     func openLocal(book: BookRow, libraryUUID: String, viewer: ReferenceViewer,
-                   lockCredential: () -> String?, verifiedLockHash: () -> String?,
+                   lockCredential: @escaping () -> String?, verifiedLockHash: @escaping () -> String?,
                    startPage: Int,
                    direction: PageDirection, settings: ViewerSettings,
                    userExtensions: UserExtensionMap = UserExtensionStore.shared.snapshot,
                    onNotUsed: @escaping @MainActor @Sendable (_ viewerName: String) -> Void = { _ in },
                    onUsed: @escaping @MainActor @Sendable () -> Void = {}) async -> Failure? {
-        guard isLocalEndpointRunning() else { return .localEndpointNotRunning }
-        guard let path = book.path, !path.isEmpty else { return .pageCountUnavailable }
+        switch await prepareLocal(book: book, libraryUUID: libraryUUID, viewer: viewer, lockCredential: lockCredential,
+                                  verifiedLockHash: verifiedLockHash, startPage: startPage, direction: direction,
+                                  userExtensions: userExtensions, onNotUsed: onNotUsed, onUsed: onUsed) {
+        case .failure(let failure): return failure
+        case .success(let prepared): return deliver([prepared], viewer: viewer, settings: settings)[0]
+        }
+    }
+
+    /// ローカルの書庫の本を渡す用意（`openLocal` の前半: ページ数・ロックの照合・鍵・参照ファイルの中身）。
+    /// 複数の本を選んだときは、全部を用意してから `deliver` で 1 回の `open` にまとめて渡す。
+    func prepareLocal(book: BookRow, libraryUUID: String, viewer: ReferenceViewer,
+                      lockCredential: @escaping () -> String?, verifiedLockHash: @escaping () -> String?,
+                      startPage: Int, direction: PageDirection,
+                      userExtensions: UserExtensionMap = UserExtensionStore.shared.snapshot,
+                      onNotUsed: @escaping @MainActor @Sendable (_ viewerName: String) -> Void = { _ in },
+                      onUsed: @escaping @MainActor @Sendable () -> Void = {}) async -> Result<PreparedHandoff, Failure> {
+        guard isLocalEndpointRunning() else { return .failure(.localEndpointNotRunning) }
+        guard let path = book.path, !path.isEmpty else { return .failure(.pageCountUnavailable) }
         let pageCount: Int
         do {
             // 渡す前の「読めるか」の確認（AppState.servesPagesByReference）と同じ一覧で読む（gzip の tar を読むかが一覧で決まる）。
             pageCount = try await BookContentFactory.make(for: book, userExtensions: userExtensions).pageCount
         } catch {
-            return .pageCountUnavailable
+            return .failure(.pageCountUnavailable)
         }
-        guard pageCount > 0 else { return .pageCountUnavailable }
+        guard pageCount > 0 else { return .failure(.pageCountUnavailable) }
         // G25d: ロックの値は発行の直前に読み、「このウィンドウが検証したハッシュ」と一致するときだけ結び付ける
         // （ページ数の待ちの間に外部から施錠・変更されうる）。有って違うなら発行しない。
         let lock = lockCredential()
-        if let lock, lock != verifiedLockHash() { return .libraryLocked }
+        if let lock, lock != verifiedLockHash() { return .failure(.libraryLocked) }
         // Codex P2（`openRemote` の鍵の往復と同じ）: ページ数の待ちのあいだに口が止まっていたら、鍵を出さない
         // （読めない参照ファイルを渡さず、呼び出し側がファイルで開く）。
-        guard isLocalEndpointRunning() else { return .localEndpointNotRunning }
+        guard isLocalEndpointRunning() else { return .failure(.localEndpointNotRunning) }
         // 本の印に結び付ける（本の番号が使い回されても、別の本には効かない・Codex P1）。
         let issued = tokens.issue(libraryUUID: libraryUUID, bookID: book.id,
                                   bookStamp: ViewerTokenRecord.bookStamp(dateAdded: book.dateAdded), issuer: .localEndpoint,
@@ -130,7 +163,7 @@ struct ExternalViewerHandoff {
         // ポートは参照ファイルを組む直前に読む（口がポート競合で取り直していても、その時点の値を使う。
         // `isLocalEndpointRunning` はバインド前から true なので、取り直しの最中に開くと古いポートを指しうる。
         // その場合は開き直せば直る＝許容）。
-        guard let base = URL(string: "http://127.0.0.1:\(localPort())/") else { return .referenceNotWritten }
+        guard let base = URL(string: "http://127.0.0.1:\(localPort())/") else { return .failure(.referenceNotWritten) }
         let reference: StackNestBookReference
         do {
             // G63 段 4: 部品の型は、読む側が断る値（ページ数の上限・鍵の文字など）では作れない。作れなければ渡さない
@@ -145,14 +178,23 @@ struct ExternalViewerHandoff {
                 direction: BookReferences.direction(direction),
                 startPage: StackNestBookReference.clampedStartPage(startPage, pageCount: pageCount))
         } catch {
-            return .referenceNotWritten
+            return .failure(.referenceNotWritten)
         }
         // 確認は、127.0.0.1 の口と同じトークンの保存先を直接読む（HTTP を通さない・spec §5.7）。
         let tokens = self.tokens
         let tokenID = issued.record.id
-        return hand(reference, origin: .local, libraryUUID: libraryUUID, bookID: book.id, settings: settings,
-                    viewer: viewer, readUse: { Self.outcome(of: tokens.record(id: tokenID)) },
-                    onNotUsed: onNotUsed, onUsed: onUsed)
+        let isLocalEndpointRunning = self.isLocalEndpointRunning
+        return .success(PreparedHandoff(
+            reference: reference, origin: .local, libraryUUID: libraryUUID, bookID: book.id,
+            readUse: { Self.outcome(of: tokens.record(id: tokenID)) },
+            onNotUsed: onNotUsed, onUsed: onUsed,
+            recheck: {
+                // 鍵は発行の時点のロックの値に結び付いている。その後に施錠・変更されたら、口はこの鍵を断る。
+                if let current = lockCredential(), current != lock || current != verifiedLockHash() {
+                    return .libraryLocked
+                }
+                return isLocalEndpointRunning() ? nil : .localEndpointNotRunning
+            }))
     }
 
     /// リモートの本。サーバに `POST …/viewer-token` で出してもらう（`issue`）。
@@ -168,7 +210,7 @@ struct ExternalViewerHandoff {
                     fetchStatus: @escaping @Sendable (_ tokenID: String) async throws -> ViewerTokenStatusReply,
                     onNotUsed: @escaping @MainActor @Sendable (_ viewerName: String) -> Void = { _ in },
                     onUsed: @escaping @MainActor @Sendable () -> Void = {},
-                    onCheckStarted: @MainActor (Task<Void, Never>, _ cancelsOnClose: Bool) -> Void = { _, _ in }) async -> Failure? {
+                    onCheckStarted: @escaping @MainActor (Task<Void, Never>, _ cancelsOnClose: Bool) -> Void = { _, _ in }) async -> Failure? {
         // 中継には 127.0.0.1 の口が要る。動いていなければリモートの鍵も出してもらわない。
         if relaysRemoteBooks, !isLocalEndpointRunning() { return .localEndpointNotRunning }
         let reply: ViewerTokenReply
@@ -286,23 +328,49 @@ struct ExternalViewerHandoff {
                       onNotUsed: @escaping @MainActor @Sendable (String) -> Void,
                       onUsed: @escaping @MainActor @Sendable () -> Void,
                       cancelsOnClose: Bool = false,
-                      onCheckStarted: @MainActor (Task<Void, Never>, _ cancelsOnClose: Bool) -> Void = { _, _ in }) -> Failure? {
-        let url: URL
-        do {
-            url = try references.write(reference, origin: origin, libraryUUID: libraryUUID, bookID: bookID)
-        } catch {
-            return .referenceNotWritten
+                      onCheckStarted: @escaping @MainActor (Task<Void, Never>, _ cancelsOnClose: Bool) -> Void = { _, _ in }) -> Failure? {
+        deliver([PreparedHandoff(reference: reference, origin: origin, libraryUUID: libraryUUID, bookID: bookID,
+                                 readUse: readUse, onNotUsed: onNotUsed, onUsed: onUsed, cancelsOnClose: cancelsOnClose,
+                                 onCheckStarted: onCheckStarted)],
+                viewer: viewer, settings: settings)[0]
+    }
+
+    /// 用意した本（`prepareLocal` など）の参照ファイルを書き、**1 回の `open` にまとめて**同じビューアへ渡し、それぞれの
+    /// 使われたかの確認を始める。返す配列は `items` と同じ順で、その本を渡せなかった理由（渡せたら nil）。
+    ///
+    /// まとめるのは、複数の本を選んで開いたとき、ビューアが Finder で複数を選んで開いたときと同じく 1 回の「開く」として
+    /// 受け取れるようにするため（1 冊ずつ `open` すると、渡す間に書庫を読むぶん間が空き、ビューアからはどこまでが 1 回の
+    /// 選択か分からない）。書けなかった本だけを外して残りを渡す。起動に失敗したら、書いた本はどれも `.launchFailed`。
+    func deliver(_ items: [PreparedHandoff], viewer: ReferenceViewer, settings: ViewerSettings) -> [Failure?] {
+        var failures = [Failure?](repeating: nil, count: items.count)
+        var written: [(index: Int, url: URL)] = []
+        for (index, item) in items.enumerated() {
+            if let failure = item.recheck() {
+                failures[index] = failure
+                continue
+            }
+            do {
+                written.append((index, try references.write(item.reference, origin: item.origin,
+                                                            libraryUUID: item.libraryUUID, bookID: item.bookID)))
+            } catch {
+                failures[index] = .referenceNotWritten
+            }
         }
+        guard !written.isEmpty else { return failures }
         // 確かめたビューア（`viewer.appURL`）をそのまま起動する。設定は引き直さない（I-1）。
-        if let error = HelperLauncher.openReference(url, viewer: viewer) {
-            return .launchFailed(error.localizedDescription)
+        if let error = HelperLauncher.openReferences(written.map(\.url), viewer: viewer) {
+            for entry in written { failures[entry.index] = .launchFailed(error.localizedDescription) }
+            return failures
         }
-        // 確かめる手段が無い（v2 のサーバ）なら確認しない。
-        if let readUse {
-            onCheckStarted(startUseCheck(delay: settings.viewerUseCheckDelay, viewer: viewer, read: readUse,
-                                         onNotUsed: onNotUsed, onUsed: onUsed), cancelsOnClose)
+        for entry in written {
+            let item = items[entry.index]
+            // 確かめる手段が無い（v2 のサーバ）なら確認しない。
+            if let readUse = item.readUse {
+                item.onCheckStarted(startUseCheck(delay: settings.viewerUseCheckDelay, viewer: viewer, read: readUse,
+                                                  onNotUsed: item.onNotUsed, onUsed: item.onUsed), item.cancelsOnClose)
+            }
         }
-        return nil
+        return failures
     }
 
     /// G60 v3: 渡してから一定時間後に一度だけ確かめる（spec §5.7）。使われていなければ呼び出し側に知らせ、
