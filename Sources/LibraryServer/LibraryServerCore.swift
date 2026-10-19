@@ -1965,6 +1965,8 @@ public struct LibraryServerCore: Sendable {
             // その間にディレクトリが変化しうるため、advertise する版と実際の pageCount が
             // 食い違う可能性があった）。
             let (content, etag, userExtensions) = try await contentCache.contentAndETag(for: row, libraryUUID: lib.uuid)
+            // 外部ビューアが本ごとの記録の鍵に使う同一性（ViewerBookIdentity のコメント）。
+            let bookIdentity = ViewerBookIdentity.value(libraryUUID: lib.uuid, bookID: row.id, dateAdded: row.dateAdded)
             let pageCount: Int
             do {
                 pageCount = try await content.pageCount
@@ -1978,7 +1980,8 @@ public struct LibraryServerCore: Sendable {
                     direction: directionString(row.pageDirection ?? config.defaultPageDirection),
                     format: "epub",
                     etag: etag,
-                    epubLocator: locator)
+                    epubLocator: locator,
+                    bookIdentity: bookIdentity)
             }
             let overrides = (try? lib.db.loadViewerState(bookID: row.id))?.overrides ?? [:]
             let pageOverrides: [String: Int]? = overrides.isEmpty
@@ -1990,7 +1993,8 @@ public struct LibraryServerCore: Sendable {
                 format: formatString(BookCategory.classify(path: row.path ?? "", userExtensions: userExtensions)),
                 etag: etag,
                 pageOverrides: pageOverrides,
-                damageNote: await content.damageNote
+                damageNote: await content.damageNote,
+                bookIdentity: bookIdentity
             )
         }
         // ページ画像（ハンドルキャッシュ経由・ETag + immutable）。

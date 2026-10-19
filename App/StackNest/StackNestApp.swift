@@ -102,8 +102,9 @@ struct StackNestApp: App {
     }
 
     /// dup-window fix (2026-09-29): 庫ウィンドウの `.handlesExternalEvents(matching:)` に渡す集合。
-    /// 空でなければならない — このアプリは URL スキームを登録しておらず、外部起動は常に
-    /// AppDelegate → URLOpener 経由の `openWindow(value:)` で行う（詳細は宣言側のコメント）。
+    /// 空でなければならない — 庫を開く外部起動は常に AppDelegate → URLOpener 経由の `openWindow(value:)` で行う
+    /// （詳細は宣言側のコメント）。登録している URL スキームは外部ビューアの頼み（`stacknest://viewer/reopen`）だけで、
+    /// それも AppDelegate が受ける（`ViewerReopen`）。
     /// テスト（`LibraryWindowDupOpenFixTests`）がこれが空集合のままであることを縛る。
     static let libraryWindowExternalEventMatchers: Set<String> = []
 
@@ -132,7 +133,8 @@ struct StackNestApp: App {
             }
         }
         // dup-window fix (2026-09-29): 外部イベントの一致集合は空でなければならない。
-        // このアプリは URL スキームを一切登録しておらず、庫を開く経路は常に
+        // 庫を開く URL スキームは登録しておらず（登録しているのは外部ビューアの頼み stacknest://viewer/reopen だけで、
+        // AppDelegate が受ける ―― ViewerReopen）、庫を開く経路は常に
         // AppDelegate.application(_:open:) → URLOpener.shared.enqueue → openWindow(value:) を
         // 経由する。以前は `Set(["library"])` を渡していたが、SwiftUI はこれを
         // **URL 文字列の部分一致**として扱うため、パスに "library" を含む .stacknest
@@ -667,6 +669,8 @@ struct LibraryWindowContainer: View {
                         // 同じ理由で main.async を使っているのに倣い、1 tick 遅らせる。
                         DispatchQueue.main.async {
                             appState.consumePendingResume()
+                            // 外部ビューアから頼まれていた本も、解錠できたここで渡す（ViewerReopen）。
+                            appState.consumePendingViewerReopen()
                         }
                     },
                     onCancel: {
@@ -1416,10 +1420,23 @@ final class StackNestAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        // 外部ビューアからの「この本をもう一度渡して」（stacknest://viewer/reopen。ViewerReopen）。送り手はこの Apple Event の
+        // 中でしか分からないので、ここで読む。ライブラリの窓を開かない頼み（見つからない・形が外れている）だけなら、起動時の
+        // 題名の画面はいつもどおり出す。
+        let reopenRequests = urls.filter(ViewerReopen.isRequestURL)
+        if !reopenRequests.isEmpty {
+            let sender = ViewerReopen.senderOfCurrentEvent()
+            Self.logger.info("application(open:) reopen requests=\(reopenRequests.count) sender=\(sender?.lastPathComponent ?? "nil", privacy: .public)")
+            for url in reopenRequests where ViewerReopen.handle(url, sender: sender) {
+                Self.hasLaunchURL = true
+            }
+        }
+        let fileURLs = urls.filter { !ViewerReopen.isRequestURL($0) }
+        guard !fileURLs.isEmpty else { return }
         // Mark that we received a launch URL. This fires BEFORE BridgeContent.onAppear.
         Self.hasLaunchURL = true
-        Self.logger.info("application(open:) urls=\(urls.map(\.path))")
-        for url in urls where url.pathExtension == "stacknest" {
+        Self.logger.info("application(open:) urls=\(fileURLs.map(\.path))")
+        for url in fileURLs where url.pathExtension == "stacknest" {
             Task { @MainActor in
                 URLOpener.shared.enqueue(url)
             }

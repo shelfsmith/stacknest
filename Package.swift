@@ -27,7 +27,8 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.0.0"),
         .package(url: "https://github.com/shunnag/Washi", revision: "ca7e3b009bd85a78150725960870db40ae5b665f"),
         // G63 段 4: 参照ファイルの型・宣言・名乗り（Core だけを使う）。版で固定する。
-        .package(url: "https://github.com/shelfsmith/StackNestViewerKit", exact: "0.2.0"),
+        // 手元だけ: StackNestViewerKit の組（handoff）の入った版が出るまで、手元の写しを使う（PR では出た版に替える）。
+        .package(path: "../StackNestViewerKit"),
     ],
     targets: [
         .target(

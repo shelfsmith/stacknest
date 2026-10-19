@@ -37,7 +37,7 @@ struct LibraryWindowDupOpenFixTests {
 
     // MARK: - handlesExternalEvents の一致集合
 
-    @Test("庫ウィンドウの外部イベント一致集合は空である（URL スキーム未登録・部分一致による重複生成を防ぐ）")
+    @Test("庫ウィンドウの外部イベント一致集合は空である（庫を開く URL スキームは無い・部分一致による重複生成を防ぐ）")
     func libraryWindowExternalEventMatchersIsEmpty() {
         #expect(StackNestApp.libraryWindowExternalEventMatchers.isEmpty)
     }

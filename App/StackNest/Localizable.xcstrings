@@ -854,6 +854,36 @@
         }
       }
     },
+    "外部ビューアから頼まれた本のライブラリが見つかりません。StackNest でライブラリを開いてから、もう一度開いてください。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The library of the book the external viewer asked for can't be found. Open the library in StackNest, then open the book again."
+          }
+        }
+      }
+    },
+    "外部ビューアから頼まれた本は、このライブラリにありません。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The book the external viewer asked for isn't in this library."
+          }
+        }
+      }
+    },
+    "外部ビューアの本を開けません" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Can't Open the Book for the External Viewer"
+          }
+        }
+      }
+    },
     "対応した外部ビューアが、本のページを StackNest から受け取って表示し、読み進めたページを StackNest に書き戻します。画像を外部ビューアで開く設定のときに効き、リモートの本も外部ビューアで開きます。ON のあいだは、ローカルコントロールが OFF でも、この Mac の中だけの受け口（127.0.0.1）が本専用のトークンだけを受け付けます。" : {
       "localizations" : {
         "en" : {
@@ -9871,6 +9901,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "E-Books (EPUB)"
+          }
+        }
+      }
+    },
+    "頼んだアプリは、この本を渡す外部ビューアではないため、渡しませんでした。" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The app that asked isn't the external viewer for this book, so the book wasn't handed over."
           }
         }
       }

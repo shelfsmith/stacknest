@@ -38,6 +38,9 @@ struct ExternalViewerHandoff {
     /// G60 §5.9（2026-10-08 作者の決定）: 中継の本を渡せたら、その本の先読みを始める（127.0.0.1 の口の中継が持つ
     /// 先読み係。範囲は設定に従う。前に渡した本の先読みは止まる）。引数は中継の id と開くページ。
     var startRelayPrefetch: @MainActor (_ relayID: String, _ focus: Int) async -> Void
+    /// 外部ビューアへ本を渡すライブラリの場所を覚える（ライブラリの UUID・パッケージのパス）。外部ビューアが閉じた
+    /// ライブラリの本をもう一度頼んだときに開くため（`ViewerReopen`・`ViewerReopenLibraries`）。試験は既定の何もしない形のまま。
+    var recordLibraryForReopen: @MainActor (_ libraryUUID: String, _ bundlePath: String) -> Void = { _, _ in }
 
     static var live: ExternalViewerHandoff {
         ExternalViewerHandoff(
@@ -53,7 +56,8 @@ struct ExternalViewerHandoff {
             confirmedViewers: .shared,
             startRelayPrefetch: { relayID, focus in
                 await LocalControlController.shared.viewerRelay.startPrefetch(relayID: relayID, focus: focus)
-            })
+            },
+            recordLibraryForReopen: { ViewerReopenLibraries.shared.record(libraryUUID: $0, bundlePath: $1) })
     }
 
     enum Failure: Error, Equatable {

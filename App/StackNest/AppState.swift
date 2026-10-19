@@ -100,6 +100,9 @@ final class AppState {
     /// リモート経路の `RemoteLibraryState.pendingOpenBookID` に対応する。
     var pendingResumeBookID: Int?
 
+    /// 解錠後に渡す、外部ビューアからの頼み（`ViewerReopen`。解錠成功時に 1 回だけ消費・窓を閉じたら落とす）。
+    @ObservationIgnored var pendingViewerReopen: [(request: StackNestReopenRequest, sender: URL)] = []
+
     /// 監視フォルダの自動取り込みの結果（G41）。
     var watchNotice = NoticeSlot()
     /// Finder タグ同期の結果（G39・枠は G41 で共通化）。
@@ -409,6 +412,15 @@ final class AppState {
                 }
             }
         }
+        // 外部ビューアからの頼みでこのライブラリを開いたなら、その本を渡す（`ViewerReopen`。覚えていた場所に別のライブラリが
+        // あれば渡さない）。施錠なら解錠を待つ（handleViewerReopen）。
+        for reopen in ViewerReopen.take(bundlePath: bundleURL.path) {
+            if librarySettings?.libraryUUID?.lowercased() == reopen.request.libraryUUID {
+                handleViewerReopen(reopen.request, sender: reopen.sender)
+            } else {
+                watchNotice.present(Notice(kind: .warning, text: String(localized: "外部ビューアから頼まれた本は、このライブラリにありません。")))
+            }
+        }
         // Phase G39: Finder タグ同期を **1 回だけ・バックグラウンドで**走らせる（spec §1 の契機）。
         // 同期対象が未設定（既定）なら中で即 return する。ここを `await` しないこと ——
         // 庫を開く経路はメインスレッドで、待たせると 12,000 冊の庫で目に見えて固まる。
@@ -577,6 +589,7 @@ final class AppState {
         // G25b-1r: 窓を閉じたら解錠状態と保留 resume を落とす（再オープン時は再解錠が必要＝#7 の意図）。
         markUnlocked(hash: nil)
         pendingResumeBookID = nil
+        pendingViewerReopen = []
         Self.activeInstances.remove(self)
     }
 
@@ -1442,7 +1455,16 @@ final class AppState {
             }
             return
         }
+        // 外部ビューアが後でこのライブラリの本をもう一度頼めるように、場所を覚える（ViewerReopenLibraries）。
+        if let uuid = librarySettings?.ensureLibraryUUID() {
+            viewerHandoff.recordLibraryForReopen(uuid, bundleURL.path)
+        }
         Task { @MainActor in await self.openInExternalViewerSyncing(books) }
+    }
+
+    /// 外部ビューアからの頼み（`ViewerReopen`）で渡す先: この本を今渡す外部ビューア（参照ファイルで渡さない本なら nil）。
+    func referenceViewerForReopen(_ book: BookRow) -> ReferenceViewer? {
+        referenceViewer(for: book)
     }
 
     /// G60: 参照ファイルで渡す本か（1 冊ずつ判定する。複数選択に動画などが混ざってもよい）。

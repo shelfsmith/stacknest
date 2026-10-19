@@ -62,6 +62,13 @@ targets:
         # ブロックする（URLSession が -1 になる）。LAN/VPN 用途のため平文 HTTP を全面許可する。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
+        # 外部ビューアからの「この本をもう一度渡して」（stacknest://viewer/reopen。ViewerReopen）。
+        # 受けるのは AppDelegate の application(_:open:) だけ（庫の窓の handlesExternalEvents は空のまま）。
+        CFBundleURLTypes:
+          - CFBundleURLName: app.shelfsmith.stacknest.viewer-reopen
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes:
+              - stacknest
         CFBundleDocumentTypes:
           - CFBundleTypeName: "StackNest Library"
             CFBundleTypeRole: Editor

@@ -1730,4 +1730,142 @@ struct ExternalViewerSyncWiringTests {
         #expect(launches.entries.isEmpty, "ビューアを起動しない")
         #expect(prefetches.items.isEmpty, "先読みを始めない")
     }
+
+    // MARK: - 外部ビューアからの「もう一度渡して」（stacknest://viewer/reopen）
+
+    private func reopenRequest(_ state: AppState, _ row: BookRow, identity: String? = nil) throws -> StackNestReopenRequest {
+        let uuid = try #require(state.librarySettings?.ensureLibraryUUID())
+        return try StackNestReopenRequest(
+            libraryUUID: uuid, bookID: row.id,
+            bookIdentity: identity ?? ViewerBookIdentity.value(libraryUUID: uuid, bookID: row.id, dateAdded: row.dateAdded))
+    }
+
+    @Test func reopenHandsTheBookToTheRequestingViewerFromTheSavedPosition() async throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let launches = Launches()
+        let original = HelperLauncher.launch
+        defer { HelperLauncher.launch = original }
+        HelperLauncher.launch = recording(launches)
+        let (state, row, _) = try makeLocalState(env, handoff: handoff(env))
+
+        state.handleViewerReopen(try reopenRequest(state, row), sender: env.viewerApp)
+        try await waitUntil { !launches.entries.isEmpty }
+
+        let launched = try #require(launches.entries.first)
+        #expect(launched.viewer.path == env.viewerApp.path)
+        let ref = try StackNestBookReference.load(contentsOf: launched.file)
+        #expect(ref.startPage == 2, "開くページは保存済みの読書位置")
+        #expect(state.watchNotice.notice == nil)
+    }
+
+    @Test func reopenFromAnotherAppOrForAnotherBookHandsNothingOver() async throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let launches = Launches()
+        let original = HelperLauncher.launch
+        defer { HelperLauncher.launch = original }
+        HelperLauncher.launch = recording(launches)
+        let (state, row, _) = try makeLocalState(env, handoff: handoff(env))
+        let other = try makeSecondViewer(env)
+
+        // 外部ビューアでないアプリからの頼み。
+        state.handleViewerReopen(try reopenRequest(state, row), sender: other)
+        #expect(state.watchNotice.notice?.text.contains("外部ビューアではない") == true)
+        // 番号が使い回された別の本（同一性が違う）。
+        state.watchNotice.dismiss()
+        state.handleViewerReopen(try reopenRequest(state, row, identity: "sn1-another-book"), sender: env.viewerApp)
+        #expect(state.watchNotice.notice?.text.contains("このライブラリにありません") == true)
+        // 無い番号。
+        let uuid = try #require(state.librarySettings?.libraryUUID)
+        state.handleViewerReopen(try StackNestReopenRequest(libraryUUID: uuid, bookID: 99, bookIdentity: "sn1-x"),
+                                 sender: env.viewerApp)
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(launches.entries.isEmpty)
+    }
+
+    @Test func reopenOfALockedLibraryWaitsForTheUnlock() async throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let launches = Launches()
+        let original = HelperLauncher.launch
+        defer { HelperLauncher.launch = original }
+        HelperLauncher.launch = recording(launches)
+        let (state, row, _) = try makeLocalState(env, handoff: handoff(env))
+        let request = try reopenRequest(state, row)
+        try setLock(state, "H1")
+        state.librarySettings?.reloadLockSettings()
+
+        state.handleViewerReopen(request, sender: env.viewerApp)
+        #expect(state.pendingViewerReopen.count == 1, "解錠を待つ")
+        state.consumePendingViewerReopen()
+        #expect(state.pendingViewerReopen.count == 1, "解錠していなければ渡さない")
+        state.markUnlocked(hash: "H1")
+        state.consumePendingViewerReopen()
+        try await waitUntil { !launches.entries.isEmpty }
+        #expect(state.pendingViewerReopen.isEmpty)
+        #expect(launches.entries.count == 1)
+    }
+
+    @Test func openingWithTheExternalViewerRemembersTheLibraryForReopen() async throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let launches = Launches()
+        let original = HelperLauncher.launch
+        defer { HelperLauncher.launch = original }
+        HelperLauncher.launch = recording(launches)
+        final class Recorded { var entries: [(String, String)] = [] }
+        let recorded = Recorded()
+        var viewerHandoff = handoff(env)
+        viewerHandoff.recordLibraryForReopen = { recorded.entries.append(($0, $1)) }
+        let (state, row, _) = try makeLocalState(env, handoff: viewerHandoff)
+
+        state.openBooks([row])
+        try await waitUntil { !launches.entries.isEmpty }
+
+        let uuid = try #require(state.librarySettings?.libraryUUID)
+        #expect(recorded.entries.map(\.0) == [uuid])
+        #expect(recorded.entries.map(\.1) == [state.bundleURL.path])
+    }
+
+    @Test func reopenLibrariesKeepTheNewestPlaces() throws {
+        let name = "viewer-reopen-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let libraries = ViewerReopenLibraries(defaults: defaults)
+        libraries.record(libraryUUID: "AAAA", bundlePath: "/a.stacknest")
+        libraries.record(libraryUUID: "bbbb", bundlePath: "/b.stacknest")
+        #expect(libraries.bundlePath(for: "aaaa") == "/a.stacknest")
+        // 動かしたライブラリは新しい場所で覚え直す。同じ場所に別のライブラリが来たら古い方を忘れる。
+        libraries.record(libraryUUID: "aaaa", bundlePath: "/moved/a.stacknest")
+        #expect(libraries.bundlePath(for: "AAAA") == "/moved/a.stacknest")
+        libraries.record(libraryUUID: "cccc", bundlePath: "/b.stacknest")
+        #expect(libraries.bundlePath(for: "bbbb") == nil)
+        for i in 0..<(ViewerReopenLibraries.maxCount + 5) {
+            libraries.record(libraryUUID: "u\(i)", bundlePath: "/\(i).stacknest")
+        }
+        #expect(libraries.bundlePath(for: "u0") == nil, "古いものから忘れる")
+        #expect(libraries.bundlePath(for: "u\(ViewerReopenLibraries.maxCount + 4)") != nil)
+    }
+
+    @Test func reopenRequestsFromAppsThatAreNotConfiguredViewersAreRefusedSilently() throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let other = try makeSecondViewer(env)
+        let url = URL(string: "stacknest://viewer/reopen?library=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0&book=1&identity=sn1-x")!
+        #expect(ViewerReopen.isConfiguredViewer(env.viewerApp, settings: env.settings))
+        #expect(!ViewerReopen.isConfiguredViewer(other, settings: env.settings))
+        // 設定にない送り手の頼みは、ライブラリを探す前に黙って断る(警告も出さない)。
+        #expect(!ViewerReopen.handle(url, sender: other, settings: env.settings))
+        // 記号リンク越しに起動したビューアも同じアプリとして見る。
+        let link = env.base.appendingPathComponent("LinkedViewer.app")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: env.viewerApp)
+        #expect(ViewerReopen.isConfiguredViewer(link, settings: env.settings))
+        // 読書位置の同期(参照ファイルで渡す)が OFF なら、どのアプリの頼みも受けない。
+        env.settings.syncsReadingPositionWithExternalViewer = false
+        #expect(!ViewerReopen.isConfiguredViewer(env.viewerApp, settings: env.settings))
+    }
+
+    @Test func reopenURLsWithoutASenderOrMalformedAreIgnored() {
+        let good = URL(string: "stacknest://viewer/reopen?library=0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0&book=1&identity=sn1-x")!
+        #expect(ViewerReopen.isRequestURL(good))
+        #expect(!ViewerReopen.handle(good, sender: nil))
+        #expect(!ViewerReopen.handle(URL(string: "stacknest://viewer/reopen?book=1")!, sender: URL(fileURLWithPath: "/A.app")))
+        #expect(!ViewerReopen.isRequestURL(URL(fileURLWithPath: "/x/Library.stacknest")))
+    }
 }
