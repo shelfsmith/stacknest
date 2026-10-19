@@ -10,8 +10,15 @@ public enum HelperLauncher {
     /// 「ファイルが見つかりません」のダイアログが開発機に溜まる事故があった）。
     @MainActor
     public static var launch: (_ fileURL: URL, _ viewerURL: URL) -> Void = { fileURL, viewerURL in
+        launchMany([fileURL], viewerURL)
+    }
+
+    /// 複数のファイルを 1 回の `open` でまとめて渡す処理（`launch` と同じく試験の継ぎ目）。Finder で複数を選んで
+    /// 開いたときと同じく、アプリには 1 回の「開く」として届く（`application(_:open:)` が 1 回で全部を受け取れる）。
+    @MainActor
+    public static var launchMany: (_ fileURLs: [URL], _ viewerURL: URL) -> Void = { fileURLs, viewerURL in
         let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open([fileURL], withApplicationAt: viewerURL, configuration: config) { _, _ in
+        NSWorkspace.shared.open(fileURLs, withApplicationAt: viewerURL, configuration: config) { _, _ in
             // Completion handler errors are intentionally ignored:
             // we have no synchronous channel to surface them to the alert UI.
         }
@@ -103,13 +110,36 @@ public enum HelperLauncher {
     /// （確認と起動の間に設定が変わっても、確かめたアプリに渡す）。実在の見張りは残す。
     @MainActor
     public static func openReference(_ referenceURL: URL, viewer: ReferenceViewer) -> AppError? {
+        openReferences([referenceURL], viewer: viewer)
+    }
+
+    /// 複数の参照ファイルを、1 回の `open` でまとめて同じビューアへ渡す（1 つなら `openReference` と同じ道）。
+    /// 複数の本を選んで開いたとき、ビューアがそれを 1 回の選択として受け取れるようにする（1 冊ずつ `open` すると
+    /// 別々の「開く」として届き、ビューアには組がどこまでか分からない）。
+    @MainActor
+    public static func openReferences(_ referenceURLs: [URL], viewer: ReferenceViewer) -> AppError? {
+        guard let first = referenceURLs.first else { return nil }
         guard FileManager.default.fileExists(atPath: viewer.appURL.path) else {
             return .launchFailed(
-                path: referenceURL.lastPathComponent,
+                path: first.lastPathComponent,
                 reason: L10n.format("外部ビューアが見つかりません: %@\n設定 (⌘,) で再選択してください。", viewer.appURL.path)
             )
         }
-        launch(referenceURL, viewer.appURL)
+        if referenceURLs.count == 1 {
+            launch(first, viewer.appURL)
+        } else {
+            // 1 回の `open` に載せるのは `maxReferencesPerOpen` 個まで（Apple Event の大きさを抑える。数千冊を選んでも
+            // 1 つの巨大なイベントにしない）。分けた残りは続けて渡す。
+            var start = referenceURLs.startIndex
+            while start < referenceURLs.endIndex {
+                let end = min(start + maxReferencesPerOpen, referenceURLs.endIndex)
+                launchMany(Array(referenceURLs[start..<end]), viewer.appURL)
+                start = end
+            }
+        }
         return nil
     }
+
+    /// 1 回の `open` で渡す参照ファイルの上限（`openReferences`）。
+    public static let maxReferencesPerOpen = 200
 }
