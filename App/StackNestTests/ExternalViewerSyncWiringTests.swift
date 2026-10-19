@@ -1412,6 +1412,90 @@ struct ExternalViewerSyncWiringTests {
         #expect(launches.entries.count == 2)
     }
 
+    /// 2 冊のフォルダの本（id 1・2）を持つローカルの書庫。
+    private func makeTwoBookState(_ env: Env, handoff: ExternalViewerHandoff) throws -> (AppState, [BookRow], [URL]) {
+        let db = try Database.openInMemory()
+        try db.migrate()
+        var dirs: [URL] = []
+        for id in 1...2 {
+            let dir = env.base.appendingPathComponent("folder-book-\(id)", isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for i in 0..<2 { try Data("p\(i)".utf8).write(to: dir.appendingPathComponent("p\(i).jpg")) }
+            try db.insertBook(BookRecord(
+                id: id, title: "Book \(id)", author: nil, genre: nil,
+                path: dir.path, dateAdded: Date(timeIntervalSince1970: 100), playDate: nil,
+                bookType: 0, fileType: 2, pages: 2, myRate: 0, unseen: true,
+                keywordA: nil, keywordB: nil, keywordC: nil, neta: nil))
+            dirs.append(dir)
+        }
+        let state = AppState(bundleURL: env.base.appendingPathComponent("g60-two.stacknest"))
+        state.database = db
+        state.librarySettings = try LibrarySettings(database: db)
+        state.viewerSettings = env.settings
+        state.viewerHandoff = handoff
+        let rows = try (1...2).map { try #require(try db.fetchBook(id: $0)) }
+        return (state, rows, dirs)
+    }
+
+    /// 2 冊を選んで開き、1 冊目だけが読まれなかった: 2 冊目が読まれたことでお知らせを消さず、ボタンは 1 冊目だけを開く。
+    @Test func severalBooksKeepTheNoticeForTheUnreadBook() async throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let launches = Launches()
+        let original = HelperLauncher.launch
+        defer { HelperLauncher.launch = original }
+        HelperLauncher.launch = recording(launches)
+        let tokens = env.tokens
+        let checks = Delays()
+        // 確かめる前に、2 冊目（本 2）の鍵だけを使われたことにする（ビューアが 2 冊目だけ読んだ）。
+        let (state, rows, dirs) = try makeTwoBookState(env, handoff: handoff(env, sleep: { d in
+            for r in tokens.allRecords() where r.bookID == 2 {
+                tokens.recordFirstUse(id: r.id, viewer: "com.example.fakeviewer/1.80; format=1")
+            }
+            checks.append(d)
+        }))
+
+        await state.openInExternalViewerSyncing(rows)
+        try await waitUntil { checks.values.count == 2 && state.watchNotice.notice != nil }
+        try await Task.sleep(for: .milliseconds(100))
+
+        let notice = try #require(state.watchNotice.notice, "2 冊目が読まれても、1 冊目のお知らせは残る")
+        #expect(notice.text == "FakeViewer が本を読み込んでいません")
+        let before = launches.entries.count
+        try #require(notice.action).perform()
+        #expect(launches.entries.dropFirst(before).map(\.file.path) == [dirs[0].path], "従来の開き方で開くのは読まれなかった 1 冊目だけ")
+    }
+
+    /// 2 冊とも読まれなかった: お知らせは 1 つにまとまり、ボタンは 2 冊とも開く。前の受け渡しのお知らせは、後で読まれたら消える。
+    @Test func severalUnreadBooksShareOneNotice() async throws {
+        let env = try makeEnv(sync: true); defer { env.cleanup() }
+        let launches = Launches()
+        let original = HelperLauncher.launch
+        defer { HelperLauncher.launch = original }
+        HelperLauncher.launch = recording(launches)
+        let tokens = env.tokens
+        let viewerReads = Flag()
+        let checks = Delays()
+        let (state, rows, dirs) = try makeTwoBookState(env, handoff: handoff(env, sleep: { d in
+            if viewerReads.value {
+                for r in tokens.allRecords() { tokens.recordFirstUse(id: r.id, viewer: "com.example.fakeviewer/1.80; format=1") }
+            }
+            checks.append(d)
+        }))
+
+        await state.openInExternalViewerSyncing(rows)
+        try await waitUntil { checks.values.count == 2 && state.watchNotice.notice?.text.contains("2 冊") == true }
+        let notice = try #require(state.watchNotice.notice)
+        #expect(notice.text == "FakeViewer が 2 冊の本を読み込んでいません")
+        let before = launches.entries.count
+        try #require(notice.action).perform()
+        #expect(launches.entries.dropFirst(before).map(\.file.path) == dirs.map(\.path))
+
+        // 開き直した 1 冊が今度は読まれた（別の受け渡し）: 前の受け渡しのお知らせを消す。
+        viewerReads.value = true
+        await state.openInExternalViewerSyncing([rows[0]])
+        try await waitUntil { state.watchNotice.notice == nil }
+    }
+
     /// 使用が確かめられても、同じ枠の別のお知らせ（監視フォルダなど）は消さない。
     @Test func usedCheckLeavesOtherNoticesAlone() async throws {
         let env = try makeEnv(sync: true); defer { env.cleanup() }

@@ -33,6 +33,28 @@
         }
       }
     },
+    "%@ が %lld 冊の本を読み込んでいません" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$@ hasn't loaded %2$lld book."
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%1$@ hasn't loaded %2$lld books."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "%@ が本を読み込んでいません" : {
       "localizations" : {
         "en" : {
