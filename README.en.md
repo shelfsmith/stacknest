@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/shelfsmith/stacknest/actions/workflows/ci.yml/badge.svg)](https://github.com/shelfsmith/stacknest/actions/workflows/ci.yml)
 
+**Website:** https://shelfsmith.github.io/stacknest/en/ (screenshots and download)
+
 A Swift-native, Apple Silicon image library (catalog) manager that can **import** the
 original [Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) library XML.
 

@@ -161,6 +161,8 @@ jobs:
             echo
             echo "全文は [CHANGELOG.md](https://github.com/shelfsmith/stacknest/blob/main/CHANGELOG.md)（[English](https://github.com/shelfsmith/stacknest/blob/main/CHANGELOG.en.md)）にあります。"
             echo
+            echo "紹介ページ: https://shelfsmith.github.io/stacknest/ （[English](https://shelfsmith.github.io/stacknest/en/)）"
+            echo
             echo "---"
             echo
             cat <<'FOOTER'

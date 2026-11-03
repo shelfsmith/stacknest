@@ -4,6 +4,8 @@
 
 [![CI](https://github.com/shelfsmith/stacknest/actions/workflows/ci.yml/badge.svg)](https://github.com/shelfsmith/stacknest/actions/workflows/ci.yml)
 
+**紹介ページ:** https://shelfsmith.github.io/stacknest/ （画面の写真とダウンロード）
+
 Swift ネイティブ、Apple Silicon 対応の画像ライブラリ（カタログ）マネージャです。オリジナルの
 [Stackroom](https://aromaticsapp.blogspot.com/p/stackroom.html) のライブラリ XML を**取り込む（インポートする）**ことができます。
 
